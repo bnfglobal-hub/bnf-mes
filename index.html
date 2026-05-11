@@ -4680,6 +4680,15 @@ function ImportModal({type,onClose,onDone,source='adm'}){
    🌐 통합 경영 대시보드 (본사 + 관리자 합산)
    ═══════════════════════════════════════════════════════════ */
 function PageTotalDashboard({user,subPage='total_dash'}){
+  /* 변동률 표시 헬퍼 - 컴포넌트 최상단에 정의 */
+  const pct=(a,b)=>{if(!b||b===0)return null;return (a-b)/b*100;};
+  const Diff=({a,b})=>{
+    const v=pct(a,b);
+    if(v===null)return null;
+    const up=v>=0;
+    return R('span',{style:{fontSize:9,fontWeight:700,color:up?'#22C55E':'#EF4444',marginLeft:4,padding:'1px 5px',background:up?'#F0FDF4':'#FEF2F2',borderRadius:20}},(up?'▲+':'▼')+Math.abs(v).toFixed(1)+'%');
+  };
+  
   const[hqSales,setHqSales]=useState([]);
   const[admSales,setAdmSales]=useState([]);
   const[hqPurchases,setHqPurchases]=useState([]);
