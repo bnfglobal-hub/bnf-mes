@@ -24,7 +24,7 @@ input,button,select,textarea{font-family:inherit;font-size:13px}
 @keyframes prog{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 .fa{animation:fa .18s ease}
 .app{display:flex;flex-direction:column;height:100vh;width:100vw;overflow:hidden;background:var(--bg)}
-.hdr{height:52px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.hdr{height:84px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
 .body{flex:1;display:flex;overflow:hidden}
 .sb{width:210px;flex-shrink:0;background:var(--sb);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
 .sb-sec{padding:3px 7px;margin-top:2px}
@@ -193,7 +193,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
   /* 헤더 - 깔끔하고 컴팩트 */
   .hdr{
     padding:0 14px !important;
-    height:54px !important;
+    height:74px !important;
     background:#fff !important;
     border-bottom:1px solid #F1F3F5 !important;
     box-shadow:0 1px 3px rgba(0,0,0,0.04);
@@ -204,7 +204,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
     cursor:pointer;
     margin-left:4px;
   }
-  .hdr img{height:24px !important; max-width:100px !important;}
+  .hdr img{height:52px !important; max-width:200px !important;}
   
   /* 모바일 헤더 우측 텍스트 작게/제거 */
   .hide-mobile{display:none !important;}
@@ -1111,7 +1111,11 @@ function PageFixedCosts({user,variant='adm'}){
   const load=async()=>{
     setLoading(true);
     const{data}=await sbClient.from('fixed_costs').select('*').eq('year',year).then(r=>r).catch(()=>({data:[]}));
-    const filtered=(data||[]).filter(i=>!i.source||i.source===variant||(!i.source&&variant==='adm'));
+    /* source가 없는(NULL) 옛 데이터는 'adm'으로 간주, 그 외엔 정확히 일치하는 것만 */
+    const filtered=(data||[]).filter(i=>{
+      const src=i.source||'adm';
+      return src===variant;
+    });
     
     /* 그룹화: 같은 항목명+카테고리는 하나의 행으로 */
     const groupMap={};
@@ -4596,6 +4600,7 @@ function PageDashboard({user,variant='hq'}){
   const[fixedCosts,setFixedCosts]=useState([]);
   const[plantOps,setPlantOps]=useState([]);
   const[loading,setLoading]=useState(true);
+  const[diagInfo,setDiagInfo]=useState(null);
   const chartRef=useRef(null);
   const chartInstance=useRef(null);
 
@@ -4608,7 +4613,26 @@ function PageDashboard({user,variant='hq'}){
         sbClient.from('fixed_costs').select('*').order('year').order('month').then(r=>r).catch(()=>({data:[]})),
         sbClient.from('plant_operations').select('*').order('year').order('month').then(r=>r).catch(()=>({data:[]}))
       ]);
-      setSales(s.data||[]);setPurchases(p.data||[]);setFixedCosts(f.data||[]);setPlantOps(po.data||[]);
+      /* ⚠️ 중요: 고정비는 variant(hq/adm)별로 분리해야 함 (본사 vs 관리자) */
+      const fcAll=f.data||[];
+      const fcFiltered=fcAll.filter(i=>{
+        /* source 컬럼이 없는(NULL) 옛 데이터는 adm으로 간주 */
+        const src=i.source||'adm';
+        return src===variant;
+      });
+      /* 진단: source별 항목 수 콘솔에 출력 */
+      const srcCount={};
+      fcAll.forEach(i=>{const k=i.source||'(NULL)';srcCount[k]=(srcCount[k]||0)+1;});
+      console.log('[경영대시보드 진단] variant='+variant+', 전체 고정비 항목='+fcAll.length+', 필터 후='+fcFiltered.length,', source별 분포=',srcCount);
+      
+      /* 가동률도 동일 분리 */
+      const poFiltered=(po.data||[]).filter(i=>{
+        const src=i.source||'adm';
+        return src===variant;
+      });
+      setSales(s.data||[]);setPurchases(p.data||[]);setFixedCosts(fcFiltered);setPlantOps(poFiltered);
+      /* 진단 정보를 state에 저장하여 화면 표시 */
+      setDiagInfo({variant,fcTotal:fcAll.length,fcFiltered:fcFiltered.length,fcBySource:srcCount});
     }catch(e){console.warn(e);}
     setLoading(false);
   };
@@ -4748,8 +4772,9 @@ function PageDashboard({user,variant='hq'}){
       sub&&R('div',{style:{fontSize:9,color:'#D1D5DB',marginTop:1}},sub)
     );
 
-  const PeriodRow=({label,s,p,fc,op,prevS,prevOp,bg,highlight})=>
-    R('div',{style:{display:'grid',gridTemplateColumns:'72px 1fr 1fr 1fr 1fr',gap:0,background:bg||'#fff',borderBottom:'1px solid #F3F4F6',alignItems:'center',padding:'10px 14px',borderRadius:highlight?'0 0 12px 12px':0,boxShadow:highlight?'0 4px 12px rgba(217,79,30,0.08)':null}},
+  const PeriodRow=({label,s,p,fc,op,prevS,prevOp,bg,highlight})=>{
+    const rate=s>0?(op/s*100):null;
+    return R('div',{style:{display:'grid',gridTemplateColumns:'72px 1fr 1fr 1fr 1fr 80px',gap:0,background:bg||'#fff',borderBottom:'1px solid #F3F4F6',alignItems:'center',padding:'10px 14px',borderRadius:highlight?'0 0 12px 12px':0,boxShadow:highlight?'0 4px 12px rgba(217,79,30,0.08)':null}},
       R('div',{style:{fontSize:highlight?13:11,fontWeight:highlight?800:600,color:highlight?'var(--p)':'#6B7280',display:'flex',flexDirection:'column',gap:2}},
         label,
         prevS&&R(Diff,{a:s,b:prevS})
@@ -4764,12 +4789,17 @@ function PageDashboard({user,variant='hq'}){
             op>=0?('+'+fN(Math.round(op/10000))+'만'):(fN(Math.round(Math.abs(op)/10000))+'만손')
           ),
           prevOp!==undefined&&R(Diff,{a:op,b:prevOp})
-        ),
-        s>0&&R('div',{style:{fontSize:9,fontWeight:700,color:op/s>=0.15?'#22C55E':op/s>=0.05?'#F59E0B':'#EF4444'}},
-          (op/s*100).toFixed(1)+'%'
         )
+      ),
+      /* 이익률 단독 컬럼 */
+      R('div',{style:{textAlign:'right',padding:'0 6px',borderLeft:'1px solid #F3F4F6'}},
+        R('div',{style:{fontSize:9,color:'#9CA3AF',marginBottom:3,fontWeight:600}},'이익률'),
+        rate!==null?R('div',{style:{fontSize:highlight?16:13,fontWeight:900,color:rate>=15?'#22C55E':rate>=10?'#15803D':rate>=5?'#F59E0B':rate>=0?'#EF4444':'#DC2626'}},
+          (rate>=0?'':'')+rate.toFixed(1)+'%'
+        ):R('div',{style:{fontSize:12,color:'#D1D5DB'}},'-')
       )
     );
+  };
 
   if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center',height:300}},'⏳ 로딩 중...');
 
@@ -4782,6 +4812,17 @@ function PageDashboard({user,variant='hq'}){
       R('button',{className:'btn bs btn-sm',onClick:load,style:{display:'flex',alignItems:'center',gap:4}},'🔄 새로고침')
     ),
 
+    /* 🔍 진단 정보 (고정비 분리 상태 확인) */
+    diagInfo&&R('div',{style:{padding:'10px 14px',background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:10,marginBottom:14,fontSize:11,color:'#92400E'}},
+      R('div',{style:{fontWeight:800,marginBottom:4}},'🔍 고정비 분리 진단 (',variant==='hq'?'본사':'관리자',' 화면)'),
+      R('div',{style:{display:'flex',gap:14,flexWrap:'wrap'}},
+        R('span',null,'• DB 전체: ',R('b',null,diagInfo.fcTotal,'개')),
+        R('span',null,'• 이 화면(',variant,')에 보이는: ',R('b',{style:{color:'#15803D'}},diagInfo.fcFiltered,'개')),
+        R('span',null,'• 분포: ',Object.entries(diagInfo.fcBySource).map(([k,v])=>k+'='+v+'개').join(', '))
+      ),
+      diagInfo.fcBySource['(NULL)']>0&&R('div',{style:{marginTop:6,fontWeight:700,color:'#DC2626'}},'⚠️ ',diagInfo.fcBySource['(NULL)'],'개 항목이 source=NULL입니다. 이런 항목은 관리자(adm)로 간주됩니다. 본사용을 따로 만들려면 [본사 → 고정비 관리]에서 새로 입력하거나 SQL로 source를 hq로 바꿔주세요.')
+    ),
+
     /* ─── 이번달 KPI 카드 6개 ─── */
     R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:10,marginBottom:14}},
       R(Kpi,{label:'이번달 매출',value:fN(Math.round(mS/10000)),unit:'만',sub:M+'월 1일~오늘',color:'#D94F1E',icon:'💰',trend:R(Diff,{a:mS,b:pmS})}),
@@ -4790,6 +4831,20 @@ function PageDashboard({user,variant='hq'}){
       R(Kpi,{label:'이번달 영업이익',value:(mOp>=0?'+':'-')+fN(Math.round(Math.abs(mOp)/10000)),unit:'만',sub:mS>0?'이익률 '+(mOp/mS*100).toFixed(1)+'%':'-',color:mOp>=0?'#15803D':'#DC2626',icon:mOp>=0?'📈':'📉',trend:R(Diff,{a:mOp,b:pmOp})}),
       R(Kpi,{label:'이번달 이익률',value:mS>0?(mOp/mS*100).toFixed(1):'-',unit:mS>0?'%':'',sub:mS>0&&mOp/mS>=0.15?'양호':mOp/mS>=0.05?'주의':mS>0?'개선 필요':'-',color:mS>0?(mOp/mS>=0.15?'#22C55E':mOp/mS>=0.05?'#F59E0B':'#EF4444'):'#9CA3AF',icon:'🎯'}),
       R(Kpi,{label:'이번달 가동률',value:mRate>0?mRate.toFixed(1):'-',unit:mRate>0?'%':'',sub:'공장 가동률',color:mRate>=80?'#22C55E':mRate>=50?'#F59E0B':'#7C3AED',icon:'⚙️',trend:pmRate>0&&R(Diff,{a:mRate,b:pmRate})})
+    ),
+
+    /* ─── 연간 누적 KPI 카드 5개 (NEW) ─── */
+    R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFFBF8,#FFF5F0)',border:'1px solid #FED7AA',borderRadius:10,marginBottom:14,display:'flex',alignItems:'center',gap:8}},
+      R('span',{style:{fontSize:18}},'📅'),
+      R('span',{style:{fontSize:13,fontWeight:800,color:'#9A3412'}},Y+'년 누적 손익 (1월~'+M+'월)'),
+      R('span',{style:{marginLeft:'auto',fontSize:10,color:'#9A3412',fontWeight:600}},'YTD = Year-To-Date')
+    ),
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:10,marginBottom:14}},
+      R(Kpi,{label:'연간 누적 매출',value:fN(Math.round(ytdS/10000)),unit:'만',sub:'1월~오늘',color:'#D94F1E',icon:'💰'}),
+      R(Kpi,{label:'연간 누적 매입',value:fN(Math.round(ytdP/10000)),unit:'만',sub:'1월~오늘',color:'#6B7280',icon:'🛒'}),
+      R(Kpi,{label:'연간 누적 고정비',value:fN(Math.round(ytdFC/10000)),unit:'만',sub:'1~'+M+'월 합계',color:'#9CA3AF',icon:'🏢'}),
+      R(Kpi,{label:'연간 누적 영업이익',value:(ytdOp>=0?'+':'-')+fN(Math.round(Math.abs(ytdOp)/10000)),unit:'만',sub:ytdS>0?'이익률 '+(ytdOp/ytdS*100).toFixed(1)+'%':'-',color:ytdOp>=0?'#15803D':'#DC2626',icon:ytdOp>=0?'📈':'📉'}),
+      R(Kpi,{label:'⭐ 연간 이익률',value:ytdS>0?(ytdOp/ytdS*100).toFixed(1):'-',unit:ytdS>0?'%':'',sub:ytdS>0?(ytdOp/ytdS>=0.15?'🏆 우수':ytdOp/ytdS>=0.10?'양호':ytdOp/ytdS>=0.05?'주의':'개선 필요'):'-',color:ytdS>0?(ytdOp/ytdS>=0.15?'#22C55E':ytdOp/ytdS>=0.10?'#15803D':ytdOp/ytdS>=0.05?'#F59E0B':'#EF4444'):'#9CA3AF',icon:'🎯'})
     ),
 
     /* ─── 손익 차트 ─── */
@@ -4822,12 +4877,13 @@ function PageDashboard({user,variant='hq'}){
         R('div',{style:{fontSize:10,color:'var(--tm)'}},'단위: 만원')
       ),
       /* 헤더 */
-      R('div',{style:{display:'grid',gridTemplateColumns:'72px 1fr 1fr 1fr 1fr',padding:'8px 14px',background:'#F9FAFB',borderBottom:'2px solid #E5E7EB'}},
+      R('div',{style:{display:'grid',gridTemplateColumns:'72px 1fr 1fr 1fr 1fr 80px',padding:'8px 14px',background:'#F9FAFB',borderBottom:'2px solid #E5E7EB'}},
         R('div',{style:{fontSize:9,color:'#9CA3AF',fontWeight:700}},'기간'),
         R('div',{style:{textAlign:'right',fontSize:9,color:'#9CA3AF',fontWeight:700,padding:'0 6px'}},'매출'),
         R('div',{style:{textAlign:'right',fontSize:9,color:'#9CA3AF',fontWeight:700,padding:'0 6px'}},'매입'),
         R('div',{style:{textAlign:'right',fontSize:9,color:'#9CA3AF',fontWeight:700,padding:'0 6px'}},'고정비'),
-        R('div',{style:{textAlign:'right',fontSize:9,color:'#9CA3AF',fontWeight:700,padding:'0 6px'}},'영업이익')
+        R('div',{style:{textAlign:'right',fontSize:9,color:'#9CA3AF',fontWeight:700,padding:'0 6px'}},'영업이익'),
+        R('div',{style:{textAlign:'right',fontSize:9,color:'#9CA3AF',fontWeight:700,padding:'0 6px',borderLeft:'1px solid #E5E7EB'}},'이익률')
       ),
       R(PeriodRow,{label:Y+'년',s:yS,p:yP,fc:yFC,op:yOp}),
       R(PeriodRow,{label:'YTD',s:ytdS,p:ytdP,fc:ytdFC,op:ytdOp}),
@@ -5593,9 +5649,9 @@ function App(){
       },'☰'),
 
       /* 로고 영역 - 햄버거 바로 옆 (모바일에서도 좌측) */
-      R('div',{className:'hdr-logo-area',style:{display:'flex',alignItems:'center',gap:8,cursor:'pointer'},onClick:()=>{setPage('home');setSidebarOpen(false);}},
-        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:34,objectFit:'contain',maxWidth:160}}),
-        R('span',{style:{background:'#FFE5DA',color:'#D94F1E',fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:4,letterSpacing:0.5}},'MES')
+      R('div',{className:'hdr-logo-area',style:{display:'flex',alignItems:'center',gap:10,cursor:'pointer'},onClick:()=>{setPage('home');setSidebarOpen(false);}},
+        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:64,objectFit:'contain',maxWidth:280}}),
+        R('span',{style:{background:'#FFE5DA',color:'#D94F1E',fontSize:12,fontWeight:800,padding:'4px 10px',borderRadius:6,letterSpacing:1}},'MES')
       ),
 
       /* 데스크탑 spacer */
