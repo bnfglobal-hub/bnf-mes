@@ -1316,16 +1316,89 @@ function PagePlant({user}){
 function PageAdmin({user}){
   const[tab,setTab]=useState('users');const[emps,setEmps]=useState([]);const[depts,setDepts]=useState([]);
   const[showUF,setShowUF]=useState(false);const[editU,setEditU]=useState(null);
+  const[sessions,setSessions]=useState([]);const[sessLoading,setSessLoading]=useState(false);
   const[uf,setUf]=useState({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
   useEffect(()=>{load();},[]);
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
+  
+  /* 접속 현황 로드 (최근 5분 이내 활동만) */
+  const loadSessions=async()=>{
+    setSessLoading(true);
+    try{
+      const fiveMinAgo=new Date(Date.now()-5*60*1000).toISOString();
+      const{data,error}=await sbClient.from('active_sessions').select('*').gte('last_seen_at',fiveMinAgo).order('last_seen_at',{ascending:false});
+      if(error)throw error;
+      setSessions(data||[]);
+    }catch(e){
+      console.warn('세션 로드 실패:',e);
+      alert('접속 현황 로드 실패\n\n원인: active_sessions 테이블이 아직 생성되지 않았을 수 있습니다.\nSupabase에서 "세션추적_구축.sql" 파일을 실행해주세요.');
+    }
+    setSessLoading(false);
+  };
+  
+  /* 탭 변경 시 세션 자동 로드 + 30초 자동 새로고침 */
+  useEffect(()=>{
+    if(tab==='sessions'){
+      loadSessions();
+      const t=setInterval(loadSessions,30000);
+      return()=>clearInterval(t);
+    }
+  },[tab]);
+  
+  /* 개별 강제 로그아웃 */
+  const kickSession=async(sess)=>{
+    if(!confirm(sess.emp_name+'(' +sess.emp_email+ ') 사용자를 강제 로그아웃시킬까요?\n\n해당 사용자는 최대 30초 안에 자동으로 로그아웃됩니다.'))return;
+    try{
+      /* 세션 삭제 + 비밀번호 타임스탬프 갱신 (이중 안전장치) */
+      await sbClient.from('active_sessions').delete().eq('id',sess.id);
+      await sbClient.from('emp').update({password_updated_at:new Date().toISOString()}).eq('id',sess.emp_id);
+      alert('✅ 강제 로그아웃 요청 완료\n해당 사용자는 최대 30초 안에 로그아웃됩니다.');
+      loadSessions();
+    }catch(e){alert('실패: '+e.message);}
+  };
+  
+  /* 전체 강제 로그아웃 (본인 제외) */
+  const kickAll=async()=>{
+    if(!confirm('⚠️ 현재 접속한 모든 사용자(본인 제외)를 강제 로그아웃시킬까요?\n\n전 직원이 다시 로그인해야 합니다.\n계속할까요?'))return;
+    if(!confirm('한 번 더 확인합니다.\n정말로 본인을 제외한 모든 직원을 로그아웃시키시겠습니까?'))return;
+    try{
+      await sbClient.from('active_sessions').delete().neq('emp_id',user.id);
+      /* 본인 제외 전체 비번 타임스탬프 갱신 */
+      await sbClient.from('emp').update({password_updated_at:new Date().toISOString()}).neq('id',user.id);
+      alert('✅ 본인 외 전체 사용자 강제 로그아웃 요청 완료');
+      loadSessions();
+    }catch(e){alert('실패: '+e.message);}
+  };
+  
   const saveU=async()=>{if(!uf.name||!uf.email)return alert('이름/이메일 필수');if(editU){await db('emp').update({...uf}).eq('id',editU.id);}else{await db('emp').insert({...uf,status:'active',used_leave:0});}setShowUF(false);setEditU(null);load();};
   const toggleStatus=async e=>{await db('emp').update({status:e.status==='active'?'inactive':'active'}).eq('id',e.id);load();};
   const ROLES={superadmin:'최고관리자',admin:'관리자',manager:'부서장',employee:'직원',readonly:'읽기전용'};
   const RCLS={superadmin:'b-e',admin:'b-o',manager:'b-i',employee:'b-g',readonly:'b-g'};
+  
+  /* 시간 포맷터 (분 단위 친화적 표시) */
+  const fmtAgo=ts=>{
+    if(!ts)return '-';
+    const diff=Math.floor((Date.now()-new Date(ts).getTime())/1000);
+    if(diff<10)return '방금';
+    if(diff<60)return diff+'초 전';
+    if(diff<3600)return Math.floor(diff/60)+'분 전';
+    if(diff<86400)return Math.floor(diff/3600)+'시간 전';
+    return Math.floor(diff/86400)+'일 전';
+  };
+  const fmtTime=ts=>{
+    if(!ts)return '-';
+    const d=new Date(ts);
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  };
+  const deviceIcon=t=>t==='mobile'?'📱':t==='tablet'?'📲':'💻';
+  
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-title',style:{marginBottom:14}},'⚙️ 관리자'),
-    R('div',{className:'tab-row'},R('button',{className:'tab'+(tab==='users'?' act':''),onClick:()=>setTab('users')},'👥 사용자'),R('button',{className:'tab'+(tab==='depts'?' act':''),onClick:()=>setTab('depts')},'🏢 부서')),
+    R('div',{className:'tab-row'},
+      R('button',{className:'tab'+(tab==='users'?' act':''),onClick:()=>setTab('users')},'👥 사용자'),
+      R('button',{className:'tab'+(tab==='depts'?' act':''),onClick:()=>setTab('depts')},'🏢 부서'),
+      R('button',{className:'tab'+(tab==='sessions'?' act':''),onClick:()=>setTab('sessions')},'🔐 접속 현황')
+    ),
     tab==='users'&&R('div',null,
       R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10}},R('button',{className:'btn bp',onClick:()=>{setEditU(null);setShowUF(true);}},'+ 직원 추가')),
       R('div',{className:'tw'},
@@ -1352,6 +1425,69 @@ function PageAdmin({user}){
           R('thead',null,R('tr',null,R('th',null,'부서명'),R('th',null,'소속 인원'))),
           R('tbody',null,...depts.map(d=>R('tr',{key:d.id},R('td',{style:{fontWeight:600}},d.name),R('td',null,emps.filter(e=>e.dept_id===d.id).length+'명'))))
         )
+      )
+    ),
+    
+    /* ═══ 접속 현황 탭 ═══ */
+    tab==='sessions'&&R('div',null,
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}},
+        R('div',null,
+          R('div',{style:{fontSize:13,fontWeight:700,color:'#1A1A1A'}},'🔐 현재 접속 중인 사용자 ',R('span',{style:{color:'var(--p)',fontSize:15,fontWeight:900}},sessions.length+'명')),
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'최근 5분 이내 활동 · 30초마다 자동 갱신')
+        ),
+        R('div',{style:{display:'flex',gap:6}},
+          R('button',{className:'btn bs btn-sm',onClick:loadSessions,disabled:sessLoading},sessLoading?'⏳':'🔄 새로고침'),
+          sessions.filter(s=>s.emp_id!==user.id).length>0&&R('button',{className:'btn btn-sm',onClick:kickAll,style:{background:'#dc2626',color:'#fff',border:'none',fontWeight:700}},'🚫 본인 외 전체 강제 로그아웃')
+        )
+      ),
+      sessLoading&&sessions.length===0?R('div',{style:{textAlign:'center',padding:40,color:'var(--tm)'}},'⏳ 로딩 중...')
+      :sessions.length===0?R('div',{className:'empty'},R('div',{className:'empty-ic'},'😴'),R('div',null,'접속 중인 사용자가 없습니다'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:4}},'세션 추적 SQL을 실행했는지 확인해주세요'))
+      :R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:10}},
+        ...sessions.map(s=>{
+          const isMe=s.emp_id===user.id;
+          const idleMin=Math.floor((Date.now()-new Date(s.last_seen_at).getTime())/60000);
+          const isActive=idleMin<2;
+          return R('div',{key:s.id,style:{background:isMe?'linear-gradient(135deg,#FFF8F4,#FFE5DA)':'#fff',border:'1px solid '+(isMe?'#FFB89B':'var(--bd)'),borderRadius:12,padding:14,position:'relative'}},
+            isMe&&R('div',{style:{position:'absolute',top:8,right:10,fontSize:9,background:'var(--p)',color:'#fff',padding:'2px 6px',borderRadius:10,fontWeight:700}},'본인'),
+            /* 헤더: 이름 + 부서/직위 */
+            R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10}},
+              R('div',{style:{width:42,height:42,borderRadius:'50%',background:isMe?'var(--p)':'#6B7280',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,flexShrink:0}},(s.emp_name||'?').charAt(0)),
+              R('div',{style:{flex:1,minWidth:0}},
+                R('div',{style:{fontSize:14,fontWeight:800,color:'#1A1A1A'}},s.emp_name||s.emp_email),
+                R('div',{style:{fontSize:11,color:'var(--tm)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},s.emp_email)
+              ),
+              R('div',{style:{width:8,height:8,borderRadius:'50%',background:isActive?'#22C55E':'#FBBF24',flexShrink:0,boxShadow:isActive?'0 0 0 3px rgba(34,197,94,0.2)':'none'}})
+            ),
+            /* 정보 그리드 */
+            R('div',{style:{background:'#FAFAFA',borderRadius:8,padding:'8px 10px',fontSize:11,marginBottom:10}},
+              R('div',{style:{display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+                R('span',{style:{color:'#9CA3AF'}},'기기'),
+                R('span',{style:{fontWeight:600}},deviceIcon(s.device_type)+' '+(s.device_type==='mobile'?'모바일':s.device_type==='tablet'?'태블릿':'데스크탑'))
+              ),
+              R('div',{style:{display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+                R('span',{style:{color:'#9CA3AF'}},'브라우저'),
+                R('span',{style:{fontWeight:600}},(s.browser||'-')+' / '+(s.os||'-'))
+              ),
+              R('div',{style:{display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+                R('span',{style:{color:'#9CA3AF'}},'IP'),
+                R('span',{style:{fontWeight:600,fontFamily:'monospace'}},s.ip_address||'-')
+              ),
+              R('div',{style:{display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+                R('span',{style:{color:'#9CA3AF'}},'로그인'),
+                R('span',{style:{fontWeight:600,fontSize:10}},fmtTime(s.login_at))
+              ),
+              R('div',{style:{display:'flex',justifyContent:'space-between',padding:'2px 0'}},
+                R('span',{style:{color:'#9CA3AF'}},'마지막 활동'),
+                R('span',{style:{fontWeight:700,color:isActive?'#15803D':'#92400E'}},fmtAgo(s.last_seen_at))
+              )
+            ),
+            /* 액션 버튼 */
+            !isMe&&R('button',{
+              onClick:()=>kickSession(s),
+              style:{width:'100%',padding:'8px 12px',background:'#FEF2F2',color:'#dc2626',border:'1px solid #FECACA',borderRadius:7,cursor:'pointer',fontWeight:700,fontSize:12,fontFamily:'inherit',transition:'all 0.15s'}
+            },'🚫 강제 로그아웃')
+          );
+        })
       )
     ),
     showUF&&R(Modal2,{title:editU?'직원 수정':'직원 추가',onClose:()=>{setShowUF(false);setEditU(null);},size:560,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>setShowUF(false),style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:saveU,style:{flex:2}},editU?'수정':'추가'))},
@@ -4485,8 +4621,37 @@ function LoginPage({onLogin}){
       if(data.status==='inactive'){setErr('비활성화된 계정입니다');setLoading(false);return;}
       if(remem)localStorage.setItem('bnf_cred',JSON.stringify({email:email.trim(),pw}));
       else localStorage.removeItem('bnf_cred');
-      const userWithMeta={...data,_login_at:new Date().toISOString()};
+      
+      /* 세션 토큰 생성 + 클라이언트 정보 수집 */
+      const sessionToken='sess_'+Date.now()+'_'+Math.random().toString(36).substr(2,12);
+      const ua=navigator.userAgent;
+      const isMobile=/iPhone|iPad|iPod|Android/i.test(ua);
+      const isTablet=/iPad|Tablet/i.test(ua);
+      const deviceType=isTablet?'tablet':(isMobile?'mobile':'desktop');
+      const browser=/Edg/i.test(ua)?'Edge':/Chrome/i.test(ua)?'Chrome':/Safari/i.test(ua)?'Safari':/Firefox/i.test(ua)?'Firefox':'기타';
+      const os=/Windows/i.test(ua)?'Windows':/iPhone|iPad/i.test(ua)?'iOS':/Android/i.test(ua)?'Android':/Mac/i.test(ua)?'macOS':/Linux/i.test(ua)?'Linux':'기타';
+      
+      /* IP는 외부 API로 조회 (실패해도 진행) */
+      let ipAddr='-';
+      try{
+        const ipRes=await fetch('https://api.ipify.org?format=json',{signal:AbortSignal.timeout(3000)});
+        const ipData=await ipRes.json();
+        ipAddr=ipData.ip||'-';
+      }catch(e){/* 무시 */}
+      
+      /* DB에 세션 기록 */
+      try{
+        await sbClient.from('active_sessions').insert({
+          emp_id:data.id,emp_email:data.email,emp_name:data.name||data.email,
+          ip_address:ipAddr,user_agent:ua.substring(0,500),
+          device_type:deviceType,browser:browser,os:os,
+          session_token:sessionToken
+        });
+      }catch(e){console.warn('세션 기록 실패 (테이블 미생성 가능):',e);}
+      
+      const userWithMeta={...data,_login_at:new Date().toISOString(),_session_token:sessionToken};
       localStorage.setItem('bnf_user',JSON.stringify(userWithMeta));
+      localStorage.setItem('bnf_session_token',sessionToken);
       onLogin(userWithMeta);
     }catch(e){setErr('오류: '+e.message);setLoading(false);}
   };
@@ -4661,9 +4826,10 @@ function App(){
 
   /* ───── 실행 중 세션 무효화 감지 (30초마다) ─────
      누군가 비번을 알고 이미 로그인해 있어도, 비번이 바뀌면 30초 안에 강제 로그아웃됨.
-     계정이 비활성화되어도 마찬가지. */
+     또한 active_sessions 테이블에서 세션이 삭제되면(관리자 강제 로그아웃) 자동 로그아웃. */
   useEffect(()=>{
     if(!user||!user.id)return;
+    const sessionToken=user._session_token||localStorage.getItem('bnf_session_token');
     const checkSession=async()=>{
       try{
         const{data,error}=await db('emp').select('password,status,password_updated_at').eq('id',user.id).single();
@@ -4673,9 +4839,23 @@ function App(){
         let shouldLogout=false;let reason='';
         if(pwUpdatedAt>loginAt){shouldLogout=true;reason='비밀번호가 변경되어 로그아웃됩니다.\n다시 로그인해주세요.';}
         else if(data.status==='inactive'){shouldLogout=true;reason='계정이 비활성화되어 로그아웃됩니다.';}
+        
+        /* 세션이 active_sessions에서 삭제되었는지 확인 (관리자 강제 로그아웃) */
+        if(!shouldLogout&&sessionToken){
+          try{
+            const{data:sess}=await sbClient.from('active_sessions').select('id').eq('session_token',sessionToken).maybeSingle();
+            if(!sess){shouldLogout=true;reason='관리자에 의해 로그아웃되었습니다.';}
+            else{
+              /* 세션 활성 → last_seen_at 갱신 */
+              await sbClient.from('active_sessions').update({last_seen_at:new Date().toISOString()}).eq('session_token',sessionToken);
+            }
+          }catch(e){/* 테이블 없으면 무시 */}
+        }
+        
         if(shouldLogout){
           localStorage.removeItem('bnf_user');
           localStorage.removeItem('bnf_cred');
+          localStorage.removeItem('bnf_session_token');
           alert(reason);
           setUser(null);
         }
@@ -4835,10 +5015,13 @@ function App(){
           },'💾 ',R('span',null,'데이터 관리')),
           R('div',{style:{height:1,background:'var(--bd)',margin:'6px 0'}}),
           R('button',{
-            onClick:()=>{
+            onClick:async()=>{
               setShowUserMenu(false);
+              const t=localStorage.getItem('bnf_session_token');
+              if(t){try{await sbClient.from('active_sessions').delete().eq('session_token',t);}catch(e){}}
               localStorage.removeItem('bnf_user');
               localStorage.removeItem('bnf_cred');
+              localStorage.removeItem('bnf_session_token');
               setUser(null);
             },
             style:{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:13,color:'#dc2626',fontWeight:600,textAlign:'left'}
