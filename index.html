@@ -4582,37 +4582,58 @@ function ImportModal({type,onClose,onDone,source='adm'}){
         return;
       }
 
-      /* 실제 저장 - 배치당 응답 검증 + 중복 자동 처리
-         UNIQUE 제약(sales_unique_transaction / purchases_unique_transaction)이 걸려있어서
-         같은 데이터를 두 번 업로드하면 23505 에러 발생 → 한 건씩 시도해서 중복은 건너뜀 */
+      /* 실제 저장 - upsert + ignoreDuplicates로 DB 레벨 일괄 중복 차단
+         속도: 한 건씩 처리(200ms×N=수분) → 배치 일괄(<1초/배치)
+         UNIQUE 제약이 없으면 자동으로 plain insert로 폴백 */
       const tableName=type==='sales'?'sales':'purchases';
+      const onConflictCols=type==='sales'
+        ?'sale_date,customer_name,product_name,quantity,amount,source'
+        :'purchase_date,supplier_name,item_name,quantity,amount,source';
       let savedCount=0;
       let duplicateCount=0;
       let lastError=null;
+      let useFallback=false;  /* UNIQUE 제약 없으면 true */
+      const totalBatches=Math.ceil(mapped.length/200);
+      
       for(let i=0;i<mapped.length;i+=200){
         const batch=mapped.slice(i,i+200);
-        const{data:resp,error}=await sbClient.from(tableName).insert(batch).select();
-        if(error){
-          /* UNIQUE 위반(중복) → 한 건씩 시도 */
-          if(error.code==='23505'||(error.message&&error.message.includes('duplicate'))){
-            for(const row of batch){
-              const{error:rowErr}=await sbClient.from(tableName).insert([row]);
-              if(!rowErr){
-                savedCount++;
-              }else if(rowErr.code==='23505'||(rowErr.message&&rowErr.message.includes('duplicate'))){
-                duplicateCount++;  /* 이미 DB에 있는 거래 - skip */
-              }else{
-                lastError=rowErr;
-                break;
-              }
-            }
-            if(lastError)break;
-          }else{
-            lastError=error;
-            break;
-          }
+        const batchNum=Math.floor(i/200)+1;
+        
+        if(useFallback){
+          /* UNIQUE 제약 없음 → 그냥 insert (중복 차단 불가) */
+          const{data:r2,error:e2}=await sbClient.from(tableName).insert(batch).select();
+          if(e2){lastError=e2;break;}
+          savedCount+=(r2?r2.length:batch.length);
         }else{
-          savedCount+=(resp?resp.length:batch.length);
+          /* upsert + ignoreDuplicates: DB가 ON CONFLICT DO NOTHING으로 한번에 처리 (빠름) */
+          const{data:resp,error}=await sbClient
+            .from(tableName)
+            .upsert(batch,{onConflict:onConflictCols,ignoreDuplicates:true})
+            .select();
+          
+          if(error){
+            /* UNIQUE 제약 자체가 없음 (SQL 미실행) → 폴백 모드로 전환 */
+            if(error.code==='42P10'||(error.message&&(error.message.includes('no unique')||error.message.includes('there is no unique')||error.message.includes('ON CONFLICT')))){
+              useFallback=true;
+              /* 이 배치 다시 plain insert로 */
+              const{data:r2,error:e2}=await sbClient.from(tableName).insert(batch).select();
+              if(e2){lastError=e2;break;}
+              savedCount+=(r2?r2.length:batch.length);
+            }else{
+              lastError=error;
+              break;
+            }
+          }else{
+            /* 정상 - 응답 row 수가 곧 신규 저장 갯수, 차이는 중복 */
+            const insertedNow=resp?resp.length:0;
+            savedCount+=insertedNow;
+            duplicateCount+=(batch.length-insertedNow);
+          }
+        }
+        
+        /* 진행률 로그 (대용량 시 유용) */
+        if(totalBatches>3){
+          console.log('[업로드] 배치 '+batchNum+'/'+totalBatches+' 완료 - 신규:'+savedCount+', 중복:'+duplicateCount);
         }
       }
 
@@ -4636,7 +4657,9 @@ function ImportModal({type,onClose,onDone,source='adm'}){
         resultMsg+='⏭️ 중복 제외: '+duplicateCount+'건 (이미 DB에 있는 거래)\n';
       }
       resultMsg+='📊 전체 처리: '+(savedCount+duplicateCount)+'건';
-      if(duplicateCount>0){
+      if(useFallback){
+        resultMsg+='\n\n⚠️ 중복 방지가 비활성화 상태입니다.\nSupabase에서 매출매입_중복방지.sql을 실행해주세요.';
+      }else if(duplicateCount>0){
         resultMsg+='\n\n💡 중복은 자동으로 제외되었습니다.\n같은 거래를 이미 업로드한 적이 있어요.';
       }
       alert(resultMsg);
