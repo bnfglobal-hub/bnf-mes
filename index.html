@@ -982,6 +982,182 @@ function PageLeave({user}){
 
 
 
+/* ═══ 고정비 카드 컴포넌트 (가계부 스타일) ═══════ */
+function FixedCostCard({item,CATS,onUpdate,onDelete}){
+  /* 로컬 상태 - 입력 끊김 방지 */
+  const[localName,setLocalName]=useState(item.item_name||'');
+  const[localAmt,setLocalAmt]=useState(String(item.amount||''));
+  const[localMemo,setLocalMemo]=useState(item.memo||'');
+  const[localCat,setLocalCat]=useState(item.category||'기타');
+  
+  /* item.id가 바뀔 때만 동기화 */
+  useEffect(()=>{
+    setLocalName(item.item_name||'');
+    setLocalAmt(String(item.amount||''));
+    setLocalMemo(item.memo||'');
+    setLocalCat(item.category||'기타');
+  },[item.id]);
+  
+  /* 카테고리별 색상 */
+  const catColors={
+    '임대료':{bg:'#FEF3C7',text:'#92400E',border:'#FDE68A'},
+    '인건비':{bg:'#DBEAFE',text:'#1E40AF',border:'#BFDBFE'},
+    '감가상각':{bg:'#E0E7FF',text:'#3730A3',border:'#C7D2FE'},
+    '보험료':{bg:'#FCE7F3',text:'#9F1239',border:'#FBCFE8'},
+    '통신비':{bg:'#D1FAE5',text:'#065F46',border:'#A7F3D0'},
+    '공과금':{bg:'#FED7AA',text:'#9A3412',border:'#FDBA74'},
+    '리스료':{bg:'#E9D5FF',text:'#6B21A8',border:'#D8B4FE'},
+    '기타':{bg:'#F3F4F6',text:'#4B5563',border:'#E5E7EB'}
+  };
+  const catColor=catColors[localCat]||catColors['기타'];
+  
+  /* 핸들러들 */
+  const handleName=(e)=>{
+    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
+    setLocalName(e.target.value);
+    onUpdate(item.id,'item_name',e.target.value);
+  };
+  const handleNameIME=(e)=>{
+    setLocalName(e.target.value);
+    onUpdate(item.id,'item_name',e.target.value);
+  };
+  const handleMemo=(e)=>{
+    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
+    setLocalMemo(e.target.value);
+    onUpdate(item.id,'memo',e.target.value);
+  };
+  const handleMemoIME=(e)=>{
+    setLocalMemo(e.target.value);
+    onUpdate(item.id,'memo',e.target.value);
+  };
+  const handleAmt=(e)=>{
+    setLocalAmt(e.target.value);
+    onUpdate(item.id,'amount',e.target.value);
+  };
+  const handleCat=(e)=>{
+    setLocalCat(e.target.value);
+    onUpdate(item.id,'category',e.target.value);
+  };
+  
+  return R('div',{
+    style:{
+      background:'#fff',
+      border:'1px solid #E5E7EB',
+      borderRadius:12,
+      padding:'12px 14px',
+      display:'grid',
+      gridTemplateColumns:'110px 1fr 180px 1fr 32px',
+      gap:10,
+      alignItems:'center',
+      transition:'all 0.15s',
+      boxShadow:'0 1px 2px rgba(0,0,0,0.03)'
+    },
+    onMouseEnter:e=>{e.currentTarget.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)';e.currentTarget.style.borderColor='#FED7AA';},
+    onMouseLeave:e=>{e.currentTarget.style.boxShadow='0 1px 2px rgba(0,0,0,0.03)';e.currentTarget.style.borderColor='#E5E7EB';}
+  },
+    /* 카테고리 (색상 뱃지 형태) */
+    R('select',{
+      value:localCat,
+      onChange:handleCat,
+      style:{
+        padding:'7px 8px',
+        border:'1.5px solid '+catColor.border,
+        background:catColor.bg,
+        color:catColor.text,
+        borderRadius:8,
+        fontSize:12,
+        fontWeight:700,
+        cursor:'pointer',
+        outline:'none'
+      }
+    },
+      ...CATS.map(c=>R('option',{key:c,value:c},c))
+    ),
+    /* 항목명 */
+    R('input',{
+      type:'text',
+      value:localName,
+      onChange:handleName,
+      onCompositionEnd:handleNameIME,
+      placeholder:'항목명 (예: 사무실 임대료)',
+      style:{
+        padding:'8px 10px',
+        border:'1px solid #E5E7EB',
+        borderRadius:8,
+        fontSize:13,
+        fontWeight:600,
+        outline:'none',
+        transition:'border-color 0.15s'
+      },
+      onFocus:e=>e.target.style.borderColor='var(--p)',
+      onBlur:e=>e.target.style.borderColor='#E5E7EB'
+    }),
+    /* 금액 - 큰 입력 */
+    R('div',{style:{position:'relative'}},
+      R('input',{
+        type:'number',
+        value:localAmt,
+        onChange:handleAmt,
+        onFocus:e=>{e.target.style.borderColor='var(--p)';e.target.style.background='#FFF8F4';if(e.target.value==='0')e.target.select();},
+        onBlur:e=>{e.target.style.borderColor='#FED7AA';e.target.style.background='#fff';},
+        placeholder:'0',
+        style:{
+          width:'100%',
+          padding:'10px 36px 10px 12px',
+          border:'1.5px solid #FED7AA',
+          borderRadius:8,
+          fontSize:15,
+          fontWeight:800,
+          color:'var(--p)',
+          textAlign:'right',
+          outline:'none',
+          transition:'all 0.15s'
+        }
+      }),
+      R('span',{style:{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',fontSize:12,color:'var(--p)',fontWeight:700,pointerEvents:'none'}},'원')
+    ),
+    /* 메모 */
+    R('input',{
+      type:'text',
+      value:localMemo,
+      onChange:handleMemo,
+      onCompositionEnd:handleMemoIME,
+      placeholder:'메모 (선택)',
+      style:{
+        padding:'8px 10px',
+        border:'1px solid #E5E7EB',
+        borderRadius:8,
+        fontSize:12,
+        color:'#6B7280',
+        outline:'none',
+        transition:'border-color 0.15s'
+      },
+      onFocus:e=>e.target.style.borderColor='var(--p)',
+      onBlur:e=>e.target.style.borderColor='#E5E7EB'
+    }),
+    /* 삭제 버튼 */
+    R('button',{
+      onClick:()=>onDelete(item.id),
+      title:'삭제',
+      style:{
+        background:'#FEE2E2',
+        border:'none',
+        color:'#DC2626',
+        cursor:'pointer',
+        fontSize:14,
+        fontWeight:700,
+        padding:0,
+        width:32,
+        height:32,
+        borderRadius:8,
+        transition:'all 0.15s'
+      },
+      onMouseEnter:e=>e.currentTarget.style.background='#FCA5A5',
+      onMouseLeave:e=>e.currentTarget.style.background='#FEE2E2'
+    },'✕')
+  );
+}
+
 /* ═══ 고정비 행 컴포넌트 (각자 로컬 상태로 입력 끊김 방지) ═══════ */
 function FixedCostRow({item,CATS,onUpdate,onDelete}){
   /* 로컬 상태로 입력값 관리 - DB 자동 저장과 충돌 방지 */
@@ -1151,111 +1327,102 @@ function PageFixedCosts({user,variant='adm'}){
   if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center'}},'⏳');
 
   return R('div',{className:'pg fa'},
+    /* ═══ 헤더 ═══ */
     R('div',{className:'pg-hdr'},
       R('div',null,
         R('div',{className:'pg-title'},(variant==='hq'?'🏢':'⚙️')+'  고정비 관리'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'월별 고정비를 직접 입력 · 자동 저장',saving&&' · 💾 저장 중...')
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'각 월의 항목별 금액을 직접 입력하세요. 자동 저장됨.',saving&&R('span',{style:{color:'#22C55E',marginLeft:8,fontWeight:700}},'💾 저장 중...'))
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
         R('button',{className:'btn bs btn-sm',onClick:()=>setYear(year-1)},'◀'),
-        R('span',{style:{fontSize:13,fontWeight:700,padding:'0 8px'}},year+'년'),
+        R('span',{style:{fontSize:14,fontWeight:800,padding:'0 10px',color:'var(--p)'}},year+'년'),
         R('button',{className:'btn bs btn-sm',onClick:()=>setYear(year+1)},'▶')
       )
     ),
 
-    /* KPI - 현재 월 + 연간 */
-    R('div',{className:'g3',style:{marginBottom:14}},
-      R('div',{className:'card'},
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},selectedMonth+'월 고정비'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'var(--p)',marginTop:4}},fN(currMonthTotal),'원'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},monthItems.length,'개 항목')
+    /* ═══ 연간 요약 카드 ═══ */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:10,marginBottom:14}},
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#FFF8F4 0%,#FFE5DA 100%)',border:'1px solid #FED7AA'}},
+        R('div',{style:{fontSize:11,color:'#9A3412',fontWeight:600}},'💰 '+year+'년 연간 총액'),
+        R('div',{style:{fontSize:24,fontWeight:900,color:'var(--p)',marginTop:6,letterSpacing:-0.5}},fN(yearTotal),' 원')
       ),
-      R('div',{className:'card'},
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},year+'년 연간 총액'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED',marginTop:4}},fN(yearTotal),'원')
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#F5F3FF 0%,#EDE9FE 100%)',border:'1px solid #DDD6FE'}},
+        R('div',{style:{fontSize:11,color:'#6D28D9',fontWeight:600}},'📊 월 평균'),
+        R('div',{style:{fontSize:24,fontWeight:900,color:'#7C3AED',marginTop:6,letterSpacing:-0.5}},fN(Math.round(yearTotal/12)),' 원')
       ),
-      R('div',{className:'card'},
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},'월 평균'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'#0EA5E9',marginTop:4}},fN(Math.round(yearTotal/12)),'원')
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#ECFDF5 0%,#D1FAE5 100%)',border:'1px solid #A7F3D0'}},
+        R('div',{style:{fontSize:11,color:'#047857',fontWeight:600}},'✅ 입력된 월'),
+        R('div',{style:{fontSize:24,fontWeight:900,color:'#059669',marginTop:6,letterSpacing:-0.5}},Object.values(monthTotals).filter(v=>v>0).length,' / 12 ',R('span',{style:{fontSize:14}},'개월'))
       )
     ),
 
-    /* 월 선택 탭 (1~12월) */
-    R('div',{className:'card',style:{padding:'10px 12px',marginBottom:12}},
-      R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8,fontWeight:600}},'📅 월 선택 (각 월을 클릭하여 입력)'),
-      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(12,1fr)',gap:4}},
-        ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
-          const amt=monthTotals[m]||0;
-          const sel=m===selectedMonth;
-          return R('button',{key:m,onClick:()=>setSelectedMonth(m),
-            style:{padding:'8px 4px',background:sel?'var(--p)':(amt>0?'#F0FDF4':'#F9FAFB'),color:sel?'#fff':(amt>0?'#15803D':'#9CA3AF'),border:'1px solid '+(sel?'var(--p)':(amt>0?'#86EFAC':'var(--bd)')),borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:11,display:'flex',flexDirection:'column',gap:2}
-          },
-            R('span',null,m+'월'),
-            R('span',{style:{fontSize:9,fontWeight:600,opacity:0.85}},amt>0?fN(Math.round(amt/10000))+'만':'-')
-          );
-        })
-      )
+    /* ═══ 12개월 카드 그리드 - 가계부 스타일 ═══ */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(110px, 1fr))',gap:8,marginBottom:14}},
+      ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
+        const amt=monthTotals[m]||0;
+        const cnt=allItems.filter(x=>+x.month===m).length;
+        const sel=m===selectedMonth;
+        return R('div',{key:m,onClick:()=>setSelectedMonth(m),
+          style:{
+            padding:'12px 8px',
+            background:sel?'var(--p)':(amt>0?'#fff':'#FAFAFA'),
+            color:sel?'#fff':(amt>0?'#1A1A1A':'#9CA3AF'),
+            border:'2px solid '+(sel?'var(--p)':(amt>0?'#FED7AA':'#E5E7EB')),
+            borderRadius:12,
+            cursor:'pointer',
+            transition:'all 0.15s',
+            textAlign:'center',
+            position:'relative',
+            boxShadow:sel?'0 4px 12px rgba(217,79,30,0.25)':'0 1px 3px rgba(0,0,0,0.04)'
+          }},
+          R('div',{style:{fontSize:12,fontWeight:800,marginBottom:6,color:sel?'#fff':(amt>0?'var(--p)':'#9CA3AF')}},m+'월'),
+          R('div',{style:{fontSize:13,fontWeight:900,marginBottom:2,color:sel?'#fff':(amt>0?'#1A1A1A':'#D1D5DB')}},amt>0?fN(Math.round(amt/10000))+'만':'미입력'),
+          R('div',{style:{fontSize:9,color:sel?'rgba(255,255,255,0.85)':(amt>0?'#9CA3AF':'#D1D5DB'),fontWeight:600}},cnt>0?cnt+'개 항목':'-')
+        );
+      })
     ),
 
-    /* 선택된 월 항목 편집 영역 */
-    R('div',{className:'card',style:{marginBottom:14}},
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}},
+    /* ═══ 선택된 월 입력 영역 - 가계부 카드 스타일 ═══ */
+    R('div',{className:'card',style:{padding:0,overflow:'hidden',marginBottom:14}},
+      /* 헤더 */
+      R('div',{style:{padding:'14px 16px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid #FED7AA',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}},
         R('div',null,
-          R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📝 '+year+'년 '+selectedMonth+'월 고정비 항목'),
-          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'각 항목을 입력하면 자동 저장됩니다. 다른 월에 영향 없음.')
+          R('div',{style:{fontSize:16,fontWeight:900,color:'var(--p)'}},'📝 ',year,'년 ',selectedMonth,'월 고정비 입력'),
+          R('div',{style:{fontSize:11,color:'#9A3412',marginTop:3,fontWeight:600}},'합계 ',R('span',{style:{fontSize:14,fontWeight:900,marginLeft:4}},fN(currMonthTotal),'원'),' · ',monthItems.length,'개 항목')
         ),
-        R('div',{style:{display:'flex',gap:6}},
-          selectedMonth>1&&R('button',{className:'btn bs btn-sm',onClick:copyFromPrevMonth,disabled:saving,title:(selectedMonth-1)+'월 항목을 이 월로 복사'},'⎘ '+(selectedMonth-1)+'월에서 복사'),
-          R('button',{className:'btn bp btn-sm',onClick:addItem},'+ 항목 추가')
+        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          selectedMonth>1&&R('button',{
+            onClick:copyFromPrevMonth,
+            disabled:saving,
+            style:{padding:'8px 12px',background:'#fff',color:'var(--p)',border:'1.5px solid var(--p)',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:11}
+          },'⎘ '+(selectedMonth-1)+'월에서 복사'),
+          R('button',{
+            onClick:addItem,
+            style:{padding:'8px 16px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:800,fontSize:12,boxShadow:'0 2px 8px rgba(217,79,30,0.3)'}
+          },'+ 항목 추가')
         )
       ),
 
+      /* 입력 영역 */
       monthItems.length===0
-        ? R('div',{style:{textAlign:'center',padding:'30px 0',color:'var(--tm)'}},
-            R('div',{style:{fontSize:24,marginBottom:8}},'💸'),
-            R('div',{style:{fontWeight:700,marginBottom:4,color:'#1A1A1A'}},selectedMonth+'월 항목이 없습니다'),
-            R('div',{style:{fontSize:11}},'"+ 항목 추가" 또는 "이전 월에서 복사"로 시작하세요')
+        ? R('div',{style:{padding:'40px 20px',textAlign:'center',color:'var(--tm)'}},
+            R('div',{style:{fontSize:32,marginBottom:10}},'💸'),
+            R('div',{style:{fontSize:14,fontWeight:700,color:'#1A1A1A',marginBottom:4}},selectedMonth+'월 고정비 항목이 없습니다'),
+            R('div',{style:{fontSize:12,marginBottom:14}},'위 "+ 항목 추가" 버튼을 눌러 시작하세요'),
+            R('button',{onClick:addItem,style:{padding:'10px 24px',background:'var(--p)',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontWeight:800,fontSize:13}},'+ 첫 항목 추가하기')
           )
-        : R('div',{style:{overflowX:'auto'}},R('table',{style:{minWidth:600}},
-            R('thead',null,R('tr',null,
-              R('th',{style:{width:100}},'카테고리'),
-              R('th',null,'항목명'),
-              R('th',{style:{textAlign:'right',width:140}},'금액 (원)'),
-              R('th',null,'메모'),
-              R('th',{style:{width:36}})
-            )),
-            R('tbody',null,...monthItems.map(item=>R(FixedCostRow,{
-              key:item.id,
-              item:item,
-              CATS:CATS,
-              onUpdate:updateItem,
-              onDelete:deleteItem
-            })))
-          )),
-
-      monthItems.length>0&&R('div',{style:{marginTop:12,padding:'10px 14px',background:'#FFF8F4',borderRadius:8,display:'flex',alignItems:'center',gap:12,justifyContent:'space-between'}},
-        R('div',{style:{fontSize:12,color:'#9A3412',fontWeight:700}},'💡 '+selectedMonth+'월 합계: ',R('span',{style:{fontSize:14,color:'var(--p)',fontWeight:900,marginLeft:4}},fN(currMonthTotal),'원')),
-        R('div',{style:{fontSize:10,color:'var(--tm)'}},monthItems.length,'개 항목 · 자동 저장됨')
-      )
-    ),
-
-    /* 연간 요약 카드 - 시각화 */
-    R('div',{className:'card'},
-      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:10,display:'flex',justifyContent:'space-between',alignItems:'center'}},
-        R('span',null,'📊 '+year+'년 월별 고정비 현황'),
-        R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:500}},'연간 ',fN(yearTotal),'원')
-      ),
-      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(80px, 1fr))',gap:8}},
-        ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
-          const amt=monthTotals[m]||0;
-          const hasData=amt>0;
-          const isCurr=m===selectedMonth;
-          return R('div',{key:m,onClick:()=>setSelectedMonth(m),style:{textAlign:'center',padding:'10px 8px',background:isCurr?'#FFE5DA':(hasData?'#F0FDF4':'#F9FAFB'),border:'1px solid '+(isCurr?'var(--p)':(hasData?'#86EFAC':'var(--bd)')),borderRadius:10,cursor:'pointer',transition:'all 0.15s'}},
-            R('div',{style:{fontSize:11,fontWeight:700,marginBottom:4,color:isCurr?'var(--p)':'#1A1A1A'}},m+'월'),
-            R('div',{style:{fontSize:13,fontWeight:800,color:isCurr?'var(--p)':(hasData?'#15803D':'#ccc')}},hasData?fN(Math.round(amt/10000))+'만':'-')
-          );
-        })
-      )
+        : R('div',{style:{padding:'10px 12px'}},
+            /* 가계부 카드 리스트 */
+            R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+              ...monthItems.map(item=>R(FixedCostCard,{
+                key:item.id,
+                item:item,
+                CATS:CATS,
+                onUpdate:updateItem,
+                onDelete:deleteItem
+              }))
+            )
+          )
     )
   );
 }
@@ -2587,8 +2754,9 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   };
 
   const favMats=mats.filter(m=>favorites.includes(m.id));
-  const semiMatsData=semiItems.map(si=>{const m=mats.find(x=>x.id===si.id);return m?{...si,s:m.s}:{...si,s:0};});
-  const semiSearchResults=semiSearch?mats.filter(m=>m.n&&m.n.includes(semiSearch)&&!semiItems.find(x=>x.id===m.id)).slice(0,8):[];
+  /* 반제품 즐겨찾기: 분류가 '반제품'인 것만 표시 (잘못 등록된 완제품 자동 제외) */
+  const semiMatsData=semiItems.map(si=>{const m=mats.find(x=>x.id===si.id);return m?{...si,s:m.s,g:m.g}:null;}).filter(x=>x&&x.g==='반제품');
+  const semiSearchResults=semiSearch?mats.filter(m=>m.g==='반제품'&&m.n&&m.n.includes(semiSearch)&&!semiItems.find(x=>x.id===m.id)).slice(0,8):[];
 
   /* ERP 업로드 탭 */
   if(invTab==='erp'){
@@ -2624,165 +2792,42 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       )
     );
   }
-  /* 선택된 즐겨찾기 완제품 (BOM 연동 보기용) */
-  const[selectedFav,setSelectedFav]=useState(null);
-  const[showBomSearch,setShowBomSearch]=useState(false);
-  const[bomSearch,setBomSearch]=useState('');
-  
-  /* 선택된 완제품과 매칭되는 prods 찾기 (정확 일치 우선, 그 다음 정규화 매칭) */
-  const matchedProd=useMemo(()=>{
-    if(!selectedFav||!prods||prods.length===0)return null;
-    const norm=s=>String(s||'').replace(/\s+/g,'').toLowerCase();
-    /* 1순위: id 일치 */
-    let m=prods.find(p=>p.id===selectedFav.id);
-    if(m)return m;
-    /* 2순위: 이름 정확 일치 */
-    m=prods.find(p=>p.name===selectedFav.n);
-    if(m)return m;
-    /* 3순위: 공백/대소문자 무시 매칭 */
-    const target=norm(selectedFav.n);
-    m=prods.find(p=>norm(p.name)===target);
-    return m||null;
-  },[selectedFav,prods]);
-  
-  /* 선택된 완제품의 BOM에 포함된 반제품 자동 추출 */
-  const linkedSemis=useMemo(()=>{
-    if(!matchedProd||!matchedProd.bom||matchedProd.bom.length===0)return [];
-    /* BOM에 포함된 재료 중 '반제품' 카테고리만 추출 */
-    const semiCodes=matchedProd.bom.map(b=>b.c);
-    return mats.filter(m=>semiCodes.includes(m.c)&&m.g==='반제품').map(m=>{
-      const bomItem=matchedProd.bom.find(b=>b.c===m.c);
-      return{...m,requiredAmt:bomItem?bomItem.amt:0};
-    });
-  },[matchedProd,mats]);
-  
-  /* BOM 추가/제거 함수 */
-  const addToBom=(mat,amt=1)=>{
-    if(!matchedProd||!onSetProds)return;
-    if(matchedProd.bom.find(b=>b.c===mat.c)){alert('이미 BOM에 등록된 항목입니다.');return;}
-    onSetProds(prev=>prev.map(p=>{
-      if(p.id!==matchedProd.id)return p;
-      return{...p,bom:[...(p.bom||[]),{c:mat.c,name:mat.n,unit:mat.u,g:mat.g,supplier:mat.supplier||'',contact:mat.contact||'',lead:mat.lead||3,amt:amt}]};
-    }));
-  };
-  const removeFromBom=(matC)=>{
-    if(!matchedProd||!onSetProds)return;
-    if(!confirm('이 BOM 항목을 삭제할까요?'))return;
-    onSetProds(prev=>prev.map(p=>{
-      if(p.id!==matchedProd.id)return p;
-      return{...p,bom:(p.bom||[]).filter(b=>b.c!==matC)};
-    }));
-  };
-  const updateBomAmt=(matC,newAmt)=>{
-    if(!matchedProd||!onSetProds)return;
-    onSetProds(prev=>prev.map(p=>{
-      if(p.id!==matchedProd.id)return p;
-      return{...p,bom:(p.bom||[]).map(b=>b.c===matC?{...b,amt:+newAmt||0}:b)};
-    }));
-  };
-  
-  /* BOM 추가 검색 결과 (반제품 + 원재료 등 모두 가능) */
-  const bomSearchResults=useMemo(()=>{
-    if(!bomSearch||!matchedProd)return [];
-    const inBom=new Set((matchedProd.bom||[]).map(b=>b.c));
-    return mats.filter(m=>!inBom.has(m.c)&&(m.n.toLowerCase().includes(bomSearch.toLowerCase())||m.c.includes(bomSearch))).slice(0,10);
-  },[bomSearch,matchedProd,mats]);
-  
-  /* 완제품/반제품 현황 섹션 */
-  const getFavSection=()=>{return favMats.length>0||semiMatsData.length>0?R('div',{style:{marginBottom:14}},
-    R('div',{style:{display:'grid',gridTemplateColumns:semiMatsData.length>0||showSemiSearch||linkedSemis.length>0?'1fr 1fr':'1fr',gap:12}},
-      /* 완제품 재고 현황 */
-      favMats.length>0&&R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
+  /* 완제품/반제품 현황 섹션 - BOM 연동 없이 독립적 운영 */
+  const getFavSection=()=>{return favMats.length>0||semiMatsData.length>0||showSemiSearch?R('div',{style:{marginBottom:14}},
+    R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+      /* ═══ 좌측: 완제품 재고 현황 (독립) ═══ */
+      R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
         R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between'}},
           R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)'}},'⭐ 완제품 재고 현황'),
-          R('div',{style:{fontSize:10,color:'var(--tm)'}},
-            selectedFav?R('span',{style:{color:'var(--p)',fontWeight:700}},'🔗 '+selectedFav.n.substring(0,12)+(selectedFav.n.length>12?'...':''),' ',R('button',{onClick:()=>setSelectedFav(null),style:{background:'none',border:'none',cursor:'pointer',color:'#999',marginLeft:4,fontSize:11}},'✕')):favMats.length+'종 (클릭해 BOM 보기)')
+          R('div',{style:{fontSize:10,color:'var(--tm)'}},favMats.length+'종')
         ),
-        R('table',{style:{width:'100%',fontSize:11}},
-          R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
-          R('tbody',null,...favMats.map(m=>{
-            const isSel=selectedFav&&selectedFav.id===m.id;
-            return R('tr',{key:m.id,onClick:()=>setSelectedFav(isSel?null:m),style:{cursor:'pointer',background:isSel?'#FFE5DA':'transparent',transition:'background 0.15s'}},
-              R('td',{style:{padding:'6px 10px',fontWeight:isSel?800:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSel?'var(--p)':'#1A1A1A'}},isSel?'▶ ':'',m.n),
-              R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,' ',m.u),
-              R('td',null,R('button',{onClick:e=>{e.stopPropagation();toggleFav(m.id);if(isSel)setSelectedFav(null);},style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024'}},'⭐'))
-            );
-          }))
-        )
+        favMats.length===0
+          ? R('div',{style:{padding:'20px 14px',textAlign:'center',color:'var(--tm)',fontSize:11}},
+              R('div',null,'⭐ 표시한 완제품이 없습니다'),
+              R('div',{style:{fontSize:10,marginTop:4,color:'#9CA3AF'}},'아래 재고 목록에서 ☆ 클릭하여 즐겨찾기 등록')
+            )
+          : R('table',{style:{width:'100%',fontSize:11}},
+              R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
+              R('tbody',null,...favMats.map(m=>R('tr',{key:m.id},
+                R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),
+                R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,' ',m.u),
+                R('td',null,R('button',{onClick:()=>toggleFav(m.id),title:'즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024'}},'⭐'))
+              )))
+            )
       ),
-      /* 반제품 재고 현황 */
+      /* ═══ 우측: 반제품 재고 현황 (독립) ═══ */
       R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
         R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between'}},
-          R('div',{style:{fontSize:12,fontWeight:700,color:'#7C3AED'}},
-            selectedFav&&matchedProd?'🔗 '+selectedFav.n.substring(0,10)+(selectedFav.n.length>10?'...':'')+' BOM 관리':'🔧 반제품 재고 현황'
-          ),
-          R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),style:{background:'#7C3AED',color:'#fff',border:'none',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:11,fontWeight:700}},showSemiSearch?'완료':'+')
+          R('div',{style:{fontSize:12,fontWeight:700,color:'#7C3AED'}},'🔧 반제품 재고 현황 ',R('span',{style:{fontSize:10,color:'#9CA3AF',fontWeight:500}},'('+semiMatsData.length+'종)')),
+          R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),style:{background:showSemiSearch?'#9CA3AF':'#7C3AED',color:'#fff',border:'none',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontSize:11,fontWeight:700}},showSemiSearch?'✕ 닫기':'+ 추가')
         ),
-        /* === BOM 관리 모드 (선택된 완제품 있을 때) === */
-        selectedFav&&matchedProd&&R('div',{style:{padding:'8px 12px',background:'#F5F3FF',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
-          R('span',{style:{fontSize:10,color:'#7C3AED',fontWeight:600}},'🔗 ',selectedFav.n,' 의 BOM'),
-          R('span',{style:{marginLeft:'auto',background:'#7C3AED',color:'#fff',padding:'1px 6px',borderRadius:8,fontWeight:700,fontSize:10}},linkedSemis.length+'/'+(matchedProd.bom||[]).length),
-          isAdmin&&R('button',{onClick:()=>setShowBomSearch(!showBomSearch),style:{background:'#22C55E',color:'#fff',border:'none',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:10,fontWeight:700}},showBomSearch?'✕ 닫기':'+ BOM 추가')
-        ),
-        /* === 진단 메시지 (선택했지만 매칭 안 됨) === */
-        selectedFav&&!matchedProd&&R('div',{style:{padding:'14px',background:'#FEF3C7',borderBottom:'1px solid #FDE68A',fontSize:11,color:'#92400E'}},
-          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠️ 이 완제품과 매칭되는 BOM이 없습니다'),
-          R('div',{style:{fontSize:10,lineHeight:1.5}},
-            '완제품 "',R('b',null,selectedFav.n),'"이 [제품/BOM] 페이지에 등록되어 있지 않거나, 이름이 다릅니다.',R('br'),
-            '👉 [제품/BOM] 페이지에서 동일한 이름으로 제품을 등록한 후 BOM을 설정해주세요.'
-          )
-        ),
-        /* === BOM 추가 검색 패널 === */
-        showBomSearch&&matchedProd&&R('div',{style:{padding:'8px 12px',background:'#F0FDF4',borderBottom:'1px solid var(--bd)'}},
-          R('div',{style:{fontSize:10,color:'#15803D',marginBottom:4,fontWeight:600}},'➕ 이 완제품의 BOM에 추가할 항목 검색'),
-          R('input',{className:'inp',value:bomSearch,onChange:e=>setBomSearch(e.target.value),placeholder:'반제품/원재료명 검색...',style:{width:'100%',fontSize:11},autoFocus:true}),
-          bomSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:160,overflow:'auto'}},
-            ...bomSearchResults.map(m=>R('div',{key:m.id,onClick:()=>{addToBom(m,1);setBomSearch('');},style:{padding:'7px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff',display:'flex',alignItems:'center',gap:6},
-              onMouseEnter:e=>e.currentTarget.style.background='#F0FDF4',
-              onMouseLeave:e=>e.currentTarget.style.background='#fff'
-            },R('span',{style:{background:m.g==='반제품'?'#7C3AED':'#6B7280',color:'#fff',padding:'1px 5px',borderRadius:3,fontSize:9,fontWeight:700}},m.g),R('span',{style:{flex:1}},m.n),R('span',{style:{color:'#15803D',fontWeight:700,fontSize:10}},'+ 추가')))
-          ),
-          bomSearch&&bomSearchResults.length===0&&R('div',{style:{padding:'6px',fontSize:11,color:'var(--tm)'}},'결과 없음 또는 이미 BOM에 등록됨')
-        ),
-        /* === BOM 반제품 목록 (편집 가능) === */
-        selectedFav&&matchedProd&&matchedProd.bom&&matchedProd.bom.length>0&&R('table',{style:{width:'100%',fontSize:11,marginBottom:semiMatsData.length>0||showSemiSearch?6:0}},
-          R('thead',null,R('tr',{style:{background:'#FAF7FF'}},
-            R('th',{style:{padding:'5px 10px',textAlign:'left'}},'항목'),
-            R('th',{style:{padding:'5px 10px',textAlign:'right',width:62}},'재고'),
-            R('th',{style:{padding:'5px 10px',textAlign:'right',width:72,fontSize:9,color:'#9CA3AF'}},'필요량'),
-            isAdmin&&R('th',{style:{width:26}})
-          )),
-          R('tbody',null,...matchedProd.bom.map(bomItem=>{
-            const m=mats.find(x=>x.c===bomItem.c);
-            const isSemi=m&&m.g==='반제품';
-            return R('tr',{key:bomItem.c,style:{background:isSemi?'transparent':'#FAFAFA'}},
-              R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
-                R('span',{style:{background:isSemi?'#7C3AED':'#9CA3AF',color:'#fff',padding:'1px 4px',borderRadius:3,fontSize:8,fontWeight:700,marginRight:4}},bomItem.g||'-'),
-                bomItem.name||(m?m.n:'(삭제됨)')
-              ),
-              R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m?(m.s<=0?'#EF4444':isSemi?'#7C3AED':'#6B7280'):'#ccc'}},m?(m.s+' '+m.u):'-'),
-              R('td',{style:{padding:'2px 10px',textAlign:'right'}},
-                isAdmin
-                  ? R('input',{type:'number',value:bomItem.amt||0,onChange:e=>updateBomAmt(bomItem.c,e.target.value),style:{width:60,textAlign:'right',border:'1px solid var(--bd)',borderRadius:4,padding:'2px 4px',fontSize:11}})
-                  : R('span',{style:{fontSize:10,color:'#7C3AED',fontWeight:600}},bomItem.amt+' '+bomItem.unit)
-              ),
-              isAdmin&&R('td',{style:{padding:'2px',textAlign:'center'}},R('button',{onClick:()=>removeFromBom(bomItem.c),title:'BOM에서 제거',style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:13,padding:'2px 4px'}},'✕'))
-            );
-          }))
-        ),
-        selectedFav&&matchedProd&&(!matchedProd.bom||matchedProd.bom.length===0)&&R('div',{style:{padding:'14px',textAlign:'center',color:'var(--tm)',fontSize:11}},
-          R('div',null,'⚠️ 이 완제품의 BOM이 비어있습니다'),
-          R('div',{style:{fontSize:10,marginTop:4}},'위 "+ BOM 추가" 버튼으로 항목을 등록하세요')
-        ),
-        /* 구분선 */
-        selectedFav&&(semiMatsData.length>0||showSemiSearch)&&R('div',{style:{height:8,background:'#FAFAFA',borderTop:'1px solid var(--bd)',borderBottom:'1px solid var(--bd)'}}),
         /* 검색 패널 - 연속 추가 가능 */
         showSemiSearch&&R('div',{style:{padding:'8px 10px',borderBottom:'1px solid var(--bd)',background:'#FAFAFA'}},
           R('div',{style:{fontSize:10,color:'#7C3AED',marginBottom:4,fontWeight:600,display:'flex',alignItems:'center',gap:6}},
-            R('span',null,'💡 검색 결과를 클릭하면 ⭐로 등록 (연속 선택 가능)'),
+            R('span',null,'💡 검색 결과 클릭으로 연속 추가'),
             semiMatsData.length>0&&R('span',{style:{marginLeft:'auto',background:'#7C3AED',color:'#fff',padding:'2px 8px',borderRadius:10,fontWeight:700}},'+ '+semiMatsData.length+'개 등록됨')
           ),
-          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'품목명 검색 후 클릭하여 연속 등록...',style:{width:'100%',fontSize:11},autoFocus:true}),
+          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'반제품명 검색...',style:{width:'100%',fontSize:11},autoFocus:true}),
           semiSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:160,overflow:'auto'}},
             ...semiSearchResults.map(m=>R('div',{key:m.id,onClick:()=>addSemi(m),style:{padding:'8px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff',display:'flex',alignItems:'center',gap:6,transition:'all 0.15s'},
               onMouseEnter:e=>{e.currentTarget.style.background='#F3F0FF';e.currentTarget.style.paddingLeft='14px';},
@@ -2791,19 +2836,20 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
           ),
           semiSearch&&semiSearchResults.length===0&&R('div',{style:{padding:'8px',fontSize:11,color:'var(--tm)'}},'결과 없음')
         ),
-        /* 수동 추가 반제품 목록 */
-        !selectedFav&&semiMatsData.length===0&&!showSemiSearch?R('div',{style:{padding:'20px 14px',textAlign:'center',color:'var(--tm)',fontSize:11}},R('div',null,'+ 버튼으로 반제품을 추가하거나'),R('div',{style:{marginTop:4}},'완제품을 클릭해 BOM 반제품 보기')):null,
-        semiMatsData.length>0&&R('div',null,
-          !selectedFav&&R('div',{style:{padding:'4px 10px',background:'#FAFAFA',fontSize:10,color:'#9CA3AF',borderBottom:'1px solid var(--bd)'}},'📌 즐겨찾기한 반제품 ('+semiMatsData.length+'종)'),
-          R('table',{style:{width:'100%',fontSize:11}},
-            R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
-            R('tbody',null,...semiMatsData.map(m=>R('tr',{key:m.id},
-              R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),
-              R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'#7C3AED'}},m.s,' ',m.u),
-              R('td',null,R('button',{onClick:()=>removeSemi(m.id),style:{background:'none',border:'none',cursor:'pointer',fontSize:12,padding:'2px 4px',color:'#FCA5A5'}},'✕'))
-            )))
-          )
-        )
+        /* 등록된 반제품 목록 */
+        semiMatsData.length===0&&!showSemiSearch
+          ? R('div',{style:{padding:'20px 14px',textAlign:'center',color:'var(--tm)',fontSize:11}},
+              R('div',null,'🔧 즐겨찾기한 반제품이 없습니다'),
+              R('div',{style:{fontSize:10,marginTop:4,color:'#9CA3AF'}},'위 "+ 추가" 버튼으로 반제품을 등록하세요')
+            )
+          : semiMatsData.length>0&&R('table',{style:{width:'100%',fontSize:11}},
+              R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'반제품'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
+              R('tbody',null,...semiMatsData.map(m=>R('tr',{key:m.id},
+                R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),
+                R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'#7C3AED'}},m.s,' ',m.u),
+                R('td',null,R('button',{onClick:()=>removeSemi(m.id),title:'반제품 즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:12,padding:'2px 4px',color:'#FCA5A5'}},'✕'))
+              )))
+            )
       )
     )
   ):null;};
