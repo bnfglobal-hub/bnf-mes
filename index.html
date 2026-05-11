@@ -986,8 +986,8 @@ function PageLeave({user}){
 function PageFixedCosts({user,variant='adm'}){
   const CATS=['임대료','인건비','감가상각','보험료','통신비','공과금','리스료','기타'];
   const[year,setYear]=useState(new Date().getFullYear());
-  const[baseItems,setBaseItems]=useState([]); /* 기준 고정비 항목 (1개월치) */
-  const[allItems,setAllItems]=useState([]);   /* 전체 (year 기준) */
+  const[allItems,setAllItems]=useState([]);   /* 전체 (year 기준, 모든 월) */
+  const[selectedMonth,setSelectedMonth]=useState(new Date().getMonth()+1);  /* 현재 보고 있는 월 */
   const[loading,setLoading]=useState(true);
   const[saving,setSaving]=useState(false);
   const saveTimers=useRef({});
@@ -998,14 +998,14 @@ function PageFixedCosts({user,variant='adm'}){
     const{data}=await q.order('month').order('created_at').then(r=>r).catch(()=>({data:[]}));
     const all=(data||[]).filter(i=>!i.source||i.source===variant||(!i.source&&variant==='adm'));
     setAllItems(all);
-    /* 기준 = 1월 데이터 (또는 최초 데이터) */
-    const m1=all.filter(i=>+i.month===1);
-    setBaseItems(m1.length?m1:all.filter((v,i,arr)=>arr.findIndex(x=>x.category===v.category&&x.item_name===v.item_name)===i));
     setLoading(false);
   };
   useEffect(()=>{load();},[year]);
+  
+  /* 현재 선택된 월의 항목들 */
+  const monthItems=useMemo(()=>allItems.filter(i=>+i.month===selectedMonth),[allItems,selectedMonth]);
 
-  /* 월 합계 */
+  /* 월 합계들 */
   const monthTotals=useMemo(()=>{
     const m={};
     for(let i=1;i<=12;i++){
@@ -1013,62 +1013,57 @@ function PageFixedCosts({user,variant='adm'}){
     }
     return m;
   },[allItems]);
-  const monthTotal=baseItems.reduce((s,i)=>s+(+i.amount||0),0);
+  const currMonthTotal=monthTotals[selectedMonth]||0;
   const yearTotal=Object.values(monthTotals).reduce((a,b)=>a+b,0);
 
-  /* 항목 추가 */
+  /* 항목 추가 (선택된 월에 추가) */
   const addItem=async()=>{
-    const newBase={year,month:1,category:'기타',item_name:'새 항목',amount:0,memo:'',source:variant};
-    const{data,error}=await sbClient.from('fixed_costs').insert(newBase).select().single();
-    if(!error&&data)setBaseItems(p=>[...p,data]);
+    const newItem={year,month:selectedMonth,category:'기타',item_name:'새 항목',amount:0,memo:'',source:variant};
+    const{data,error}=await sbClient.from('fixed_costs').insert(newItem).select().single();
+    if(!error&&data)setAllItems(p=>[...p,data]);
+    else if(error)alert('추가 실패: '+error.message);
   };
 
-  /* 기준 항목 수정 (자동저장) */
-  const updateBase=async(id,field,val)=>{
-    setBaseItems(p=>p.map(i=>i.id===id?{...i,[field]:val}:i));
+  /* 항목 수정 (자동저장, 즉시 DB 반영) */
+  const updateItem=async(id,field,val)=>{
+    setAllItems(p=>p.map(i=>i.id===id?{...i,[field]:val}:i));
     const key=id+'_'+field;
     if(saveTimers.current[key])clearTimeout(saveTimers.current[key]);
     saveTimers.current[key]=setTimeout(async()=>{
       setSaving(true);
       const numVal=field==='amount'?(+String(val).replace(/[,\s]/g,'')||0):val;
-      await sbClient.from('fixed_costs').update({[field]:numVal}).eq('id',id);
+      const{error}=await sbClient.from('fixed_costs').update({[field]:numVal}).eq('id',id);
+      if(error)console.warn('저장 실패:',error);
       setSaving(false);
     },500);
   };
 
-  /* 기준 항목 삭제 */
-  const deleteBase=async(id)=>{
+  /* 항목 삭제 */
+  const deleteItem=async(id)=>{
     if(!confirm('이 항목을 삭제할까요?'))return;
-    await sbClient.from('fixed_costs').delete().eq('id',id);
-    setBaseItems(p=>p.filter(i=>i.id!==id));
-    await load();
+    const{error}=await sbClient.from('fixed_costs').delete().eq('id',id);
+    if(error){alert('삭제 실패: '+error.message);return;}
+    setAllItems(p=>p.filter(i=>i.id!==id));
   };
-
-  /* 전체 연간 적용: baseItems를 1~12월 전체에 동일하게 적용 */
-  const applyToYear=async()=>{
-    if(!confirm(year+'년 1월~12월 전체에 동일한 고정비를 적용합니다.\n기존 데이터는 모두 덮어씁니다. 계속할까요?'))return;
+  
+  /* 이전 월에서 항목 복사 (편의 기능) */
+  const copyFromPrevMonth=async()=>{
+    if(selectedMonth<=1){alert('1월은 이전 월이 없습니다.');return;}
+    const prevItems=allItems.filter(i=>+i.month===selectedMonth-1);
+    if(prevItems.length===0){alert((selectedMonth-1)+'월에 데이터가 없습니다.');return;}
+    if(!confirm((selectedMonth-1)+'월의 '+prevItems.length+'개 항목을 '+selectedMonth+'월로 복사할까요?\n현재 월에 이미 있는 동일 항목명은 덮어쓰지 않습니다.'))return;
     setSaving(true);
     try{
-      /* baseItems 내용 백업 (재삽입 후 id가 새로 발급되므로 내용만 보존) */
-      const itemsBackup=baseItems.map(item=>({
-        category:item.category,
-        item_name:item.item_name,
-        amount:+item.amount||0,
-        memo:item.memo||''
+      const existingNames=new Set(monthItems.map(i=>i.item_name));
+      const toCopy=prevItems.filter(i=>!existingNames.has(i.item_name)).map(i=>({
+        year,month:selectedMonth,
+        category:i.category,item_name:i.item_name,amount:+i.amount||0,memo:i.memo||'',source:variant
       }));
-      /* 해당 연도 모든 월 삭제 */
-      await sbClient.from('fixed_costs').delete().eq('year',year);
-      /* 1~12월에 동일 데이터 일괄 삽입 */
-      const rows=[];
-      for(let m=1;m<=12;m++){
-        itemsBackup.forEach(item=>{
-          rows.push({year,month:m,category:item.category,item_name:item.item_name,amount:item.amount,memo:item.memo,source:variant});
-        });
-      }
-      if(rows.length>0)await sbClient.from('fixed_costs').insert(rows);
-      await load();
-      const total=itemsBackup.reduce((s,i)=>s+(+i.amount||0),0);
-      alert('✅ '+year+'년 1월~12월 전체에 고정비가 적용되었습니다\n월 '+fN(total)+'원 × 12개월 = '+fN(total*12)+'원');
+      if(toCopy.length===0){alert('이미 같은 이름의 항목이 모두 존재합니다.');setSaving(false);return;}
+      const{data,error}=await sbClient.from('fixed_costs').insert(toCopy).select();
+      if(error){alert('복사 실패: '+error.message);setSaving(false);return;}
+      if(data)setAllItems(p=>[...p,...data]);
+      alert('✅ '+(data?data.length:toCopy.length)+'개 항목 복사 완료');
     }catch(e){alert('실패: '+(e.message||e));}
     setSaving(false);
   };
@@ -1079,7 +1074,7 @@ function PageFixedCosts({user,variant='adm'}){
     R('div',{className:'pg-hdr'},
       R('div',null,
         R('div',{className:'pg-title'},(variant==='hq'?'🏢':'⚙️')+'  고정비 관리'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'월 고정비 입력 → 1~12월 동일 적용 · 자동 저장',saving&&' · 저장 중...')
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'월별 고정비를 직접 입력 · 자동 저장',saving&&' · 💾 저장 중...')
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
         R('button',{className:'btn bs btn-sm',onClick:()=>setYear(year-1)},'◀'),
@@ -1088,84 +1083,100 @@ function PageFixedCosts({user,variant='adm'}){
       )
     ),
 
-    /* KPI */
+    /* KPI - 현재 월 + 연간 */
     R('div',{className:'g3',style:{marginBottom:14}},
       R('div',{className:'card'},
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},'월 고정비 (기준)'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'#6B7280',marginTop:4}},fN(monthTotal),'원'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},baseItems.length,'개 항목')
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},selectedMonth+'월 고정비'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'var(--p)',marginTop:4}},fN(currMonthTotal),'원'),
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},monthItems.length,'개 항목')
       ),
       R('div',{className:'card'},
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},'연간 총 고정비'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'var(--p)',marginTop:4}},fN(yearTotal),'원'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'실제 저장 기준')
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},year+'년 연간 총액'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED',marginTop:4}},fN(yearTotal),'원')
       ),
       R('div',{className:'card'},
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},'연간 예상 (월×12)'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED',marginTop:4}},fN(monthTotal*12),'원')
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},'월 평균'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#0EA5E9',marginTop:4}},fN(Math.round(yearTotal/12)),'원')
       )
     ),
 
-    /* 월 고정비 입력 섹션 */
+    /* 월 선택 탭 (1~12월) */
+    R('div',{className:'card',style:{padding:'10px 12px',marginBottom:12}},
+      R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8,fontWeight:600}},'📅 월 선택 (각 월을 클릭하여 입력)'),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(12,1fr)',gap:4}},
+        ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
+          const amt=monthTotals[m]||0;
+          const sel=m===selectedMonth;
+          return R('button',{key:m,onClick:()=>setSelectedMonth(m),
+            style:{padding:'8px 4px',background:sel?'var(--p)':(amt>0?'#F0FDF4':'#F9FAFB'),color:sel?'#fff':(amt>0?'#15803D':'#9CA3AF'),border:'1px solid '+(sel?'var(--p)':(amt>0?'#86EFAC':'var(--bd)')),borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:11,display:'flex',flexDirection:'column',gap:2}
+          },
+            R('span',null,m+'월'),
+            R('span',{style:{fontSize:9,fontWeight:600,opacity:0.85}},amt>0?fN(Math.round(amt/10000))+'만':'-')
+          );
+        })
+      )
+    ),
+
+    /* 선택된 월 항목 편집 영역 */
     R('div',{className:'card',style:{marginBottom:14}},
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}},
         R('div',null,
-          R('div',{style:{fontSize:13,fontWeight:700}},'📋 월 고정비 항목'),
-          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'매월 동일하게 적용됩니다. 수정 후 "연간 적용" 버튼을 누르세요.')
+          R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📝 '+year+'년 '+selectedMonth+'월 고정비 항목'),
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'각 항목을 입력하면 자동 저장됩니다. 다른 월에 영향 없음.')
         ),
         R('div',{style:{display:'flex',gap:6}},
-          R('button',{className:'btn bp btn-sm',onClick:addItem},'+ 항목 추가'),
-          R('button',{
-            onClick:applyToYear,
-            disabled:saving||baseItems.length===0,
-            style:{padding:'6px 14px',background:'#22C55E',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:12}
-          },saving?'적용 중...':'📅 '+year+'년 1~12월 전체 적용')
+          selectedMonth>1&&R('button',{className:'btn bs btn-sm',onClick:copyFromPrevMonth,disabled:saving,title:(selectedMonth-1)+'월 항목을 이 월로 복사'},'⎘ '+(selectedMonth-1)+'월에서 복사'),
+          R('button',{className:'btn bp btn-sm',onClick:addItem},'+ 항목 추가')
         )
       ),
 
-      baseItems.length===0
+      monthItems.length===0
         ? R('div',{style:{textAlign:'center',padding:'30px 0',color:'var(--tm)'}},
-            R('div',{style:{fontSize:20,marginBottom:8}},'💸'),
-            '항목을 추가하고 "연간 적용" 버튼을 클릭하면',R('br'),
-            year+'년 전체에 동일 고정비가 적용됩니다'
+            R('div',{style:{fontSize:24,marginBottom:8}},'💸'),
+            R('div',{style:{fontWeight:700,marginBottom:4,color:'#1A1A1A'}},selectedMonth+'월 항목이 없습니다'),
+            R('div',{style:{fontSize:11}},'"+ 항목 추가" 또는 "이전 월에서 복사"로 시작하세요')
           )
-        : R('table',null,
+        : R('div',{style:{overflowX:'auto'}},R('table',{style:{minWidth:600}},
             R('thead',null,R('tr',null,
               R('th',{style:{width:100}},'카테고리'),
               R('th',null,'항목명'),
-              R('th',{style:{textAlign:'right',width:130}},'금액 (원/월)'),
+              R('th',{style:{textAlign:'right',width:140}},'금액 (원)'),
               R('th',null,'메모'),
               R('th',{style:{width:36}})
             )),
-            R('tbody',null,...baseItems.map(item=>R('tr',{key:item.id},
+            R('tbody',null,...monthItems.map(item=>R('tr',{key:item.id},
               R('td',null,
-                R('select',{value:item.category,onChange:e=>updateBase(item.id,'category',e.target.value),style:{width:'100%',border:'1px solid var(--bd)',borderRadius:4,padding:'4px 6px',fontSize:11,background:'#fff'}},
+                R('select',{value:item.category||'기타',onChange:e=>updateItem(item.id,'category',e.target.value),style:{width:'100%',border:'1px solid var(--bd)',borderRadius:6,padding:'6px 8px',fontSize:12,background:'#fff'}},
                   ...CATS.map(c=>R('option',{key:c,value:c},c))
                 )
               ),
-              R('td',null,R('input',{value:item.item_name||'',onChange:e=>updateBase(item.id,'item_name',e.target.value),className:'inp',style:{width:'100%',fontSize:12}})),
-              R('td',{style:{textAlign:'right'}},R('input',{type:'number',value:item.amount||0,onChange:e=>updateBase(item.id,'amount',e.target.value),className:'inp',style:{width:'100%',textAlign:'right',fontSize:13,fontWeight:700,color:'var(--p)'}})),
-              R('td',null,R('input',{value:item.memo||'',onChange:e=>updateBase(item.id,'memo',e.target.value),placeholder:'메모',className:'inp',style:{width:'100%',fontSize:11}})),
-              R('td',null,R('button',{onClick:()=>deleteBase(item.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:14,padding:'2px 6px'}},'✕'))
+              R('td',null,R('input',{value:item.item_name||'',onChange:e=>updateItem(item.id,'item_name',e.target.value),className:'inp',style:{width:'100%',fontSize:12}})),
+              R('td',{style:{textAlign:'right'}},R('input',{type:'number',value:item.amount||0,onChange:e=>updateItem(item.id,'amount',e.target.value),className:'inp',style:{width:'100%',textAlign:'right',fontSize:13,fontWeight:700,color:'var(--p)'}})),
+              R('td',null,R('input',{value:item.memo||'',onChange:e=>updateItem(item.id,'memo',e.target.value),placeholder:'메모',className:'inp',style:{width:'100%',fontSize:11}})),
+              R('td',null,R('button',{onClick:()=>deleteItem(item.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:14,padding:'2px 6px'},title:'이 항목 삭제'},'✕'))
             )))
-          ),
+          )),
 
-      baseItems.length>0&&R('div',{style:{marginTop:12,padding:'10px 14px',background:'#F0FDF4',borderRadius:8,display:'flex',alignItems:'center',gap:12}},
-        R('div',{style:{fontSize:12,color:'#15803D',fontWeight:700}},'💡 합계: 월 ',fN(monthTotal),'원 × 12개월 = ',fN(monthTotal*12),'원'),
-        R('div',{style:{fontSize:10,color:'var(--tm)'}})
+      monthItems.length>0&&R('div',{style:{marginTop:12,padding:'10px 14px',background:'#FFF8F4',borderRadius:8,display:'flex',alignItems:'center',gap:12,justifyContent:'space-between'}},
+        R('div',{style:{fontSize:12,color:'#9A3412',fontWeight:700}},'💡 '+selectedMonth+'월 합계: ',R('span',{style:{fontSize:14,color:'var(--p)',fontWeight:900,marginLeft:4}},fN(currMonthTotal),'원')),
+        R('div',{style:{fontSize:10,color:'var(--tm)'}},monthItems.length,'개 항목 · 자동 저장됨')
       )
     ),
 
-    /* 월별 확인 테이블 */
+    /* 연간 요약 카드 - 시각화 */
     R('div',{className:'card'},
-      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:10}},'📅 '+year+'년 월별 고정비 현황'),
-      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}},
+      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:10,display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('span',null,'📊 '+year+'년 월별 고정비 현황'),
+        R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:500}},'연간 ',fN(yearTotal),'원')
+      ),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(80px, 1fr))',gap:8}},
         ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
           const amt=monthTotals[m]||0;
           const hasData=amt>0;
-          return R('div',{key:m,style:{textAlign:'center',padding:'10px 8px',background:hasData?'#F0FDF4':'#F9F9F9',border:'1px solid '+(hasData?'#86EFAC':'var(--bd)'),borderRadius:8}},
-            R('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},m+'월'),
-            R('div',{style:{fontSize:13,fontWeight:800,color:hasData?'#15803D':'#ccc'}},hasData?fN(Math.round(amt/10000))+'만':'-')
+          const isCurr=m===selectedMonth;
+          return R('div',{key:m,onClick:()=>setSelectedMonth(m),style:{textAlign:'center',padding:'10px 8px',background:isCurr?'#FFE5DA':(hasData?'#F0FDF4':'#F9FAFB'),border:'1px solid '+(isCurr?'var(--p)':(hasData?'#86EFAC':'var(--bd)')),borderRadius:10,cursor:'pointer',transition:'all 0.15s'}},
+            R('div',{style:{fontSize:11,fontWeight:700,marginBottom:4,color:isCurr?'var(--p)':'#1A1A1A'}},m+'월'),
+            R('div',{style:{fontSize:13,fontWeight:800,color:isCurr?'var(--p)':(hasData?'#15803D':'#ccc')}},hasData?fN(Math.round(amt/10000))+'만':'-')
           );
         })
       )
@@ -2402,6 +2413,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
 
 function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
   const[monthlySales,setMonthlySales]=useState({});
+  const[autoSupplier,setAutoSupplier]=useState({});  /* 코드별 매입처 (purchases에서) */
+  const[autoPrice,setAutoPrice]=useState({});         /* 코드별 매입단가 (purchases에서) */
+  const[autoMU,setAutoMU]=useState({});               /* 코드별 월사용량 (sales에서) */
   const[invTab,setInvTab]=useState('list');
   const[search,setSearch]=useState('');
   const[catF,setCatF]=useState('전체');
@@ -2411,6 +2425,51 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
+  
+  /* ── 매출/매입 DB로부터 자동 데이터 로드 ── */
+  useEffect(()=>{
+    (async()=>{
+      try{
+        /* 매출 데이터: 최근 30일 합산 → 월사용량 */
+        const since30=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+        const{data:salesRows}=await sbClient.from('sales').select('product_code,product_name,quantity').gte('sale_date',since30);
+        const muMap={};
+        (salesRows||[]).forEach(r=>{
+          const key=(r.product_code||r.product_name||'').trim();
+          if(!key)return;
+          muMap[key]=(muMap[key]||0)+(parseFloat(r.quantity)||0);
+        });
+        setAutoMU(muMap);
+        
+        /* 매입 데이터: 최근 90일 → 매입처 + 평균 매입단가 */
+        const since90=new Date(Date.now()-90*86400000).toISOString().slice(0,10);
+        const{data:purchaseRows}=await sbClient.from('purchases').select('item_code,item_name,supplier_name,unit_price,quantity,amount,purchase_date').gte('purchase_date',since90).order('purchase_date',{ascending:false});
+        const supMap={};
+        const priceMap={};
+        const tempPrice={};/* 코드별 가격 배열 */
+        (purchaseRows||[]).forEach(r=>{
+          const key=(r.item_code||r.item_name||'').trim();
+          if(!key)return;
+          /* 매입처 - 가장 최근 것 우선 (이미 desc 정렬) */
+          if(r.supplier_name&&!supMap[key])supMap[key]=r.supplier_name;
+          /* 매입단가 - 평균 계산 (amount/quantity 우선, 없으면 unit_price) */
+          let p=parseFloat(r.unit_price)||0;
+          if(!p&&r.amount&&r.quantity){p=parseFloat(r.amount)/parseFloat(r.quantity);}
+          if(p>0){
+            if(!tempPrice[key])tempPrice[key]=[];
+            tempPrice[key].push(p);
+          }
+        });
+        Object.keys(tempPrice).forEach(k=>{
+          const arr=tempPrice[k];
+          priceMap[k]=Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+        });
+        setAutoSupplier(supMap);
+        setAutoPrice(priceMap);
+      }catch(e){console.warn('자동 데이터 로드 실패:',e);}
+    })();
+  },[rk]);
+  
   /* ── DB 상태 ── */
   const[loading,setLoading]=useState(true);
   const[saveStatus,setSaveStatus]=useState('');
@@ -2615,15 +2674,22 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
           R('thead',null,
             R('tr',null,
               R('th',{style:{width:18}}),R('th',{style:{width:'20%'}},'품목명'),R('th',{style:{width:55}},'분류'),
-              R('th',{style:{width:68,textAlign:'right'}},'재고'),R('th',{style:{width:68,textAlign:'right'}},'월사용'),
-              R('th',{style:{width:48,textAlign:'center'}},'상태'),R('th',{style:{width:88}},'매입처'),
-              R('th',{style:{width:72,textAlign:'right'}},'매입단가'),R('th',{style:{width:40,textAlign:'center'}},'리드'),
+              R('th',{style:{width:68,textAlign:'right'}},'재고'),R('th',{style:{width:72,textAlign:'right'}},R('div',null,'월사용',R('div',{style:{fontSize:8,color:'#0EA5E9',fontWeight:600}},'📊 매출자동'))),
+              R('th',{style:{width:48,textAlign:'center'}},'상태'),R('th',{style:{width:92}},R('div',null,'매입처',R('div',{style:{fontSize:8,color:'#0EA5E9',fontWeight:600}},'📦 매입자동'))),
+              R('th',{style:{width:80,textAlign:'right'}},R('div',null,'매입단가',R('div',{style:{fontSize:8,color:'#0EA5E9',fontWeight:600}},'📦 평균자동'))),R('th',{style:{width:40,textAlign:'center'}},'리드'),
               isAdmin&&R('th',{style:{width:28}})
             )
           ),
           R('tbody',null,
             ...sorted.map(m=>{
-              const st=getSt(m.s,m.mu);
+              /* 자동 데이터(매출/매입 DB)와 수동 데이터 병합 — 자동이 있으면 우선 표시 */
+              const autoMuVal=autoMU[m.c]||autoMU[m.n]||0;
+              const autoSupVal=autoSupplier[m.c]||autoSupplier[m.n]||'';
+              const autoPriceVal=autoPrice[m.c]||autoPrice[m.n]||0;
+              const displayMu=autoMuVal>0?autoMuVal:(m.mu||0);
+              const displaySup=autoSupVal||m.supplier||'';
+              const displayPrice=autoPriceVal>0?autoPriceVal:(m.price||0);
+              const st=getSt(m.s,displayMu);
               return R('tr',{key:m.id+'_'+rk,className:st==='bad'?'dng':''},
                 R('td',{style:{color:'#cbd5e1',textAlign:'center',fontSize:14}},'⠿'),
                 R('td',null,R('div',{style:{display:'flex',alignItems:'center',gap:4}},isAdmin?R(EC,{rk:m.id+'n'+rk,initVal:m.n,onSave:v=>onUpd(m.id,'n',v),className:'ci',style:{fontWeight:500}}):R('span',{style:{fontSize:12,fontWeight:500}},m.n),R('button',{onClick:()=>toggleFav(m.id),title:favorites.includes(m.id)?'즐겨찾기 해제':'완제품 즐겨찾기',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'0 2px',color:favorites.includes(m.id)?'#FBB024':'#d1d5db',lineHeight:1}},favorites.includes(m.id)?'⭐':'☆'))),
@@ -2631,15 +2697,39 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
                 R('td',{style:{textAlign:'right',fontWeight:700,color:st==='bad'?'#dc2626':st==='warn'?'#d97706':'#D94F1E'}},
                   isAdmin?R(EC,{rk:m.id+'s'+rk,initVal:m.s,type:'number',onSave:v=>onUpd(m.id,'s',+v),className:'ci',style:{fontWeight:700,color:'inherit',textAlign:'right'}}):m.s
                 ),
-                R('td',{style:{textAlign:'right'}},R(EC,{rk:m.id+'mu'+rk,initVal:m.mu||'',type:'number',onSave:v=>onUpd(m.id,'mu',+v),placeholder:'미설정',className:'ci',style:{color:'#64748b',textAlign:'right'}})),
+                /* 월사용량: 자동(매출 DB) > 수동 입력 */
+                R('td',{style:{textAlign:'right',background:autoMuVal>0?'#F0F9FF':'transparent'}},
+                  autoMuVal>0
+                    ? R('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end'}},
+                        R('span',{style:{fontWeight:700,color:'#0EA5E9',fontSize:12}},autoMuVal.toFixed(0)),
+                        R('span',{style:{fontSize:8,color:'#0EA5E9',fontWeight:600}},'📊 매출')
+                      )
+                    : R(EC,{rk:m.id+'mu'+rk,initVal:m.mu||'',type:'number',onSave:v=>onUpd(m.id,'mu',+v),placeholder:'미설정',className:'ci',style:{color:'#64748b',textAlign:'right'}})
+                ),
                 R('td',{style:{textAlign:'center'}},
                   st==='ok'?R('span',{className:'bdg',style:{background:'#dcfce7',color:'#15803d'}},'정상'):
                   st==='warn'?R('span',{className:'bdg',style:{background:'#fef9c3',color:'#a16207'}},'주의'):
                   st==='bad'?R('span',{className:'bdg',style:{background:'#fee2e2',color:'#dc2626'}},'부족'):
                   R('span',{style:{fontSize:10,color:'#cbd5e1'}},'-')
                 ),
-                R('td',null,isAdmin?R(EC,{rk:m.id+'sp'+rk,initVal:m.supplier||'',onSave:v=>onUpd(m.id,'supplier',v),placeholder:'매입처',className:'ci'}):R('span',{style:{fontSize:11,color:'#64748b'}},m.supplier||'-')),
-                R('td',{style:{textAlign:'right'}},isAdmin?R(EC,{rk:m.id+'pr'+rk,initVal:m.price||0,type:'number',onSave:v=>onUpd(m.id,'price',+v),className:'ci',style:{textAlign:'right',color:'#475569'}}):R('span',{style:{fontSize:11,color:'#475569'}},m.price?fN(m.price):'-')),
+                /* 매입처: 자동(매입 DB) > 수동 입력 */
+                R('td',{style:{background:autoSupVal?'#F0F9FF':'transparent'}},
+                  autoSupVal
+                    ? R('div',{style:{display:'flex',flexDirection:'column'}},
+                        R('span',{style:{fontWeight:600,color:'#0EA5E9',fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:80}},autoSupVal),
+                        R('span',{style:{fontSize:8,color:'#0EA5E9',fontWeight:600}},'📦 매입')
+                      )
+                    : (isAdmin?R(EC,{rk:m.id+'sp'+rk,initVal:m.supplier||'',onSave:v=>onUpd(m.id,'supplier',v),placeholder:'매입처',className:'ci'}):R('span',{style:{fontSize:11,color:'#64748b'}},m.supplier||'-'))
+                ),
+                /* 매입단가: 자동(매입 DB) > 수동 입력 */
+                R('td',{style:{textAlign:'right',background:autoPriceVal>0?'#F0F9FF':'transparent'}},
+                  autoPriceVal>0
+                    ? R('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end'}},
+                        R('span',{style:{fontWeight:700,color:'#0EA5E9',fontSize:11}},fN(autoPriceVal)),
+                        R('span',{style:{fontSize:8,color:'#0EA5E9',fontWeight:600}},'📦 평균')
+                      )
+                    : (isAdmin?R(EC,{rk:m.id+'pr'+rk,initVal:m.price||0,type:'number',onSave:v=>onUpd(m.id,'price',+v),className:'ci',style:{textAlign:'right',color:'#475569'}}):R('span',{style:{fontSize:11,color:'#475569'}},m.price?fN(m.price):'-'))
+                ),
                 R('td',{style:{textAlign:'center'}},isAdmin?R(EC,{rk:m.id+'ld'+rk,initVal:m.lead||3,type:'number',onSave:v=>onUpd(m.id,'lead',+v),className:'ci',style:{textAlign:'center'}}):R('span',{style:{fontSize:11,color:'#94a3b8'}},(m.lead||3)+'일')),
                 isAdmin&&R('td',null,R('button',{onClick:()=>onDel(m.id),style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:13,padding:2}},'✕'))
               );
