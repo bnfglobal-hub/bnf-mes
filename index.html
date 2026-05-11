@@ -983,355 +983,280 @@ function PageLeave({user}){
 
 
 /* ═══ 고정비 카드 컴포넌트 (가계부 스타일) ═══════ */
-function FixedCostCard({item,CATS,onUpdate,onDelete}){
-  /* 로컬 상태 - 입력 끊김 방지 */
-  const[localName,setLocalName]=useState(item.item_name||'');
-  const[localAmt,setLocalAmt]=useState(String(item.amount||''));
-  const[localMemo,setLocalMemo]=useState(item.memo||'');
-  const[localCat,setLocalCat]=useState(item.category||'기타');
-  
-  /* item.id가 바뀔 때만 동기화 */
-  useEffect(()=>{
-    setLocalName(item.item_name||'');
-    setLocalAmt(String(item.amount||''));
-    setLocalMemo(item.memo||'');
-    setLocalCat(item.category||'기타');
-  },[item.id]);
-  
-  /* 카테고리별 색상 */
-  const catColors={
-    '임대료':{bg:'#FEF3C7',text:'#92400E',border:'#FDE68A'},
-    '인건비':{bg:'#DBEAFE',text:'#1E40AF',border:'#BFDBFE'},
-    '감가상각':{bg:'#E0E7FF',text:'#3730A3',border:'#C7D2FE'},
-    '보험료':{bg:'#FCE7F3',text:'#9F1239',border:'#FBCFE8'},
-    '통신비':{bg:'#D1FAE5',text:'#065F46',border:'#A7F3D0'},
-    '공과금':{bg:'#FED7AA',text:'#9A3412',border:'#FDBA74'},
-    '리스료':{bg:'#E9D5FF',text:'#6B21A8',border:'#D8B4FE'},
-    '기타':{bg:'#F3F4F6',text:'#4B5563',border:'#E5E7EB'}
-  };
-  const catColor=catColors[localCat]||catColors['기타'];
-  
-  /* 핸들러들 */
-  const handleName=(e)=>{
-    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
-    setLocalName(e.target.value);
-    onUpdate(item.id,'item_name',e.target.value);
-  };
-  const handleNameIME=(e)=>{
-    setLocalName(e.target.value);
-    onUpdate(item.id,'item_name',e.target.value);
-  };
-  const handleMemo=(e)=>{
-    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
-    setLocalMemo(e.target.value);
-    onUpdate(item.id,'memo',e.target.value);
-  };
-  const handleMemoIME=(e)=>{
-    setLocalMemo(e.target.value);
-    onUpdate(item.id,'memo',e.target.value);
-  };
-  const handleAmt=(e)=>{
-    setLocalAmt(e.target.value);
-    onUpdate(item.id,'amount',e.target.value);
-  };
-  const handleCat=(e)=>{
-    setLocalCat(e.target.value);
-    onUpdate(item.id,'category',e.target.value);
-  };
-  
-  return R('div',{
-    style:{
-      background:'#fff',
-      border:'1px solid #E5E7EB',
-      borderRadius:12,
-      padding:'12px 14px',
-      display:'grid',
-      gridTemplateColumns:'110px 1fr 180px 1fr 32px',
-      gap:10,
-      alignItems:'center',
-      transition:'all 0.15s',
-      boxShadow:'0 1px 2px rgba(0,0,0,0.03)'
-    },
-    onMouseEnter:e=>{e.currentTarget.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)';e.currentTarget.style.borderColor='#FED7AA';},
-    onMouseLeave:e=>{e.currentTarget.style.boxShadow='0 1px 2px rgba(0,0,0,0.03)';e.currentTarget.style.borderColor='#E5E7EB';}
-  },
-    /* 카테고리 (색상 뱃지 형태) */
-    R('select',{
-      value:localCat,
-      onChange:handleCat,
-      style:{
-        padding:'7px 8px',
-        border:'1.5px solid '+catColor.border,
-        background:catColor.bg,
-        color:catColor.text,
-        borderRadius:8,
-        fontSize:12,
-        fontWeight:700,
-        cursor:'pointer',
-        outline:'none'
-      }
-    },
-      ...CATS.map(c=>R('option',{key:c,value:c},c))
-    ),
-    /* 항목명 */
-    R('input',{
-      type:'text',
-      value:localName,
-      onChange:handleName,
-      onCompositionEnd:handleNameIME,
-      placeholder:'항목명 (예: 사무실 임대료)',
-      style:{
-        padding:'8px 10px',
-        border:'1px solid #E5E7EB',
-        borderRadius:8,
-        fontSize:13,
-        fontWeight:600,
-        outline:'none',
-        transition:'border-color 0.15s'
-      },
-      onFocus:e=>e.target.style.borderColor='var(--p)',
-      onBlur:e=>e.target.style.borderColor='#E5E7EB'
-    }),
-    /* 금액 - 큰 입력 */
-    R('div',{style:{position:'relative'}},
-      R('input',{
-        type:'number',
-        value:localAmt,
-        onChange:handleAmt,
-        onFocus:e=>{e.target.style.borderColor='var(--p)';e.target.style.background='#FFF8F4';if(e.target.value==='0')e.target.select();},
-        onBlur:e=>{e.target.style.borderColor='#FED7AA';e.target.style.background='#fff';},
-        placeholder:'0',
-        style:{
-          width:'100%',
-          padding:'10px 36px 10px 12px',
-          border:'1.5px solid #FED7AA',
-          borderRadius:8,
-          fontSize:15,
-          fontWeight:800,
-          color:'var(--p)',
-          textAlign:'right',
-          outline:'none',
-          transition:'all 0.15s'
-        }
-      }),
-      R('span',{style:{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',fontSize:12,color:'var(--p)',fontWeight:700,pointerEvents:'none'}},'원')
-    ),
-    /* 메모 */
-    R('input',{
-      type:'text',
-      value:localMemo,
-      onChange:handleMemo,
-      onCompositionEnd:handleMemoIME,
-      placeholder:'메모 (선택)',
-      style:{
-        padding:'8px 10px',
-        border:'1px solid #E5E7EB',
-        borderRadius:8,
-        fontSize:12,
-        color:'#6B7280',
-        outline:'none',
-        transition:'border-color 0.15s'
-      },
-      onFocus:e=>e.target.style.borderColor='var(--p)',
-      onBlur:e=>e.target.style.borderColor='#E5E7EB'
-    }),
-    /* 삭제 버튼 */
-    R('button',{
-      onClick:()=>onDelete(item.id),
-      title:'삭제',
-      style:{
-        background:'#FEE2E2',
-        border:'none',
-        color:'#DC2626',
-        cursor:'pointer',
-        fontSize:14,
-        fontWeight:700,
-        padding:0,
-        width:32,
-        height:32,
-        borderRadius:8,
-        transition:'all 0.15s'
-      },
-      onMouseEnter:e=>e.currentTarget.style.background='#FCA5A5',
-      onMouseLeave:e=>e.currentTarget.style.background='#FEE2E2'
-    },'✕')
-  );
-}
+/* ═══════════════════════════════════════════════════════════
+   고정비 관리 - 엑셀 스타일 12개월 표 + 더블클릭 편집
+   ═══════════════════════════════════════════════════════════ */
 
-/* ═══ 고정비 행 컴포넌트 (각자 로컬 상태로 입력 끊김 방지) ═══════ */
-function FixedCostRow({item,CATS,onUpdate,onDelete}){
-  /* 로컬 상태로 입력값 관리 - DB 자동 저장과 충돌 방지 */
-  const[localName,setLocalName]=useState(item.item_name||'');
-  const[localAmt,setLocalAmt]=useState(String(item.amount||0));
-  const[localMemo,setLocalMemo]=useState(item.memo||'');
-  const[localCat,setLocalCat]=useState(item.category||'기타');
+/* 더블클릭 편집 가능한 셀
+   - text: 한글 IME 지원 + 연속 입력
+   - number: 콤마 표시 + 더블클릭 시 raw 숫자로 시작 */
+function EditableCell({value, onSave, type='text', placeholder='', style={}, rawValue=null}){
+  const[editing,setEditing]=useState(false);
+  /* type=number일 때는 rawValue(숫자)로 시작, 아니면 value(표시값)로 시작 */
+  const initialEditVal=()=>{
+    if(type==='number')return rawValue==null?'':String(rawValue);
+    return value==null?'':String(value);
+  };
+  const[temp,setTemp]=useState(initialEditVal());
   const composingRef=useRef(false);
+  const inputRef=useRef(null);
   
-  /* item.id가 바뀔 때만 (다른 행이 들어올 때만) 동기화 - 입력 중에는 동기화하지 않음 */
+  /* 편집 모드 진입 시 입력값 초기화 + 포커스 */
   useEffect(()=>{
-    setLocalName(item.item_name||'');
-    setLocalAmt(String(item.amount||0));
-    setLocalMemo(item.memo||'');
-    setLocalCat(item.category||'기타');
-  },[item.id]);
+    if(editing){
+      setTemp(initialEditVal());
+      /* 다음 틱에 select() 호출 - autoFocus 안정성 향상 */
+      setTimeout(()=>{
+        if(inputRef.current){
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      },10);
+    }
+  },[editing]);
   
-  /* IME(한글) 처리 + 변경 시 즉시 onChange (디바운스는 상위에서) */
-  const handleNameChange=(e)=>{
-    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
-    setLocalName(e.target.value);
-    onUpdate(item.id,'item_name',e.target.value);
+  /* 편집 모드가 아닐 때는 외부 value 변경을 temp에 동기화하지 않음 (입력 끊김 방지) */
+  
+  const commit=()=>{
+    setEditing(false);
+    const curValue=type==='number'?(rawValue==null?'':String(rawValue)):(value==null?'':String(value));
+    if(String(temp)!==curValue)onSave(temp);
   };
-  const handleNameCompositionEnd=(e)=>{
-    setLocalName(e.target.value);
-    onUpdate(item.id,'item_name',e.target.value);
-  };
-  const handleMemoChange=(e)=>{
-    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
-    setLocalMemo(e.target.value);
-    onUpdate(item.id,'memo',e.target.value);
-  };
-  const handleMemoCompositionEnd=(e)=>{
-    setLocalMemo(e.target.value);
-    onUpdate(item.id,'memo',e.target.value);
-  };
-  const handleAmtChange=(e)=>{
-    setLocalAmt(e.target.value);
-    onUpdate(item.id,'amount',e.target.value);
-  };
-  const handleCatChange=(e)=>{
-    setLocalCat(e.target.value);
-    onUpdate(item.id,'category',e.target.value);
+  const cancel=()=>{
+    setEditing(false);
+    setTemp(initialEditVal());
   };
   
-  return R('tr',null,
-    R('td',null,
-      R('select',{value:localCat,onChange:handleCatChange,style:{width:'100%',border:'1px solid var(--bd)',borderRadius:6,padding:'6px 8px',fontSize:12,background:'#fff'}},
-        ...CATS.map(c=>R('option',{key:c,value:c},c))
-      )
-    ),
-    R('td',null,R('input',{
-      type:'text',
-      value:localName,
-      onChange:handleNameChange,
-      onCompositionEnd:handleNameCompositionEnd,
-      className:'inp',
-      style:{width:'100%',fontSize:12}
-    })),
-    R('td',{style:{textAlign:'right'}},R('input',{
-      type:'number',
-      value:localAmt,
-      onChange:handleAmtChange,
-      onFocus:e=>{if(e.target.value==='0')e.target.select();},
-      className:'inp',
-      style:{width:'100%',textAlign:'right',fontSize:13,fontWeight:700,color:'var(--p)'}
-    })),
-    R('td',null,R('input',{
-      type:'text',
-      value:localMemo,
-      onChange:handleMemoChange,
-      onCompositionEnd:handleMemoCompositionEnd,
-      placeholder:'메모',
-      className:'inp',
-      style:{width:'100%',fontSize:11}
-    })),
-    R('td',null,R('button',{onClick:()=>onDelete(item.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:14,padding:'2px 6px'},title:'이 항목 삭제'},'✕'))
-  );
+  if(editing){
+    return R('input',{
+      ref:inputRef,
+      type:type==='number'?'text':type,  /* number도 text로 다뤄서 콤마/한글 다 처리 */
+      inputMode:type==='number'?'numeric':'text',
+      value:temp,
+      onChange:e=>{
+        /* 한글 조합 중에는 setTemp만 (덮어쓰기 안 함) */
+        setTemp(e.target.value);
+      },
+      onBlur:()=>{
+        /* IME 조합 중이면 잠시 대기 후 commit */
+        if(composingRef.current){
+          setTimeout(()=>{if(!composingRef.current)commit();},50);
+        }else{
+          commit();
+        }
+      },
+      onCompositionStart:()=>{composingRef.current=true;},
+      onCompositionEnd:e=>{
+        composingRef.current=false;
+        setTemp(e.target.value);
+      },
+      onKeyDown:e=>{
+        if(composingRef.current)return;  /* 조합 중이면 무시 */
+        if(e.key==='Enter'){
+          e.preventDefault();
+          e.target.blur();
+        }else if(e.key==='Escape'){
+          e.preventDefault();
+          cancel();
+        }
+      },
+      placeholder:placeholder,
+      style:Object.assign({
+        width:'100%',
+        padding:'6px 8px',
+        border:'2px solid var(--p)',
+        borderRadius:6,
+        fontSize:13,
+        fontWeight:700,
+        outline:'none',
+        background:'#FFFBF7',
+        boxSizing:'border-box'
+      },style)
+    });
+  }
+  
+  /* 표시 모드 - div 전체가 더블클릭 가능 */
+  return R('div',{
+    onDoubleClick:e=>{e.stopPropagation();setEditing(true);},
+    onClick:e=>{
+      /* 단일 클릭도 편집 진입 허용 (한 번 더 클릭 → 편집) */
+      if(e.detail===2){setEditing(true);}
+    },
+    title:'더블클릭하여 편집',
+    style:Object.assign({
+      padding:'6px 8px',
+      cursor:'pointer',
+      borderRadius:6,
+      transition:'background 0.1s',
+      minHeight:28,
+      display:'flex',
+      alignItems:'center',
+      userSelect:'none'
+    },style),
+    onMouseEnter:e=>{e.currentTarget.style.background='#FFF8F4';},
+    onMouseLeave:e=>{e.currentTarget.style.background='transparent';}
+  },value==null||value===''?R('span',{style:{color:'#D1D5DB',fontSize:11,pointerEvents:'none'}},placeholder||'더블클릭'):R('span',{style:{pointerEvents:'none'}},value));
 }
 
-/* ═══ 고정비 관리 ════════════════════════════════════ */
+/* 고정비 페이지 */
 function PageFixedCosts({user,variant='adm'}){
   const CATS=['임대료','인건비','감가상각','보험료','통신비','공과금','리스료','기타'];
   const[year,setYear]=useState(new Date().getFullYear());
-  const[allItems,setAllItems]=useState([]);   /* 전체 (year 기준, 모든 월) */
-  const[selectedMonth,setSelectedMonth]=useState(new Date().getMonth()+1);  /* 현재 보고 있는 월 */
+  const[rows,setRows]=useState([]);  /* 항목 행 (그룹화된 형태) */
   const[loading,setLoading]=useState(true);
   const[saving,setSaving]=useState(false);
   const saveTimers=useRef({});
-
+  
+  /* fixed_costs 테이블에서 데이터 로드 → 항목별로 그룹화하여 행 구조로 변환 */
   const load=async()=>{
     setLoading(true);
-    const q=sbClient.from('fixed_costs').select('*').eq('year',year);
-    const{data}=await q.order('month').order('created_at').then(r=>r).catch(()=>({data:[]}));
-    const all=(data||[]).filter(i=>!i.source||i.source===variant||(!i.source&&variant==='adm'));
-    setAllItems(all);
+    const{data}=await sbClient.from('fixed_costs').select('*').eq('year',year).then(r=>r).catch(()=>({data:[]}));
+    const filtered=(data||[]).filter(i=>!i.source||i.source===variant||(!i.source&&variant==='adm'));
+    
+    /* 그룹화: 같은 항목명+카테고리는 하나의 행으로 */
+    const groupMap={};
+    filtered.forEach(item=>{
+      const key=(item.category||'기타')+'||'+(item.item_name||'');
+      if(!groupMap[key]){
+        groupMap[key]={
+          rowId:key,
+          category:item.category||'기타',
+          item_name:item.item_name||'',
+          memo:item.memo||'',
+          months:{},  /* {1: {id, amount}, 2: {id, amount}, ...} */
+          createdAt:item.created_at
+        };
+      }
+      groupMap[key].months[item.month]={id:item.id, amount:+item.amount||0};
+    });
+    
+    /* 생성일 순으로 정렬 */
+    const list=Object.values(groupMap).sort((a,b)=>{
+      const ta=a.createdAt?new Date(a.createdAt).getTime():0;
+      const tb=b.createdAt?new Date(b.createdAt).getTime():0;
+      return ta-tb;
+    });
+    setRows(list);
     setLoading(false);
   };
   useEffect(()=>{load();},[year]);
   
-  /* 현재 선택된 월의 항목들 */
-  const monthItems=useMemo(()=>allItems.filter(i=>+i.month===selectedMonth),[allItems,selectedMonth]);
-
-  /* 월 합계들 */
-  const monthTotals=useMemo(()=>{
-    const m={};
-    for(let i=1;i<=12;i++){
-      m[i]=allItems.filter(x=>+x.month===i).reduce((s,x)=>s+(+x.amount||0),0);
+  /* 행 추가 - 12개월 0원으로 일괄 삽입 */
+  const addRow=async()=>{
+    const newName='새 항목 '+(rows.length+1);
+    const inserts=[];
+    for(let m=1;m<=12;m++){
+      inserts.push({year,month:m,category:'기타',item_name:newName,amount:0,memo:'',source:variant});
     }
-    return m;
-  },[allItems]);
-  const currMonthTotal=monthTotals[selectedMonth]||0;
-  const yearTotal=Object.values(monthTotals).reduce((a,b)=>a+b,0);
-
-  /* 항목 추가 (선택된 월에 추가) */
-  const addItem=async()=>{
-    const newItem={year,month:selectedMonth,category:'기타',item_name:'새 항목',amount:0,memo:'',source:variant};
-    const{data,error}=await sbClient.from('fixed_costs').insert(newItem).select().single();
-    if(!error&&data)setAllItems(p=>[...p,data]);
-    else if(error)alert('추가 실패: '+error.message);
-  };
-
-  /* 항목 수정 - 로컬 상태는 자식 컴포넌트가 관리, 부모는 디바운스 후 DB 저장 + 상태 동기화 */
-  const updateItem=(id,field,val)=>{
-    const key=id+'_'+field;
-    if(saveTimers.current[key])clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key]=setTimeout(async()=>{
-      setSaving(true);
-      const numVal=field==='amount'?(+String(val).replace(/[,\s]/g,'')||0):val;
-      const{error}=await sbClient.from('fixed_costs').update({[field]:numVal}).eq('id',id);
-      if(error){console.warn('저장 실패:',error);alert('저장 실패: '+error.message);}
-      else{setAllItems(p=>p.map(i=>i.id===id?{...i,[field]:numVal}:i));}
-      setSaving(false);
-    },600);
-  };
-
-  /* 항목 삭제 */
-  const deleteItem=async(id)=>{
-    if(!confirm('이 항목을 삭제할까요?'))return;
-    const{error}=await sbClient.from('fixed_costs').delete().eq('id',id);
-    if(error){alert('삭제 실패: '+error.message);return;}
-    setAllItems(p=>p.filter(i=>i.id!==id));
+    setSaving(true);
+    const{error}=await sbClient.from('fixed_costs').insert(inserts);
+    setSaving(false);
+    if(error){alert('항목 추가 실패: '+error.message);return;}
+    await load();
   };
   
-  /* 이전 월에서 항목 복사 (편의 기능) */
-  const copyFromPrevMonth=async()=>{
-    if(selectedMonth<=1){alert('1월은 이전 월이 없습니다.');return;}
-    const prevItems=allItems.filter(i=>+i.month===selectedMonth-1);
-    if(prevItems.length===0){alert((selectedMonth-1)+'월에 데이터가 없습니다.');return;}
-    if(!confirm((selectedMonth-1)+'월의 '+prevItems.length+'개 항목을 '+selectedMonth+'월로 복사할까요?\n현재 월에 이미 있는 동일 항목명은 덮어쓰지 않습니다.'))return;
+  /* 행 삭제 - 해당 항목의 12개월 모두 삭제 */
+  const deleteRow=async(row)=>{
+    if(!confirm('"'+row.item_name+'" 항목을 1~12월 전체에서 삭제할까요?'))return;
+    const ids=Object.values(row.months).map(m=>m.id);
+    if(ids.length===0)return;
     setSaving(true);
-    try{
-      const existingNames=new Set(monthItems.map(i=>i.item_name));
-      const toCopy=prevItems.filter(i=>!existingNames.has(i.item_name)).map(i=>({
-        year,month:selectedMonth,
-        category:i.category,item_name:i.item_name,amount:+i.amount||0,memo:i.memo||'',source:variant
-      }));
-      if(toCopy.length===0){alert('이미 같은 이름의 항목이 모두 존재합니다.');setSaving(false);return;}
-      const{data,error}=await sbClient.from('fixed_costs').insert(toCopy).select();
-      if(error){alert('복사 실패: '+error.message);setSaving(false);return;}
-      if(data)setAllItems(p=>[...p,...data]);
-      alert('✅ '+(data?data.length:toCopy.length)+'개 항목 복사 완료');
-    }catch(e){alert('실패: '+(e.message||e));}
+    const{error}=await sbClient.from('fixed_costs').delete().in('id',ids);
     setSaving(false);
+    if(error){alert('삭제 실패: '+error.message);return;}
+    setRows(p=>p.filter(r=>r.rowId!==row.rowId));
   };
-
-  if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center'}},'⏳');
-
+  
+  /* 항목명 변경 - 12개 row 모두 일괄 업데이트 */
+  const updateName=async(row,newName)=>{
+    if(!newName||newName===row.item_name)return;
+    const ids=Object.values(row.months).map(m=>m.id);
+    setSaving(true);
+    const{error}=await sbClient.from('fixed_costs').update({item_name:newName}).in('id',ids);
+    setSaving(false);
+    if(error){alert('수정 실패: '+error.message);return;}
+    setRows(p=>p.map(r=>r.rowId===row.rowId?{...r,item_name:newName,rowId:(r.category+'||'+newName)}:r));
+  };
+  
+  /* 카테고리 변경 - 12개 row 모두 일괄 업데이트 */
+  const updateCategory=async(row,newCat)=>{
+    if(newCat===row.category)return;
+    const ids=Object.values(row.months).map(m=>m.id);
+    setSaving(true);
+    const{error}=await sbClient.from('fixed_costs').update({category:newCat}).in('id',ids);
+    setSaving(false);
+    if(error){alert('수정 실패: '+error.message);return;}
+    setRows(p=>p.map(r=>r.rowId===row.rowId?{...r,category:newCat,rowId:(newCat+'||'+r.item_name)}:r));
+  };
+  
+  /* 메모 변경 - 12개 row 모두 일괄 업데이트 */
+  const updateMemo=async(row,newMemo)=>{
+    if(newMemo===row.memo)return;
+    const ids=Object.values(row.months).map(m=>m.id);
+    setSaving(true);
+    await sbClient.from('fixed_costs').update({memo:newMemo}).in('id',ids);
+    setSaving(false);
+    setRows(p=>p.map(r=>r.rowId===row.rowId?{...r,memo:newMemo}:r));
+  };
+  
+  /* 특정 월의 금액 변경 - 그 row 하나만 업데이트 */
+  const updateAmount=async(row,month,newAmt)=>{
+    const cell=row.months[month];
+    const numVal=+String(newAmt).replace(/[,\s]/g,'')||0;
+    if(!cell){
+      /* 그 월의 row가 아직 없으면 생성 */
+      const{data,error}=await sbClient.from('fixed_costs').insert({
+        year,month,category:row.category,item_name:row.item_name,amount:numVal,memo:row.memo||'',source:variant
+      }).select().single();
+      if(error){alert('저장 실패: '+error.message);return;}
+      setRows(p=>p.map(r=>r.rowId===row.rowId?{...r,months:{...r.months,[month]:{id:data.id,amount:numVal}}}:r));
+      return;
+    }
+    if(cell.amount===numVal)return;
+    setSaving(true);
+    const{error}=await sbClient.from('fixed_costs').update({amount:numVal}).eq('id',cell.id);
+    setSaving(false);
+    if(error){alert('저장 실패: '+error.message);return;}
+    setRows(p=>p.map(r=>r.rowId===row.rowId?{...r,months:{...r.months,[month]:{...cell,amount:numVal}}}:r));
+  };
+  
+  /* 합계 계산 */
+  const monthTotals=useMemo(()=>{
+    const t={};
+    for(let m=1;m<=12;m++){
+      t[m]=rows.reduce((s,r)=>s+((r.months[m]||{}).amount||0),0);
+    }
+    return t;
+  },[rows]);
+  const rowTotals=useMemo(()=>{
+    const t={};
+    rows.forEach(r=>{
+      t[r.rowId]=Object.values(r.months).reduce((s,m)=>s+(+m.amount||0),0);
+    });
+    return t;
+  },[rows]);
+  const yearTotal=useMemo(()=>Object.values(monthTotals).reduce((a,b)=>a+b,0),[monthTotals]);
+  
+  /* 카테고리 색상 */
+  const catColor=(cat)=>({
+    '임대료':{bg:'#FEF3C7',text:'#92400E'},
+    '인건비':{bg:'#DBEAFE',text:'#1E40AF'},
+    '감가상각':{bg:'#E0E7FF',text:'#3730A3'},
+    '보험료':{bg:'#FCE7F3',text:'#9F1239'},
+    '통신비':{bg:'#D1FAE5',text:'#065F46'},
+    '공과금':{bg:'#FED7AA',text:'#9A3412'},
+    '리스료':{bg:'#E9D5FF',text:'#6B21A8'},
+    '기타':{bg:'#F3F4F6',text:'#4B5563'}
+  }[cat]||{bg:'#F3F4F6',text:'#4B5563'});
+  
+  if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center'}},'⏳ 불러오는 중...');
+  
   return R('div',{className:'pg fa'},
-    /* ═══ 헤더 ═══ */
+    /* 헤더 */
     R('div',{className:'pg-hdr'},
       R('div',null,
         R('div',{className:'pg-title'},(variant==='hq'?'🏢':'⚙️')+'  고정비 관리'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'각 월의 항목별 금액을 직접 입력하세요. 자동 저장됨.',saving&&R('span',{style:{color:'#22C55E',marginLeft:8,fontWeight:700}},'💾 저장 중...'))
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'💡 셀을 ',R('b',{style:{color:'var(--p)'}},'더블클릭'),'하면 입력 가능 · 자동 저장됨',saving&&R('span',{style:{color:'#22C55E',marginLeft:8,fontWeight:700}},'💾 저장 중...'))
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
         R('button',{className:'btn bs btn-sm',onClick:()=>setYear(year-1)},'◀'),
@@ -1339,93 +1264,123 @@ function PageFixedCosts({user,variant='adm'}){
         R('button',{className:'btn bs btn-sm',onClick:()=>setYear(year+1)},'▶')
       )
     ),
-
-    /* ═══ 연간 요약 카드 ═══ */
-    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:10,marginBottom:14}},
-      R('div',{className:'card',style:{background:'linear-gradient(135deg,#FFF8F4 0%,#FFE5DA 100%)',border:'1px solid #FED7AA'}},
+    
+    /* 요약 카드 */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))',gap:10,marginBottom:14}},
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',border:'1px solid #FED7AA'}},
         R('div',{style:{fontSize:11,color:'#9A3412',fontWeight:600}},'💰 '+year+'년 연간 총액'),
-        R('div',{style:{fontSize:24,fontWeight:900,color:'var(--p)',marginTop:6,letterSpacing:-0.5}},fN(yearTotal),' 원')
+        R('div',{style:{fontSize:22,fontWeight:900,color:'var(--p)',marginTop:6}},fN(yearTotal),' 원')
       ),
-      R('div',{className:'card',style:{background:'linear-gradient(135deg,#F5F3FF 0%,#EDE9FE 100%)',border:'1px solid #DDD6FE'}},
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',border:'1px solid #DDD6FE'}},
         R('div',{style:{fontSize:11,color:'#6D28D9',fontWeight:600}},'📊 월 평균'),
-        R('div',{style:{fontSize:24,fontWeight:900,color:'#7C3AED',marginTop:6,letterSpacing:-0.5}},fN(Math.round(yearTotal/12)),' 원')
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED',marginTop:6}},fN(Math.round(yearTotal/12)),' 원')
       ),
-      R('div',{className:'card',style:{background:'linear-gradient(135deg,#ECFDF5 0%,#D1FAE5 100%)',border:'1px solid #A7F3D0'}},
-        R('div',{style:{fontSize:11,color:'#047857',fontWeight:600}},'✅ 입력된 월'),
-        R('div',{style:{fontSize:24,fontWeight:900,color:'#059669',marginTop:6,letterSpacing:-0.5}},Object.values(monthTotals).filter(v=>v>0).length,' / 12 ',R('span',{style:{fontSize:14}},'개월'))
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#ECFDF5,#D1FAE5)',border:'1px solid #A7F3D0'}},
+        R('div',{style:{fontSize:11,color:'#047857',fontWeight:600}},'📋 등록된 항목'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#059669',marginTop:6}},rows.length,' ',R('span',{style:{fontSize:13}},'개'))
       )
     ),
-
-    /* ═══ 12개월 카드 그리드 - 가계부 스타일 ═══ */
-    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(110px, 1fr))',gap:8,marginBottom:14}},
-      ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
-        const amt=monthTotals[m]||0;
-        const cnt=allItems.filter(x=>+x.month===m).length;
-        const sel=m===selectedMonth;
-        return R('div',{key:m,onClick:()=>setSelectedMonth(m),
-          style:{
-            padding:'12px 8px',
-            background:sel?'var(--p)':(amt>0?'#fff':'#FAFAFA'),
-            color:sel?'#fff':(amt>0?'#1A1A1A':'#9CA3AF'),
-            border:'2px solid '+(sel?'var(--p)':(amt>0?'#FED7AA':'#E5E7EB')),
-            borderRadius:12,
-            cursor:'pointer',
-            transition:'all 0.15s',
-            textAlign:'center',
-            position:'relative',
-            boxShadow:sel?'0 4px 12px rgba(217,79,30,0.25)':'0 1px 3px rgba(0,0,0,0.04)'
-          }},
-          R('div',{style:{fontSize:12,fontWeight:800,marginBottom:6,color:sel?'#fff':(amt>0?'var(--p)':'#9CA3AF')}},m+'월'),
-          R('div',{style:{fontSize:13,fontWeight:900,marginBottom:2,color:sel?'#fff':(amt>0?'#1A1A1A':'#D1D5DB')}},amt>0?fN(Math.round(amt/10000))+'만':'미입력'),
-          R('div',{style:{fontSize:9,color:sel?'rgba(255,255,255,0.85)':(amt>0?'#9CA3AF':'#D1D5DB'),fontWeight:600}},cnt>0?cnt+'개 항목':'-')
-        );
-      })
+    
+    /* 사용법 안내 */
+    R('div',{style:{padding:'10px 14px',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,marginBottom:14,display:'flex',gap:14,fontSize:11,color:'#1E40AF',flexWrap:'wrap',alignItems:'center'}},
+      R('span',{style:{fontWeight:700}},'💡 사용법:'),
+      R('span',null,'① 우측 ',R('b',null,'[+ 항목 추가]'),' 클릭'),
+      R('span',null,'② ',R('b',null,'항목명/카테고리'),' 셀 더블클릭으로 수정'),
+      R('span',null,'③ ',R('b',null,'각 월 금액'),' 셀 더블클릭으로 입력'),
+      R('span',null,'④ Enter로 저장, Esc로 취소')
     ),
-
-    /* ═══ 선택된 월 입력 영역 - 가계부 카드 스타일 ═══ */
-    R('div',{className:'card',style:{padding:0,overflow:'hidden',marginBottom:14}},
-      /* 헤더 */
-      R('div',{style:{padding:'14px 16px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid #FED7AA',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}},
-        R('div',null,
-          R('div',{style:{fontSize:16,fontWeight:900,color:'var(--p)'}},'📝 ',year,'년 ',selectedMonth,'월 고정비 입력'),
-          R('div',{style:{fontSize:11,color:'#9A3412',marginTop:3,fontWeight:600}},'합계 ',R('span',{style:{fontSize:14,fontWeight:900,marginLeft:4}},fN(currMonthTotal),'원'),' · ',monthItems.length,'개 항목')
-        ),
-        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
-          selectedMonth>1&&R('button',{
-            onClick:copyFromPrevMonth,
-            disabled:saving,
-            style:{padding:'8px 12px',background:'#fff',color:'var(--p)',border:'1.5px solid var(--p)',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:11}
-          },'⎘ '+(selectedMonth-1)+'월에서 복사'),
-          R('button',{
-            onClick:addItem,
-            style:{padding:'8px 16px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:800,fontSize:12,boxShadow:'0 2px 8px rgba(217,79,30,0.3)'}
-          },'+ 항목 추가')
-        )
+    
+    /* 메인 표 */
+    R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
+      /* 액션 바 */
+      R('div',{style:{padding:'12px 16px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid #FED7AA',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}},
+        R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📋 '+year+'년 월별 고정비 표'),
+        R('button',{
+          onClick:addRow,
+          disabled:saving,
+          style:{padding:'8px 18px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:800,fontSize:12,boxShadow:'0 2px 8px rgba(217,79,30,0.3)'}
+        },'+ 항목 추가')
       ),
-
-      /* 입력 영역 */
-      monthItems.length===0
-        ? R('div',{style:{padding:'40px 20px',textAlign:'center',color:'var(--tm)'}},
-            R('div',{style:{fontSize:32,marginBottom:10}},'💸'),
-            R('div',{style:{fontSize:14,fontWeight:700,color:'#1A1A1A',marginBottom:4}},selectedMonth+'월 고정비 항목이 없습니다'),
-            R('div',{style:{fontSize:12,marginBottom:14}},'위 "+ 항목 추가" 버튼을 눌러 시작하세요'),
-            R('button',{onClick:addItem,style:{padding:'10px 24px',background:'var(--p)',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontWeight:800,fontSize:13}},'+ 첫 항목 추가하기')
-          )
-        : R('div',{style:{padding:'10px 12px'}},
-            /* 가계부 카드 리스트 */
-            R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
-              ...monthItems.map(item=>R(FixedCostCard,{
-                key:item.id,
-                item:item,
-                CATS:CATS,
-                onUpdate:updateItem,
-                onDelete:deleteItem
-              }))
+      
+      /* 표 - 가로 스크롤 */
+      R('div',{style:{overflowX:'auto',maxWidth:'100%'}},
+        rows.length===0
+          ? R('div',{style:{padding:'40px 20px',textAlign:'center',color:'var(--tm)'}},
+              R('div',{style:{fontSize:32,marginBottom:10}},'📋'),
+              R('div',{style:{fontSize:14,fontWeight:700,color:'#1A1A1A',marginBottom:4}},'등록된 고정비 항목이 없습니다'),
+              R('div',{style:{fontSize:12,marginBottom:14}},'우측 상단 "+ 항목 추가" 버튼으로 시작하세요'),
+              R('button',{onClick:addRow,style:{padding:'10px 24px',background:'var(--p)',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontWeight:800,fontSize:13}},'+ 첫 항목 추가')
             )
-          )
+          : R('table',{style:{width:'100%',minWidth:1100,borderCollapse:'separate',borderSpacing:0,fontSize:12}},
+              R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+                R('th',{style:{position:'sticky',left:0,background:'#FAFAFA',zIndex:2,padding:'10px 12px',textAlign:'left',width:90,borderBottom:'2px solid #E5E7EB',borderRight:'1px solid #E5E7EB',fontSize:11,fontWeight:700,color:'#6B7280'}},'카테고리'),
+                R('th',{style:{position:'sticky',left:90,background:'#FAFAFA',zIndex:2,padding:'10px 12px',textAlign:'left',width:140,borderBottom:'2px solid #E5E7EB',borderRight:'1px solid #E5E7EB',fontSize:11,fontWeight:700,color:'#6B7280'}},'항목명'),
+                ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>R('th',{key:m,style:{padding:'10px 6px',textAlign:'center',width:78,borderBottom:'2px solid #E5E7EB',borderRight:'1px solid #F3F4F6',fontSize:11,fontWeight:700,color:'var(--p)'}},m+'월')),
+                R('th',{style:{padding:'10px 8px',textAlign:'right',width:90,borderBottom:'2px solid #E5E7EB',background:'#FEF3C7',fontSize:11,fontWeight:800,color:'#92400E'}},'합계'),
+                R('th',{style:{width:32,borderBottom:'2px solid #E5E7EB'}})
+              )),
+              R('tbody',null,
+                ...rows.map((row,rowIdx)=>{
+                  const cc=catColor(row.category);
+                  return R('tr',{key:row.rowId,style:{background:rowIdx%2===0?'#fff':'#FAFAFA'}},
+                    /* 카테고리 - 셀렉트 (단일 클릭) */
+                    R('td',{style:{position:'sticky',left:0,background:rowIdx%2===0?'#fff':'#FAFAFA',zIndex:1,padding:'4px 8px',borderBottom:'1px solid #F3F4F6',borderRight:'1px solid #E5E7EB'}},
+                      R('select',{
+                        value:row.category,
+                        onChange:e=>updateCategory(row,e.target.value),
+                        style:{width:'100%',padding:'5px 6px',border:'1.5px solid '+cc.bg,background:cc.bg,color:cc.text,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',outline:'none'}
+                      },...CATS.map(c=>R('option',{key:c,value:c},c)))
+                    ),
+                    /* 항목명 - 더블클릭 편집 */
+                    R('td',{style:{position:'sticky',left:90,background:rowIdx%2===0?'#fff':'#FAFAFA',zIndex:1,padding:0,borderBottom:'1px solid #F3F4F6',borderRight:'1px solid #E5E7EB'}},
+                      R(EditableCell,{
+                        value:row.item_name,
+                        onSave:v=>updateName(row,v),
+                        placeholder:'항목명 입력',
+                        style:{fontSize:12,fontWeight:700,color:'#1A1A1A'}
+                      })
+                    ),
+                    /* 1~12월 금액 - 더블클릭 편집 */
+                    ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
+                      const amt=(row.months[m]||{}).amount||0;
+                      return R('td',{key:m,style:{padding:0,borderBottom:'1px solid #F3F4F6',borderRight:'1px solid #F3F4F6'}},
+                        R(EditableCell,{
+                          value:amt>0?fN(amt):'',
+                          rawValue:amt,
+                          onSave:v=>updateAmount(row,m,v),
+                          type:'number',
+                          placeholder:'0',
+                          style:{fontSize:11,fontWeight:700,color:amt>0?'var(--p)':'#D1D5DB',textAlign:'right',justifyContent:'flex-end'}
+                        })
+                      );
+                    }),
+                    /* 행 합계 */
+                    R('td',{style:{padding:'8px 10px',textAlign:'right',background:'#FFFBEB',fontWeight:800,color:'#92400E',fontSize:12,borderBottom:'1px solid #F3F4F6',borderLeft:'2px solid #FDE68A'}},fN(rowTotals[row.rowId]||0)),
+                    /* 삭제 */
+                    R('td',{style:{padding:'4px',textAlign:'center',borderBottom:'1px solid #F3F4F6'}},
+                      R('button',{
+                        onClick:()=>deleteRow(row),
+                        title:'이 항목 1~12월 모두 삭제',
+                        style:{background:'#FEE2E2',border:'none',color:'#DC2626',cursor:'pointer',fontSize:11,fontWeight:700,padding:0,width:24,height:24,borderRadius:6}
+                      },'✕')
+                    )
+                  );
+                }),
+                /* 합계 행 */
+                rows.length>0&&R('tr',{style:{background:'#FEF3C7',borderTop:'2px solid #FDE68A'}},
+                  R('td',{style:{position:'sticky',left:0,background:'#FEF3C7',zIndex:1,padding:'12px',fontWeight:900,color:'#92400E',borderRight:'1px solid #FDE68A',fontSize:12}},''),
+                  R('td',{style:{position:'sticky',left:90,background:'#FEF3C7',zIndex:1,padding:'12px',fontWeight:900,color:'#92400E',borderRight:'1px solid #FDE68A',fontSize:12}},'월별 합계'),
+                  ...[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>R('td',{key:m,style:{padding:'12px 6px',textAlign:'right',fontWeight:900,color:'var(--p)',fontSize:11,borderRight:'1px solid #FDE68A'}},monthTotals[m]>0?fN(monthTotals[m]):'-')),
+                  R('td',{style:{padding:'12px 10px',textAlign:'right',fontWeight:900,color:'var(--p)',fontSize:13,background:'#FDE68A'}},fN(yearTotal)),
+                  R('td',null)
+                )
+              )
+            )
+      )
     )
   );
 }
+
 
 
 /* ═══ 공장 가동률 ════════════════════════════════════ */
