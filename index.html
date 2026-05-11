@@ -25,7 +25,11 @@ input,button,select,textarea{font-family:inherit;font-size:13px}
 @keyframes prog{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 .fa{animation:fa .28s cubic-bezier(0.16, 1, 0.3, 1)}
 .app{display:flex;flex-direction:column;height:100vh;width:100vw;overflow:hidden;background:var(--bg)}
+<<<<<<< HEAD
 .hdr{height:100px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;gap:10px;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+=======
+.hdr{height:84px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
 .body{flex:1;display:flex;overflow:hidden}
 .sb{width:210px;flex-shrink:0;background:var(--sb);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
 .sb-sec{padding:3px 7px;margin-top:2px}
@@ -194,7 +198,11 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
   /* 헤더 - 깔끔하고 컴팩트 */
   .hdr{
     padding:0 14px !important;
+<<<<<<< HEAD
     height:82px !important;
+=======
+    height:74px !important;
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
     background:#fff !important;
     border-bottom:1px solid #F1F3F5 !important;
     box-shadow:0 1px 3px rgba(0,0,0,0.04);
@@ -205,7 +213,11 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
     cursor:pointer;
     margin-left:4px;
   }
+<<<<<<< HEAD
   .hdr img{height:60px !important; max-width:230px !important;}
+=======
+  .hdr img{height:52px !important; max-width:200px !important;}
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
   
   /* 모바일 헤더 우측 텍스트 작게/제거 */
   .hide-mobile{display:none !important;}
@@ -4870,12 +4882,17 @@ function ImportModal({type,onClose,onDone,source='adm'}){
       if(duplicateCount>0){
         resultMsg+='⏭️ 중복 제외: '+duplicateCount+'건 (이미 DB에 있는 거래)\n';
       }
+<<<<<<< HEAD
       resultMsg+='📊 전체 처리: '+(savedCount+duplicateCount)+'건\n';
       resultMsg+='🏷️ 저장 위치: '+(source==='hq'?'본사 (🏢 비엔에프글로벌 본사)':'관리자 (⚙️ 관리자)')+'\n';
       resultMsg+='📅 데이터 기간: '+minDate+' ~ '+maxDate;
       if(duplicateCount>0&&savedCount===0){
         resultMsg+='\n\n⚠️ 모든 데이터가 이미 DB에 있어요.\n혹시 다른 source(hq/adm)에서 보고 계신가요?';
       }else if(duplicateCount>0){
+=======
+      resultMsg+='📊 전체 처리: '+(savedCount+duplicateCount)+'건';
+      if(duplicateCount>0){
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
         resultMsg+='\n\n💡 중복은 자동으로 제외되었습니다.';
       }
       alert(resultMsg);
@@ -5963,9 +5980,12 @@ function PageData({mats,prods,orders,hqItems,cats,quote,pqty,onImport}){
 
 /* ═══ 통합 APP ══════════════════════════════════════════ */
 const DEFAULT_NAV_SECTIONS=[
+<<<<<<< HEAD
   {label:'🏠 홈',type:'home',items:[
     {id:'home',l:'홈 대시보드',ic:'🏠'}
   ]},
+=======
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
   {label:'🌐 비엔에프글로벌',type:'group',adminOnly:true,items:[
     {id:'total_dash',l:'통합 경영 대시보드',ic:'🌐'},
     {id:'total_pnl',l:'손익 상세 분석',ic:'📊'},
@@ -6005,7 +6025,11 @@ const DEFAULT_NAV_SECTIONS=[
 ];
 function loadNavSections(){
   try{
+<<<<<<< HEAD
     const saved=localStorage.getItem('bnf_nav_sections_v5');
+=======
+    const saved=localStorage.getItem('bnf_nav_sections_v4');
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
     if(saved){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
@@ -6025,7 +6049,11 @@ function loadNavSections(){
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
+<<<<<<< HEAD
 function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v5',JSON.stringify(arr));}catch(e){}}
+=======
+function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v4',JSON.stringify(arr));}catch(e){}}
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
 
 /* ═══ 로그인 ══════════════════════════════════════════ */
@@ -6581,9 +6609,15 @@ function App(){
       },'←'),
 
       /* 로고 영역 - 햄버거 바로 옆 (모바일에서도 좌측) */
+<<<<<<< HEAD
       R('div',{className:'hdr-logo-area',style:{display:'flex',alignItems:'center',gap:12,cursor:'pointer'},onClick:()=>{setPage('home');setSidebarOpen(false);}},
         R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:80,objectFit:'contain',maxWidth:340}}),
         R('span',{style:{background:'#FFE5DA',color:'#D94F1E',fontSize:13,fontWeight:800,padding:'5px 12px',borderRadius:6,letterSpacing:1}},'MES')
+=======
+      R('div',{className:'hdr-logo-area',style:{display:'flex',alignItems:'center',gap:10,cursor:'pointer'},onClick:()=>{setPage('home');setSidebarOpen(false);}},
+        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:64,objectFit:'contain',maxWidth:280}}),
+        R('span',{style:{background:'#FFE5DA',color:'#D94F1E',fontSize:12,fontWeight:800,padding:'4px 10px',borderRadius:6,letterSpacing:1}},'MES')
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
       ),
 
       /* 데스크탑 spacer */
@@ -6705,7 +6739,11 @@ function App(){
             onClick:()=>{
               if(confirm('메뉴를 기본값으로 초기화할까요?')){
                 setNavSections(DEFAULT_NAV_SECTIONS);
+<<<<<<< HEAD
                 localStorage.removeItem('bnf_nav_sections_v5');
+=======
+                localStorage.removeItem('bnf_nav_sections_v4');
+>>>>>>> 48df0a106bbcaafebc6cde411aaa211bab765a9c
               }
             },
             title:'초기화',
