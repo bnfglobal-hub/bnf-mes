@@ -982,6 +982,86 @@ function PageLeave({user}){
 
 
 
+/* ═══ 고정비 행 컴포넌트 (각자 로컬 상태로 입력 끊김 방지) ═══════ */
+function FixedCostRow({item,CATS,onUpdate,onDelete}){
+  /* 로컬 상태로 입력값 관리 - DB 자동 저장과 충돌 방지 */
+  const[localName,setLocalName]=useState(item.item_name||'');
+  const[localAmt,setLocalAmt]=useState(String(item.amount||0));
+  const[localMemo,setLocalMemo]=useState(item.memo||'');
+  const[localCat,setLocalCat]=useState(item.category||'기타');
+  const composingRef=useRef(false);
+  
+  /* item.id가 바뀔 때만 (다른 행이 들어올 때만) 동기화 - 입력 중에는 동기화하지 않음 */
+  useEffect(()=>{
+    setLocalName(item.item_name||'');
+    setLocalAmt(String(item.amount||0));
+    setLocalMemo(item.memo||'');
+    setLocalCat(item.category||'기타');
+  },[item.id]);
+  
+  /* IME(한글) 처리 + 변경 시 즉시 onChange (디바운스는 상위에서) */
+  const handleNameChange=(e)=>{
+    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
+    setLocalName(e.target.value);
+    onUpdate(item.id,'item_name',e.target.value);
+  };
+  const handleNameCompositionEnd=(e)=>{
+    setLocalName(e.target.value);
+    onUpdate(item.id,'item_name',e.target.value);
+  };
+  const handleMemoChange=(e)=>{
+    if(e.nativeEvent&&e.nativeEvent.isComposing)return;
+    setLocalMemo(e.target.value);
+    onUpdate(item.id,'memo',e.target.value);
+  };
+  const handleMemoCompositionEnd=(e)=>{
+    setLocalMemo(e.target.value);
+    onUpdate(item.id,'memo',e.target.value);
+  };
+  const handleAmtChange=(e)=>{
+    setLocalAmt(e.target.value);
+    onUpdate(item.id,'amount',e.target.value);
+  };
+  const handleCatChange=(e)=>{
+    setLocalCat(e.target.value);
+    onUpdate(item.id,'category',e.target.value);
+  };
+  
+  return R('tr',null,
+    R('td',null,
+      R('select',{value:localCat,onChange:handleCatChange,style:{width:'100%',border:'1px solid var(--bd)',borderRadius:6,padding:'6px 8px',fontSize:12,background:'#fff'}},
+        ...CATS.map(c=>R('option',{key:c,value:c},c))
+      )
+    ),
+    R('td',null,R('input',{
+      type:'text',
+      value:localName,
+      onChange:handleNameChange,
+      onCompositionEnd:handleNameCompositionEnd,
+      className:'inp',
+      style:{width:'100%',fontSize:12}
+    })),
+    R('td',{style:{textAlign:'right'}},R('input',{
+      type:'number',
+      value:localAmt,
+      onChange:handleAmtChange,
+      onFocus:e=>{if(e.target.value==='0')e.target.select();},
+      className:'inp',
+      style:{width:'100%',textAlign:'right',fontSize:13,fontWeight:700,color:'var(--p)'}
+    })),
+    R('td',null,R('input',{
+      type:'text',
+      value:localMemo,
+      onChange:handleMemoChange,
+      onCompositionEnd:handleMemoCompositionEnd,
+      placeholder:'메모',
+      className:'inp',
+      style:{width:'100%',fontSize:11}
+    })),
+    R('td',null,R('button',{onClick:()=>onDelete(item.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:14,padding:'2px 6px'},title:'이 항목 삭제'},'✕'))
+  );
+}
+
 /* ═══ 고정비 관리 ════════════════════════════════════ */
 function PageFixedCosts({user,variant='adm'}){
   const CATS=['임대료','인건비','감가상각','보험료','통신비','공과금','리스료','기타'];
@@ -1024,18 +1104,18 @@ function PageFixedCosts({user,variant='adm'}){
     else if(error)alert('추가 실패: '+error.message);
   };
 
-  /* 항목 수정 (자동저장, 즉시 DB 반영) */
-  const updateItem=async(id,field,val)=>{
-    setAllItems(p=>p.map(i=>i.id===id?{...i,[field]:val}:i));
+  /* 항목 수정 - 로컬 상태는 자식 컴포넌트가 관리, 부모는 디바운스 후 DB 저장 + 상태 동기화 */
+  const updateItem=(id,field,val)=>{
     const key=id+'_'+field;
     if(saveTimers.current[key])clearTimeout(saveTimers.current[key]);
     saveTimers.current[key]=setTimeout(async()=>{
       setSaving(true);
       const numVal=field==='amount'?(+String(val).replace(/[,\s]/g,'')||0):val;
       const{error}=await sbClient.from('fixed_costs').update({[field]:numVal}).eq('id',id);
-      if(error)console.warn('저장 실패:',error);
+      if(error){console.warn('저장 실패:',error);alert('저장 실패: '+error.message);}
+      else{setAllItems(p=>p.map(i=>i.id===id?{...i,[field]:numVal}:i));}
       setSaving(false);
-    },500);
+    },600);
   };
 
   /* 항목 삭제 */
@@ -1144,17 +1224,13 @@ function PageFixedCosts({user,variant='adm'}){
               R('th',null,'메모'),
               R('th',{style:{width:36}})
             )),
-            R('tbody',null,...monthItems.map(item=>R('tr',{key:item.id},
-              R('td',null,
-                R('select',{value:item.category||'기타',onChange:e=>updateItem(item.id,'category',e.target.value),style:{width:'100%',border:'1px solid var(--bd)',borderRadius:6,padding:'6px 8px',fontSize:12,background:'#fff'}},
-                  ...CATS.map(c=>R('option',{key:c,value:c},c))
-                )
-              ),
-              R('td',null,R('input',{value:item.item_name||'',onChange:e=>updateItem(item.id,'item_name',e.target.value),className:'inp',style:{width:'100%',fontSize:12}})),
-              R('td',{style:{textAlign:'right'}},R('input',{type:'number',value:item.amount||0,onChange:e=>updateItem(item.id,'amount',e.target.value),className:'inp',style:{width:'100%',textAlign:'right',fontSize:13,fontWeight:700,color:'var(--p)'}})),
-              R('td',null,R('input',{value:item.memo||'',onChange:e=>updateItem(item.id,'memo',e.target.value),placeholder:'메모',className:'inp',style:{width:'100%',fontSize:11}})),
-              R('td',null,R('button',{onClick:()=>deleteItem(item.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:14,padding:'2px 6px'},title:'이 항목 삭제'},'✕'))
-            )))
+            R('tbody',null,...monthItems.map(item=>R(FixedCostRow,{
+              key:item.id,
+              item:item,
+              CATS:CATS,
+              onUpdate:updateItem,
+              onDelete:deleteItem
+            })))
           )),
 
       monthItems.length>0&&R('div',{style:{marginTop:12,padding:'10px 14px',background:'#FFF8F4',borderRadius:8,display:'flex',alignItems:'center',gap:12,justifyContent:'space-between'}},
@@ -2411,7 +2487,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   );
 }
 
-function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
+function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSetProds}){
   const[monthlySales,setMonthlySales]=useState({});
   const[autoSupplier,setAutoSupplier]=useState({});  /* 코드별 매입처 (purchases에서) */
   const[autoPrice,setAutoPrice]=useState({});         /* 코드별 매입단가 (purchases에서) */
@@ -2550,20 +2626,67 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
   }
   /* 선택된 즐겨찾기 완제품 (BOM 연동 보기용) */
   const[selectedFav,setSelectedFav]=useState(null);
+  const[showBomSearch,setShowBomSearch]=useState(false);
+  const[bomSearch,setBomSearch]=useState('');
+  
+  /* 선택된 완제품과 매칭되는 prods 찾기 (정확 일치 우선, 그 다음 정규화 매칭) */
+  const matchedProd=useMemo(()=>{
+    if(!selectedFav||!prods||prods.length===0)return null;
+    const norm=s=>String(s||'').replace(/\s+/g,'').toLowerCase();
+    /* 1순위: id 일치 */
+    let m=prods.find(p=>p.id===selectedFav.id);
+    if(m)return m;
+    /* 2순위: 이름 정확 일치 */
+    m=prods.find(p=>p.name===selectedFav.n);
+    if(m)return m;
+    /* 3순위: 공백/대소문자 무시 매칭 */
+    const target=norm(selectedFav.n);
+    m=prods.find(p=>norm(p.name)===target);
+    return m||null;
+  },[selectedFav,prods]);
   
   /* 선택된 완제품의 BOM에 포함된 반제품 자동 추출 */
   const linkedSemis=useMemo(()=>{
-    if(!selectedFav||!prods)return [];
-    /* selectedFav는 mats 중 즐겨찾기된 항목 (완제품). prods에서 같은 이름의 제품 찾기 */
-    const matchProd=(prods||[]).find(p=>p.name===selectedFav.n||p.id===selectedFav.id);
-    if(!matchProd||!matchProd.bom)return [];
+    if(!matchedProd||!matchedProd.bom||matchedProd.bom.length===0)return [];
     /* BOM에 포함된 재료 중 '반제품' 카테고리만 추출 */
-    const semiCodes=matchProd.bom.map(b=>b.c);
+    const semiCodes=matchedProd.bom.map(b=>b.c);
     return mats.filter(m=>semiCodes.includes(m.c)&&m.g==='반제품').map(m=>{
-      const bomItem=matchProd.bom.find(b=>b.c===m.c);
+      const bomItem=matchedProd.bom.find(b=>b.c===m.c);
       return{...m,requiredAmt:bomItem?bomItem.amt:0};
     });
-  },[selectedFav,prods,mats]);
+  },[matchedProd,mats]);
+  
+  /* BOM 추가/제거 함수 */
+  const addToBom=(mat,amt=1)=>{
+    if(!matchedProd||!onSetProds)return;
+    if(matchedProd.bom.find(b=>b.c===mat.c)){alert('이미 BOM에 등록된 항목입니다.');return;}
+    onSetProds(prev=>prev.map(p=>{
+      if(p.id!==matchedProd.id)return p;
+      return{...p,bom:[...(p.bom||[]),{c:mat.c,name:mat.n,unit:mat.u,g:mat.g,supplier:mat.supplier||'',contact:mat.contact||'',lead:mat.lead||3,amt:amt}]};
+    }));
+  };
+  const removeFromBom=(matC)=>{
+    if(!matchedProd||!onSetProds)return;
+    if(!confirm('이 BOM 항목을 삭제할까요?'))return;
+    onSetProds(prev=>prev.map(p=>{
+      if(p.id!==matchedProd.id)return p;
+      return{...p,bom:(p.bom||[]).filter(b=>b.c!==matC)};
+    }));
+  };
+  const updateBomAmt=(matC,newAmt)=>{
+    if(!matchedProd||!onSetProds)return;
+    onSetProds(prev=>prev.map(p=>{
+      if(p.id!==matchedProd.id)return p;
+      return{...p,bom:(p.bom||[]).map(b=>b.c===matC?{...b,amt:+newAmt||0}:b)};
+    }));
+  };
+  
+  /* BOM 추가 검색 결과 (반제품 + 원재료 등 모두 가능) */
+  const bomSearchResults=useMemo(()=>{
+    if(!bomSearch||!matchedProd)return [];
+    const inBom=new Set((matchedProd.bom||[]).map(b=>b.c));
+    return mats.filter(m=>!inBom.has(m.c)&&(m.n.toLowerCase().includes(bomSearch.toLowerCase())||m.c.includes(bomSearch))).slice(0,10);
+  },[bomSearch,matchedProd,mats]);
   
   /* 완제품/반제품 현황 섹션 */
   const getFavSection=()=>{return favMats.length>0||semiMatsData.length>0?R('div',{style:{marginBottom:14}},
@@ -2591,26 +2714,65 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods}){
       R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
         R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between'}},
           R('div',{style:{fontSize:12,fontWeight:700,color:'#7C3AED'}},
-            selectedFav&&linkedSemis.length>0?'🔗 '+selectedFav.n.substring(0,10)+(selectedFav.n.length>10?'...':'')+' BOM 반제품':'🔧 반제품 재고 현황'
+            selectedFav&&matchedProd?'🔗 '+selectedFav.n.substring(0,10)+(selectedFav.n.length>10?'...':'')+' BOM 관리':'🔧 반제품 재고 현황'
           ),
           R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),style:{background:'#7C3AED',color:'#fff',border:'none',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:11,fontWeight:700}},showSemiSearch?'완료':'+')
         ),
-        /* BOM 연동 반제품 (선택된 완제품 있을 때) */
-        selectedFav&&R('div',{style:{padding:'6px 10px',background:'#F5F3FF',borderBottom:'1px solid var(--bd)',fontSize:10,color:'#7C3AED',display:'flex',alignItems:'center',gap:6}},
-          R('span',null,'🔗 선택한 완제품의 BOM 반제품'),
-          R('span',{style:{marginLeft:'auto',background:'#7C3AED',color:'#fff',padding:'1px 6px',borderRadius:8,fontWeight:700}},linkedSemis.length+'종')
+        /* === BOM 관리 모드 (선택된 완제품 있을 때) === */
+        selectedFav&&matchedProd&&R('div',{style:{padding:'8px 12px',background:'#F5F3FF',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+          R('span',{style:{fontSize:10,color:'#7C3AED',fontWeight:600}},'🔗 ',selectedFav.n,' 의 BOM'),
+          R('span',{style:{marginLeft:'auto',background:'#7C3AED',color:'#fff',padding:'1px 6px',borderRadius:8,fontWeight:700,fontSize:10}},linkedSemis.length+'/'+(matchedProd.bom||[]).length),
+          isAdmin&&R('button',{onClick:()=>setShowBomSearch(!showBomSearch),style:{background:'#22C55E',color:'#fff',border:'none',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:10,fontWeight:700}},showBomSearch?'✕ 닫기':'+ BOM 추가')
         ),
-        selectedFav&&linkedSemis.length===0&&R('div',{style:{padding:'12px 14px',textAlign:'center',color:'var(--tm)',fontSize:11}},
-          R('div',null,'⚠️ 이 완제품의 BOM에 등록된 반제품이 없습니다'),
-          R('div',{style:{fontSize:10,marginTop:4,color:'#9CA3AF'}},'제품/BOM 페이지에서 BOM을 설정하세요')
+        /* === 진단 메시지 (선택했지만 매칭 안 됨) === */
+        selectedFav&&!matchedProd&&R('div',{style:{padding:'14px',background:'#FEF3C7',borderBottom:'1px solid #FDE68A',fontSize:11,color:'#92400E'}},
+          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠️ 이 완제품과 매칭되는 BOM이 없습니다'),
+          R('div',{style:{fontSize:10,lineHeight:1.5}},
+            '완제품 "',R('b',null,selectedFav.n),'"이 [제품/BOM] 페이지에 등록되어 있지 않거나, 이름이 다릅니다.',R('br'),
+            '👉 [제품/BOM] 페이지에서 동일한 이름으로 제품을 등록한 후 BOM을 설정해주세요.'
+          )
         ),
-        selectedFav&&linkedSemis.length>0&&R('table',{style:{width:'100%',fontSize:11,marginBottom:semiMatsData.length>0||showSemiSearch?6:0}},
-          R('thead',null,R('tr',{style:{background:'#FAF7FF'}},R('th',{style:{padding:'5px 10px',textAlign:'left'}},'반제품'),R('th',{style:{padding:'5px 10px',textAlign:'right'}},'재고'),R('th',{style:{padding:'5px 10px',textAlign:'right',width:80,fontSize:9,color:'#9CA3AF'}},'필요량'))),
-          R('tbody',null,...linkedSemis.map(m=>R('tr',{key:m.id},
-            R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),
-            R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'#7C3AED'}},m.s,' ',m.u),
-            R('td',{style:{padding:'6px 10px',textAlign:'right',fontSize:10,color:'#7C3AED',fontWeight:600}},m.requiredAmt,' ',m.u)
-          )))
+        /* === BOM 추가 검색 패널 === */
+        showBomSearch&&matchedProd&&R('div',{style:{padding:'8px 12px',background:'#F0FDF4',borderBottom:'1px solid var(--bd)'}},
+          R('div',{style:{fontSize:10,color:'#15803D',marginBottom:4,fontWeight:600}},'➕ 이 완제품의 BOM에 추가할 항목 검색'),
+          R('input',{className:'inp',value:bomSearch,onChange:e=>setBomSearch(e.target.value),placeholder:'반제품/원재료명 검색...',style:{width:'100%',fontSize:11},autoFocus:true}),
+          bomSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:160,overflow:'auto'}},
+            ...bomSearchResults.map(m=>R('div',{key:m.id,onClick:()=>{addToBom(m,1);setBomSearch('');},style:{padding:'7px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff',display:'flex',alignItems:'center',gap:6},
+              onMouseEnter:e=>e.currentTarget.style.background='#F0FDF4',
+              onMouseLeave:e=>e.currentTarget.style.background='#fff'
+            },R('span',{style:{background:m.g==='반제품'?'#7C3AED':'#6B7280',color:'#fff',padding:'1px 5px',borderRadius:3,fontSize:9,fontWeight:700}},m.g),R('span',{style:{flex:1}},m.n),R('span',{style:{color:'#15803D',fontWeight:700,fontSize:10}},'+ 추가')))
+          ),
+          bomSearch&&bomSearchResults.length===0&&R('div',{style:{padding:'6px',fontSize:11,color:'var(--tm)'}},'결과 없음 또는 이미 BOM에 등록됨')
+        ),
+        /* === BOM 반제품 목록 (편집 가능) === */
+        selectedFav&&matchedProd&&matchedProd.bom&&matchedProd.bom.length>0&&R('table',{style:{width:'100%',fontSize:11,marginBottom:semiMatsData.length>0||showSemiSearch?6:0}},
+          R('thead',null,R('tr',{style:{background:'#FAF7FF'}},
+            R('th',{style:{padding:'5px 10px',textAlign:'left'}},'항목'),
+            R('th',{style:{padding:'5px 10px',textAlign:'right',width:62}},'재고'),
+            R('th',{style:{padding:'5px 10px',textAlign:'right',width:72,fontSize:9,color:'#9CA3AF'}},'필요량'),
+            isAdmin&&R('th',{style:{width:26}})
+          )),
+          R('tbody',null,...matchedProd.bom.map(bomItem=>{
+            const m=mats.find(x=>x.c===bomItem.c);
+            const isSemi=m&&m.g==='반제품';
+            return R('tr',{key:bomItem.c,style:{background:isSemi?'transparent':'#FAFAFA'}},
+              R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+                R('span',{style:{background:isSemi?'#7C3AED':'#9CA3AF',color:'#fff',padding:'1px 4px',borderRadius:3,fontSize:8,fontWeight:700,marginRight:4}},bomItem.g||'-'),
+                bomItem.name||(m?m.n:'(삭제됨)')
+              ),
+              R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m?(m.s<=0?'#EF4444':isSemi?'#7C3AED':'#6B7280'):'#ccc'}},m?(m.s+' '+m.u):'-'),
+              R('td',{style:{padding:'2px 10px',textAlign:'right'}},
+                isAdmin
+                  ? R('input',{type:'number',value:bomItem.amt||0,onChange:e=>updateBomAmt(bomItem.c,e.target.value),style:{width:60,textAlign:'right',border:'1px solid var(--bd)',borderRadius:4,padding:'2px 4px',fontSize:11}})
+                  : R('span',{style:{fontSize:10,color:'#7C3AED',fontWeight:600}},bomItem.amt+' '+bomItem.unit)
+              ),
+              isAdmin&&R('td',{style:{padding:'2px',textAlign:'center'}},R('button',{onClick:()=>removeFromBom(bomItem.c),title:'BOM에서 제거',style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:13,padding:'2px 4px'}},'✕'))
+            );
+          }))
+        ),
+        selectedFav&&matchedProd&&(!matchedProd.bom||matchedProd.bom.length===0)&&R('div',{style:{padding:'14px',textAlign:'center',color:'var(--tm)',fontSize:11}},
+          R('div',null,'⚠️ 이 완제품의 BOM이 비어있습니다'),
+          R('div',{style:{fontSize:10,marginTop:4}},'위 "+ BOM 추가" 버튼으로 항목을 등록하세요')
         ),
         /* 구분선 */
         selectedFav&&(semiMatsData.length>0||showSemiSearch)&&R('div',{style:{height:8,background:'#FAFAFA',borderTop:'1px solid var(--bd)',borderBottom:'1px solid var(--bd)'}}),
@@ -5368,7 +5530,7 @@ function App(){
   const renderPage=()=>{
     const p={user,mats,cats,isAdmin,rk};
     if(page==='home')return R(PageHome,{mats,prods,orders,pqty,shortCnt,onGoPage:setPage});
-    if(page==='inv')return R(PageInv,{...p,prods,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
+    if(page==='inv')return R(PageInv,{...p,prods,onSetProds:setProds,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
     if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true)});
     if(page==='prod')return R(PageProd,{mats,prods,pqty,setPqty,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);}});
