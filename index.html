@@ -5223,7 +5223,7 @@ function PageAdmin({user}){
               {label:'📋 경영지원팀',color:'#0EA5E9',bg:'#F0F9FF',items:[
                 {k:'inv',v:'재고 관리'},
                 {k:'hq',v:'본사재고'},
-                {k:'bom',v:'제품/BOM'},
+                {k:'bom',v:'BOM 등록'},
                 {k:'prod',v:'생산 지시'},
                 {k:'orders',v:'발주현황'},
                 {k:'autoOrder',v:'자동발주제안'},
@@ -5828,7 +5828,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     /* 이천공장 */
     {id:'inv',l:'재고 관리',ic:'📦'},
     {id:'hq',l:'본사 재고',ic:'🏢'},
-    {id:'bom',l:'제품/BOM',ic:'🧪'},
+    {id:'bom',l:'BOM 등록',ic:'🧪'},
     {id:'research',l:'연구개발 현황',ic:'🔬'},
     {id:'research_journal',l:'연구개발일지',ic:'📔'},
     {id:'recipes',l:'레시피',ic:'📖'},
@@ -6711,7 +6711,7 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
   );
 }
 
-/* ────── PAGE: 제품/BOM ────── */
+/* ────── PAGE: BOM 등록 ────── */
 function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal}){
   const[prodSearch,setProdSearch]=useState('');
   const[expId,setExpId]=useState(null);
@@ -6913,7 +6913,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   };
   return R('div',{className:'pg fa'},
     !prods.length&&R('div',{className:'card',style:{textAlign:'center',padding:'28px',border:'2px dashed #e2e8f0',color:'#94a3b8',marginBottom:14}},
-      '제품/BOM을 먼저 등록하세요',
+      'BOM을 먼저 등록하세요',
       isAdmin&&R('div',{style:{marginTop:8}},R('button',{className:'btn bp',onClick:onOpenBOM},'등록하러 가기'))
     ),
     prods.map(p=>{
@@ -10019,7 +10019,7 @@ const DEFAULT_NAV_SECTIONS=[
       {label:'📋 경영지원팀',items:[
         {id:'inv',l:'재고 관리',ic:'📦'},
         {id:'hq',l:'본사재고',ic:'🏢'},
-        {id:'bom',l:'제품/BOM',ic:'⊕'},
+        {id:'bom',l:'BOM 등록',ic:'⊕'},
         {id:'prod',l:'생산 지시',ic:'🏭'},
         {id:'orders',l:'발주현황',ic:'🚚'},
         {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
@@ -11139,9 +11139,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T20:45:bom-runs-only-v22',
-  buildTime:'1747230300000',
-  description:'생산지시: BOM은 회수에만 곱함 (1회 생산 수량은 메모 표시용)'
+  version:'2026-05-14-T21:00:bom-menu-rename-v23',
+  buildTime:'1747231200000',
+  description:'메뉴 이름: 제품/BOM → BOM 등록'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
