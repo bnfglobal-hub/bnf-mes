@@ -9209,6 +9209,26 @@ function App(){
     return()=>clearInterval(t);
   },[user]);
 
+  /* 로그인 후 권한 체크 - 사원은 권한 있는 첫 페이지로 자동 이동 (Hook은 반드시 early return 이전!) */
+  useEffect(()=>{
+    if(!user)return;  /* 로그인 안 했으면 무시 */
+    const _isAdmin=['superadmin','admin'].includes(user.role);
+    if(_isAdmin)return;  /* 관리자는 자동 이동 안 함 */
+    if(!page)return;
+    const allowed=user.menu_perms&&user.menu_perms[page]===true;
+    if(allowed)return;
+    /* 권한 있는 첫 페이지 찾기 */
+    const _allItems=NAV_SECTIONS.flatMap(s=>{
+      const direct=Array.isArray(s.items)?s.items:[];
+      const sub=Array.isArray(s.subSections)?s.subSections.flatMap(ss=>Array.isArray(ss.items)?ss.items:[]):[];
+      return[...direct,...sub];
+    }).filter(i=>i&&i.id);
+    const firstAllowed=_allItems.find(i=>user.menu_perms&&user.menu_perms[i.id]===true);
+    if(firstAllowed&&firstAllowed.id!==page){
+      setPageRaw(firstAllowed.id);
+    }
+  },[user&&user.id]);
+
   /* 로딩 화면 */
   if(loading)return R('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1A0C07,#3D1A0E)',flexDirection:'column',gap:14}},
     R('div',{style:{background:'#fff',borderRadius:18,padding:'24px 32px',marginBottom:20,boxShadow:'0 12px 40px rgba(217,79,30,0.35)',display:'flex',alignItems:'center',justifyContent:'center'}},R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{width:220,maxWidth:'80%',objectFit:'contain',display:'block'},onError:e=>{e.currentTarget.style.display='none';e.currentTarget.parentElement.innerHTML='<div style="font-size:24px;font-weight:900;color:#D94F1E;letter-spacing:-0.5px;">B&amp;F GLOBAL</div>';}})),
@@ -9228,21 +9248,6 @@ function App(){
     return[...direct,...sub];
   }).filter(i=>i&&i.id&&(i.id!=='admin'||isAdmin));
   const navDefMap=Object.fromEntries(allNavItems.map(i=>[i.id,i]));
-  
-  /* 로그인 후 권한 체크 - 사원은 권한 있는 첫 페이지로 자동 이동 */
-  useEffect(()=>{
-    if(!isAdmin&&page){
-      const allowed=user.menu_perms&&user.menu_perms[page]===true;
-      if(!allowed){
-        /* 권한 있는 첫 페이지 찾기 */
-        const firstAllowed=allNavItems.find(i=>user.menu_perms&&user.menu_perms[i.id]===true);
-        if(firstAllowed&&firstAllowed.id!==page){
-          setPageRaw(firstAllowed.id);
-        }
-        /* 권한 있는 페이지 없으면 그대로 → renderPage가 안내 페이지 표시 */
-      }
-    }
-  },[user.id]);
 
   /* 페이지 렌더 */
   const renderPage=()=>{
