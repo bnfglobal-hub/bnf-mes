@@ -5790,6 +5790,78 @@ function EC({initVal,onSave,type,style,placeholder,className,rk}){
 }
 
 /* ────── PAGE: 홈 ────── */
+/* ═══════════ 환율 위젯 (홈 화면) ═══════════ */
+function ExchangeRateWidget(){
+  const[rates,setRates]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[error,setError]=useState('');
+  const[updated,setUpdated]=useState('');
+  
+  const load=async()=>{
+    setError('');
+    try{
+      /* USD 기준 모든 통화 환율 조회 - 무료, CORS 허용, 한국 환율 포함 */
+      const resp=await fetch('https://open.er-api.com/v6/latest/USD');
+      if(!resp.ok)throw new Error('API 응답 오류');
+      const d=await resp.json();
+      if(!d||!d.rates||!d.rates.KRW)throw new Error('환율 데이터 없음');
+      const krw=d.rates.KRW;
+      setRates({
+        USD:krw,                          /* 1 USD = ? KRW (미국)*/
+        GBP:krw/d.rates.GBP,              /* 1 GBP = ? KRW (영국)*/
+        JPY:(krw/d.rates.JPY)*100,        /* 100 JPY = ? KRW (일본)*/
+        CNY:krw/d.rates.CNY               /* 1 CNY = ? KRW (중국)*/
+      });
+      setUpdated(d.time_last_update_utc||new Date().toISOString());
+    }catch(e){
+      setError(e.message||'환율 로드 실패');
+    }
+    setLoading(false);
+  };
+  
+  useEffect(()=>{
+    load();
+    /* 1시간마다 자동 갱신 */
+    const t=setInterval(load,3600000);
+    return()=>clearInterval(t);
+  },[]);
+  
+  const items=[
+    {flag:'🇺🇸',name:'미국',code:'USD',unit:'1 USD',val:rates?.USD,color:'#3B82F6'},
+    {flag:'🇬🇧',name:'영국',code:'GBP',unit:'1 GBP',val:rates?.GBP,color:'#7C3AED'},
+    {flag:'🇯🇵',name:'일본',code:'JPY',unit:'100 JPY',val:rates?.JPY,color:'#EC4899'},
+    {flag:'🇨🇳',name:'중국',code:'CNY',unit:'1 CNY',val:rates?.CNY,color:'#EF4444'}
+  ];
+  
+  return R('div',{className:'card',style:{padding:'14px 16px',marginBottom:14,background:'linear-gradient(135deg,#fff,#FFF8F4)',border:'1px solid #FED7AA'}},
+    R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:6}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        R('span',{style:{fontSize:16}},'💱'),
+        R('span',{style:{fontSize:14,fontWeight:800,color:'#1A0C07'}},'실시간 환율'),
+        R('span',{style:{fontSize:10,color:'#9CA3AF'}},'KRW 기준')
+      ),
+      R('button',{onClick:load,disabled:loading,style:{background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:6,padding:'3px 10px',fontSize:11,cursor:'pointer',color:'#9A3412',fontWeight:600}},loading?'⏳':'🔄 새로고침')
+    ),
+    error
+      ? R('div',{style:{padding:10,fontSize:11,color:'#EF4444',background:'#FEF2F2',borderRadius:6}},'⚠ 환율 정보를 가져올 수 없습니다 ('+error+')')
+      : loading
+      ? R('div',{style:{padding:10,fontSize:11,color:'#9CA3AF',textAlign:'center'}},'환율 정보 가져오는 중...')
+      : R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8}},
+          ...items.map(it=>R('div',{key:it.code,style:{padding:'10px 12px',background:'#fff',border:'1px solid #F3E4DA',borderRadius:8,borderLeft:'3px solid '+it.color}},
+            R('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+              R('span',{style:{fontSize:16}},it.flag),
+              R('span',{style:{fontSize:11,color:'#6B7280',fontWeight:600}},it.name+' ('+it.code+')')
+            ),
+            R('div',{style:{fontSize:16,fontWeight:800,color:'#1A0C07'}},
+              it.val?Math.round(it.val).toLocaleString('ko')+' 원':'-'
+            ),
+            R('div',{style:{fontSize:9,color:'#9CA3AF',marginTop:2}},it.unit)
+          ))
+        ),
+    updated&&R('div',{style:{fontSize:9,color:'#9CA3AF',marginTop:8,textAlign:'right'}},'최종 갱신: '+new Date(updated).toLocaleString('ko-KR'))
+  );
+}
+
 function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
   const totalMats=mats.length;
   const goodMats=mats.filter(m=>!m.mu||m.s>=m.mu).length;
@@ -5918,6 +5990,9 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
         )
       )
     ),
+    
+    /* ━━━━━━ 💱 환율 위젯 ━━━━━━ */
+    R(ExchangeRateWidget),
     
     /* ━━━━━━ 내 바로가기 ━━━━━━ */
     R('div',{className:'card',style:{padding:18,marginBottom:18,borderRadius:14}},
@@ -11545,9 +11620,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T23:00:notif-badges-v28',
-  buildTime:'1747238400000',
-  description:'앱 내 알림 뱃지: 헤더 🔔 + 알림 패널 + 사이드바 메뉴 옆 카운트 (결재/공지/재고)'
+  version:'2026-05-14-T23:30:exchange-rate-v29',
+  buildTime:'1747240200000',
+  description:'홈 화면에 실시간 환율 위젯 추가 (미국/영국/일본/중국, 1시간마다 자동갱신)'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
