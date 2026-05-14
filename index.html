@@ -3474,7 +3474,15 @@ function PageAdmin({user}){
     if(!uf.name||!uf.email)return alert('이름/이메일 필수');
     try{
       let resp;
-      const payload={...uf};
+      /* 빈 문자열을 null로 변환 (UUID/DATE 컬럼 에러 방지) */
+      const cleanPayload={...uf};
+      const NULLABLE_FIELDS=['dept_id','hire_date','emp_no','phone','position'];
+      NULLABLE_FIELDS.forEach(k=>{
+        if(cleanPayload[k]===''||cleanPayload[k]===undefined){
+          cleanPayload[k]=null;
+        }
+      });
+      const payload=cleanPayload;
       
       const trySave=async(data)=>{
         if(editU){
@@ -3514,13 +3522,16 @@ function PageAdmin({user}){
       
       if(resp.error){
         console.error('직원 저장 실패:',resp.error);
-        alert('❌ 저장 실패:\n\n'+resp.error.message+'\n\n[해결 방법]\n• 직원테이블_컬럼추가.sql 실행\n• 이메일/사번이 중복되지 않는지 확인\n• Supabase Dashboard에서 emp 테이블 확인');
+        const msg=resp.error.message||'';
+        let hint='';
+        if(msg.includes('uuid'))hint='\n\n💡 부서를 선택해주세요 (또는 부서를 비우려면 빈 부서 옵션 사용)';
+        else if(msg.includes('duplicate'))hint='\n\n💡 이메일이나 사번이 이미 존재합니다.';
+        else if(msg.includes('null value'))hint='\n\n💡 필수 입력 항목이 비어있습니다.';
+        alert('❌ 저장 실패:\n\n'+msg+hint+'\n\n[해결 방법]\n• 직원테이블_컬럼추가.sql 실행\n• 이메일/사번이 중복되지 않는지 확인\n• Supabase Dashboard에서 emp 테이블 확인');
         return;
       }
       
-      if(!resp.error){
-        alert(editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234'));
-      }
+      alert(editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234'));
       setShowUF(false);
       setEditU(null);
       setUf({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
