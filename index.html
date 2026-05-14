@@ -542,8 +542,93 @@ function PageProdSchedule(){
     setCellEdit({ws,rk,si,di});
     setCellVal(val);
   };
+  
+  /* ━━━━━━ Excel 스타일 키보드 네비게이션 + 복사/붙여넣기 ━━━━━━ */
+  const[selectedCell,setSelectedCell]=useState(null);  /* 선택된 셀 {ws,rk,si,di} */
+  const[clipboard,setClipboard]=useState('');  /* 복사한 셀 값 */
+  
+  /* 셀 ID로 다음 셀 찾기 (방향키용) */
+  const navigateCell=(direction)=>{
+    if(!selectedCell)return;
+    const{ws,rk,si,di}=selectedCell;
+    const rowIdx=customRows.findIndex(r=>r.key===rk);
+    const wIdx=weeks.indexOf(ws);
+    let newRk=rk,newSi=si,newDi=di,newWs=ws;
+    
+    if(direction==='right'){
+      if(di<6)newDi=di+1;
+      else if(wIdx<weeks.length-1){newWs=weeks[wIdx+1];newDi=0;}
+    }else if(direction==='left'){
+      if(di>0)newDi=di-1;
+      else if(wIdx>0){newWs=weeks[wIdx-1];newDi=6;}
+    }else if(direction==='down'){
+      const row=customRows[rowIdx];
+      if(row&&si<(row.rows||1)-1)newSi=si+1;
+      else if(rowIdx<customRows.length-1){newRk=customRows[rowIdx+1].key;newSi=0;}
+    }else if(direction==='up'){
+      if(si>0)newSi=si-1;
+      else if(rowIdx>0){const prev=customRows[rowIdx-1];newRk=prev.key;newSi=(prev.rows||1)-1;}
+    }
+    setSelectedCell({ws:newWs,rk:newRk,si:newSi,di:newDi});
+  };
+  
+  /* 키보드 이벤트 - 셀 편집 외부에서 */
+  useEffect(()=>{
+    const handleKey=(e)=>{
+      /* 입력 중이거나 셀 편집 모드면 무시 */
+      if(cellEdit)return;
+      if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
+      if(!selectedCell)return;
+      
+      const{ws,rk,si,di}=selectedCell;
+      
+      /* 방향키 */
+      if(e.key==='ArrowRight'){e.preventDefault();navigateCell('right');}
+      else if(e.key==='ArrowLeft'){e.preventDefault();navigateCell('left');}
+      else if(e.key==='ArrowDown'){e.preventDefault();navigateCell('down');}
+      else if(e.key==='ArrowUp'){e.preventDefault();navigateCell('up');}
+      /* Tab = 오른쪽, Shift+Tab = 왼쪽 */
+      else if(e.key==='Tab'){e.preventDefault();navigateCell(e.shiftKey?'left':'right');}
+      /* Enter = 편집 시작 */
+      else if(e.key==='Enter'||e.key==='F2'){
+        e.preventDefault();
+        if(editMode||!editMode)startCellEdit(ws,rk,si,di);
+      }
+      /* Delete/Backspace = 셀 비우기 */
+      else if(e.key==='Delete'||e.key==='Backspace'){
+        e.preventDefault();
+        const wd={...(allData[ws]||{})};
+        if(wd[rk]){const nrk={...wd[rk]};delete nrk[si+'_'+di];wd[rk]=nrk;}
+        setAllData({...allData,[ws]:wd});
+        saveWeek(ws,wd);
+      }
+      /* Ctrl+C = 복사 */
+      else if((e.ctrlKey||e.metaKey)&&e.key==='c'){
+        const val=allData[ws]?.[rk]?.[si+'_'+di]||'';
+        setClipboard(val);
+        e.preventDefault();
+      }
+      /* Ctrl+V = 붙여넣기 */
+      else if((e.ctrlKey||e.metaKey)&&e.key==='v'){
+        e.preventDefault();
+        const wd={...(allData[ws]||{})};
+        if(!wd[rk])wd[rk]={};
+        if(clipboard.trim())wd[rk][si+'_'+di]=clipboard;
+        else delete wd[rk][si+'_'+di];
+        setAllData({...allData,[ws]:wd});
+        saveWeek(ws,wd);
+      }
+      /* 일반 문자키 = 바로 편집 시작 */
+      else if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+        startCellEdit(ws,rk,si,di);
+        setCellVal(e.key);
+      }
+    };
+    window.addEventListener('keydown',handleKey);
+    return()=>window.removeEventListener('keydown',handleKey);
+  },[selectedCell,allData,cellEdit,editMode,customRows,weeks,clipboard]);
 
-  const finishCellEdit=()=>{
+  const finishCellEdit=(navigateAfter)=>{
     if(!cellEdit)return;
     const{ws,rk,si,di}=cellEdit;
     const wd={...(allData[ws]||{})};
@@ -556,6 +641,13 @@ function PageProdSchedule(){
     saveWeek(ws,wd);
     setCellEdit(null);
     setCellVal('');
+    /* 편집 후 다음 셀로 이동 (Enter/Tab) */
+    if(navigateAfter){
+      setSelectedCell({ws,rk,si,di});
+      setTimeout(()=>navigateCell(navigateAfter),0);
+    }else{
+      setSelectedCell({ws,rk,si,di});
+    }
   };
 
   const addRow=(key)=>{
@@ -648,24 +740,30 @@ function PageProdSchedule(){
                 const cellKey=row.key+'_0_'+di;
                 const cellVal_=data[row.key]?.['0_'+di]||'';
                 const isCellEditing=isEditing&&cellEdit.di===di;
-                return R('td',{key:di,style:{background:row.bg,padding:0,borderBottom:'1px solid var(--bd)',borderLeft:'1px solid var(--bd)',minHeight:36,verticalAlign:'top'}},
+                const isSelected=selectedCell&&selectedCell.ws===weekStart&&selectedCell.rk===row.key&&selectedCell.si===0&&selectedCell.di===di;
+                return R('td',{key:di,style:{background:isSelected?'rgba(217,79,30,0.08)':row.bg,padding:0,borderBottom:'1px solid var(--bd)',borderLeft:'1px solid var(--bd)',minHeight:36,verticalAlign:'top',outline:isSelected?'2px solid #D94F1E':'none',outlineOffset:'-2px',position:'relative'}},
                   isCellEditing
                     ? R('textarea',{
                         ref:editInputRef,
                         value:cellVal,
                         onChange:e=>setCellVal(e.target.value),
-                        onBlur:finishCellEdit,
-                        onKeyDown:e=>{if(e.key==='Escape'){setCellEdit(null);setCellVal('');}if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();finishCellEdit();}},
+                        onBlur:()=>finishCellEdit(),
+                        onKeyDown:e=>{
+                          if(e.key==='Escape'){setCellEdit(null);setCellVal('');setSelectedCell({ws:weekStart,rk:row.key,si:0,di});}
+                          else if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();finishCellEdit('down');}
+                          else if(e.key==='Tab'){e.preventDefault();finishCellEdit(e.shiftKey?'left':'right');}
+                        },
                         style:{width:'100%',minHeight:50,border:'2px solid #D94F1E',background:'#FFF5F0',padding:4,fontSize:fontSize,resize:'vertical',outline:'none',boxSizing:'border-box'}
                       })
                     : R('div',{
+                        onClick:()=>setSelectedCell({ws:weekStart,rk:row.key,si:0,di}),
                         onDoubleClick:()=>startCellEdit(weekStart,row.key,0,di),
-                        title:'더블클릭하여 수정',
-                        style:{padding:'4px 6px',minHeight:36,whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:fontSize,cursor:'pointer',lineHeight:1.4},
-                        onMouseEnter:e=>{if(!cellEdit)e.currentTarget.style.background='rgba(217,79,30,0.04)';},
-                        onMouseLeave:e=>{e.currentTarget.style.background='transparent';}
+                        title:'클릭: 선택  더블클릭: 수정  방향키: 이동  Enter/F2: 편집  Ctrl+C/V: 복사/붙여넣기',
+                        style:{padding:'4px 6px',minHeight:36,whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:fontSize,cursor:'cell',lineHeight:1.4,userSelect:'none'},
+                        onMouseEnter:e=>{if(!cellEdit&&!isSelected)e.currentTarget.style.background='rgba(217,79,30,0.04)';},
+                        onMouseLeave:e=>{if(!isSelected)e.currentTarget.style.background='transparent';}
                       },
-                      cellVal_||R('span',{style:{color:'#ddd',fontSize:Math.max(9,fontSize-2)}},'더블클릭')
+                      cellVal_||R('span',{style:{color:'#ddd',fontSize:Math.max(9,fontSize-2)}},isSelected?'편집: Enter':'클릭')
                     )
                 );
               })
@@ -680,7 +778,20 @@ function PageProdSchedule(){
     R('div',{className:'pg-hdr'},
       R('div',null,
         R('div',{className:'pg-title'},'📅 생산 스케줄'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},fSD(weeks[0]),' ~ ',weekCount,'주간 · 더블클릭으로 수정')
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},fSD(weeks[0]),' ~ ',weekCount,'주간'),
+        R('div',{style:{fontSize:10,color:'#9CA3AF',marginTop:3,letterSpacing:-0.2}},
+          '⌨️ Excel 단축키: ',
+          R('kbd',{style:{background:'#F3F4F6',padding:'1px 5px',borderRadius:3,fontSize:9,fontFamily:'monospace',border:'1px solid #E5E7EB'}},'클릭'),
+          ' 선택 · ',
+          R('kbd',{style:{background:'#F3F4F6',padding:'1px 5px',borderRadius:3,fontSize:9,fontFamily:'monospace',border:'1px solid #E5E7EB'}},'더블클릭/F2/Enter'),
+          ' 편집 · ',
+          R('kbd',{style:{background:'#F3F4F6',padding:'1px 5px',borderRadius:3,fontSize:9,fontFamily:'monospace',border:'1px solid #E5E7EB'}},'←↑↓→ /Tab'),
+          ' 이동 · ',
+          R('kbd',{style:{background:'#F3F4F6',padding:'1px 5px',borderRadius:3,fontSize:9,fontFamily:'monospace',border:'1px solid #E5E7EB'}},'Ctrl+C/V'),
+          ' 복사 · ',
+          R('kbd',{style:{background:'#F3F4F6',padding:'1px 5px',borderRadius:3,fontSize:9,fontFamily:'monospace',border:'1px solid #E5E7EB'}},'Del'),
+          ' 삭제'
+        )
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
         saving==='s'&&R('span',{style:{fontSize:10,color:'var(--p)'}},'저장 중...'),
@@ -6303,17 +6414,72 @@ function PageFiles({user}){
   const load=async()=>{setLoading(true);try{const{data}=await sbClient.from('shared_files').select('*').order('created_at',{ascending:false});setFiles(data||[]);}catch(e){}setLoading(false);};
   
   const upload=async(file)=>{
-    if(!file)return;
-    if(file.size>50*1024*1024){alert('파일 크기는 50MB 이하만 가능합니다');return;}
+    if(!file){console.warn('파일이 없습니다');return;}
+    if(file.size>50*1024*1024){alert('❌ 파일 크기 초과\n\n현재: '+(file.size/1024/1024).toFixed(1)+'MB\n제한: 50MB 이하');return;}
     setUploading(true);
     try{
       const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
       const path=Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safeName;
-      const{error:upErr}=await sbClient.storage.from('bnf-files').upload(path,file);
-      if(upErr)throw upErr;
-      await sbClient.from('shared_files').insert({name:file.name,storage_path:path,size_bytes:file.size,mime_type:file.type||'',folder:currentFolder,uploader_id:user.id,uploader_name:user.name});
+      console.log('📤 업로드 시작:',{path,size:file.size,type:file.type});
+      
+      /* Storage 업로드 */
+      const{data:upData,error:upErr}=await sbClient.storage.from('bnf-files').upload(path,file,{
+        cacheControl:'3600',
+        upsert:false,
+        contentType:file.type||'application/octet-stream'
+      });
+      
+      if(upErr){
+        console.error('Storage 업로드 실패:',upErr);
+        const msg=upErr.message||'';
+        let hint='';
+        if(msg.includes('Bucket not found')||msg.includes('not found')){
+          hint='\n\n💡 [원인] Supabase Storage에 "bnf-files" 버킷이 없습니다.\n\n[해결 방법]\n1. Supabase Dashboard → Storage\n2. New Bucket → 이름: bnf-files\n3. Public 옵션 체크 (다운로드 가능하게)\n4. Create 클릭';
+        }else if(msg.includes('row-level security')||msg.includes('RLS')||msg.includes('policy')){
+          hint='\n\n💡 [원인] Storage 정책(Policy)이 막혀있습니다.\n\n[해결]\n1. Supabase → Storage → bnf-files 버킷\n2. Policies 탭 → "New Policy"\n3. "For full customization" → 모든 작업 허용';
+        }else if(msg.includes('duplicate')){
+          hint='\n\n💡 동일 이름의 파일이 이미 있습니다.';
+        }else if(msg.includes('exceeded')||msg.includes('size')){
+          hint='\n\n💡 Storage 용량 초과 가능성. Supabase 무료는 1GB 제한.';
+        }
+        alert('❌ 파일 업로드 실패\n\n'+msg+hint);
+        setUploading(false);
+        return;
+      }
+      
+      console.log('✅ Storage 업로드 성공:',upData);
+      
+      /* DB에 메타 저장 */
+      const{error:dbErr}=await sbClient.from('shared_files').insert({
+        name:file.name,
+        storage_path:path,
+        size_bytes:file.size,
+        mime_type:file.type||'',
+        folder:currentFolder,
+        uploader_id:user.id,
+        uploader_name:user.name||user.email||'-'
+      });
+      
+      if(dbErr){
+        console.error('DB 저장 실패:',dbErr);
+        const msg=dbErr.message||'';
+        let hint='';
+        if(msg.includes('does not exist')||msg.includes('relation')){
+          hint='\n\n💡 [원인] shared_files 테이블이 없습니다.\n\nSupabase SQL Editor에서 실행:\n\nCREATE TABLE shared_files (\n  id BIGSERIAL PRIMARY KEY,\n  name TEXT, storage_path TEXT,\n  size_bytes BIGINT, mime_type TEXT,\n  folder TEXT DEFAULT \'/\',\n  uploader_id TEXT, uploader_name TEXT,\n  download_count INTEGER DEFAULT 0,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\nALTER TABLE shared_files DISABLE ROW LEVEL SECURITY;';
+        }
+        alert('⚠️ 파일은 업로드됐지만 목록에 추가 실패:\n\n'+msg+hint);
+        /* 업로드된 Storage 파일 롤백 */
+        try{await sbClient.storage.from('bnf-files').remove([path]);}catch(e){}
+        setUploading(false);
+        return;
+      }
+      
+      alert('✅ 업로드 완료: '+file.name);
       load();
-    }catch(e){alert('업로드 실패: '+e.message+'\n\n⚠️ Supabase Storage에서 "bnf-files" 버킷을 먼저 만들어주세요!');}
+    }catch(e){
+      console.error('업로드 예외:',e);
+      alert('❌ 업로드 오류\n\n'+e.message);
+    }
     setUploading(false);
   };
   
@@ -8503,7 +8669,7 @@ const DEFAULT_NAV_SECTIONS=[
 ];
 function loadNavSections(){
   try{
-    const saved=localStorage.getItem('bnf_nav_sections_v9');
+    const saved=localStorage.getItem('bnf_nav_sections_v10');
     if(saved){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
@@ -8513,7 +8679,7 @@ function loadNavSections(){
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
-function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v9',JSON.stringify(arr));}catch(e){}}
+function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v10',JSON.stringify(arr));}catch(e){}}
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
 
 /* ═══ 로그인 ══════════════════════════════════════════ */
@@ -9304,7 +9470,7 @@ function App(){
             onClick:()=>{
               if(confirm('메뉴를 기본값으로 초기화할까요?')){
                 setNavSections(DEFAULT_NAV_SECTIONS);
-                localStorage.removeItem('bnf_nav_sections_v9');
+                localStorage.removeItem('bnf_nav_sections_v10');
               }
             },
             title:'초기화',
