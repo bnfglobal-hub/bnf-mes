@@ -5549,7 +5549,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       return next;
     });
   };
-  /* 선택된 완제품에 반제품 추가 (수동 매핑) - 연속 추가 가능 */
+  /* 선택된 완제품에 반제품 추가 (수동 매핑) - 검색어 유지하여 연속 클릭 가능 */
   const addSemi=(mat)=>{
     if(!selectedFav){alert('먼저 좌측에서 완제품을 선택하세요');return;}
     const favId=selectedFav.id;
@@ -5560,7 +5560,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       localStorage.setItem('bnf_semi_items_map',JSON.stringify(next));
       return next;
     });
-    setSemiSearch('');
+    /* setSemiSearch('') 제거 - 검색어 유지 → 이미 추가된 항목은 결과에서 자동 제외되고 나머지 클릭 계속 가능 */
   };
   const removeSemi=(id)=>{
     if(!selectedFav)return;
@@ -5594,6 +5594,26 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       !curList.find(x=>x.id===m.id)
     ).slice(0,10);
   },[semiSearch,selectedFav,semiItemsMap,mats]);
+  /* 등록된 재료를 분류별로 그룹핑 (반제품/원재료/포장지/부재료 등 자동 묶음) */
+  const semiMatsGrouped=useMemo(()=>{
+    const order=['반제품','원재료','부재료','포장지','제품','공정품'];
+    const groups={};
+    semiMatsData.forEach(m=>{
+      const key=m.g||'기타';
+      if(!groups[key])groups[key]=[];
+      groups[key].push(m);
+    });
+    /* 우선순위 순서 → 그 외는 가나다순 뒤에 */
+    const keys=Object.keys(groups);
+    keys.sort((a,b)=>{
+      const ia=order.indexOf(a),ib=order.indexOf(b);
+      if(ia>=0&&ib>=0)return ia-ib;
+      if(ia>=0)return -1;
+      if(ib>=0)return 1;
+      return a.localeCompare(b,'ko');
+    });
+    return keys.map(g=>({g,items:groups[g]}));
+  },[semiMatsData]);
 
   /* ERP 업로드 탭 - 견고한 새 버전 */
   if(invTab==='erp'){
@@ -5751,17 +5771,23 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
           R('div',{style:{fontSize:10,marginTop:4,color:'#9CA3AF'}},'우측 상단 "+ 추가" 버튼으로 원재료/반제품을 검색해 등록하세요')
         ),
 
-        /* ─── 등록된 반제품 리스트 ─── */
-        selectedFav&&semiMatsData.length>0&&R('table',{style:{width:'100%',fontSize:11}},
-          R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'재료'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
-          R('tbody',null,...semiMatsData.map(m=>R('tr',{key:m.id},
-            R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:170,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:m.g===null?'#9CA3AF':'inherit'}},
-              m.g&&R('span',{style:{marginRight:5}},R(Bdg,{g:m.g,sm:true})),
-              m.n
+        /* ─── 등록된 재료 리스트 (분류별 그룹핑) ─── */
+        selectedFav&&semiMatsData.length>0&&R('div',null,
+          ...semiMatsGrouped.map(grp=>R('div',{key:grp.g,style:{borderBottom:'1px solid var(--bd)'}},
+            /* 그룹 헤더 */
+            R('div',{style:{padding:'6px 12px',background:'#FAF7FF',display:'flex',alignItems:'center',gap:8,borderBottom:'1px solid var(--bd)'}},
+              R(Bdg,{g:grp.g,sm:true}),
+              R('span',{style:{fontSize:10,color:'#7C3AED',fontWeight:700}},grp.items.length+'종')
             ),
-            R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'#7C3AED'}},m.s,' ',m.u),
-            R('td',null,R('button',{onClick:()=>removeSemi(m.id),title:'이 완제품에서 재료 제거',style:{background:'none',border:'none',cursor:'pointer',fontSize:12,padding:'2px 4px',color:'#FCA5A5'}},'✕'))
-          )))
+            /* 그룹 내 항목들 */
+            R('table',{style:{width:'100%',fontSize:11}},
+              R('tbody',null,...grp.items.map(m=>R('tr',{key:m.id},
+                R('td',{style:{padding:'6px 10px 6px 14px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:m.g===null?'#9CA3AF':'inherit'}},m.n),
+                R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'#7C3AED'}},m.s,' ',m.u),
+                R('td',{style:{width:28}},R('button',{onClick:()=>removeSemi(m.id),title:'이 완제품에서 재료 제거',style:{background:'none',border:'none',cursor:'pointer',fontSize:12,padding:'2px 4px',color:'#FCA5A5'}},'✕'))
+              )))
+            )
+          ))
         )
       )
     )
@@ -10409,9 +10435,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T15:00:semi-search-all-mats-v11',
-  buildTime:'1747209600000',
-  description:'재고관리 반제품 검색: 원재료 전체에서 검색 (분류 필터 제거) + 분류 뱃지'
+  version:'2026-05-14-T16:00:semi-grouped-by-category-v13',
+  buildTime:'1747213200000',
+  description:'재고관리 반제품 리스트: 분류별 그룹핑 표시 (반제품/원재료/포장지/부재료 등)'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
