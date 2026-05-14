@@ -3593,7 +3593,16 @@ function PageAdmin({user}){
       let resp;
       /* 빈 문자열을 null로 변환 (UUID/DATE 컬럼 에러 방지) */
       const cleanPayload={...uf};
-      const NULLABLE_FIELDS=['dept_id','hire_date','emp_no','phone','position','email'];
+      /* email은 NOT NULL 제약 가능성 → 비어있으면 사번@bnf.local로 자동 생성 */
+      if(!cleanPayload.email||cleanPayload.email.trim()===''){
+        cleanPayload.email=cleanPayload.emp_no+'@bnf.local';
+      }
+      /* email 중복 체크 (자동 생성된 것도 포함) */
+      if(!editU){
+        const dupEmail=emps.find(e=>(e.email||'').toLowerCase()===cleanPayload.email.toLowerCase());
+        if(dupEmail){alert('❌ 이메일 중복!\n\n"'+cleanPayload.email+'"이 이미 사용 중입니다.\n이메일을 입력하거나 다른 사번을 사용해주세요.');return;}
+      }
+      const NULLABLE_FIELDS=['dept_id','hire_date','phone','position'];
       NULLABLE_FIELDS.forEach(k=>{
         if(cleanPayload[k]===''||cleanPayload[k]===undefined){
           cleanPayload[k]=null;
@@ -9738,7 +9747,7 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T11:55:hook-fix-v3',
+  version:'2026-05-14-T12:00:email-autofill-v4',
   buildTime:'1747203300000',
   description:'React #310 fix: useEffect moved before early return'
 };
