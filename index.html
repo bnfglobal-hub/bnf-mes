@@ -26,7 +26,7 @@ input,button,select,textarea{font-family:inherit;font-size:13px}
 .fa{animation:fa .28s cubic-bezier(0.16, 1, 0.3, 1)}
 .app{display:flex;flex-direction:column;height:100vh;width:100vw;overflow:hidden;background:var(--bg)}
 .hdr{height:100px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0;gap:0;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
-.hdr-left{width:210px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 14px;height:100%;border-right:1px solid var(--bd);box-sizing:border-box;overflow:hidden}
+.hdr-left{width:210px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 14px;height:100%;box-sizing:border-box;overflow:hidden}
 .hdr-right{flex:1;display:flex;align-items:center;gap:10px;padding:0 20px;min-width:0}
 .body{flex:1;display:flex;overflow:hidden}
 .sb{width:210px;flex-shrink:0;background:var(--sb);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
@@ -3365,6 +3365,7 @@ function PageAdmin({user}){
   const[history,setHistory]=useState([]);const[histLoading,setHistLoading]=useState(false);
   const[histFilter,setHistFilter]=useState({event:'all',emp:'',days:7});
   const[uf,setUf]=useState({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
+  const[showPassword,setShowPassword]=useState(false);  /* 관리자는 비밀번호 보기 가능 */
   useEffect(()=>{load();},[]);
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
   
@@ -3471,12 +3472,17 @@ function PageAdmin({user}){
   };
   
   const saveU=async()=>{
-    if(!uf.name||!uf.email)return alert('이름/이메일 필수');
+    if(!uf.name||!uf.emp_no)return alert('이름과 사번은 필수입니다.\n\n사번은 로그인 ID로 사용됩니다.');
+    /* 사번 중복 체크 (신규 추가일 때만) */
+    if(!editU){
+      const dup=emps.find(e=>(e.emp_no||'').toLowerCase()===uf.emp_no.toLowerCase());
+      if(dup){alert('❌ 사번 중복!\n\n"'+uf.emp_no+'"은 이미 사용 중입니다.\n다른 사번을 입력해주세요.');return;}
+    }
     try{
       let resp;
       /* 빈 문자열을 null로 변환 (UUID/DATE 컬럼 에러 방지) */
       const cleanPayload={...uf};
-      const NULLABLE_FIELDS=['dept_id','hire_date','emp_no','phone','position'];
+      const NULLABLE_FIELDS=['dept_id','hire_date','emp_no','phone','position','email'];
       NULLABLE_FIELDS.forEach(k=>{
         if(cleanPayload[k]===''||cleanPayload[k]===undefined){
           cleanPayload[k]=null;
@@ -3543,6 +3549,57 @@ function PageAdmin({user}){
   };
   const toggleStatus=async e=>{await db('emp').update({status:e.status==='active'?'inactive':'active'}).eq('id',e.id);load();};
   const ROLES={superadmin:'최고관리자',admin:'관리자',manager:'부서장',employee:'직원',readonly:'읽기전용'};
+  
+  /* 권한별 기본 메뉴 권한 프리셋 */
+  const ROLE_PRESETS={
+    superadmin:{
+      /* 최고관리자: 모든 메뉴 */
+      home:true,my_tasks:true,
+      inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
+      orders:true,autoOrder:true,board:true,org:true,
+      approval:true,files:true,notices:true,attendance:true,leave:true,
+      links:true,
+      total_dash:true,
+      hq_dash:true,hq_sales:true,hq_purchase:true,hq_fixed_costs:true,
+      adm_dash:true,sales_pipeline:true,quote:true,adm_sales:true,adm_purchase:true,
+      operation:true,fixed_costs:true,cost:true,data:true,admin:true,cats:true
+    },
+    admin:{
+      /* 관리자: 거의 모든 메뉴 (사용자관리 포함) */
+      home:true,my_tasks:true,
+      inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
+      orders:true,autoOrder:true,board:true,org:true,
+      approval:true,files:true,notices:true,attendance:true,leave:true,
+      links:true,
+      total_dash:true,
+      hq_dash:true,hq_sales:true,hq_purchase:true,hq_fixed_costs:true,
+      adm_dash:true,sales_pipeline:true,quote:true,adm_sales:true,adm_purchase:true,
+      operation:true,fixed_costs:true,cost:true,data:true,admin:true,cats:true
+    },
+    manager:{
+      /* 부서장: 이천공장 전체 + 관리자 일부 (대시보드, 영업/매출/매입, 견적서) */
+      home:true,my_tasks:true,
+      inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
+      orders:true,autoOrder:true,board:true,org:true,
+      approval:true,files:true,notices:true,
+      links:true,
+      adm_dash:true,sales_pipeline:true,quote:true,adm_sales:true,adm_purchase:true,
+      operation:true,cost:true
+    },
+    employee:{
+      /* 일반 직원: 홈 + 이천공장 기본 업무 */
+      home:true,my_tasks:true,
+      inv:true,hq:true,bom:true,prod:true,sched:true,
+      orders:true,autoOrder:true,board:true,org:true,
+      approval:true,files:true,notices:true,
+      links:true
+    },
+    readonly:{
+      /* 읽기 전용: 홈과 내 업무만 */
+      home:true,my_tasks:true,
+      board:true,notices:true
+    }
+  };
   const RCLS={superadmin:'b-e',admin:'b-o',manager:'b-i',employee:'b-g',readonly:'b-g'};
   
   /* 시간 포맷터 (분 단위 친화적 표시) */
@@ -3571,7 +3628,21 @@ function PageAdmin({user}){
       R('button',{className:'tab'+(tab==='history'?' act':''),onClick:()=>setTab('history')},'📜 접속 이력')
     ),
     tab==='users'&&R('div',null,
-      R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10}},R('button',{className:'btn bp',onClick:()=>{setEditU(null);setShowUF(true);}},'+ 직원 추가')),
+      R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10}},R('button',{className:'btn bp',onClick:()=>{
+        /* 사번 자동 생성: bnf000으로 시작 (첫 직원), bnf001, bnf002... */
+        const nums=emps.map(e=>{
+          const m=(e.emp_no||'').match(/^bnf(\d+)$/i);
+          return m?+m[1]:null;
+        }).filter(n=>n!==null);
+        /* 첫 직원이면 bnf000, 이후엔 +1 */
+        const nextNum=nums.length===0?0:Math.max(...nums)+1;
+        const newEmpNo='bnf'+String(nextNum).padStart(3,'0');
+        /* 기본 권한: ROLE_PRESETS의 employee 사용 (근태/휴가 기본 해제) */
+        const defaultPerms={...ROLE_PRESETS.employee};
+        setEditU(null);
+        setUf({emp_no:newEmpNo,name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:defaultPerms});
+        setShowUF(true);
+      }},'+ 직원 추가')),
       R('div',{className:'tw'},
         R('table',null,
           R('thead',null,R('tr',null,R('th',null,'이름'),R('th',null,'이메일'),R('th',null,'부서'),R('th',null,'직위'),R('th',null,'권한'),R('th',null,'상태'),R('th',null,'관리'))),
@@ -3771,15 +3842,32 @@ function PageAdmin({user}){
     showUF&&R(Modal2,{title:editU?'직원 수정':'직원 추가',onClose:()=>{setShowUF(false);setEditU(null);},size:560,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>setShowUF(false),style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:saveU,style:{flex:2}},editU?'수정':'추가'))},
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'이름 *'),R('input',{className:'inp',value:uf.name,onChange:e=>setUf(p=>({...p,name:e.target.value}))})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'이메일 *'),R('input',{className:'inp',type:'email',value:uf.email,onChange:e=>setUf(p=>({...p,email:e.target.value}))})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'비밀번호'),R('input',{className:'inp',type:'password',value:uf.password,onChange:e=>setUf(p=>({...p,password:e.target.value}))})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'사번'),R('input',{className:'inp',value:uf.emp_no,onChange:e=>setUf(p=>({...p,emp_no:e.target.value})),placeholder:'EMP001'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'사번 * (로그인 ID)'),R('input',{className:'inp',value:uf.emp_no,onChange:e=>setUf(p=>({...p,emp_no:e.target.value})),placeholder:'bnf001',style:{fontWeight:700,color:'var(--p)'}})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'비밀번호'),
+          R('div',{style:{position:'relative'}},
+            R('input',{className:'inp',type:showPassword?'text':'password',value:uf.password,onChange:e=>setUf(p=>({...p,password:e.target.value})),style:{paddingRight:36}}),
+            R('button',{
+              type:'button',
+              onClick:()=>setShowPassword(!showPassword),
+              title:showPassword?'비밀번호 숨기기':'비밀번호 보기 (관리자)',
+              style:{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:14,padding:'2px 6px',color:showPassword?'var(--p)':'#9CA3AF'}
+            },showPassword?'👁':'🔒')
+          )
+        ),
         R('div',{className:'fr'},R('label',{className:'lbl'},'부서'),R('select',{className:'inp',value:uf.dept_id,onChange:e=>setUf(p=>({...p,dept_id:e.target.value}))},R('option',{value:''},'선택'),...depts.map(d=>R('option',{key:d.id,value:d.id},d.name)))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'직위'),R('input',{className:'inp',value:uf.position,onChange:e=>setUf(p=>({...p,position:e.target.value})),placeholder:'사원'})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'권한'),R('select',{className:'inp',value:uf.role,onChange:e=>setUf(p=>({...p,role:e.target.value}))},Object.entries(ROLES).map(([v,l])=>R('option',{key:v,value:v},l)))),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'권한'),R('select',{className:'inp',value:uf.role,onChange:e=>{
+          const newRole=e.target.value;
+          /* 권한 변경 시 기본 메뉴 권한 자동 적용 (작업 2) */
+          const preset=ROLE_PRESETS[newRole];
+          if(preset&&confirm('"'+ROLES[newRole]+'" 기본 권한을 적용할까요?\n\n(현재 체크된 권한이 덮어써집니다.)\n취소: 권한만 변경, 메뉴는 그대로')){
+            setUf(p=>({...p,role:newRole,menu_perms:{...preset}}));
+          }else{
+            setUf(p=>({...p,role:newRole}));
+          }
+        }},Object.entries(ROLES).map(([v,l])=>R('option',{key:v,value:v},l)))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'연락처'),R('input',{className:'inp',value:uf.phone,onChange:e=>setUf(p=>({...p,phone:e.target.value})),placeholder:'010-0000-0000'})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'입사일'),R('input',{type:'date',className:'inp',value:uf.hire_date,onChange:e=>setUf(p=>({...p,hire_date:e.target.value}))})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'연차(일)'),R('input',{type:'number',className:'inp',value:uf.annual_leave,onChange:e=>setUf(p=>({...p,annual_leave:+e.target.value}))})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},
           R('label',{className:'lbl'},'메뉴 접근 권한 (체크된 메뉴만 표시됨)'),
           /* 폴더별로 그룹화된 권한 체크 UI */
@@ -3836,9 +3924,9 @@ function PageAdmin({user}){
               ]}
             ];
             
-            /* 폴더별 전체 체크 상태 */
+            /* 폴더별 전체 체크 상태 - menu_perms[k]===true 인 항목만 체크됨 */
             const getFolderState=(items)=>{
-              const checked=items.filter(it=>uf.menu_perms?(uf.menu_perms[it.k]!==false):true);
+              const checked=items.filter(it=>uf.menu_perms&&uf.menu_perms[it.k]===true);
               if(checked.length===0)return'none';
               if(checked.length===items.length)return'all';
               return'partial';
@@ -3881,7 +3969,7 @@ function PageAdmin({user}){
                     }),
                     R('span',{style:{fontSize:12,fontWeight:800,color:grp.color,flex:1}},grp.label),
                     R('span',{style:{fontSize:10,color:grp.color,fontWeight:700,opacity:0.7}},
-                      grp.items.filter(it=>uf.menu_perms?(uf.menu_perms[it.k]!==false):true).length+'/'+grp.items.length
+                      grp.items.filter(it=>uf.menu_perms&&uf.menu_perms[it.k]===true).length+'/'+grp.items.length
                     )
                   ),
                   /* 폴더 내 항목 */
@@ -3892,7 +3980,7 @@ function PageAdmin({user}){
                     },
                       R('input',{
                         type:'checkbox',
-                        checked:uf.menu_perms?(uf.menu_perms[it.k]!==false):true,
+                        checked:uf.menu_perms&&uf.menu_perms[it.k]===true,
                         onChange:e=>setUf(p=>({...p,menu_perms:{...(p.menu_perms||{}),[it.k]:e.target.checked}})),
                         style:{accentColor:grp.color,cursor:'pointer'}
                       }),
@@ -3901,6 +3989,22 @@ function PageAdmin({user}){
                   )
                 );
               }),
+              /* 권한별 프리셋 빠른 적용 */
+              R('div',{style:{padding:'8px 10px',background:'#F0F9FF',border:'1px solid #BAE6FD',borderRadius:8,marginTop:4}},
+                R('div',{style:{fontSize:10,fontWeight:700,color:'#075985',marginBottom:6}},'⚡ 권한별 기본 프리셋 적용'),
+                R('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},
+                  ...Object.entries(ROLES).map(([rk,rl])=>R('button',{
+                    key:rk,
+                    type:'button',
+                    onClick:()=>{
+                      if(confirm('"'+rl+'" 기본 권한을 적용할까요?\n\n현재 체크된 권한이 모두 덮어써집니다.')){
+                        setUf(p=>({...p,role:rk,menu_perms:{...ROLE_PRESETS[rk]}}));
+                      }
+                    },
+                    style:{padding:'4px 10px',background:uf.role===rk?'#0EA5E9':'#fff',color:uf.role===rk?'#fff':'#075985',border:'1px solid #7DD3FC',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}
+                  },rl))
+                )
+              ),
               /* 빠른 전체 선택 버튼 */
               R('div',{style:{display:'flex',gap:6,marginTop:4,justifyContent:'flex-end'}},
                 R('button',{
@@ -8361,7 +8465,6 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'orders',l:'발주현황',ic:'🚚'},
     {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
-    {id:'quote',l:'견적서',ic:'📄'},
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
     {id:'approval',l:'전자결재',ic:'📋'},
@@ -8386,6 +8489,7 @@ const DEFAULT_NAV_SECTIONS=[
       {label:'🏭 비엔에프글로벌 이천공장',items:[
         {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
         {id:'sales_pipeline',l:'영업 현황',ic:'🎯'},
+        {id:'quote',l:'견적서',ic:'📄'},
         {id:'adm_sales',l:'매출 분석',ic:'💵'},
         {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
         {id:'operation',l:'공장 가동률',ic:'📊'},
@@ -8420,14 +8524,24 @@ function LoginPage({onLogin}){
   const[remem,setRemem]=useState(!!sv.email);
   const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
   const login=async()=>{
-    if(!email||!pw){setErr('아이디와 비밀번호를 입력하세요');return;}
+    if(!email||!pw){setErr('아이디(사번/이메일)와 비밀번호를 입력하세요');return;}
     setLoading(true);setErr('');
     try{
-      const{data,error}=await db('emp').select('*,depts(name)').eq('email',email.trim()).single();
-      if(error||!data){setErr('아이디가 존재하지 않습니다');setLoading(false);return;}
+      /* 사번 또는 이메일로 로그인 시도 */
+      const input=email.trim();
+      let resp=await db('emp').select('*,depts(name)').eq('emp_no',input).maybeSingle();
+      let data=resp.data;
+      
+      /* 사번으로 없으면 이메일로도 시도 */
+      if(!data){
+        resp=await db('emp').select('*,depts(name)').eq('email',input).maybeSingle();
+        data=resp.data;
+      }
+      
+      if(!data){setErr('사번 또는 이메일이 존재하지 않습니다');setLoading(false);return;}
       if(data.password!==pw){setErr('비밀번호가 올바르지 않습니다');setLoading(false);return;}
       if(data.status==='inactive'){setErr('비활성화된 계정입니다');setLoading(false);return;}
-      if(remem)localStorage.setItem('bnf_cred',JSON.stringify({email:email.trim(),pw}));
+      if(remem)localStorage.setItem('bnf_cred',JSON.stringify({email:input,pw}));
       else localStorage.removeItem('bnf_cred');
       
       /* 세션 토큰 생성 + 클라이언트 정보 수집 */
@@ -8482,7 +8596,7 @@ function LoginPage({onLogin}){
         R('div',{style:{fontSize:13,color:'#6B6B6B',marginTop:3}},'통합 인트라넷 + MES 시스템')
       ),
       R('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:16}},
-        R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6B6B6B',display:'block',marginBottom:4}},'아이디'),R('input',{className:'inp',value:email,onChange:e=>setEmail(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'아이디 입력',type:'text',autoComplete:'username'})),
+        R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6B6B6B',display:'block',marginBottom:4}},'아이디 (사번/이메일)'),R('input',{className:'inp',value:email,onChange:e=>setEmail(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'예: bnf001 또는 이메일',type:'text',autoComplete:'username'})),
         R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6B6B6B',display:'block',marginBottom:4}},'비밀번호'),R('input',{className:'inp',type:'password',value:pw,onChange:e=>setPw(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'비밀번호 입력',autoComplete:'current-password'})),
         err&&R('div',{style:{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',fontSize:13,color:'#991b1b'}},err),
         R('label',{style:{display:'flex',alignItems:'center',gap:7,cursor:'pointer',fontSize:13,color:'#6B6B6B'}},
@@ -8556,14 +8670,25 @@ function App(){
     });
   };
   
-  /* 브라우저 뒤로가기 버튼 처리 */
+  /* 브라우저 뒤로가기 버튼 처리 - 인터넷 브라우저의 ← 버튼과 연동 */
   useEffect(()=>{
     const handlePop=(e)=>{
-      goBack();
+      /* popstate 발생 시 페이지 히스토리에서 pop */
+      setPageHistory(h=>{
+        if(h.length===0){
+          setPageRaw('home');
+          return [];
+        }
+        const prev=h[h.length-1];
+        setPageRaw(prev);
+        return h.slice(0,-1);
+      });
     };
     window.addEventListener('popstate',handlePop);
-    /* 초기 history 진입 */
-    try{window.history.replaceState({page:'home'},'',window.location.pathname);}catch(e){}
+    /* 초기 history 진입 - 한 번 더 push해서 뒤로가기 동작 가능하게 */
+    try{
+      window.history.replaceState({page:'home',depth:0},'',window.location.pathname);
+    }catch(e){}
     return()=>window.removeEventListener('popstate',handlePop);
   },[]);
   
@@ -8937,9 +9062,48 @@ function App(){
     return[...direct,...sub];
   }).filter(i=>i&&i.id&&(i.id!=='admin'||isAdmin));
   const navDefMap=Object.fromEntries(allNavItems.map(i=>[i.id,i]));
+  
+  /* 로그인 후 권한 체크 - 사원은 권한 있는 첫 페이지로 자동 이동 */
+  useEffect(()=>{
+    if(!isAdmin&&page){
+      const allowed=user.menu_perms&&user.menu_perms[page]===true;
+      if(!allowed){
+        /* 권한 있는 첫 페이지 찾기 */
+        const firstAllowed=allNavItems.find(i=>user.menu_perms&&user.menu_perms[i.id]===true);
+        if(firstAllowed&&firstAllowed.id!==page){
+          setPageRaw(firstAllowed.id);
+        }
+        /* 권한 있는 페이지 없으면 그대로 → renderPage가 안내 페이지 표시 */
+      }
+    }
+  },[user.id]);
 
   /* 페이지 렌더 */
   const renderPage=()=>{
+    /* ━━━━━━ 권한 가드 ━━━━━━ */
+    /* 비관리자는 menu_perms[page]===true 인 페이지만 접근 가능 */
+    if(!isAdmin){
+      const allowed=user.menu_perms&&user.menu_perms[page]===true;
+      if(!allowed){
+        /* 권한 없는 페이지 접근 시도 → 권한 안내 페이지 표시 */
+        return R('div',{className:'pg fa',style:{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'70vh',padding:20,textAlign:'center'}},
+          R('div',{style:{fontSize:60,marginBottom:20,opacity:0.4}},'🔒'),
+          R('div',{style:{fontSize:18,fontWeight:800,color:'#374151',marginBottom:10}},'접근 권한이 없습니다'),
+          R('div',{style:{fontSize:13,color:'#6B7280',marginBottom:20,maxWidth:400,lineHeight:1.6}},
+            '이 페이지에 접근할 수 있는 권한이 없습니다.',R('br'),
+            '관리자가 권한을 부여해야 사용 가능합니다.',R('br'),R('br'),
+            '👉 우측 상단 ',R('strong',null,'내 정보'),' 또는 ',R('strong',null,'로그아웃'),'을 이용하세요.'
+          ),
+          R('div',{style:{display:'flex',gap:10,marginTop:10}},
+            R('div',{style:{padding:'10px 20px',background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:10,fontSize:11,color:'#9A3412'}},
+              R('div',{style:{fontWeight:800,marginBottom:4}},'👤 로그인 정보'),
+              R('div',null,user.name||'-'),
+              R('div',{style:{fontSize:10,opacity:0.7,marginTop:2}},user.email||'')
+            )
+          )
+        );
+      }
+    }
     const p={user,mats,cats,isAdmin,rk};
     if(page==='home')return R(PageHome,{user,mats,prods,orders,pqty,shortCnt,onGoPage:setPage,isAdmin});
     if(page==='inv')return R(PageInv,{...p,prods,onSetProds:setProds,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
@@ -9018,26 +9182,6 @@ function App(){
       
       /* ━━━━━━ 우측: 나머지 영역 ━━━━━━ */
       R('div',{className:'hdr-right'},
-        /* 뒤로가기 버튼 - page가 home이 아닐 때만 표시 */
-        page!=='home'&&R('button',{
-          onClick:goBack,
-          title:'뒤로가기',
-          style:{
-            background:'rgba(217,79,30,0.08)',
-            border:'1px solid rgba(217,79,30,0.2)',
-            color:'#D94F1E',
-            width:38,height:38,
-            borderRadius:10,
-            cursor:'pointer',
-            fontSize:18,fontWeight:700,
-            display:'flex',alignItems:'center',justifyContent:'center',
-            transition:'all 0.15s',
-            flexShrink:0
-          },
-          onMouseEnter:e=>{e.currentTarget.style.background='rgba(217,79,30,0.15)';},
-          onMouseLeave:e=>{e.currentTarget.style.background='rgba(217,79,30,0.08)';}
-        },'←'),
-
         /* spacer */
         R('div',{style:{flex:1}}),
 
@@ -9076,9 +9220,13 @@ function App(){
         /* 메뉴 항목 */
         R('div',{style:{padding:'6px 0'}},
           R('button',{
-            onClick:()=>{setShowUserMenu(false);setPage('admin');},
+            onClick:()=>{
+              setShowUserMenu(false);
+              if(isAdmin)setPage('admin');
+              else alert('👤 내 정보\n\n이름: '+(user.name||'-')+'\n이메일: '+(user.email||'-')+'\n사번: '+(user.emp_no||'-')+'\n부서: '+((user.depts&&user.depts.name)||'-')+'\n직급: '+(user.position||'-')+'\n역할: '+(user.role||'-')+'\n\n💡 정보 변경은 관리자에게 요청해주세요.');
+            },
             style:{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:13,color:'#1A1A1A',textAlign:'left'}
-          },'👤 ',R('span',null,'내 정보 / 사용자 관리')),
+          },'👤 ',R('span',null,isAdmin?'내 정보 / 사용자 관리':'내 정보')),
           isAdmin&&R('button',{
             onClick:()=>{setShowUserMenu(false);setPage('data');},
             style:{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:13,color:'#1A1A1A',textAlign:'left'}
@@ -9163,16 +9311,35 @@ function App(){
             style:{padding:'5px 8px',background:'rgba(255,255,255,0.08)',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:10}
           },'↻')
         ),
+        /* 비관리자가 권한 있는 메뉴 하나도 없으면 안내 메시지 */
+        !isAdmin&&(()=>{
+          const hasAnyMenu=allNavItems.some(i=>user.menu_perms&&user.menu_perms[i.id]===true);
+          if(hasAnyMenu)return null;
+          return R('div',{style:{padding:'20px 14px',color:'rgba(255,255,255,0.6)',fontSize:11,lineHeight:1.6,textAlign:'center'}},
+            R('div',{style:{fontSize:30,marginBottom:10,opacity:0.5}},'🔒'),
+            R('div',{style:{fontWeight:700,color:'rgba(255,255,255,0.85)',marginBottom:6}},'접근 가능한'),
+            R('div',{style:{fontWeight:700,color:'rgba(255,255,255,0.85)',marginBottom:10}},'메뉴가 없습니다'),
+            R('div',{style:{fontSize:10,opacity:0.7}},'관리자에게'),
+            R('div',{style:{fontSize:10,opacity:0.7}},'권한 요청해주세요'),
+            R('div',{style:{marginTop:14,padding:10,background:'rgba(255,255,255,0.05)',borderRadius:8,fontSize:10}},
+              R('div',{style:{opacity:0.8,marginBottom:4}},'👤 '+(user.name||'사용자')),
+              R('div',{style:{opacity:0.5,fontSize:9}},user.email||'')
+            )
+          );
+        })(),
         navSections.filter(s=>!s.adminOnly||isAdmin).map((sec,secIdx)=>{
           /* subSections가 있으면 하위 폴더 렌더링 (관리자 폴더용) */
           const hasSubSections=Array.isArray(sec.subSections)&&sec.subSections.length>0;
           const items=Array.isArray(sec.items)?sec.items:[];
-          const visibleItems=items.filter(i=>{
+          /* 권한 체크 함수 - 관리자 외에는 명시적 권한 필요 */
+          const checkAccess=(i)=>{
             if(i.adminOnly&&!isAdmin)return false;
             if(i.id==='admin'&&!isAdmin)return false;
-            if(user.menu_perms&&user.menu_perms[i.id]===false)return false;
-            return true;
-          });
+            if(isAdmin)return true;
+            /* 사원/일반 사용자: menu_perms[id]===true 인 경우만 허용 */
+            return !!(user.menu_perms&&user.menu_perms[i.id]===true);
+          };
+          const visibleItems=items.filter(checkAccess);
           if(!hasSubSections&&visibleItems.length===0&&!navEditMode)return null;
           const folderKey=sec.type||sec.label;
           const isOpen=expandedFolders[folderKey]!==false;
@@ -9265,12 +9432,7 @@ function App(){
             },
               /* 하위 폴더 렌더링 (관리자 폴더에 subSections 있을 때) */
               ...(hasSubSections?sec.subSections.map((subSec,subIdx)=>{
-                const subItems=(subSec.items||[]).filter(i=>{
-                  if(i.adminOnly&&!isAdmin)return false;
-                  if(i.id==='admin'&&!isAdmin)return false;
-                  if(user.menu_perms&&user.menu_perms[i.id]===false)return false;
-                  return true;
-                });
+                const subItems=(subSec.items||[]).filter(checkAccess);
                 if(subItems.length===0)return null;
                 const subKey=folderKey+'-sub-'+subIdx;
                 const subOpen=expandedFolders[subKey]!==false;
