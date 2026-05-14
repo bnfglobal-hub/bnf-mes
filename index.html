@@ -25,7 +25,9 @@ input,button,select,textarea{font-family:inherit;font-size:13px}
 @keyframes prog{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 .fa{animation:fa .28s cubic-bezier(0.16, 1, 0.3, 1)}
 .app{display:flex;flex-direction:column;height:100vh;width:100vw;overflow:hidden;background:var(--bg)}
-.hdr{height:100px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;gap:10px;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.hdr{height:100px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0;gap:0;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.hdr-left{width:210px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 14px;height:100%;border-right:1px solid var(--bd);box-sizing:border-box;overflow:hidden}
+.hdr-right{flex:1;display:flex;align-items:center;gap:10px;padding:0 20px;min-width:0}
 .body{flex:1;display:flex;overflow:hidden}
 .sb{width:210px;flex-shrink:0;background:var(--sb);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
 .sb-sec{padding:3px 7px;margin-top:2px}
@@ -193,11 +195,19 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
   
   /* 헤더 - 깔끔하고 컴팩트 */
   .hdr{
-    padding:0 14px !important;
+    padding:0 !important;
     height:82px !important;
     background:#fff !important;
     border-bottom:1px solid #F1F3F5 !important;
     box-shadow:0 1px 3px rgba(0,0,0,0.04);
+  }
+  .hdr-left{
+    width:auto !important;
+    border-right:none !important;
+    padding:0 14px !important;
+  }
+  .hdr-right{
+    padding:0 14px !important;
   }
   .hdr-logo-area{
     position:static !important;
@@ -1424,6 +1434,480 @@ const PIPELINE_STAGES=[
 const DROPPED_STAGE={id:'dropped',label:'개발 중단',color:'#EF4444',bg:'#FEF2F2',ic:'⛔',prob:0};
 
 /* ═══════════════════════════════════════════════════════════
+   🔬 연구소 - 제품 개발 관리 시스템
+   ═══════════════════════════════════════════════════════════ */
+const RESEARCH_STAGES=[
+  {id:'requested',     label:'개발 요청',   color:'#6366F1',bg:'#EEF2FF',ic:'📝',prob:10},
+  {id:'recipe_dev',    label:'레시피 개발', color:'#8B5CF6',bg:'#F5F3FF',ic:'🧪',prob:30},
+  {id:'sample_test',   label:'샘플 테스트', color:'#F59E0B',bg:'#FFFBEB',ic:'🔬',prob:50},
+  {id:'production_test',label:'생산 테스트',color:'#F97316',bg:'#FFF7ED',ic:'🏭',prob:70},
+  {id:'approval',      label:'승인',       color:'#10B981',bg:'#ECFDF5',ic:'✅',prob:90},
+  {id:'launched',      label:'출시 완료',   color:'#22C55E',bg:'#F0FDF4',ic:'🚀',prob:100}
+];
+const RESEARCH_DROPPED={id:'dropped',label:'중단',color:'#EF4444',bg:'#FEF2F2',ic:'⛔',prob:0};
+
+function PageResearch({user}){
+  const[projects,setProjects]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[showAdd,setShowAdd]=useState(false);
+  const[editP,setEditP]=useState(null);
+  const[viewMode,setViewMode]=useState('dashboard');  /* dashboard | list | kanban */
+  const[search,setSearch]=useState('');
+  const[filterStage,setFilterStage]=useState('all');
+  
+  const userId=user?.name||user?.emp_no||user?.email||'unknown';
+  const isAdmin=['superadmin','admin'].includes(user?.role);
+  
+  /* 로드 */
+  const load=async()=>{
+    setLoading(true);
+    try{
+      const{data,error}=await sbClient.from('research_projects').select('*').order('updated_at',{ascending:false});
+      if(error){
+        if(error.message&&(error.message.includes('does not exist')||error.message.includes('relation'))){
+          console.warn('research_projects 테이블 없음. SQL 실행 필요');
+          setProjects([]);
+        }
+      }else{
+        setProjects(data||[]);
+      }
+    }catch(e){console.warn(e);}
+    setLoading(false);
+  };
+  useEffect(()=>{load();},[]);
+  
+  /* 저장 */
+  const saveProject=async(p)=>{
+    const now=new Date().toISOString();
+    const allStages=[...RESEARCH_STAGES,RESEARCH_DROPPED];
+    const payload={
+      title:p.title,
+      customer:p.customer||'',
+      stage:p.stage||'requested',
+      researcher:p.researcher||userId,
+      probability:p.probability!=null?+p.probability:(allStages.find(s=>s.id===p.stage)?.prob||10),
+      target_date:p.target_date||null,
+      /* 원가 정보 */
+      material_cost:+p.material_cost||0,
+      labor_cost:+p.labor_cost||0,
+      other_cost:+p.other_cost||0,
+      target_price:+p.target_price||0,
+      /* 레시피/이력 */
+      version:p.version||'v1.0',
+      recipe:p.recipe||'',
+      test_results:p.test_results||'',
+      file_url:p.file_url||'',
+      notes:p.notes||'',
+      updated_at:now,
+      updated_by:userId
+    };
+    try{
+      let resp;
+      if(p.id){
+        resp=await sbClient.from('research_projects').update(payload).eq('id',p.id);
+      }else{
+        payload.created_at=now;
+        payload.created_by=userId;
+        resp=await sbClient.from('research_projects').insert(payload);
+      }
+      if(resp.error){
+        if(resp.error.message&&(resp.error.message.includes('does not exist')||resp.error.message.includes('relation'))){
+          alert('❌ research_projects 테이블이 없습니다.\n\n연구소_테이블생성.sql을 Supabase에서 실행해주세요.');
+        }else{
+          alert('저장 실패: '+resp.error.message);
+        }
+        return false;
+      }
+      await load();
+      return true;
+    }catch(e){alert('저장 실패: '+e.message);return false;}
+  };
+  
+  const deleteProject=async(id)=>{
+    if(!confirm('이 개발 프로젝트를 삭제할까요?'))return;
+    try{
+      await sbClient.from('research_projects').delete().eq('id',id);
+      await load();
+    }catch(e){alert('삭제 실패: '+e.message);}
+  };
+  
+  /* 단계 이동 */
+  const moveStage=async(id,newStage)=>{
+    const proj=projects.find(p=>p.id===id);
+    if(!proj||proj.stage===newStage)return;
+    const allStages=[...RESEARCH_STAGES,RESEARCH_DROPPED];
+    const prob=allStages.find(s=>s.id===newStage)?.prob||proj.probability;
+    try{
+      await sbClient.from('research_projects').update({
+        stage:newStage,
+        probability:prob,
+        updated_at:new Date().toISOString(),
+        updated_by:userId
+      }).eq('id',id);
+      await load();
+    }catch(e){alert('이동 실패: '+e.message);}
+  };
+  
+  /* 필터링 */
+  const filtered=useMemo(()=>{
+    let arr=[...projects];
+    if(filterStage!=='all')arr=arr.filter(p=>p.stage===filterStage);
+    if(search){
+      const s=search.toLowerCase();
+      arr=arr.filter(p=>(p.title||'').toLowerCase().includes(s)||(p.customer||'').toLowerCase().includes(s)||(p.researcher||'').toLowerCase().includes(s));
+    }
+    return arr;
+  },[projects,filterStage,search]);
+  
+  /* 통계 */
+  const stats=useMemo(()=>{
+    const total=projects.length;
+    const active=projects.filter(p=>!['launched','dropped'].includes(p.stage)).length;
+    const launched=projects.filter(p=>p.stage==='launched').length;
+    const dropped=projects.filter(p=>p.stage==='dropped').length;
+    const inTest=projects.filter(p=>['sample_test','production_test'].includes(p.stage)).length;
+    const totalCost=projects.reduce((s,p)=>s+(+p.material_cost||0)+(+p.labor_cost||0)+(+p.other_cost||0),0);
+    const launchedCost=projects.filter(p=>p.stage==='launched').reduce((s,p)=>s+(+p.material_cost||0)+(+p.labor_cost||0)+(+p.other_cost||0),0);
+    const successRate=(launched+dropped)>0?launched/(launched+dropped)*100:0;
+    return{total,active,launched,dropped,inTest,totalCost,launchedCost,successRate};
+  },[projects]);
+  
+  /* 단계별 분포 */
+  const byStage=useMemo(()=>{
+    const g={};
+    RESEARCH_STAGES.forEach(s=>{g[s.id]=projects.filter(p=>p.stage===s.id).length;});
+    g.dropped=projects.filter(p=>p.stage==='dropped').length;
+    return g;
+  },[projects]);
+  
+  /* 담당자별 */
+  const byResearcher=useMemo(()=>{
+    const m=new Map();
+    projects.forEach(p=>{
+      const k=p.researcher||'미지정';
+      if(!m.has(k))m.set(k,{name:k,total:0,active:0,launched:0});
+      const v=m.get(k);v.total++;
+      if(p.stage==='launched')v.launched++;
+      else if(!['dropped'].includes(p.stage))v.active++;
+    });
+    return Array.from(m.values()).sort((a,b)=>b.total-a.total);
+  },[projects]);
+  
+  if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center',height:300,color:'var(--tm)'}},'⏳ 로딩 중...');
+  
+  return R('div',{className:'pg fa'},
+    /* 헤더 */
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'🔬 연구소 - 제품 개발'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'개발 요청 → 레시피 → 샘플 → 생산 → 승인 → 출시 6단계 관리')
+      ),
+      R('button',{className:'btn bp',onClick:()=>setShowAdd(true)},'+ 새 개발 프로젝트')
+    ),
+    
+    /* KPI 카드 */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:10,marginBottom:14}},
+      R('div',{className:'card',style:{padding:12,background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)',border:'1px solid #C7D2FE'}},
+        R('div',{style:{fontSize:10,color:'#3730A3',fontWeight:700}},'🧪 진행중'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#6366F1'}},stats.active,'건')
+      ),
+      R('div',{className:'card',style:{padding:12,background:'linear-gradient(135deg,#FFFBEB,#FEF3C7)',border:'1px solid #FDE68A'}},
+        R('div',{style:{fontSize:10,color:'#92400E',fontWeight:700}},'🔬 테스트중'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#F59E0B'}},stats.inTest,'건')
+      ),
+      R('div',{className:'card',style:{padding:12,background:'linear-gradient(135deg,#F0FDF4,#DCFCE7)',border:'1px solid #BBF7D0'}},
+        R('div',{style:{fontSize:10,color:'#047857',fontWeight:700}},'🚀 출시'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#15803D'}},stats.launched,'건')
+      ),
+      R('div',{className:'card',style:{padding:12,background:'linear-gradient(135deg,#FEF2F2,#FEE2E2)',border:'1px solid #FECACA'}},
+        R('div',{style:{fontSize:10,color:'#991B1B',fontWeight:700}},'⛔ 중단'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#DC2626'}},stats.dropped,'건')
+      ),
+      R('div',{className:'card',style:{padding:12,background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',border:'1px solid #FED7AA'}},
+        R('div',{style:{fontSize:10,color:'#9A3412',fontWeight:700}},'💰 누적 원가'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'var(--p)'}},fN(Math.round(stats.totalCost/10000)),'만')
+      ),
+      R('div',{className:'card',style:{padding:12,background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',border:'1px solid #DDD6FE'}},
+        R('div',{style:{fontSize:10,color:'#6D28D9',fontWeight:700}},'📈 성공률'),
+        R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED'}},stats.successRate.toFixed(0),'%')
+      )
+    ),
+    
+    /* 필터 + 뷰 전환 */
+    R('div',{className:'card',style:{padding:'10px 12px',marginBottom:14,display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}},
+      R('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 제목/고객사/연구원 검색',style:{flex:1,minWidth:160,padding:'7px 10px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}}),
+      R('select',{value:filterStage,onChange:e=>setFilterStage(e.target.value),style:{padding:'7px 10px',border:'1.5px solid var(--bd)',borderRadius:8,background:'#fff',fontSize:12,fontFamily:'inherit'}},
+        R('option',{value:'all'},'전체 단계'),
+        ...RESEARCH_STAGES.map(s=>R('option',{key:s.id,value:s.id},s.ic+' '+s.label)),
+        R('option',{value:'dropped'},'⛔ 중단')
+      ),
+      R('div',{style:{display:'flex',gap:4,background:'#F3F4F6',padding:3,borderRadius:8}},
+        ...[['dashboard','📊 대시보드'],['list','📋 목록'],['kanban','🎯 칸반']].map(([v,l])=>R('button',{
+          key:v,onClick:()=>setViewMode(v),
+          style:{padding:'5px 10px',background:viewMode===v?'#fff':'transparent',border:'none',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:viewMode===v?700:500,color:viewMode===v?'var(--p)':'#6B7280',boxShadow:viewMode===v?'0 1px 3px rgba(0,0,0,0.08)':'none',fontFamily:'inherit'}
+        },l))
+      )
+    ),
+    
+    /* ─────── 대시보드 뷰 ─────── */
+    viewMode==='dashboard'&&R('div',null,
+      /* 단계별 진행 상황 */
+      R('div',{className:'card',style:{padding:16,marginBottom:14}},
+        R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'📊 단계별 진행 상황'),
+        R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+          ...RESEARCH_STAGES.map(s=>{
+            const count=byStage[s.id]||0;
+            const max=Math.max(...Object.values(byStage),1);
+            const pct=count/max*100;
+            return R('div',{key:s.id,style:{display:'grid',gridTemplateColumns:'160px 1fr 60px',gap:10,alignItems:'center'}},
+              R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                R('span',{style:{fontSize:14}},s.ic),
+                R('span',{style:{fontSize:11,fontWeight:700,color:s.color}},s.label)
+              ),
+              R('div',{style:{height:22,background:'#F3F4F6',borderRadius:5,overflow:'hidden'}},
+                R('div',{style:{height:'100%',width:Math.max(pct,3)+'%',background:'linear-gradient(90deg,'+s.color+', '+s.color+'CC)',borderRadius:5,transition:'width 0.3s'}})
+              ),
+              R('div',{style:{textAlign:'right',fontSize:13,fontWeight:800,color:s.color}},count,'건')
+            );
+          })
+        )
+      ),
+      /* 연구원별 */
+      byResearcher.length>0&&R('div',{className:'card',style:{padding:16,marginBottom:14}},
+        R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'👨‍🔬 연구원별 진행 현황'),
+        R('table',{style:{width:'100%',fontSize:11}},
+          R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+            R('th',{style:{padding:'8px 10px',textAlign:'left'}},'연구원'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'전체'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'진행중'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'출시')
+          )),
+          R('tbody',null,...byResearcher.map(r=>R('tr',{key:r.name,style:{borderBottom:'1px solid #F3F4F6'}},
+            R('td',{style:{padding:'8px 10px',fontWeight:700}},'👨‍🔬 '+r.name),
+            R('td',{style:{padding:'8px 10px',textAlign:'right'}},r.total),
+            R('td',{style:{padding:'8px 10px',textAlign:'right',color:'#3B82F6',fontWeight:700}},r.active),
+            R('td',{style:{padding:'8px 10px',textAlign:'right',color:'#15803D',fontWeight:700}},r.launched)
+          )))
+        )
+      ),
+      /* 최근 활동 */
+      filtered.length>0&&R('div',{className:'card',style:{padding:16}},
+        R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'🕐 최근 활동 (상위 5)'),
+        R('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+          ...filtered.slice(0,5).map(p=>{
+            const allStages=[...RESEARCH_STAGES,RESEARCH_DROPPED];
+            const stage=allStages.find(s=>s.id===p.stage)||RESEARCH_STAGES[0];
+            return R('div',{key:p.id,onClick:()=>setEditP(p),style:{padding:10,background:'#FAFBFC',borderRadius:8,cursor:'pointer',display:'flex',alignItems:'center',gap:10,transition:'background 0.15s'},
+              onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
+              onMouseLeave:e=>e.currentTarget.style.background='#FAFBFC'
+            },
+              R('div',{style:{flex:1}},
+                R('div',{style:{fontSize:12,fontWeight:700}},p.title),
+                R('div',{style:{fontSize:10,color:'#6B7280',marginTop:2}},(p.customer||'-')+' · '+(p.researcher||'-')+' · '+(p.version||''))
+              ),
+              R('span',{style:{background:stage.bg,color:stage.color,padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}},stage.ic+' '+stage.label),
+              R('div',{style:{textAlign:'right',minWidth:60}},
+                R('div',{style:{height:4,background:'#F3F4F6',borderRadius:2,overflow:'hidden',marginBottom:3}},
+                  R('div',{style:{height:'100%',width:(p.probability||stage.prob)+'%',background:stage.color}})
+                ),
+                R('div',{style:{fontSize:10,fontWeight:700,color:stage.color}},(p.probability||stage.prob)+'%')
+              )
+            );
+          })
+        )
+      )
+    ),
+    
+    /* ─────── 목록 뷰 ─────── */
+    viewMode==='list'&&R('div',{className:'card',style:{padding:0,overflow:'auto'}},
+      filtered.length===0
+        ? R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'🔬 개발 프로젝트가 없습니다.')
+        : R('table',{style:{width:'100%',fontSize:11}},
+            R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+              R('th',{style:{padding:'10px 12px',textAlign:'left'}},'개발 프로젝트'),
+              R('th',{style:{padding:'10px 12px',textAlign:'left'}},'고객사'),
+              R('th',{style:{padding:'10px 12px',textAlign:'left'}},'단계'),
+              R('th',{style:{padding:'10px 12px',textAlign:'left'}},'연구원'),
+              R('th',{style:{padding:'10px 12px',textAlign:'center'}},'버전'),
+              R('th',{style:{padding:'10px 12px',textAlign:'right'}},'원가'),
+              R('th',{style:{padding:'10px 12px',textAlign:'center'}},'진척도'),
+              R('th',{style:{padding:'10px 12px',textAlign:'left'}},'목표일'),
+              R('th',{style:{padding:'10px 12px',width:60}})
+            )),
+            R('tbody',null,...filtered.map(p=>{
+              const allStages=[...RESEARCH_STAGES,RESEARCH_DROPPED];
+              const stage=allStages.find(s=>s.id===p.stage)||RESEARCH_STAGES[0];
+              const prob=p.probability||stage.prob;
+              const cost=(+p.material_cost||0)+(+p.labor_cost||0)+(+p.other_cost||0);
+              return R('tr',{key:p.id,onClick:()=>setEditP(p),style:{cursor:'pointer',borderBottom:'1px solid #F3F4F6'},
+                onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
+                onMouseLeave:e=>e.currentTarget.style.background='transparent'
+              },
+                R('td',{style:{padding:'10px 12px',fontWeight:700}},p.title),
+                R('td',{style:{padding:'10px 12px'}},p.customer||'-'),
+                R('td',{style:{padding:'10px 12px'},onClick:e=>e.stopPropagation()},
+                  R('select',{value:p.stage||'requested',onChange:e=>moveStage(p.id,e.target.value),style:{background:stage.bg,color:stage.color,padding:'3px 8px',borderRadius:10,fontSize:10,fontWeight:700,border:'1px solid '+stage.color+'44',cursor:'pointer',fontFamily:'inherit',outline:'none'}},
+                    ...RESEARCH_STAGES.map(s=>R('option',{key:s.id,value:s.id},s.ic+' '+s.label)),
+                    R('option',{value:'dropped'},'⛔ 중단')
+                  )
+                ),
+                R('td',{style:{padding:'10px 12px',fontSize:10,color:'#6B7280'}},p.researcher||'-'),
+                R('td',{style:{padding:'10px 12px',textAlign:'center',fontSize:10,fontWeight:700,color:'#7C3AED'}},p.version||'v1.0'),
+                R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:700,color:'var(--p)'}},fN(Math.round(cost/10000))+'만'),
+                R('td',{style:{padding:'10px 12px'}},
+                  R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                    R('div',{style:{flex:1,height:6,background:'#F3F4F6',borderRadius:3,overflow:'hidden',minWidth:50}},
+                      R('div',{style:{height:'100%',width:prob+'%',background:prob>=100?'#22C55E':prob>=50?'#10B981':'#9CA3AF'}})
+                    ),
+                    R('span',{style:{fontSize:10,fontWeight:700,minWidth:30,textAlign:'right'}},prob+'%')
+                  )
+                ),
+                R('td',{style:{padding:'10px 12px',fontSize:10,color:'#6B7280'}},p.target_date||'-'),
+                R('td',{style:{padding:'10px 12px',textAlign:'center'}},
+                  R('button',{onClick:e=>{e.stopPropagation();deleteProject(p.id);},style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:13}},'🗑')
+                )
+              );
+            }))
+          )
+    ),
+    
+    /* ─────── 칸반 뷰 ─────── */
+    viewMode==='kanban'&&R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,overflowX:'auto'}},
+      ...RESEARCH_STAGES.map(stage=>{
+        const stageProj=filtered.filter(p=>p.stage===stage.id);
+        return R('div',{key:stage.id,style:{background:'#FAFAFA',borderRadius:10,padding:8,minWidth:180}},
+          R('div',{style:{padding:'10px 12px',background:stage.bg,borderRadius:8,borderTop:'3px solid '+stage.color,marginBottom:6}},
+            R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+              R('span',{style:{fontSize:14}},stage.ic),
+              R('span',{style:{fontSize:11,fontWeight:800,color:stage.color,flex:1}},stage.label),
+              R('span',{style:{background:stage.color,color:'#fff',padding:'1px 8px',borderRadius:10,fontSize:10,fontWeight:700}},stageProj.length)
+            )
+          ),
+          stageProj.length===0
+            ? R('div',{style:{padding:16,textAlign:'center',color:'#9CA3AF',fontSize:10,fontStyle:'italic'}},'없음')
+            : stageProj.map(p=>R('div',{
+                key:p.id,
+                onClick:()=>setEditP(p),
+                style:{background:'#fff',borderRadius:8,padding:'10px 12px',cursor:'pointer',border:'1px solid #E5E7EB',borderLeft:'3px solid '+stage.color,boxShadow:'0 1px 2px rgba(0,0,0,0.04)',marginBottom:6}
+              },
+                R('div',{style:{fontSize:12,fontWeight:700,marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},p.title),
+                R('div',{style:{fontSize:10,color:'#6B7280',marginBottom:4}},'🏢 '+(p.customer||'-')),
+                R('div',{style:{fontSize:9,color:'#9CA3AF'}},'👨‍🔬 '+(p.researcher||'-')+' · '+(p.version||'v1.0'))
+              ))
+        );
+      })
+    ),
+    
+    /* 추가/수정 모달 */
+    (showAdd||editP)&&R(ResearchEditModal,{
+      project:editP,
+      userId,
+      onSave:async(p)=>{const ok=await saveProject(p);if(ok){setShowAdd(false);setEditP(null);}},
+      onClose:()=>{setShowAdd(false);setEditP(null);},
+      onDelete:editP?(async()=>{await deleteProject(editP.id);setEditP(null);}):null
+    })
+  );
+}
+
+/* ═══ 연구소 프로젝트 추가/수정 모달 ═══════════════════════ */
+function ResearchEditModal({project,userId,onSave,onClose,onDelete}){
+  const allStages=[...RESEARCH_STAGES,RESEARCH_DROPPED];
+  const[form,setForm]=useState(()=>({
+    id:project?.id,
+    title:project?.title||'',
+    customer:project?.customer||'',
+    stage:project?.stage||'requested',
+    researcher:project?.researcher||userId||'',
+    probability:project?.probability!=null?project.probability:10,
+    target_date:project?.target_date||'',
+    material_cost:project?.material_cost||0,
+    labor_cost:project?.labor_cost||0,
+    other_cost:project?.other_cost||0,
+    target_price:project?.target_price||0,
+    version:project?.version||'v1.0',
+    recipe:project?.recipe||'',
+    test_results:project?.test_results||'',
+    file_url:project?.file_url||'',
+    notes:project?.notes||''
+  }));
+  const upd=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const ls={display:'block',fontSize:10,color:'var(--tm)',marginBottom:3,fontWeight:600};
+  const is={width:'100%',padding:'7px 10px',border:'1.5px solid var(--bd)',borderRadius:6,fontSize:12,fontFamily:'inherit'};
+  
+  useEffect(()=>{
+    const stage=allStages.find(s=>s.id===form.stage);
+    if(stage)setForm(p=>({...p,probability:stage.prob}));
+  },[form.stage]);
+  
+  const totalCost=(+form.material_cost||0)+(+form.labor_cost||0)+(+form.other_cost||0);
+  const profit=(+form.target_price||0)-totalCost;
+  const margin=form.target_price>0?(profit/form.target_price*100):0;
+  
+  const handleSave=()=>{
+    if(!form.title.trim()){alert('제품명을 입력해주세요.');return;}
+    onSave(form);
+  };
+  
+  return R('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+    R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,maxWidth:600,width:'100%',maxHeight:'92vh',overflow:'hidden',display:'flex',flexDirection:'column'}},
+      R('div',{style:{padding:'14px 20px',borderBottom:'1px solid var(--bd)',background:'linear-gradient(135deg,#EEF2FF,#E0E7FF)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('div',{style:{fontSize:14,fontWeight:800,color:'#3730A3'}},project?.id?'✏️ 개발 프로젝트 수정':'🔬 새 개발 프로젝트'),
+        R('button',{onClick:onClose,style:{background:'rgba(0,0,0,0.05)',border:'none',width:28,height:28,borderRadius:6,cursor:'pointer',fontSize:14,fontWeight:700}},'✕')
+      ),
+      R('div',{style:{padding:'16px 20px',overflow:'auto',flex:1,display:'grid',gap:10}},
+        R('div',null,R('label',{style:ls},'제품명 *'),R('input',{value:form.title,onChange:e=>upd('title',e.target.value),style:is,placeholder:'예: 매운 쌀국수 OEM'})),
+        R('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}},
+          R('div',null,R('label',{style:ls},'고객사'),R('input',{value:form.customer,onChange:e=>upd('customer',e.target.value),style:is,placeholder:'예: 마켓컬리'})),
+          R('div',null,R('label',{style:ls},'버전'),R('input',{value:form.version,onChange:e=>upd('version',e.target.value),style:is,placeholder:'v1.0'}))
+        ),
+        R('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}},
+          R('div',null,R('label',{style:ls},'개발 단계'),R('select',{value:form.stage,onChange:e=>upd('stage',e.target.value),style:{...is,background:'#fff'}},
+            R('optgroup',{label:'진행 단계'},...RESEARCH_STAGES.map(s=>R('option',{key:s.id,value:s.id},s.ic+' '+s.label+' ('+s.prob+'%)'))),
+            R('optgroup',{label:'중단'},R('option',{value:'dropped'},RESEARCH_DROPPED.ic+' '+RESEARCH_DROPPED.label))
+          )),
+          R('div',null,R('label',{style:ls},'진척도 %'),R('input',{type:'number',min:0,max:100,value:form.probability,onChange:e=>upd('probability',+e.target.value),style:{...is,textAlign:'right'}}))
+        ),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          R('div',null,R('label',{style:ls},'연구원'),R('input',{value:form.researcher,onChange:e=>upd('researcher',e.target.value),style:is})),
+          R('div',null,R('label',{style:ls},'목표 출시일'),R('input',{type:'date',value:form.target_date||'',onChange:e=>upd('target_date',e.target.value),style:is}))
+        ),
+        
+        /* 원가 계산 */
+        R('div',{style:{padding:'8px 10px',background:'#FFF8F4',borderRadius:6,fontSize:11,fontWeight:700,color:'#9A3412',border:'1px solid #FED7AA'}},'💰 원가 계산'),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}},
+          R('div',null,R('label',{style:ls},'재료비'),R('input',{type:'number',value:form.material_cost,onChange:e=>upd('material_cost',+e.target.value),style:{...is,textAlign:'right'}})),
+          R('div',null,R('label',{style:ls},'인건비'),R('input',{type:'number',value:form.labor_cost,onChange:e=>upd('labor_cost',+e.target.value),style:{...is,textAlign:'right'}})),
+          R('div',null,R('label',{style:ls},'기타비'),R('input',{type:'number',value:form.other_cost,onChange:e=>upd('other_cost',+e.target.value),style:{...is,textAlign:'right'}}))
+        ),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          R('div',null,R('label',{style:ls},'총 원가 (자동)'),R('input',{value:fN(totalCost)+' 원',readOnly:true,style:{...is,textAlign:'right',background:'#F9FAFB',fontWeight:700,color:'var(--p)'}})),
+          R('div',null,R('label',{style:ls},'목표 판매가'),R('input',{type:'number',value:form.target_price,onChange:e=>upd('target_price',+e.target.value),style:{...is,textAlign:'right'}}))
+        ),
+        form.target_price>0&&R('div',{style:{padding:'8px 12px',background:profit>0?'#F0FDF4':'#FEF2F2',borderRadius:6,fontSize:11,fontWeight:700,color:profit>0?'#15803D':'#DC2626'}},
+          '예상 마진: '+fN(profit)+'원 ('+margin.toFixed(1)+'%)'
+        ),
+        
+        /* 레시피 + 테스트 */
+        R('div',null,R('label',{style:ls},'레시피'),R('textarea',{value:form.recipe,onChange:e=>upd('recipe',e.target.value),style:{...is,minHeight:60,resize:'vertical'},placeholder:'주요 재료, 비율, 공정 순서 등'})),
+        R('div',null,R('label',{style:ls},'테스트 결과 / 이력'),R('textarea',{value:form.test_results,onChange:e=>upd('test_results',e.target.value),style:{...is,minHeight:60,resize:'vertical'},placeholder:'샘플/생산 테스트 결과, 피드백, 개선 사항'})),
+        R('div',null,R('label',{style:ls},'첨부 파일 URL'),R('input',{value:form.file_url,onChange:e=>upd('file_url',e.target.value),style:is,placeholder:'Google Drive / Dropbox 등 공유 링크'})),
+        R('div',null,R('label',{style:ls},'메모'),R('textarea',{value:form.notes,onChange:e=>upd('notes',e.target.value),style:{...is,minHeight:50,resize:'vertical'}}))
+      ),
+      R('div',{style:{padding:'12px 20px',borderTop:'1px solid var(--bd)',display:'flex',justifyContent:'space-between',gap:8}},
+        project?.id&&onDelete
+          ? R('button',{onClick:onDelete,style:{padding:'8px 14px',background:'#FEE2E2',color:'#DC2626',border:'none',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'🗑 삭제')
+          : R('span'),
+        R('div',{style:{display:'flex',gap:6}},
+          R('button',{onClick:onClose,style:{padding:'8px 16px',background:'#F3F4F6',color:'#374151',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'취소'),
+          R('button',{onClick:handleSave,style:{padding:'8px 20px',background:'#6366F1',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'💾 저장')
+        )
+      )
+    )
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    📝 내 업무 일정 - 카테고리별 할 일 체크리스트
    ═══════════════════════════════════════════════════════════ */
 const TASK_CATEGORIES=[
@@ -1789,6 +2273,7 @@ function PageSalesPipeline({user}){
   const[search,setSearch]=useState('');
   const[dragOver,setDragOver]=useState(null);
   const[collapsedGroups,setCollapsedGroups]=useState({});  /* 담당자별 그룹 접기/펴기 */
+  const[groupBy,setGroupBy]=useState('owner');  /* owner | customer | stage */
   
   /* 전역 드래그 종료 감지 - 어디서 끝나든 dragOver 강제 초기화 (칸 깜빡임 방지) */
   useEffect(()=>{
@@ -2034,6 +2519,12 @@ function PageSalesPipeline({user}){
         R('option',{value:'all'},'전체 담당자'),
         ...owners.map(o=>R('option',{key:o,value:o},'👤 '+o))
       ),
+      /* 목록 뷰일 때만 그룹핑 옵션 표시 */
+      viewMode==='list'&&R('select',{value:groupBy,onChange:e=>setGroupBy(e.target.value),title:'그룹 기준',style:{padding:'7px 10px',border:'1.5px solid var(--p)',borderRadius:8,background:'#FFF8F4',color:'var(--p)',fontSize:12,fontFamily:'inherit',fontWeight:700}},
+        R('option',{value:'owner'},'👤 담당자별'),
+        R('option',{value:'customer'},'🏢 고객사별'),
+        R('option',{value:'stage'},'📊 단계별')
+      ),
       R('div',{style:{display:'flex',gap:4,background:'#F3F4F6',padding:3,borderRadius:8}},
         ...[['list','📊 목록'],['kanban','📋 칸반'],['analytics','📈 분석']].map(([v,l])=>R('button',{
           key:v,onClick:()=>setViewMode(v),
@@ -2174,14 +2665,23 @@ function PageSalesPipeline({user}){
     
     /* ─────── 목록 뷰 ─────── */
     viewMode==='list'&&(()=>{
-      /* 담당자별 그룹핑 */
+      const allStagesArr=[...PIPELINE_STAGES,DROPPED_STAGE];
+      /* 그룹핑 키 결정 */
+      const getGroupKey=(d)=>{
+        if(groupBy==='customer')return d.customer||'미지정 고객사';
+        if(groupBy==='stage'){const s=allStagesArr.find(x=>x.id===d.stage);return s?(s.ic+' '+s.label):'미지정 단계';}
+        return d.owner||'미지정 담당자';
+      };
       const grouped=new Map();
       filteredDeals.forEach(d=>{
-        const k=d.owner||'미지정';
+        const k=getGroupKey(d);
         if(!grouped.has(k))grouped.set(k,[]);
         grouped.get(k).push(d);
       });
       const sortedOwners=Array.from(grouped.entries()).sort((a,b)=>b[1].length-a[1].length);
+      
+      /* 그룹 아이콘 결정 */
+      const groupIcon=groupBy==='customer'?'🏢':(groupBy==='stage'?'📊':'👤');
       
       /* 우선순위 추정 (확률 기반) */
       const getPriority=(prob)=>{
@@ -2229,7 +2729,7 @@ function PageSalesPipeline({user}){
                     R('td',{colSpan:12,style:{padding:'10px 14px',cursor:'pointer'},onClick:()=>setCollapsedGroups(prev=>({...prev,[ownerName]:!prev[ownerName]}))},
                       R('div',{style:{display:'flex',alignItems:'center',gap:8}},
                         R('span',{style:{display:'inline-flex',alignItems:'center',justifyContent:'center',width:18,height:18,background:'#fff',border:'1px solid #FED7AA',borderRadius:4,fontSize:12,color:'#9A3412',fontWeight:700,fontFamily:'monospace'}},isCollapsed?'+':'−'),
-                        R('span',{style:{fontSize:13,fontWeight:800,color:'#9A3412'}},'👤 '+ownerName),
+                        R('span',{style:{fontSize:13,fontWeight:800,color:'#9A3412'}},groupIcon+' '+ownerName),
                         R('span',{style:{fontSize:11,fontWeight:700,color:'#D94F1E'}},'('+ownerDeals.length+')'),
                         R('span',{style:{marginLeft:10,fontSize:10,color:'#9CA3AF'}},
                           '합계: ',fN(Math.round(ownerDeals.reduce((s,d)=>s+(+d.amount||0),0)/10000)),'만원'
@@ -2974,26 +3474,55 @@ function PageAdmin({user}){
     if(!uf.name||!uf.email)return alert('이름/이메일 필수');
     try{
       let resp;
-      if(editU){
-        /* 수정: 모든 uf 필드 전송 */
-        resp=await db('emp').update({...uf}).eq('id',editU.id);
-      }else{
-        /* 신규 추가: uf 그대로 + 기본값 */
-        resp=await db('emp').insert({
-          ...uf,
-          status:'active',
-          used_leave:0
-        }).select();
+      const payload={...uf};
+      
+      const trySave=async(data)=>{
+        if(editU){
+          return await db('emp').update(data).eq('id',editU.id);
+        }else{
+          return await db('emp').insert({...data,status:'active',used_leave:0}).select();
+        }
+      };
+      
+      resp=await trySave(payload);
+      
+      /* 특정 컬럼이 없으면 자동으로 제외하고 재시도 */
+      if(resp.error&&resp.error.message){
+        const msg=resp.error.message;
+        const colMatch=msg.match(/Could not find the '([^']+)' column/);
+        if(colMatch){
+          const missingCol=colMatch[1];
+          console.warn('컬럼 누락:',missingCol,'- 제외하고 재시도');
+          const filteredPayload={...payload};
+          delete filteredPayload[missingCol];
+          resp=await trySave(filteredPayload);
+          
+          /* 두 번째 누락 컬럼도 처리 */
+          if(resp.error&&resp.error.message){
+            const m2=resp.error.message.match(/Could not find the '([^']+)' column/);
+            if(m2){
+              delete filteredPayload[m2[1]];
+              resp=await trySave(filteredPayload);
+            }
+          }
+          
+          if(!resp.error){
+            alert((editU?'✅ 수정 완료':'✅ 직원 추가 완료')+'\n\n⚠️ 일부 컬럼이 DB에 없어서 저장 안 됨:\n• '+missingCol+'\n\n[해결] Supabase에서 다음 SQL 실행:\n직원테이블_컬럼추가.sql');
+          }
+        }
       }
+      
       if(resp.error){
         console.error('직원 저장 실패:',resp.error);
-        alert('❌ 저장 실패:\n\n'+resp.error.message+'\n\n[해결 방법]\n• Supabase에 emp 테이블이 있는지 확인\n• 이메일/사번이 중복되지 않는지 확인\n• 필수 컬럼이 있는지 확인');
+        alert('❌ 저장 실패:\n\n'+resp.error.message+'\n\n[해결 방법]\n• 직원테이블_컬럼추가.sql 실행\n• 이메일/사번이 중복되지 않는지 확인\n• Supabase Dashboard에서 emp 테이블 확인');
         return;
       }
-      alert(editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234'));
+      
+      if(!resp.error){
+        alert(editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234'));
+      }
       setShowUF(false);
       setEditU(null);
-      /* 폼 초기화 */
       setUf({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
       load();
     }catch(e){
@@ -3242,12 +3771,148 @@ function PageAdmin({user}){
         R('div',{className:'fr'},R('label',{className:'lbl'},'연차(일)'),R('input',{type:'number',className:'inp',value:uf.annual_leave,onChange:e=>setUf(p=>({...p,annual_leave:+e.target.value}))})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},
           R('label',{className:'lbl'},'메뉴 접근 권한 (체크된 메뉴만 표시됨)'),
-          R('div',{style:{background:'#f9f5f2',borderRadius:9,padding:10,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:6}},
-            ...Object.entries({home:'홈',inv:'재고 관리',hq:'본사재고',bom:'제품/BOM',recipes:'레시피',prod:'생산계획',sched:'생산 스케줄',operation:'공장 가동률',orders:'발주현황',autoOrder:'자동발주제안',quote:'견적서',cost:'원가분석',upload:'ERP업로드',notices:'공지사항',board:'게시판',org:'조직도',approval:'전자결재',attendance:'근태관리',leave:'휴가관리',files:'파일 공유',links:'바로가기',data:'데이터관리',cats:'카테고리',adminDash:'경영 대시보드',sales_data:'매출 분석',purchase_data:'매입 분석'}).map(([k,v])=>R('label',{key:k,style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',fontSize:12,padding:'3px 5px'}},
-              R('input',{type:'checkbox',checked:uf.menu_perms?(uf.menu_perms[k]!==false):true,onChange:e=>setUf(p=>({...p,menu_perms:{...(p.menu_perms||{}),[k]:e.target.checked}})),style:{accentColor:'var(--p)'}}),
-              R('span',null,v)
-            ))
-          )
+          /* 폴더별로 그룹화된 권한 체크 UI */
+          (()=>{
+            /* 메뉴를 폴더별로 그룹화 */
+            const MENU_GROUPS=[
+              {label:'🏠 홈',color:'#6B7280',bg:'#F9FAFB',items:[
+                {k:'home',v:'홈 대시보드'}
+              ]},
+              {label:'🏭 비엔에프글로벌 이천공장',color:'#D94F1E',bg:'#FFF8F4',items:[
+                {k:'inv',v:'재고 관리'},
+                {k:'hq',v:'본사재고'},
+                {k:'bom',v:'제품/BOM'},
+                {k:'recipes',v:'레시피'},
+                {k:'prod',v:'생산계획'},
+                {k:'sched',v:'생산 스케줄'},
+                {k:'orders',v:'발주현황'},
+                {k:'autoOrder',v:'자동발주제안'},
+                {k:'quote',v:'견적서'},
+                {k:'board',v:'게시판'},
+                {k:'org',v:'조직도'},
+                {k:'approval',v:'전자결재'},
+                {k:'attendance',v:'근태관리'},
+                {k:'leave',v:'휴가관리'},
+                {k:'files',v:'파일 공유'},
+                {k:'notices',v:'공지사항'}
+              ]},
+              {label:'🔗 바로가기',color:'#8B5CF6',bg:'#F5F3FF',items:[
+                {k:'links',v:'바로가기'}
+              ]},
+              {label:'⚙️ 관리자',color:'#1A0C07',bg:'#FAFAFA',items:[
+                {k:'my_tasks',v:'📝 내 업무 일정'}
+              ]},
+              {label:'🌐 비엔에프글로벌 (관리자)',color:'#3B82F6',bg:'#EFF6FF',items:[
+                {k:'total_dash',v:'통합 경영 대시보드'}
+              ]},
+              {label:'🏢 비엔에프글로벌 본사 (관리자)',color:'#10B981',bg:'#ECFDF5',items:[
+                {k:'hq_dash',v:'경영 대시보드'},
+                {k:'hq_sales',v:'매출 분석'},
+                {k:'hq_purchase',v:'매입 분석'},
+                {k:'hq_fixed_costs',v:'고정비 관리'}
+              ]},
+              {label:'🏭 비엔에프글로벌 이천공장 (관리자)',color:'#F59E0B',bg:'#FFFBEB',items:[
+                {k:'adm_dash',v:'경영 대시보드'},
+                {k:'sales_pipeline',v:'영업 현황'},
+                {k:'adm_sales',v:'매출 분석'},
+                {k:'adm_purchase',v:'매입 분석'},
+                {k:'operation',v:'공장 가동률'},
+                {k:'fixed_costs',v:'고정비 관리'},
+                {k:'cost',v:'원가분석'},
+                {k:'data',v:'데이터관리'},
+                {k:'admin',v:'사용자 관리'},
+                {k:'cats',v:'카테고리'}
+              ]}
+            ];
+            
+            /* 폴더별 전체 체크 상태 */
+            const getFolderState=(items)=>{
+              const checked=items.filter(it=>uf.menu_perms?(uf.menu_perms[it.k]!==false):true);
+              if(checked.length===0)return'none';
+              if(checked.length===items.length)return'all';
+              return'partial';
+            };
+            
+            /* 폴더 전체 토글 */
+            const toggleFolder=(items,state)=>{
+              const target=state!=='all';
+              setUf(p=>{
+                const newPerms={...(p.menu_perms||{})};
+                items.forEach(it=>{newPerms[it.k]=target;});
+                return{...p,menu_perms:newPerms};
+              });
+            };
+            
+            return R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+              ...MENU_GROUPS.map((grp,gi)=>{
+                const state=getFolderState(grp.items);
+                return R('div',{key:gi,style:{border:'1.5px solid '+grp.color+'33',borderRadius:10,overflow:'hidden',background:'#fff'}},
+                  /* 폴더 헤더 */
+                  R('div',{
+                    onClick:()=>toggleFolder(grp.items,state),
+                    style:{
+                      display:'flex',alignItems:'center',gap:8,
+                      padding:'8px 12px',
+                      background:grp.bg,
+                      borderBottom:'1px solid '+grp.color+'33',
+                      cursor:'pointer',
+                      transition:'background 0.15s'
+                    }
+                  },
+                    /* 폴더 전체 체크박스 (3-state) */
+                    R('input',{
+                      type:'checkbox',
+                      checked:state==='all',
+                      ref:el=>{if(el)el.indeterminate=(state==='partial');},
+                      onClick:e=>e.stopPropagation(),
+                      onChange:()=>toggleFolder(grp.items,state),
+                      style:{accentColor:grp.color,cursor:'pointer',width:15,height:15}
+                    }),
+                    R('span',{style:{fontSize:12,fontWeight:800,color:grp.color,flex:1}},grp.label),
+                    R('span',{style:{fontSize:10,color:grp.color,fontWeight:700,opacity:0.7}},
+                      grp.items.filter(it=>uf.menu_perms?(uf.menu_perms[it.k]!==false):true).length+'/'+grp.items.length
+                    )
+                  ),
+                  /* 폴더 내 항목 */
+                  R('div',{style:{padding:'8px 10px',display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:4}},
+                    ...grp.items.map(it=>R('label',{key:it.k,style:{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:11,padding:'4px 6px',borderRadius:5,transition:'background 0.15s'},
+                      onMouseEnter:e=>e.currentTarget.style.background=grp.bg,
+                      onMouseLeave:e=>e.currentTarget.style.background='transparent'
+                    },
+                      R('input',{
+                        type:'checkbox',
+                        checked:uf.menu_perms?(uf.menu_perms[it.k]!==false):true,
+                        onChange:e=>setUf(p=>({...p,menu_perms:{...(p.menu_perms||{}),[it.k]:e.target.checked}})),
+                        style:{accentColor:grp.color,cursor:'pointer'}
+                      }),
+                      R('span',null,it.v)
+                    ))
+                  )
+                );
+              }),
+              /* 빠른 전체 선택 버튼 */
+              R('div',{style:{display:'flex',gap:6,marginTop:4,justifyContent:'flex-end'}},
+                R('button',{
+                  type:'button',
+                  onClick:()=>{
+                    const all={};
+                    MENU_GROUPS.forEach(g=>g.items.forEach(it=>{all[it.k]=true;}));
+                    setUf(p=>({...p,menu_perms:all}));
+                  },
+                  style:{padding:'5px 12px',background:'#FFF8F4',color:'#9A3412',border:'1px solid #FED7AA',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}
+                },'✅ 전체 선택'),
+                R('button',{
+                  type:'button',
+                  onClick:()=>{
+                    const none={};
+                    MENU_GROUPS.forEach(g=>g.items.forEach(it=>{none[it.k]=false;}));
+                    setUf(p=>({...p,menu_perms:none}));
+                  },
+                  style:{padding:'5px 12px',background:'#FEF2F2',color:'#991B1B',border:'1px solid #FECACA',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}
+                },'❌ 전체 해제')
+              )
+            );
+          })()
         )
       )
     )
@@ -3691,6 +4356,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'inv',l:'재고 관리',ic:'📦'},
     {id:'hq',l:'본사 재고',ic:'🏢'},
     {id:'bom',l:'제품/BOM',ic:'🧪'},
+    {id:'research',l:'연구소',ic:'🔬'},
     {id:'recipes',l:'레시피',ic:'📖'},
     {id:'prod',l:'생산 계획',ic:'🏭'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
@@ -7679,6 +8345,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'inv',l:'재고 관리',ic:'📦'},
     {id:'hq',l:'본사재고',ic:'🏢'},
     {id:'bom',l:'제품/BOM',ic:'⊕'},
+    {id:'research',l:'연구소',ic:'🔬'},
     {id:'prod',l:'생산계획',ic:'⚙'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'orders',l:'발주현황',ic:'🚚'},
@@ -7721,7 +8388,7 @@ const DEFAULT_NAV_SECTIONS=[
 ];
 function loadNavSections(){
   try{
-    const saved=localStorage.getItem('bnf_nav_sections_v8');
+    const saved=localStorage.getItem('bnf_nav_sections_v9');
     if(saved){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
@@ -7731,7 +8398,7 @@ function loadNavSections(){
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
-function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v8',JSON.stringify(arr));}catch(e){}}
+function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v9',JSON.stringify(arr));}catch(e){}}
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
 
 /* ═══ 로그인 ══════════════════════════════════════════ */
@@ -8293,6 +8960,7 @@ function App(){
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
     if(page==='sales_pipeline'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageSalesPipeline,{user});}
     if(page==='my_tasks')return R(PageMyTasks,{user});
+    if(page==='research')return R(PageResearch,{user});
     if(page==='cost')return R(PageCost,{prods,mats});
         if(page==='data')return R(PageData,{mats,prods,orders,hqItems,cats,quote,pqty,onImport:handleImport});
     if(page==='cats')return R('div',{className:'pg fa'},
@@ -8315,66 +8983,70 @@ function App(){
   return R('div',{className:'app'},
     /* 헤더 */
     R('div',{className:'hdr',style:{position:'relative'}},
-      /* 햄버거 메뉴 버튼 - 모바일 좌측 */
-      R('button',{
-        id:'mobile-menu-btn',
-        onClick:()=>setSidebarOpen(true),
-        style:{
-          display:'none',
-          background:'none',border:'none',cursor:'pointer',
-          fontSize:22,padding:'4px 8px',color:'#374151',
-          borderRadius:8,lineHeight:1,flexShrink:0
-        },
-        className:'mobile-hdr-btn'
-      },'☰'),
-      
-      /* 뒤로가기 버튼 - page가 home이 아닐 때만 표시 */
-      page!=='home'&&R('button',{
-        onClick:goBack,
-        title:'뒤로가기',
-        style:{
-          background:'rgba(217,79,30,0.08)',
-          border:'1px solid rgba(217,79,30,0.2)',
-          color:'#D94F1E',
-          width:38,height:38,
-          borderRadius:10,
-          cursor:'pointer',
-          fontSize:18,fontWeight:700,
-          display:'flex',alignItems:'center',justifyContent:'center',
-          transition:'all 0.15s',
-          flexShrink:0
-        },
-        onMouseEnter:e=>{e.currentTarget.style.background='rgba(217,79,30,0.15)';},
-        onMouseLeave:e=>{e.currentTarget.style.background='rgba(217,79,30,0.08)';}
-      },'←'),
-
-      /* 로고 영역 - 햄버거 바로 옆 (모바일에서도 좌측) */
-      R('div',{className:'hdr-logo-area',style:{display:'flex',alignItems:'center',gap:12,cursor:'pointer'},onClick:()=>{setPage('home');setSidebarOpen(false);}},
-        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:80,objectFit:'contain',maxWidth:340}}),
-        R('span',{style:{background:'#FFE5DA',color:'#D94F1E',fontSize:13,fontWeight:800,padding:'5px 12px',borderRadius:6,letterSpacing:1}},'MES')
-      ),
-
-      /* 데스크탑 spacer */
-      R('div',{className:'hide-mobile',style:{flex:1}}),
-      /* 모바일 spacer */
-      R('div',{style:{flex:1}}),
-
-      /* 우측 그룹 */
-      R('div',{style:{display:'flex',alignItems:'center',gap:10,flexShrink:0}},
-        shortCnt>0&&R('div',{style:{background:'#D94F1E',color:'#fff',borderRadius:20,fontSize:11,padding:'3px 9px',fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0},onClick:()=>setPage('inv')},'⚠ 부족 '+shortCnt),
-        saveStatus==='saving'&&R('span',{style:{fontSize:11,color:'#D94F1E'}},'⏳'),
-        saveStatus==='saved'&&R('span',{style:{fontSize:11,color:'var(--ok)'}},'✓ 저장'),
-
-        /* 사용자 정보 버튼 (드롭다운 트리거) */
+      /* ━━━━━━ 좌측: 사이드바 너비와 동일 ━━━━━━ */
+      R('div',{className:'hdr-left'},
+        /* 햄버거 메뉴 버튼 - 모바일 좌측 */
         R('button',{
-          onClick:()=>setShowUserMenu(!showUserMenu),
-          style:{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'#f3ede9',border:'1px solid var(--bd)',borderRadius:20,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',flexShrink:0}
-        },
-          R('div',{style:{width:24,height:24,borderRadius:'50%',background:'#D94F1E',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}},(user.name||'?').charAt(0)),
-          R('span',{className:'hide-mobile',style:{fontSize:12,color:'var(--tm)',fontWeight:600}},user.name||'사용자'),
-          R('span',{style:{fontSize:10,color:'#999'}},'▾')
+          id:'mobile-menu-btn',
+          onClick:()=>setSidebarOpen(true),
+          style:{
+            display:'none',
+            background:'none',border:'none',cursor:'pointer',
+            fontSize:22,padding:'4px 8px',color:'#374151',
+            borderRadius:8,lineHeight:1,flexShrink:0
+          },
+          className:'mobile-hdr-btn'
+        },'☰'),
+        
+        /* 로고 영역 - 햄버거 바로 옆 (모바일에서도 좌측) */
+        R('div',{className:'hdr-logo-area',style:{display:'flex',alignItems:'center',gap:10,cursor:'pointer',flex:1,minWidth:0},onClick:()=>{setPage('home');setSidebarOpen(false);}},
+          R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:50,objectFit:'contain',maxWidth:'100%'}}),
+          R('span',{style:{background:'#FFE5DA',color:'#D94F1E',fontSize:11,fontWeight:800,padding:'3px 8px',borderRadius:5,letterSpacing:1,flexShrink:0}},'MES')
         )
       ),
+      
+      /* ━━━━━━ 우측: 나머지 영역 ━━━━━━ */
+      R('div',{className:'hdr-right'},
+        /* 뒤로가기 버튼 - page가 home이 아닐 때만 표시 */
+        page!=='home'&&R('button',{
+          onClick:goBack,
+          title:'뒤로가기',
+          style:{
+            background:'rgba(217,79,30,0.08)',
+            border:'1px solid rgba(217,79,30,0.2)',
+            color:'#D94F1E',
+            width:38,height:38,
+            borderRadius:10,
+            cursor:'pointer',
+            fontSize:18,fontWeight:700,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            transition:'all 0.15s',
+            flexShrink:0
+          },
+          onMouseEnter:e=>{e.currentTarget.style.background='rgba(217,79,30,0.15)';},
+          onMouseLeave:e=>{e.currentTarget.style.background='rgba(217,79,30,0.08)';}
+        },'←'),
+
+        /* spacer */
+        R('div',{style:{flex:1}}),
+
+        /* 우측 그룹 */
+        R('div',{style:{display:'flex',alignItems:'center',gap:10,flexShrink:0}},
+          shortCnt>0&&R('div',{style:{background:'#D94F1E',color:'#fff',borderRadius:20,fontSize:11,padding:'3px 9px',fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0},onClick:()=>setPage('inv')},'⚠ 부족 '+shortCnt),
+          saveStatus==='saving'&&R('span',{style:{fontSize:11,color:'#D94F1E'}},'⏳'),
+          saveStatus==='saved'&&R('span',{style:{fontSize:11,color:'var(--ok)'}},'✓ 저장'),
+
+          /* 사용자 정보 버튼 (드롭다운 트리거) */
+          R('button',{
+            onClick:()=>setShowUserMenu(!showUserMenu),
+            style:{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'#f3ede9',border:'1px solid var(--bd)',borderRadius:20,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',flexShrink:0}
+          },
+            R('div',{style:{width:24,height:24,borderRadius:'50%',background:'#D94F1E',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}},(user.name||'?').charAt(0)),
+            R('span',{className:'hide-mobile',style:{fontSize:12,color:'var(--tm)',fontWeight:600}},user.name||'사용자'),
+            R('span',{style:{fontSize:10,color:'#999'}},'▾')
+        )
+      )
+      ), /* hdr-right 끝 */
 
       /* 사용자 메뉴 드롭다운 */
       showUserMenu&&R('div',{
@@ -8473,7 +9145,7 @@ function App(){
             onClick:()=>{
               if(confirm('메뉴를 기본값으로 초기화할까요?')){
                 setNavSections(DEFAULT_NAV_SECTIONS);
-                localStorage.removeItem('bnf_nav_sections_v8');
+                localStorage.removeItem('bnf_nav_sections_v9');
               }
             },
             title:'초기화',
