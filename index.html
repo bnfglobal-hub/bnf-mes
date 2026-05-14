@@ -1423,6 +1423,361 @@ const PIPELINE_STAGES=[
 /* 별도 탭 - 개발 중단된 영업건 */
 const DROPPED_STAGE={id:'dropped',label:'개발 중단',color:'#EF4444',bg:'#FEF2F2',ic:'⛔',prob:0};
 
+/* ═══════════════════════════════════════════════════════════
+   📝 내 업무 일정 - 카테고리별 할 일 체크리스트
+   ═══════════════════════════════════════════════════════════ */
+const TASK_CATEGORIES=[
+  {id:'hq',       label:'본사',     color:'#3B82F6',bg:'#EFF6FF',ic:'🏢'},
+  {id:'factory',  label:'이천공장', color:'#D94F1E',bg:'#FFF8F4',ic:'🏭'},
+  {id:'personal', label:'개인',     color:'#7C3AED',bg:'#F5F3FF',ic:'👤'}
+];
+const TASK_PRIORITIES=[
+  {id:'high',  label:'높음', color:'#DC2626',bg:'#FEE2E2',ic:'🔴'},
+  {id:'medium',label:'보통', color:'#6B7280',bg:'#F3F4F6',ic:'⚪'},
+  {id:'low',   label:'낮음', color:'#3B82F6',bg:'#DBEAFE',ic:'🔵'}
+];
+
+function PageMyTasks({user}){
+  const[tasks,setTasks]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[filter,setFilter]=useState('all');  /* all | hq | factory | personal */
+  const[showCompleted,setShowCompleted]=useState(false);
+  const[newTitle,setNewTitle]=useState('');
+  const[newCategory,setNewCategory]=useState('factory');
+  const[newPriority,setNewPriority]=useState('medium');
+  const[newDueDate,setNewDueDate]=useState('');
+  const[editTask,setEditTask]=useState(null);
+  const[showAddForm,setShowAddForm]=useState(false);
+  
+  /* 현재 사용자 ID (이름 또는 emp_no) */
+  const userId=user?.name||user?.emp_no||user?.email||'unknown';
+  
+  /* 로드 */
+  const load=async()=>{
+    setLoading(true);
+    try{
+      const{data,error}=await sbClient.from('my_tasks').select('*').eq('user_id',userId).order('created_at',{ascending:false});
+      if(error){
+        if(error.message&&(error.message.includes('does not exist')||error.message.includes('relation'))){
+          console.warn('my_tasks 테이블이 없습니다. SQL을 실행해주세요.');
+          setTasks([]);
+        }else{
+          console.warn(error);
+        }
+      }else{
+        setTasks(data||[]);
+      }
+    }catch(e){console.warn(e);}
+    setLoading(false);
+  };
+  useEffect(()=>{load();},[userId]);
+  
+  /* 새 업무 추가 */
+  const addTask=async()=>{
+    if(!newTitle.trim()){alert('업무 제목을 입력하세요.');return;}
+    const now=new Date().toISOString();
+    const payload={
+      user_id:userId,
+      category:newCategory,
+      title:newTitle.trim(),
+      priority:newPriority,
+      due_date:newDueDate||null,
+      completed:false,
+      notes:'',
+      created_at:now,
+      updated_at:now
+    };
+    try{
+      const{error}=await sbClient.from('my_tasks').insert(payload);
+      if(error)throw error;
+      setNewTitle('');setNewDueDate('');
+      setShowAddForm(false);
+      await load();
+    }catch(e){
+      if(e.message&&(e.message.includes('does not exist')||e.message.includes('relation'))){
+        alert('❌ my_tasks 테이블이 Supabase에 없습니다.\n\n내업무일정_테이블생성.sql을 실행해주세요.');
+      }else{
+        alert('추가 실패: '+e.message);
+      }
+    }
+  };
+  
+  /* 완료 토글 */
+  const toggleComplete=async(task)=>{
+    const completed=!task.completed;
+    try{
+      await sbClient.from('my_tasks').update({
+        completed,
+        completed_at:completed?new Date().toISOString():null,
+        updated_at:new Date().toISOString()
+      }).eq('id',task.id);
+      await load();
+    }catch(e){alert('상태 변경 실패: '+e.message);}
+  };
+  
+  /* 수정 */
+  const updateTask=async(task)=>{
+    try{
+      const{error}=await sbClient.from('my_tasks').update({
+        title:task.title,
+        category:task.category,
+        priority:task.priority,
+        due_date:task.due_date||null,
+        notes:task.notes||'',
+        updated_at:new Date().toISOString()
+      }).eq('id',task.id);
+      if(error)throw error;
+      setEditTask(null);
+      await load();
+    }catch(e){alert('수정 실패: '+e.message);}
+  };
+  
+  /* 삭제 */
+  const deleteTask=async(id)=>{
+    if(!confirm('이 업무를 삭제할까요?'))return;
+    try{
+      await sbClient.from('my_tasks').delete().eq('id',id);
+      await load();
+    }catch(e){alert('삭제 실패: '+e.message);}
+  };
+  
+  /* 필터링 */
+  const filteredTasks=useMemo(()=>{
+    let arr=[...tasks];
+    if(filter!=='all')arr=arr.filter(t=>t.category===filter);
+    if(!showCompleted)arr=arr.filter(t=>!t.completed);
+    return arr;
+  },[tasks,filter,showCompleted]);
+  
+  /* 카테고리별 그룹핑 */
+  const byCategory=useMemo(()=>{
+    const g={};
+    TASK_CATEGORIES.forEach(c=>{g[c.id]=[];});
+    filteredTasks.forEach(t=>{
+      const c=t.category||'personal';
+      if(g[c])g[c].push(t);
+    });
+    /* 우선순위로 정렬: 높음 → 보통 → 낮음 */
+    const priOrder={high:0,medium:1,low:2};
+    Object.keys(g).forEach(k=>{
+      g[k].sort((a,b)=>{
+        if(a.completed!==b.completed)return a.completed?1:-1;
+        const pa=priOrder[a.priority]??1;
+        const pb=priOrder[b.priority]??1;
+        if(pa!==pb)return pa-pb;
+        return (a.due_date||'').localeCompare(b.due_date||'');
+      });
+    });
+    return g;
+  },[filteredTasks]);
+  
+  /* 통계 */
+  const stats=useMemo(()=>{
+    const total=tasks.length;
+    const completed=tasks.filter(t=>t.completed).length;
+    const pending=total-completed;
+    const today=new Date().toISOString().split('T')[0];
+    const overdue=tasks.filter(t=>!t.completed&&t.due_date&&t.due_date<today).length;
+    const dueToday=tasks.filter(t=>!t.completed&&t.due_date===today).length;
+    return{total,completed,pending,overdue,dueToday,
+      hq:tasks.filter(t=>t.category==='hq'&&!t.completed).length,
+      factory:tasks.filter(t=>t.category==='factory'&&!t.completed).length,
+      personal:tasks.filter(t=>t.category==='personal'&&!t.completed).length
+    };
+  },[tasks]);
+  
+  if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center',height:300,fontSize:14,color:'var(--tm)'}},'⏳ 로딩 중...');
+  
+  return R('div',{className:'pg fa'},
+    /* 헤더 */
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'📝 내 업무 일정'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},userId+'님의 To-Do · 본사/이천공장/개인 카테고리 관리')
+      ),
+      R('button',{className:'btn bp',onClick:()=>setShowAddForm(!showAddForm)},showAddForm?'✕ 닫기':'+ 새 업무 추가')
+    ),
+    
+    /* 빠른 KPI */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8,marginBottom:14}},
+      R('div',{className:'card',style:{padding:10,textAlign:'center',background:stats.overdue>0?'#FEE2E2':'#fff',border:stats.overdue>0?'1.5px solid #DC2626':'1px solid var(--bd)'}},
+        R('div',{style:{fontSize:9,fontWeight:700,color:stats.overdue>0?'#991B1B':'var(--tm)'}},'⚠️ 지연'),
+        R('div',{style:{fontSize:20,fontWeight:900,color:stats.overdue>0?'#DC2626':'#9CA3AF'}},stats.overdue)
+      ),
+      R('div',{className:'card',style:{padding:10,textAlign:'center',background:stats.dueToday>0?'#FFFBEB':'#fff'}},
+        R('div',{style:{fontSize:9,fontWeight:700,color:'#92400E'}},'📅 오늘 마감'),
+        R('div',{style:{fontSize:20,fontWeight:900,color:'#F59E0B'}},stats.dueToday)
+      ),
+      R('div',{className:'card',style:{padding:10,textAlign:'center'}},
+        R('div',{style:{fontSize:9,fontWeight:700,color:'var(--tm)'}},'📋 진행중'),
+        R('div',{style:{fontSize:20,fontWeight:900,color:'#3B82F6'}},stats.pending)
+      ),
+      R('div',{className:'card',style:{padding:10,textAlign:'center',background:'#F0FDF4'}},
+        R('div',{style:{fontSize:9,fontWeight:700,color:'#047857'}},'✅ 완료'),
+        R('div',{style:{fontSize:20,fontWeight:900,color:'#15803D'}},stats.completed)
+      ),
+      R('div',{className:'card',style:{padding:10,textAlign:'center'}},
+        R('div',{style:{fontSize:9,fontWeight:700,color:'var(--tm)'}},'📊 총합'),
+        R('div',{style:{fontSize:20,fontWeight:900,color:'#1A1A1A'}},stats.total)
+      )
+    ),
+    
+    /* 빠른 추가 폼 */
+    showAddForm&&R('div',{className:'card',style:{padding:14,marginBottom:14,background:'linear-gradient(135deg,#FFF8F4,#FFFFFF)',border:'1.5px solid #FED7AA'}},
+      R('div',{style:{fontSize:12,fontWeight:800,color:'#9A3412',marginBottom:10}},'➕ 새 업무 추가'),
+      R('div',{style:{display:'grid',gap:8}},
+        R('input',{value:newTitle,onChange:e=>setNewTitle(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addTask();},placeholder:'업무 제목을 입력하세요...',style:{padding:'10px 12px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none'},autoFocus:true}),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
+          R('select',{value:newCategory,onChange:e=>setNewCategory(e.target.value),style:{padding:'8px 10px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,background:'#fff',fontFamily:'inherit'}},
+            ...TASK_CATEGORIES.map(c=>R('option',{key:c.id,value:c.id},c.ic+' '+c.label))
+          ),
+          R('select',{value:newPriority,onChange:e=>setNewPriority(e.target.value),style:{padding:'8px 10px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,background:'#fff',fontFamily:'inherit'}},
+            ...TASK_PRIORITIES.map(p=>R('option',{key:p.id,value:p.id},p.ic+' '+p.label))
+          ),
+          R('input',{type:'date',value:newDueDate,onChange:e=>setNewDueDate(e.target.value),style:{padding:'8px 10px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}})
+        ),
+        R('div',{style:{display:'flex',gap:6,justifyContent:'flex-end'}},
+          R('button',{onClick:()=>setShowAddForm(false),style:{padding:'8px 16px',background:'#F3F4F6',color:'#374151',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'취소'),
+          R('button',{onClick:addTask,style:{padding:'8px 20px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'💾 추가')
+        )
+      )
+    ),
+    
+    /* 필터 탭 */
+    R('div',{style:{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap',alignItems:'center'}},
+      R('button',{onClick:()=>setFilter('all'),style:{padding:'6px 14px',background:filter==='all'?'var(--p)':'#fff',color:filter==='all'?'#fff':'#374151',border:'1.5px solid '+(filter==='all'?'var(--p)':'#E5E7EB'),borderRadius:20,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit',display:'flex',alignItems:'center',gap:4}},
+        '📋 전체',R('span',{style:{background:filter==='all'?'rgba(255,255,255,0.25)':'#F3F4F6',padding:'1px 7px',borderRadius:10,fontSize:10}},stats.pending+stats.completed)
+      ),
+      ...TASK_CATEGORIES.map(c=>{
+        const isAct=filter===c.id;
+        const cnt=stats[c.id];
+        return R('button',{key:c.id,onClick:()=>setFilter(c.id),style:{padding:'6px 14px',background:isAct?c.color:'#fff',color:isAct?'#fff':'#374151',border:'1.5px solid '+(isAct?c.color:'#E5E7EB'),borderRadius:20,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit',display:'flex',alignItems:'center',gap:4}},
+          c.ic+' '+c.label,R('span',{style:{background:isAct?'rgba(255,255,255,0.25)':c.bg,color:isAct?'#fff':c.color,padding:'1px 7px',borderRadius:10,fontSize:10}},cnt)
+        );
+      }),
+      R('div',{style:{marginLeft:'auto'}},
+        R('label',{style:{display:'flex',alignItems:'center',gap:5,fontSize:11,fontWeight:600,color:'#6B7280',cursor:'pointer'}},
+          R('input',{type:'checkbox',checked:showCompleted,onChange:e=>setShowCompleted(e.target.checked),style:{accentColor:'var(--p)',cursor:'pointer'}}),
+          '완료된 업무 표시'
+        )
+      )
+    ),
+    
+    /* 카테고리별 그룹 표시 */
+    (filter==='all'?TASK_CATEGORIES:TASK_CATEGORIES.filter(c=>c.id===filter)).map(category=>{
+      const list=byCategory[category.id]||[];
+      if(list.length===0)return null;
+      return R('div',{key:category.id,className:'card',style:{padding:0,marginBottom:14,overflow:'hidden'}},
+        /* 카테고리 헤더 */
+        R('div',{style:{padding:'10px 14px',background:category.bg,borderLeft:'4px solid '+category.color,display:'flex',alignItems:'center',gap:8}},
+          R('span',{style:{fontSize:14}},category.ic),
+          R('span',{style:{fontSize:13,fontWeight:800,color:category.color}},category.label),
+          R('span',{style:{fontSize:10,color:category.color,opacity:0.8,marginLeft:'auto'}},list.length+'건 '+(list.filter(t=>t.completed).length>0?'· 완료 '+list.filter(t=>t.completed).length:''))
+        ),
+        /* 업무 리스트 */
+        R('div',null,...list.map(task=>{
+          const pri=TASK_PRIORITIES.find(p=>p.id===task.priority)||TASK_PRIORITIES[1];
+          const isOverdue=!task.completed&&task.due_date&&task.due_date<new Date().toISOString().split('T')[0];
+          const isToday=!task.completed&&task.due_date===new Date().toISOString().split('T')[0];
+          return R('div',{key:task.id,style:{
+            padding:'12px 14px',
+            borderBottom:'1px solid #F3F4F6',
+            display:'flex',alignItems:'center',gap:10,
+            background:task.completed?'#FAFAFA':'#fff',
+            transition:'background 0.15s'
+          },
+            onMouseEnter:e=>{if(!task.completed)e.currentTarget.style.background='#FFF8F4';},
+            onMouseLeave:e=>{e.currentTarget.style.background=task.completed?'#FAFAFA':'#fff';}
+          },
+            /* 체크박스 */
+            R('label',{style:{cursor:'pointer',display:'flex',alignItems:'center'}},
+              R('input',{type:'checkbox',checked:task.completed,onChange:()=>toggleComplete(task),style:{width:18,height:18,accentColor:category.color,cursor:'pointer'}})
+            ),
+            /* 업무 내용 */
+            R('div',{style:{flex:1,cursor:'pointer'},onClick:()=>setEditTask(task)},
+              R('div',{style:{
+                fontSize:13,
+                fontWeight:task.completed?500:700,
+                color:task.completed?'#9CA3AF':'#1A1A1A',
+                textDecoration:task.completed?'line-through':'none',
+                marginBottom:task.due_date||task.notes?4:0
+              }},task.title),
+              R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+                /* 우선순위 */
+                !task.completed&&R('span',{style:{background:pri.bg,color:pri.color,padding:'1px 7px',borderRadius:10,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',gap:3}},pri.ic+' '+pri.label),
+                /* 마감일 */
+                task.due_date&&R('span',{style:{fontSize:10,fontWeight:700,color:isOverdue?'#DC2626':isToday?'#F59E0B':'#6B7280',display:'inline-flex',alignItems:'center',gap:2}},
+                  isOverdue?'⚠️ 지연':isToday?'🔥 오늘':'📅',' ',task.due_date
+                ),
+                /* 메모 */
+                task.notes&&R('span',{style:{fontSize:10,color:'#9CA3AF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:250}},'💬 '+task.notes)
+              )
+            ),
+            /* 액션 버튼 */
+            R('div',{style:{display:'flex',gap:4}},
+              R('button',{onClick:()=>setEditTask(task),title:'수정',style:{background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:13,padding:4}},'✏️'),
+              R('button',{onClick:()=>deleteTask(task.id),title:'삭제',style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:13,padding:4}},'🗑')
+            )
+          );
+        }))
+      );
+    }).filter(Boolean),
+    
+    /* 빈 상태 */
+    filteredTasks.length===0&&R('div',{className:'card',style:{padding:40,textAlign:'center'}},
+      R('div',{style:{fontSize:40,marginBottom:10,opacity:0.5}},'📝'),
+      R('div',{style:{fontSize:14,fontWeight:700,color:'#6B7280',marginBottom:6}},showCompleted?'업무가 없습니다.':'미완료 업무가 없습니다! 🎉'),
+      R('div',{style:{fontSize:11,color:'#9CA3AF'}},'우측 상단 [+ 새 업무 추가] 버튼으로 업무를 등록하세요')
+    ),
+    
+    /* 수정 모달 */
+    editTask&&R(TaskEditModal,{
+      task:editTask,
+      onSave:updateTask,
+      onClose:()=>setEditTask(null),
+      onDelete:()=>{deleteTask(editTask.id);setEditTask(null);}
+    })
+  );
+}
+
+/* ═══ 업무 수정 모달 ════════════════════════════ */
+function TaskEditModal({task,onSave,onClose,onDelete}){
+  const[form,setForm]=useState({...task});
+  const upd=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const ls={display:'block',fontSize:10,color:'var(--tm)',marginBottom:3,fontWeight:600};
+  const is={width:'100%',padding:'8px 10px',border:'1.5px solid var(--bd)',borderRadius:6,fontSize:12,fontFamily:'inherit'};
+  
+  return R('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+    R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,padding:0,maxWidth:480,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column'}},
+      R('div',{style:{padding:'14px 18px',borderBottom:'1px solid var(--bd)',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('div',{style:{fontSize:14,fontWeight:800}},'✏️ 업무 수정'),
+        R('button',{onClick:onClose,style:{background:'rgba(0,0,0,0.05)',border:'none',width:28,height:28,borderRadius:6,cursor:'pointer',fontSize:14,fontWeight:700}},'✕')
+      ),
+      R('div',{style:{padding:18,overflow:'auto',flex:1,display:'grid',gap:10}},
+        R('div',null,R('label',{style:ls},'제목'),R('input',{value:form.title||'',onChange:e=>upd('title',e.target.value),style:is})),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          R('div',null,R('label',{style:ls},'카테고리'),R('select',{value:form.category,onChange:e=>upd('category',e.target.value),style:{...is,background:'#fff'}},
+            ...TASK_CATEGORIES.map(c=>R('option',{key:c.id,value:c.id},c.ic+' '+c.label))
+          )),
+          R('div',null,R('label',{style:ls},'우선순위'),R('select',{value:form.priority||'medium',onChange:e=>upd('priority',e.target.value),style:{...is,background:'#fff'}},
+            ...TASK_PRIORITIES.map(p=>R('option',{key:p.id,value:p.id},p.ic+' '+p.label))
+          ))
+        ),
+        R('div',null,R('label',{style:ls},'마감일'),R('input',{type:'date',value:form.due_date||'',onChange:e=>upd('due_date',e.target.value),style:is})),
+        R('div',null,R('label',{style:ls},'메모'),R('textarea',{value:form.notes||'',onChange:e=>upd('notes',e.target.value),style:{...is,minHeight:80,resize:'vertical'},placeholder:'추가 메모...'}))
+      ),
+      R('div',{style:{padding:'12px 18px',borderTop:'1px solid var(--bd)',display:'flex',justifyContent:'space-between',gap:8}},
+        R('button',{onClick:onDelete,style:{padding:'8px 14px',background:'#FEE2E2',color:'#DC2626',border:'none',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'🗑 삭제'),
+        R('div',{style:{display:'flex',gap:6}},
+          R('button',{onClick:onClose,style:{padding:'8px 16px',background:'#F3F4F6',color:'#374151',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'취소'),
+          R('button',{onClick:()=>onSave(form),style:{padding:'8px 20px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'💾 저장')
+        )
+      )
+    )
+  );
+}
+
+
 function PageSalesPipeline({user}){
   const[deals,setDeals]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -1896,11 +2251,35 @@ function PageSalesPipeline({user}){
                     },
                       /* 업무명 */
                       R('td',{style:{padding:'10px 14px',fontWeight:600,color:'#1A1A1A'}},taskTitle),
-                      /* 상태 */
-                      R('td',{style:{padding:'10px 14px'}},
-                        R('span',{style:{display:'inline-flex',alignItems:'center',gap:4,background:stage.bg,color:stage.color,padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}},
-                          R('span',{style:{width:6,height:6,background:stage.color,borderRadius:'50%',display:'inline-block'}}),
-                          stage.label
+                      /* 상태 - 클릭 시 변경 가능 */
+                      R('td',{style:{padding:'10px 14px'},onClick:e=>e.stopPropagation()},
+                        R('select',{
+                          value:d.stage||'planning',
+                          onChange:e=>moveDealStage(d.id,e.target.value),
+                          style:{
+                            display:'inline-flex',alignItems:'center',gap:4,
+                            background:stage.bg,color:stage.color,
+                            padding:'4px 10px 4px 8px',borderRadius:12,
+                            fontSize:10,fontWeight:700,whiteSpace:'nowrap',
+                            border:'1px solid '+stage.color+'33',
+                            cursor:'pointer',
+                            fontFamily:'inherit',
+                            outline:'none',
+                            appearance:'none',
+                            WebkitAppearance:'none',
+                            backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'8\' height=\'6\' viewBox=\'0 0 8 6\'%3E%3Cpath fill=\'%23999\' d=\'M0 0l4 6 4-6z\'/%3E%3C/svg%3E")',
+                            backgroundRepeat:'no-repeat',
+                            backgroundPosition:'right 6px center',
+                            paddingRight:18
+                          },
+                          title:'클릭하여 단계 변경'
+                        },
+                          R('optgroup',{label:'진행 단계'},
+                            ...PIPELINE_STAGES.map(s=>R('option',{key:s.id,value:s.id},'● '+s.label))
+                          ),
+                          R('optgroup',{label:'중단'},
+                            R('option',{value:'dropped'},'⛔ 개발 중단')
+                          )
                         )
                       ),
                       /* 담당자 */
@@ -2087,7 +2466,7 @@ function DealEditModal({deal,currentUser,onSave,onClose,onDelete}){
     onSave(form);
   };
   
-  return R('div',{onClick:onClose,style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+  return R('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
     R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,padding:0,maxWidth:560,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column'}},
       R('div',{style:{padding:'14px 20px',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)'}},
         R('div',{style:{fontSize:14,fontWeight:800,color:'#1A1A1A'}},deal?.id?'✏️ 영업 건 수정':'➕ 새 영업 건'),
@@ -3278,6 +3657,8 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'adm_sales',l:'관리자 매출',ic:'💵',adm:true},
     {id:'adm_purchase',l:'관리자 매입',ic:'🛒',adm:true},
     {id:'fixed_costs',l:'고정비 관리',ic:'💸',adm:true},
+    /* 개인 */
+    {id:'my_tasks',l:'내 업무 일정',ic:'📝'},
     /* 이천공장 */
     {id:'inv',l:'재고 관리',ic:'📦'},
     {id:'hq',l:'본사 재고',ic:'🏢'},
@@ -5594,7 +5975,7 @@ function SupplierDetailModal({supplier,allPurchases,onClose}){
   const firstDate=txs.length>0?txs.reduce((min,p)=>p.purchase_date&&(!min||p.purchase_date<min)?p.purchase_date:min,''):'';
   const lastDate=txs.length>0?txs.reduce((max,p)=>p.purchase_date>max?p.purchase_date:max,''):'';
   
-  return R('div',{onClick:onClose,style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+  return R('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
     R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,padding:0,maxWidth:850,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}},
       /* 헤더 */
       R('div',{style:{padding:'18px 22px',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',flexShrink:0}},
@@ -6984,7 +7365,7 @@ function SalesDetailModal({type,item,allSales,onClose}){
     return [...relevantSales].sort((a,b)=>(b.sale_date||'').localeCompare(a.sale_date||'')).slice(0,30);
   },[relevantSales]);
   
-  return R('div',{onClick:onClose,style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+  return R('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
     R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,padding:0,maxWidth:850,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}},
       /* 헤더 */
       R('div',{style:{padding:'18px 22px',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',flexShrink:0}},
@@ -7270,18 +7651,8 @@ function PageData({mats,prods,orders,hqItems,cats,quote,pqty,onImport}){
 /* ═══ 통합 APP ══════════════════════════════════════════ */
 const DEFAULT_NAV_SECTIONS=[
   {label:'🏠 홈',type:'home',items:[
-    {id:'home',l:'홈 대시보드',ic:'🏠'}
-  ]},
-  {label:'🌐 비엔에프글로벌',type:'group',adminOnly:true,items:[
-    {id:'total_dash',l:'통합 경영 대시보드',ic:'🌐'},
-    {id:'total_pnl',l:'손익 상세 분석',ic:'📊'},
-    {id:'total_kpi',l:'핵심 지표 KPI',ic:'🎯'}
-  ]},
-  {label:'🏢 비엔에프글로벌 본사',type:'hq',adminOnly:true,items:[
-    {id:'hq_dash',l:'경영 대시보드',ic:'📈'},
-    {id:'hq_sales',l:'매출 분석',ic:'💵'},
-    {id:'hq_purchase',l:'매입 분석',ic:'🛒'},
-    {id:'hq_fixed_costs',l:'고정비 관리',ic:'💸'}
+    {id:'home',l:'홈 대시보드',ic:'🏠'},
+    {id:'my_tasks',l:'내 업무 일정',ic:'📝'}
   ]},
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -7298,21 +7669,35 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'files',l:'파일 공유',ic:'📁'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
-  {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
-    {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
-    {id:'sales_pipeline',l:'영업 현황',ic:'🎯'},
-    {id:'adm_sales',l:'매출 분석',ic:'💵'},
-    {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
-    {id:'operation',l:'공장 가동률',ic:'📊'},
-    {id:'fixed_costs',l:'고정비 관리',ic:'💸'},
-    {id:'cost',l:'원가분석',ic:'💰'},
-    {id:'data',l:'데이터관리',ic:'💾'},
-    {id:'admin',l:'사용자 관리',ic:'👤'}
+  /* ⚙️ 관리자 - 하위 폴더 3개 포함 (subSections) */
+  {label:'⚙️ 관리자',type:'admin',adminOnly:true,subSections:[
+    {label:'🌐 비엔에프글로벌',items:[
+      {id:'total_dash',l:'통합 경영 대시보드',ic:'🌐'},
+      {id:'total_pnl',l:'손익 상세 분석',ic:'📊'},
+      {id:'total_kpi',l:'핵심 지표 KPI',ic:'🎯'}
+    ]},
+    {label:'🏢 비엔에프글로벌 본사',items:[
+      {id:'hq_dash',l:'경영 대시보드',ic:'📈'},
+      {id:'hq_sales',l:'매출 분석',ic:'💵'},
+      {id:'hq_purchase',l:'매입 분석',ic:'🛒'},
+      {id:'hq_fixed_costs',l:'고정비 관리',ic:'💸'}
+    ]},
+    {label:'🏭 비엔에프글로벌 이천공장',items:[
+      {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
+      {id:'sales_pipeline',l:'영업 현황',ic:'🎯'},
+      {id:'adm_sales',l:'매출 분석',ic:'💵'},
+      {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
+      {id:'operation',l:'공장 가동률',ic:'📊'},
+      {id:'fixed_costs',l:'고정비 관리',ic:'💸'},
+      {id:'cost',l:'원가분석',ic:'💰'},
+      {id:'data',l:'데이터관리',ic:'💾'},
+      {id:'admin',l:'사용자 관리',ic:'👤'}
+    ]}
   ]}
 ];
 function loadNavSections(){
   try{
-    const saved=localStorage.getItem('bnf_nav_sections_v5');
+    const saved=localStorage.getItem('bnf_nav_sections_v7');
     if(saved){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
@@ -7332,7 +7717,7 @@ function loadNavSections(){
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
-function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v5',JSON.stringify(arr));}catch(e){}}
+function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v7',JSON.stringify(arr));}catch(e){}}
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
 
 /* ═══ 로그인 ══════════════════════════════════════════ */
@@ -7646,7 +8031,12 @@ function App(){
   const[pqty,setPqty]=useState({});
   const[bomModal,setBomModal]=useState(false);
   const[imgModal,setImgModal]=useState(null);
-  const[navOrder,setNavOrder]=useState(NAV_SECTIONS.flatMap(s=>s.items.map(i=>i.id)));
+  const[navOrder,setNavOrder]=useState(NAV_SECTIONS.flatMap(s=>{
+    /* 안전: items가 없거나 subSections 폴더인 경우 처리 */
+    const direct=Array.isArray(s.items)?s.items.map(i=>i.id):[];
+    const sub=Array.isArray(s.subSections)?s.subSections.flatMap(ss=>(Array.isArray(ss.items)?ss.items:[]).map(i=>i.id)):[];
+    return[...direct,...sub];
+  }));
   const[navDragSrc,setNavDragSrc]=useState(null);
   const[navDragOver,setNavDragOver]=useState(null);
   const[saveStatus,setSaveStatus]=useState('');
@@ -7883,6 +8273,7 @@ function App(){
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
     if(page==='sales_pipeline'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageSalesPipeline,{user});}
+    if(page==='my_tasks')return R(PageMyTasks,{user});
     if(page==='cost')return R(PageCost,{prods,mats});
         if(page==='data')return R(PageData,{mats,prods,orders,hqItems,cats,quote,pqty,onImport:handleImport});
     if(page==='cats')return R('div',{className:'pg fa'},
@@ -8063,7 +8454,7 @@ function App(){
             onClick:()=>{
               if(confirm('메뉴를 기본값으로 초기화할까요?')){
                 setNavSections(DEFAULT_NAV_SECTIONS);
-                localStorage.removeItem('bnf_nav_sections_v5');
+                localStorage.removeItem('bnf_nav_sections_v7');
               }
             },
             title:'초기화',
@@ -8071,16 +8462,19 @@ function App(){
           },'↻')
         ),
         navSections.filter(s=>!s.adminOnly||isAdmin).map((sec,secIdx)=>{
-          const visibleItems=sec.items.filter(i=>{
+          /* subSections가 있으면 하위 폴더 렌더링 (관리자 폴더용) */
+          const hasSubSections=Array.isArray(sec.subSections)&&sec.subSections.length>0;
+          const items=Array.isArray(sec.items)?sec.items:[];
+          const visibleItems=items.filter(i=>{
             if(i.adminOnly&&!isAdmin)return false;
             if(i.id==='admin'&&!isAdmin)return false;
             if(user.menu_perms&&user.menu_perms[i.id]===false)return false;
             return true;
           });
-          if(visibleItems.length===0&&!navEditMode)return null;
+          if(!hasSubSections&&visibleItems.length===0&&!navEditMode)return null;
           const folderKey=sec.type||sec.label;
           const isOpen=expandedFolders[folderKey]!==false;
-          const isActiveSection=visibleItems.some(i=>i.id===page);
+          const isActiveSection=visibleItems.some(i=>i.id===page)||(hasSubSections&&sec.subSections.some(ss=>(ss.items||[]).some(i=>i.id===page)));
           return R('div',{
             key:sec.label+secIdx,
             className:'sb-folder',
@@ -8167,8 +8561,68 @@ function App(){
                 }
               }
             },
+              /* 하위 폴더 렌더링 (관리자 폴더에 subSections 있을 때) */
+              ...(hasSubSections?sec.subSections.map((subSec,subIdx)=>{
+                const subItems=(subSec.items||[]).filter(i=>{
+                  if(i.adminOnly&&!isAdmin)return false;
+                  if(i.id==='admin'&&!isAdmin)return false;
+                  if(user.menu_perms&&user.menu_perms[i.id]===false)return false;
+                  return true;
+                });
+                if(subItems.length===0)return null;
+                const subKey=folderKey+'-sub-'+subIdx;
+                const subOpen=expandedFolders[subKey]!==false;
+                const subActive=subItems.some(i=>i.id===page);
+                return R('div',{key:subKey,style:{marginBottom:4}},
+                  /* 하위 폴더 헤더 */
+                  R('button',{
+                    onClick:()=>setExpandedFolders(p=>({...p,[subKey]:!subOpen})),
+                    style:{
+                      width:'100%',
+                      display:'flex',alignItems:'center',gap:6,
+                      padding:'6px 10px 6px 18px',
+                      background:subActive?'rgba(217,79,30,0.15)':'rgba(255,255,255,0.04)',
+                      border:'none',
+                      borderLeft:'2px solid '+(subActive?'#D94F1E':'rgba(255,255,255,0.1)'),
+                      color:subActive?'#FED7AA':'rgba(255,255,255,0.75)',
+                      fontSize:11,fontWeight:700,
+                      cursor:'pointer',fontFamily:'inherit',
+                      letterSpacing:-0.2,
+                      textAlign:'left',
+                      borderRadius:'0 4px 4px 0',
+                      marginLeft:6
+                    }
+                  },
+                    R('span',{style:{fontSize:9,opacity:0.7,width:8}},subOpen?'▾':'▸'),
+                    R('span',{style:{flex:1}},subSec.label),
+                    R('span',{style:{fontSize:9,opacity:0.5}},'('+subItems.length+')')
+                  ),
+                  /* 하위 폴더 항목들 */
+                  subOpen&&R('div',{style:{paddingLeft:14,marginTop:2}},
+                    ...subItems.map(n=>R('button',{
+                      key:n.id,
+                      onClick:()=>{setPage(n.id);setSidebarOpen(false);},
+                      style:{
+                        width:'100%',
+                        display:'flex',alignItems:'center',gap:8,
+                        padding:'6px 10px 6px 16px',
+                        background:page===n.id?'rgba(217,79,30,0.3)':'transparent',
+                        border:'none',
+                        color:page===n.id?'#fff':'rgba(255,255,255,0.7)',
+                        fontSize:11,fontWeight:page===n.id?700:500,
+                        cursor:'pointer',fontFamily:'inherit',textAlign:'left',
+                        borderLeft:'2px solid '+(page===n.id?'#D94F1E':'transparent'),
+                        marginBottom:1
+                      }
+                    },
+                      R('span',{style:{fontSize:11,opacity:0.85}},n.ic),
+                      R('span',{style:{flex:1}},n.l)
+                    ))
+                  )
+                );
+              }).filter(Boolean):[]),
               ...visibleItems.map((n,itemIdx)=>{
-                const realIdx=sec.items.indexOf(n);
+                const realIdx=Array.isArray(sec.items)?sec.items.indexOf(n):-1;
                 if(navEditMode){
                   return R('div',{
                     key:n.id+'_'+itemIdx,
