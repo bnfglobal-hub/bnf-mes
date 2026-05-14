@@ -460,8 +460,8 @@ function Av({name,size=32}){
 }
 function Bdg2({cls,txt}){return R('span',{className:'bdg '+cls},txt);}
 function Modal2({title,onClose,footer,children,size}){
-  return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
-    R('div',{className:'mbox',style:{maxWidth:size||540,margin:'auto',borderRadius:20}},
+  return R('div',{className:'mbg'},
+    R('div',{className:'mbox',style:{maxWidth:size||540,margin:'auto',borderRadius:20},onClick:e=>e.stopPropagation()},
       R('div',{className:'mhdr'},R('span',{style:{fontSize:15,fontWeight:800}},title),R('button',{onClick:onClose,style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'var(--tm)'}},'×')),
       R('div',{className:'mbody'},children),
       footer&&R('div',{className:'mfoot'},footer)
@@ -2970,7 +2970,37 @@ function PageAdmin({user}){
     }catch(e){alert('실패: '+e.message);}
   };
   
-  const saveU=async()=>{if(!uf.name||!uf.email)return alert('이름/이메일 필수');if(editU){await db('emp').update({...uf}).eq('id',editU.id);}else{await db('emp').insert({...uf,status:'active',used_leave:0});}setShowUF(false);setEditU(null);load();};
+  const saveU=async()=>{
+    if(!uf.name||!uf.email)return alert('이름/이메일 필수');
+    try{
+      let resp;
+      if(editU){
+        /* 수정: 모든 uf 필드 전송 */
+        resp=await db('emp').update({...uf}).eq('id',editU.id);
+      }else{
+        /* 신규 추가: uf 그대로 + 기본값 */
+        resp=await db('emp').insert({
+          ...uf,
+          status:'active',
+          used_leave:0
+        }).select();
+      }
+      if(resp.error){
+        console.error('직원 저장 실패:',resp.error);
+        alert('❌ 저장 실패:\n\n'+resp.error.message+'\n\n[해결 방법]\n• Supabase에 emp 테이블이 있는지 확인\n• 이메일/사번이 중복되지 않는지 확인\n• 필수 컬럼이 있는지 확인');
+        return;
+      }
+      alert(editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234'));
+      setShowUF(false);
+      setEditU(null);
+      /* 폼 초기화 */
+      setUf({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
+      load();
+    }catch(e){
+      console.error('직원 저장 예외:',e);
+      alert('❌ 오류 발생:\n\n'+e.message);
+    }
+  };
   const toggleStatus=async e=>{await db('emp').update({status:e.status==='active'?'inactive':'active'}).eq('id',e.id);load();};
   const ROLES={superadmin:'최고관리자',admin:'관리자',manager:'부서장',employee:'직원',readonly:'읽기전용'};
   const RCLS={superadmin:'b-e',admin:'b-o',manager:'b-i',employee:'b-g',readonly:'b-g'};
@@ -3644,8 +3674,6 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
   const ALL_PAGES=[
     /* 비엔에프글로벌 통합 (관리자) */
     {id:'total_dash',l:'통합 대시보드',ic:'🌐',adm:true},
-    {id:'total_pnl',l:'손익 상세 분석',ic:'📊',adm:true},
-    {id:'total_kpi',l:'핵심 지표 KPI',ic:'🎯',adm:true},
     /* 본사 (관리자) */
     {id:'hq_dash',l:'본사 경영',ic:'📈',adm:true},
     {id:'hq_sales',l:'본사 매출 분석',ic:'💵',adm:true},
@@ -4451,7 +4479,7 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
     onSave({id:editProd?editProd.id:uid(),name:pname,cat:pcat,bom:bom.map(b=>({...b,amt:parseFloat(amts[b.c])||0}))});
     onClose();
   };
-  return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
+  return R('div',{className:'mbg'},
     R('div',{className:'mbox',style:{maxWidth:600,margin:'auto',borderRadius:16}},
       R('div',{className:'mhdr'},
         R('span',{style:{fontSize:15,fontWeight:700}},editProd?'BOM 수정':'제품 + BOM 등록'),
@@ -4612,7 +4640,7 @@ function ProdConfirmModal({data,mats,onConfirm,onClose}){
     onConfirm(newOrders,note);
     onClose();
   };
-  return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
+  return R('div',{className:'mbg'},
     R('div',{className:'mbox',style:{maxWidth:560,margin:'auto',borderRadius:16}},
       R('div',{className:'mhdr'},
         R('div',null,
@@ -4673,8 +4701,8 @@ function ImgModal({data,onClose,genImg}){
   const[sent,setSent]=useState(false);
   const[img,setImg]=useState('');
   const upd=(ri,k,v)=>setRows(p=>p.map((r,i)=>i===ri?{...r,[k]:v}:r));
-  return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
-    R('div',{className:'mbox',style:{maxWidth:640,margin:'auto',borderRadius:16,maxHeight:'92vh'}},
+  return R('div',{className:'mbg'},
+    R('div',{className:'mbox',style:{maxWidth:640,margin:'auto',borderRadius:16,maxHeight:'92vh'},onClick:e=>e.stopPropagation()},
       R('div',{className:'mhdr'},
         R('div',null,
           R('div',{style:{fontSize:15,fontWeight:700}},'📋 생산지시서 이미지'),
@@ -5012,12 +5040,6 @@ table.items td.total-cell{background:#FFF8F4;font-weight:800;color:#D94F1E;}
     </tr>`).join('')}
   </tbody>
 </table>
-<div class="grand-total">
-  <div class="grand-total-box">
-    <div class="label">총 합계 (부가세 포함)</div>
-    <div class="amount">${fn(grandTotal)} 원</div>
-  </div>
-</div>
 <div class="terms">
   <div class="term-box"><label>결제조건</label><span>${quote.payment||'협의'}</span></div>
   <div class="term-box"><label>납기</label><span>${quote.delivery||'협의'}</span></div>
@@ -7651,8 +7673,7 @@ function PageData({mats,prods,orders,hqItems,cats,quote,pqty,onImport}){
 /* ═══ 통합 APP ══════════════════════════════════════════ */
 const DEFAULT_NAV_SECTIONS=[
   {label:'🏠 홈',type:'home',items:[
-    {id:'home',l:'홈 대시보드',ic:'🏠'},
-    {id:'my_tasks',l:'내 업무 일정',ic:'📝'}
+    {id:'home',l:'홈 대시보드',ic:'🏠'}
   ]},
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -7669,55 +7690,48 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'files',l:'파일 공유',ic:'📁'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
-  /* ⚙️ 관리자 - 하위 폴더 3개 포함 (subSections) */
-  {label:'⚙️ 관리자',type:'admin',adminOnly:true,subSections:[
-    {label:'🌐 비엔에프글로벌',items:[
-      {id:'total_dash',l:'통합 경영 대시보드',ic:'🌐'},
-      {id:'total_pnl',l:'손익 상세 분석',ic:'📊'},
-      {id:'total_kpi',l:'핵심 지표 KPI',ic:'🎯'}
-    ]},
-    {label:'🏢 비엔에프글로벌 본사',items:[
-      {id:'hq_dash',l:'경영 대시보드',ic:'📈'},
-      {id:'hq_sales',l:'매출 분석',ic:'💵'},
-      {id:'hq_purchase',l:'매입 분석',ic:'🛒'},
-      {id:'hq_fixed_costs',l:'고정비 관리',ic:'💸'}
-    ]},
-    {label:'🏭 비엔에프글로벌 이천공장',items:[
-      {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
-      {id:'sales_pipeline',l:'영업 현황',ic:'🎯'},
-      {id:'adm_sales',l:'매출 분석',ic:'💵'},
-      {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
-      {id:'operation',l:'공장 가동률',ic:'📊'},
-      {id:'fixed_costs',l:'고정비 관리',ic:'💸'},
-      {id:'cost',l:'원가분석',ic:'💰'},
-      {id:'data',l:'데이터관리',ic:'💾'},
-      {id:'admin',l:'사용자 관리',ic:'👤'}
-    ]}
-  ]}
+  /* ⚙️ 관리자 - 하위 폴더 3개 + 최상단 내 업무 일정 */
+  {label:'⚙️ 관리자',type:'admin',adminOnly:true,
+    items:[
+      {id:'my_tasks',l:'📝 내 업무 일정',ic:'📝'}  /* 최상단 */
+    ],
+    subSections:[
+      {label:'🌐 비엔에프글로벌',items:[
+        {id:'total_dash',l:'통합 경영 대시보드',ic:'🌐'}
+      ]},
+      {label:'🏢 비엔에프글로벌 본사',items:[
+        {id:'hq_dash',l:'경영 대시보드',ic:'📈'},
+        {id:'hq_sales',l:'매출 분석',ic:'💵'},
+        {id:'hq_purchase',l:'매입 분석',ic:'🛒'},
+        {id:'hq_fixed_costs',l:'고정비 관리',ic:'💸'}
+      ]},
+      {label:'🏭 비엔에프글로벌 이천공장',items:[
+        {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
+        {id:'sales_pipeline',l:'영업 현황',ic:'🎯'},
+        {id:'adm_sales',l:'매출 분석',ic:'💵'},
+        {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
+        {id:'operation',l:'공장 가동률',ic:'📊'},
+        {id:'fixed_costs',l:'고정비 관리',ic:'💸'},
+        {id:'cost',l:'원가분석',ic:'💰'},
+        {id:'data',l:'데이터관리',ic:'💾'},
+        {id:'admin',l:'사용자 관리',ic:'👤'}
+      ]}
+    ]
+  }
 ];
 function loadNavSections(){
   try{
-    const saved=localStorage.getItem('bnf_nav_sections_v7');
+    const saved=localStorage.getItem('bnf_nav_sections_v8');
     if(saved){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
-        /* 저장된 메뉴에 '비엔에프글로벌' 폴더(total_dash 포함)가 없으면 자동 추가 */
-        const hasTotal=p.some(sec=>sec.items&&sec.items.some(it=>it.id==='total_dash'));
-        if(!hasTotal){
-          const totalFolder={label:'🌐 비엔에프글로벌',type:'group',adminOnly:true,items:[
-            {id:'total_dash',l:'통합 경영 대시보드',ic:'🌐'},
-            {id:'total_pnl',l:'손익 상세 분석',ic:'📊'},
-            {id:'total_kpi',l:'핵심 지표 KPI',ic:'🎯'}
-          ]};
-          return [totalFolder,...p];
-        }
         return p;
       }
     }
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
-function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v7',JSON.stringify(arr));}catch(e){}}
+function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v8',JSON.stringify(arr));}catch(e){}}
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
 
 /* ═══ 로그인 ══════════════════════════════════════════ */
@@ -8238,7 +8252,12 @@ function App(){
   if(!user)return R(LoginPage,{onLogin:u=>{setUser(u);}});
 
   const isAdmin=['superadmin','admin'].includes(user.role);
-  const allNavItems=NAV_SECTIONS.flatMap(s=>s.items).filter(i=>i.id!=='admin'||isAdmin);
+  /* 안전: items 없거나 subSections만 있는 폴더도 처리 */
+  const allNavItems=NAV_SECTIONS.flatMap(s=>{
+    const direct=Array.isArray(s.items)?s.items:[];
+    const sub=Array.isArray(s.subSections)?s.subSections.flatMap(ss=>Array.isArray(ss.items)?ss.items:[]):[];
+    return[...direct,...sub];
+  }).filter(i=>i&&i.id&&(i.id!=='admin'||isAdmin));
   const navDefMap=Object.fromEntries(allNavItems.map(i=>[i.id,i]));
 
   /* 페이지 렌더 */
@@ -8454,7 +8473,7 @@ function App(){
             onClick:()=>{
               if(confirm('메뉴를 기본값으로 초기화할까요?')){
                 setNavSections(DEFAULT_NAV_SECTIONS);
-                localStorage.removeItem('bnf_nav_sections_v7');
+                localStorage.removeItem('bnf_nav_sections_v8');
               }
             },
             title:'초기화',
