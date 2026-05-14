@@ -3782,21 +3782,25 @@ function PageAdmin({user}){
             R('td',null,R(Bdg2,{cls:e.status==='active'?'b-ok':'b-g',txt:e.status==='active'?'재직':'비활성'})),
             R('td',null,R('div',{style:{display:'flex',gap:4}},
               R('button',{className:'btn bs btn-sm',onClick:()=>{
-                /* menu_perms 안전 파싱: 문자열이면 JSON.parse, null이면 빈 객체 */
+                /* DB에서 가져온 원본 데이터 그대로 사용 (자동 덮어쓰기 절대 금지) */
                 let perms={};
                 if(e.menu_perms){
                   if(typeof e.menu_perms==='string'){
-                    try{perms=JSON.parse(e.menu_perms)||{};}catch(err){perms={};}
+                    try{perms=JSON.parse(e.menu_perms)||{};}catch(err){
+                      console.error('menu_perms 파싱 실패:',e.menu_perms);
+                      perms={};
+                    }
                   }else if(typeof e.menu_perms==='object'){
                     perms={...e.menu_perms};
                   }
                 }
-                /* 권한이 완전히 비어있으면 role 기반 기본값 자동 적용 (이전 직원 호환) */
-                const permKeys=Object.keys(perms).filter(k=>perms[k]===true);
-                if(permKeys.length===0&&e.role&&ROLE_PRESETS[e.role]){
-                  perms={...ROLE_PRESETS[e.role]};
-                  console.log('⚠️ 직원 "'+e.name+'"의 권한 정보 없음 → '+ROLES[e.role]+' 기본값 적용');
-                }
+                /* 디버그: 콘솔에 원본 데이터 출력 */
+                console.log('═══ 직원 수정: '+e.name+' ═══');
+                console.log('DB 원본 menu_perms 타입:',typeof e.menu_perms);
+                console.log('DB 원본 menu_perms 값:',e.menu_perms);
+                console.log('파싱 결과:',perms);
+                console.log('체크된 항목 수:',Object.keys(perms).filter(k=>perms[k]===true).length);
+                
                 setEditU(e);
                 setUf({
                   emp_no:e.emp_no||'',
@@ -3809,7 +3813,7 @@ function PageAdmin({user}){
                   phone:e.phone||'',
                   hire_date:e.hire_date||today2(),
                   annual_leave:e.annual_leave||15,
-                  menu_perms:perms
+                  menu_perms:perms  /* DB 그대로 - 자동 덮어쓰기 없음 */
                 });
                 setShowUF(true);
               }},'수정'),
@@ -4028,17 +4032,34 @@ function PageAdmin({user}){
         R('div',{className:'fr'},R('label',{className:'lbl'},'입사일'),R('input',{type:'date',className:'inp',value:uf.hire_date,onChange:e=>setUf(p=>({...p,hire_date:e.target.value}))})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},
           R('label',{className:'lbl'},'메뉴 접근 권한 (체크된 메뉴만 표시됨)'),
-          /* 현재 권한 상태 요약 */
+          /* 현재 권한 상태 요약 + 디버그 */
           (()=>{
             const total=uf.menu_perms?Object.keys(uf.menu_perms).filter(k=>uf.menu_perms[k]===true).length:0;
             const isEditing=!!editU;
-            if(total===0){
-              return R('div',{style:{padding:'8px 12px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:6,marginBottom:8,fontSize:11,color:'#991B1B',fontWeight:600}},
-                '⚠️ 권한이 하나도 부여되지 않았습니다. '+(isEditing?'(기존 저장값 없음)':'아래 메뉴를 선택해주세요.')
-              );
-            }
-            return R('div',{style:{padding:'8px 12px',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:6,marginBottom:8,fontSize:11,color:'#15803D',fontWeight:600}},
-              '✅ 총 '+total+'개 메뉴 권한 '+(isEditing?'(기존 저장값 로드됨)':'적용 중')
+            return R('div',{style:{marginBottom:8}},
+              total===0
+                ? R('div',{style:{padding:'8px 12px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:6,fontSize:11,color:'#991B1B',fontWeight:600}},
+                    '⚠️ 현재 부여된 권한 0개',
+                    isEditing&&R('div',{style:{fontSize:10,marginTop:4,color:'#7F1D1D',fontWeight:500}},
+                      'DB에 저장된 권한 정보가 없거나 비어있습니다. F12 → Console에서 원본 데이터를 확인하세요.'
+                    )
+                  )
+                : R('div',{style:{padding:'8px 12px',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:6,fontSize:11,color:'#15803D',fontWeight:600}},
+                    '✅ 현재 부여된 권한 '+total+'개 '+(isEditing?'(DB에서 로드됨)':'')
+                  ),
+              /* 편집 중일 때 안전 도구 표시 */
+              isEditing&&total===0&&ROLE_PRESETS[uf.role]&&R('div',{style:{marginTop:6,padding:8,background:'#F0F9FF',border:'1px solid #BAE6FD',borderRadius:6,fontSize:11,color:'#075985'}},
+                '💡 ',ROLES[uf.role]||uf.role,' 기본 권한을 적용하시겠어요?',
+                R('button',{
+                  type:'button',
+                  onClick:()=>{
+                    if(confirm(ROLES[uf.role]+' 기본 권한을 적용할까요?\n\n현재 비어있는 권한이 자동으로 채워집니다.\n저장 버튼을 누르기 전엔 DB에 반영되지 않습니다.')){
+                      setUf(p=>({...p,menu_perms:{...ROLE_PRESETS[uf.role]}}));
+                    }
+                  },
+                  style:{marginLeft:8,padding:'3px 10px',background:'#0EA5E9',color:'#fff',border:'none',borderRadius:5,cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}
+                },'적용')
+              )
             );
           })(),
           /* 폴더별로 그룹화된 권한 체크 UI */
@@ -9798,7 +9819,7 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T12:05:menu-perms-edit-fix-v5',
+  version:'2026-05-14-T12:15:edit-debug-v6',
   buildTime:'1747203300000',
   description:'React #310 fix: useEffect moved before early return'
 };
