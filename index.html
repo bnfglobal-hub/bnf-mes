@@ -3478,7 +3478,21 @@ function PageAdmin({user}){
   const[uf,setUf]=useState({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
   const[showPassword,setShowPassword]=useState(false);  /* 관리자는 비밀번호 보기 가능 */
   useEffect(()=>{load();},[]);
-  const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
+  const load=async()=>{
+    const[{data:e,error:eErr},{data:d}]=await Promise.all([
+      db('emp').select('*,depts(name)').order('name'),
+      db('depts').select('*').order('sort_order')
+    ]);
+    if(eErr)console.error('직원 로드 실패:',eErr);
+    /* 디버그: 첫 직원의 menu_perms 컬럼 존재 여부 확인 */
+    if(e&&e.length>0){
+      const sample=e[0];
+      if(!('menu_perms' in sample)){
+        console.warn('⚠️ emp 테이블에 menu_perms 컬럼이 없습니다! _통합SQL_한번에실행.sql 실행 필요');
+      }
+    }
+    setEmps(e||[]);setDepts(d||[]);
+  };
   
   /* 접속 현황 로드 (최근 5분 이내 활동만) */
   const loadSessions=async()=>{
@@ -3619,7 +3633,7 @@ function PageAdmin({user}){
       
       const trySave=async(data)=>{
         if(editU){
-          return await db('emp').update(data).eq('id',editU.id);
+          return await db('emp').update(data).eq('id',editU.id).select();
         }else{
           return await db('emp').insert({...data,status:'active',used_leave:0}).select();
         }
@@ -3628,11 +3642,13 @@ function PageAdmin({user}){
       resp=await trySave(payload);
       
       /* 특정 컬럼이 없으면 자동으로 제외하고 재시도 */
+      let missingColumns=[];
       if(resp.error&&resp.error.message){
         const msg=resp.error.message;
         const colMatch=msg.match(/Could not find the '([^']+)' column/);
         if(colMatch){
           const missingCol=colMatch[1];
+          missingColumns.push(missingCol);
           console.warn('컬럼 누락:',missingCol,'- 제외하고 재시도');
           const filteredPayload={...payload};
           delete filteredPayload[missingCol];
@@ -3642,13 +3658,10 @@ function PageAdmin({user}){
           if(resp.error&&resp.error.message){
             const m2=resp.error.message.match(/Could not find the '([^']+)' column/);
             if(m2){
+              missingColumns.push(m2[1]);
               delete filteredPayload[m2[1]];
               resp=await trySave(filteredPayload);
             }
-          }
-          
-          if(!resp.error){
-            alert((editU?'✅ 수정 완료':'✅ 직원 추가 완료')+'\n\n⚠️ 일부 컬럼이 DB에 없어서 저장 안 됨:\n• '+missingCol+'\n\n[해결] Supabase에서 다음 SQL 실행:\n직원테이블_컬럼추가.sql');
           }
         }
       }
@@ -3657,14 +3670,45 @@ function PageAdmin({user}){
         console.error('직원 저장 실패:',resp.error);
         const msg=resp.error.message||'';
         let hint='';
-        if(msg.includes('uuid'))hint='\n\n💡 부서를 선택해주세요 (또는 부서를 비우려면 빈 부서 옵션 사용)';
+        if(msg.includes('uuid'))hint='\n\n💡 부서를 선택해주세요';
         else if(msg.includes('duplicate'))hint='\n\n💡 이메일이나 사번이 이미 존재합니다.';
         else if(msg.includes('null value'))hint='\n\n💡 필수 입력 항목이 비어있습니다.';
-        alert('❌ 저장 실패:\n\n'+msg+hint+'\n\n[해결 방법]\n• 직원테이블_컬럼추가.sql 실행\n• 이메일/사번이 중복되지 않는지 확인\n• Supabase Dashboard에서 emp 테이블 확인');
+        alert('❌ 저장 실패:\n\n'+msg+hint+'\n\n[해결 방법]\n• _통합SQL_한번에실행.sql 실행\n• 이메일/사번이 중복되지 않는지 확인');
         return;
       }
       
-      alert(editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234'));
+      /* 🔍 저장 후 DB 검증 - 진짜 menu_perms가 저장됐는지 다시 가져와서 확인 */
+      const savedId=editU?editU.id:(resp.data&&resp.data[0]&&resp.data[0].id);
+      if(savedId){
+        try{
+          const{data:verifyData}=await db('emp').select('menu_perms,email,emp_no').eq('id',savedId).single();
+          console.log('═══ 저장 검증 ═══');
+          console.log('DB의 menu_perms:',verifyData?.menu_perms);
+          console.log('체크된 권한 수:',verifyData?.menu_perms?Object.keys(verifyData.menu_perms).filter(k=>verifyData.menu_perms[k]===true).length:0);
+          console.log('보낸 권한 수:',Object.keys(payload.menu_perms||{}).filter(k=>payload.menu_perms[k]===true).length);
+          
+          /* 권한이 저장 안 됐으면 명확히 경고 */
+          if(missingColumns.includes('menu_perms')){
+            alert('⚠️ 저장은 완료됐지만 권한 정보는 저장되지 않았습니다!\n\nDB에 menu_perms 컬럼이 없어서 제외됐습니다.\n\n[해결 방법]\nSupabase SQL Editor에서 실행:\n\nALTER TABLE emp ADD COLUMN menu_perms JSONB DEFAULT \'{}\'::jsonb;\n\n또는 _통합SQL_한번에실행.sql 실행');
+            setShowUF(false);setEditU(null);load();return;
+          }
+          
+          /* 보낸 권한 수 > 저장된 권한 수 → 일부 손실 */
+          const sentCount=Object.keys(payload.menu_perms||{}).filter(k=>payload.menu_perms[k]===true).length;
+          const savedCount=verifyData?.menu_perms?Object.keys(verifyData.menu_perms).filter(k=>verifyData.menu_perms[k]===true).length:0;
+          if(sentCount>0&&savedCount===0){
+            alert('⚠️ 권한이 DB에 저장되지 않았습니다!\n\n보낸 권한: '+sentCount+'개\n저장된 권한: '+savedCount+'개\n\nF12 → Console에서 상세 로그를 확인하세요.');
+          }
+        }catch(verErr){
+          console.warn('저장 검증 실패:',verErr);
+        }
+      }
+      
+      let successMsg=editU?'✅ 수정 완료':'✅ 직원 추가 완료\n\n로그인 방법:\n사번: '+(uf.emp_no||'-')+'\n비밀번호: '+(uf.password||'1234');
+      if(missingColumns.length>0){
+        successMsg+='\n\n⚠️ 다음 항목은 DB 컬럼 누락으로 저장 안 됨:\n• '+missingColumns.join(', ')+'\n\n[해결] _통합SQL_한번에실행.sql 실행';
+      }
+      alert(successMsg);
       setShowUF(false);
       setEditU(null);
       setUf({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
@@ -3677,22 +3721,25 @@ function PageAdmin({user}){
   const toggleStatus=async e=>{await db('emp').update({status:e.status==='active'?'inactive':'active'}).eq('id',e.id);load();};
   const ROLES={superadmin:'최고관리자',admin:'관리자',manager:'부서장',employee:'직원',readonly:'읽기전용'};
   
-  /* 권한별 기본 메뉴 권한 프리셋 */
+  /* 권한별 기본 메뉴 권한 프리셋 (사용자 요청 정의) */
   const ROLE_PRESETS={
+    /* 1) 최고관리자: 모든 권한 */
     superadmin:{
-      /* 최고관리자: 모든 메뉴 */
       home:true,my_tasks:true,
+      /* 비엔에프글로벌 이천공장 */
       inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
       orders:true,autoOrder:true,board:true,org:true,
       approval:true,files:true,notices:true,attendance:true,leave:true,
+      /* 바로가기 */
       links:true,
+      /* 관리자 폴더 - 전체 */
       total_dash:true,
       hq_dash:true,hq_sales:true,hq_purchase:true,hq_fixed_costs:true,
       adm_dash:true,sales_pipeline:true,quote:true,adm_sales:true,adm_purchase:true,
       operation:true,fixed_costs:true,cost:true,data:true,admin:true,cats:true
     },
+    /* 2) 관리자: '사용자 관리(admin)' 빼고 전부 */
     admin:{
-      /* 관리자: 거의 모든 메뉴 (사용자관리 포함) */
       home:true,my_tasks:true,
       inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
       orders:true,autoOrder:true,board:true,org:true,
@@ -3701,10 +3748,12 @@ function PageAdmin({user}){
       total_dash:true,
       hq_dash:true,hq_sales:true,hq_purchase:true,hq_fixed_costs:true,
       adm_dash:true,sales_pipeline:true,quote:true,adm_sales:true,adm_purchase:true,
-      operation:true,fixed_costs:true,cost:true,data:true,admin:true,cats:true
+      operation:true,fixed_costs:true,cost:true,data:true,
+      admin:false,  /* ⛔ 사용자 관리는 superadmin만 */
+      cats:true
     },
+    /* 3) 부서장: 이천공장 전체 + 관리자 일부 */
     manager:{
-      /* 부서장: 이천공장 전체 + 관리자 일부 (대시보드, 영업/매출/매입, 견적서) */
       home:true,my_tasks:true,
       inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
       orders:true,autoOrder:true,board:true,org:true,
@@ -3713,16 +3762,21 @@ function PageAdmin({user}){
       adm_dash:true,sales_pipeline:true,quote:true,adm_sales:true,adm_purchase:true,
       operation:true,cost:true
     },
+    /* 4) 직원: 홈 + 이천공장(휴가/근태/견적서 제외) + 바로가기 */
     employee:{
-      /* 일반 직원: 홈 + 이천공장 기본 업무 */
+      /* 홈 */
       home:true,my_tasks:true,
-      inv:true,hq:true,bom:true,prod:true,sched:true,
+      /* 이천공장 (휴가관리 leave, 근태관리 attendance 제외 / 견적서 quote는 원래 관리자 폴더라 자동 제외) */
+      inv:true,hq:true,bom:true,research:true,prod:true,sched:true,
       orders:true,autoOrder:true,board:true,org:true,
       approval:true,files:true,notices:true,
+      /* attendance:false, leave:false, quote:false (관리자 메뉴라 자동 false) */
+      /* 바로가기 */
       links:true
+      /* 관리자 폴더 전체 false */
     },
+    /* 5) 읽기 전용: 홈 + 게시판/공지만 */
     readonly:{
-      /* 읽기 전용: 홈과 내 업무만 */
       home:true,my_tasks:true,
       board:true,notices:true
     }
@@ -9819,7 +9873,7 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T12:15:edit-debug-v6',
+  version:'2026-05-14-T12:25:save-verify-v7',
   buildTime:'1747203300000',
   description:'React #310 fix: useEffect moved before early return'
 };
