@@ -3608,6 +3608,13 @@ function PageAdmin({user}){
           cleanPayload[k]=null;
         }
       });
+      /* menu_perms: 객체 형태 보장 (string으로 전달되면 안 됨) */
+      if(typeof cleanPayload.menu_perms==='string'){
+        try{cleanPayload.menu_perms=JSON.parse(cleanPayload.menu_perms);}catch(e){cleanPayload.menu_perms={};}
+      }
+      if(!cleanPayload.menu_perms||typeof cleanPayload.menu_perms!=='object'){
+        cleanPayload.menu_perms={};
+      }
       const payload=cleanPayload;
       
       const trySave=async(data)=>{
@@ -3774,7 +3781,38 @@ function PageAdmin({user}){
             R('td',null,R(Bdg2,{cls:RCLS[e.role]||'b-g',txt:ROLES[e.role]||e.role})),
             R('td',null,R(Bdg2,{cls:e.status==='active'?'b-ok':'b-g',txt:e.status==='active'?'재직':'비활성'})),
             R('td',null,R('div',{style:{display:'flex',gap:4}},
-              R('button',{className:'btn bs btn-sm',onClick:()=>{setEditU(e);setUf({emp_no:e.emp_no||'',name:e.name,email:e.email,password:e.password||'',dept_id:e.dept_id||'',position:e.position||'',role:e.role,phone:e.phone||'',hire_date:e.hire_date||today2(),annual_leave:e.annual_leave||15,menu_perms:e.menu_perms||{}});setShowUF(true);}},'수정'),
+              R('button',{className:'btn bs btn-sm',onClick:()=>{
+                /* menu_perms 안전 파싱: 문자열이면 JSON.parse, null이면 빈 객체 */
+                let perms={};
+                if(e.menu_perms){
+                  if(typeof e.menu_perms==='string'){
+                    try{perms=JSON.parse(e.menu_perms)||{};}catch(err){perms={};}
+                  }else if(typeof e.menu_perms==='object'){
+                    perms={...e.menu_perms};
+                  }
+                }
+                /* 권한이 완전히 비어있으면 role 기반 기본값 자동 적용 (이전 직원 호환) */
+                const permKeys=Object.keys(perms).filter(k=>perms[k]===true);
+                if(permKeys.length===0&&e.role&&ROLE_PRESETS[e.role]){
+                  perms={...ROLE_PRESETS[e.role]};
+                  console.log('⚠️ 직원 "'+e.name+'"의 권한 정보 없음 → '+ROLES[e.role]+' 기본값 적용');
+                }
+                setEditU(e);
+                setUf({
+                  emp_no:e.emp_no||'',
+                  name:e.name||'',
+                  email:e.email||'',
+                  password:e.password||'',
+                  dept_id:e.dept_id||'',
+                  position:e.position||'',
+                  role:e.role||'employee',
+                  phone:e.phone||'',
+                  hire_date:e.hire_date||today2(),
+                  annual_leave:e.annual_leave||15,
+                  menu_perms:perms
+                });
+                setShowUF(true);
+              }},'수정'),
               e.id!==user.id&&R('button',{className:'btn btn-sm',style:{background:e.status==='active'?'#fef3c7':'#f0fdf4',color:e.status==='active'?'#92400e':'#065f46',border:'none'},onClick:()=>toggleStatus(e)},e.status==='active'?'비활성':'활성화')
             ))
           )))
@@ -3990,6 +4028,19 @@ function PageAdmin({user}){
         R('div',{className:'fr'},R('label',{className:'lbl'},'입사일'),R('input',{type:'date',className:'inp',value:uf.hire_date,onChange:e=>setUf(p=>({...p,hire_date:e.target.value}))})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},
           R('label',{className:'lbl'},'메뉴 접근 권한 (체크된 메뉴만 표시됨)'),
+          /* 현재 권한 상태 요약 */
+          (()=>{
+            const total=uf.menu_perms?Object.keys(uf.menu_perms).filter(k=>uf.menu_perms[k]===true).length:0;
+            const isEditing=!!editU;
+            if(total===0){
+              return R('div',{style:{padding:'8px 12px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:6,marginBottom:8,fontSize:11,color:'#991B1B',fontWeight:600}},
+                '⚠️ 권한이 하나도 부여되지 않았습니다. '+(isEditing?'(기존 저장값 없음)':'아래 메뉴를 선택해주세요.')
+              );
+            }
+            return R('div',{style:{padding:'8px 12px',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:6,marginBottom:8,fontSize:11,color:'#15803D',fontWeight:600}},
+              '✅ 총 '+total+'개 메뉴 권한 '+(isEditing?'(기존 저장값 로드됨)':'적용 중')
+            );
+          })(),
           /* 폴더별로 그룹화된 권한 체크 UI */
           (()=>{
             /* 메뉴를 폴더별로 그룹화 */
@@ -9747,7 +9798,7 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T12:00:email-autofill-v4',
+  version:'2026-05-14-T12:05:menu-perms-edit-fix-v5',
   buildTime:'1747203300000',
   description:'React #310 fix: useEffect moved before early return'
 };
