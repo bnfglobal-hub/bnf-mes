@@ -5224,10 +5224,10 @@ function PageAdmin({user}){
                 {k:'inv',v:'재고 관리'},
                 {k:'hq',v:'본사재고'},
                 {k:'bom',v:'제품/BOM'},
-                {k:'prod',v:'생산계획'},
-                {k:'sched',v:'생산 스케줄'},
+                {k:'prod',v:'생산 지시'},
                 {k:'orders',v:'발주현황'},
-                {k:'autoOrder',v:'자동발주제안'}
+                {k:'autoOrder',v:'자동발주제안'},
+                {k:'sched',v:'생산 스케줄'}
               ]},
               {label:'🔬 연구소',color:'#A855F7',bg:'#FAF5FF',items:[
                 {k:'research',v:'연구개발 현황'},
@@ -5832,7 +5832,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'research',l:'연구개발 현황',ic:'🔬'},
     {id:'research_journal',l:'연구개발일지',ic:'📔'},
     {id:'recipes',l:'레시피',ic:'📖'},
-    {id:'prod',l:'생산 계획',ic:'🏭'},
+    {id:'prod',l:'생산 지시',ic:'🏭'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'operation',l:'공장 가동률',ic:'⚙️'},
     {id:'orders',l:'발주 현황',ic:'📋'},
@@ -6892,16 +6892,35 @@ function ImgModal({data,onClose,genImg}){
   );
 }
 
-/* ────── PAGE: 생산계획 ────── */
+/* ────── PAGE: 생산 지시 ────── */
 function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOpenBOM}){
   const[confirmData,setConfirmData]=useState(null);
+  /* 1회 생산 수량 + 회수 - localStorage 저장으로 새로고침해도 유지 */
+  const[runConfig,setRunConfig]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem('bnf_run_config')||'{}');}catch(e){return {};}
+  });
+  /* perRun/runs 변경 시 pqty(총 수량) 자동 계산 */
+  const updateRunConfig=(id,key,val)=>{
+    setRunConfig(p=>{
+      const cur=p[id]||{perRun:'',runs:''};
+      const next={...cur,[key]:val};
+      const np={...p,[id]:next};
+      localStorage.setItem('bnf_run_config',JSON.stringify(np));
+      const total=(parseFloat(next.perRun)||0)*(parseFloat(next.runs)||0);
+      setPqty(pv=>({...pv,[id]:total>0?String(total):''}));
+      return np;
+    });
+  };
   return R('div',{className:'pg fa'},
     !prods.length&&R('div',{className:'card',style:{textAlign:'center',padding:'28px',border:'2px dashed #e2e8f0',color:'#94a3b8',marginBottom:14}},
       '제품/BOM을 먼저 등록하세요',
       isAdmin&&R('div',{style:{marginTop:8}},R('button',{className:'btn bp',onClick:onOpenBOM},'등록하러 가기'))
     ),
     prods.map(p=>{
-      const qty=parseFloat(pqty[p.id])||0;
+      const cfg=runConfig[p.id]||{perRun:'',runs:''};
+      const perRun=parseFloat(cfg.perRun)||0;
+      const runs=parseFloat(cfg.runs)||0;
+      const qty=perRun*runs;
       const needs=(p.bom||[]).map(b=>{
         const mat=mats.find(m=>m.c===b.c);
         const needed=b.amt*(qty||1);
@@ -6915,18 +6934,30 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
         contact:mat?(mat.contact||''):(b.contact||''),
         lead:mat?(mat.lead||3):(b.lead||3)
       }));
+      const clearRun=()=>{
+        setRunConfig(prev=>{const np={...prev,[p.id]:{perRun:'',runs:''}};localStorage.setItem('bnf_run_config',JSON.stringify(np));return np;});
+        setPqty(pv=>({...pv,[p.id]:''}));
+      };
       return R('div',{key:p.id,className:'card',style:{marginBottom:12,border:hasShort?'1px solid #fecaca':'1px solid #e2e8f0'}},
         R('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-          R('div',{style:{flex:1}},
+          R('div',{style:{flex:1,minWidth:160}},
             R('div',{style:{fontWeight:700,fontSize:14}},p.name),
             R('div',{style:{fontSize:11,color:'#64748b'}},p.cat,' · BOM ',p.bom.length,'종')
           ),
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
-            R('input',{type:'number',min:'0',value:pqty[p.id]??'',onChange:e=>setPqty(pv=>({...pv,[p.id]:e.target.value})),placeholder:'수량',style:{width:80,padding:'8px 10px',border:'1.5px solid '+(qty>0?'#D94F1E':'#e2e8f0'),borderRadius:8,fontSize:14,textAlign:'center'}}),
-            R('span',{style:{fontSize:12,color:'#64748b'}},'개'),
-            R('button',{className:'btn',style:{background:'#475569',color:'#fff',padding:'8px 11px',fontSize:11},disabled:!qty,onClick:()=>qty&&setConfirmData({prod:p,qty,rows})},'📝 생산지시'),
-            R('button',{className:'btn bp',style:{fontSize:11,padding:'8px 11px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,rows})},'📋 이미지'),
-            qty>0&&R('button',{onClick:()=>setPqty(pv=>({...pv,[p.id]:''})),style:{padding:'7px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕')
+            /* 1회 생산 수량 */
+            R('span',{style:{fontSize:11,color:'#64748b',fontWeight:600}},'1회 생산 수량'),
+            R('input',{type:'number',min:'0',value:cfg.perRun,onChange:e=>updateRunConfig(p.id,'perRun',e.target.value),placeholder:'수량',style:{width:70,padding:'7px 8px',border:'1.5px solid '+(perRun>0?'#D94F1E':'#e2e8f0'),borderRadius:8,fontSize:13,textAlign:'center'}}),
+            R('span',{style:{fontSize:12,color:'#64748b',fontWeight:600}},'ea ×'),
+            /* 회수 */
+            R('input',{type:'number',min:'0',value:cfg.runs,onChange:e=>updateRunConfig(p.id,'runs',e.target.value),placeholder:'회',style:{width:56,padding:'7px 8px',border:'1.5px solid '+(runs>0?'#D94F1E':'#e2e8f0'),borderRadius:8,fontSize:13,textAlign:'center'}}),
+            R('span',{style:{fontSize:12,color:'#64748b',fontWeight:600}},'회'),
+            /* 총 수량 자동 표시 */
+            qty>0&&R('span',{style:{fontSize:12,color:'#D94F1E',fontWeight:800,padding:'4px 8px',background:'#FFF5F0',borderRadius:6,border:'1px solid #FCC8B0'}},'= 총 ',qty,' ea'),
+            /* 액션 버튼 */
+            R('button',{className:'btn',style:{background:'#475569',color:'#fff',padding:'8px 11px',fontSize:11},disabled:!qty,onClick:()=>qty&&setConfirmData({prod:p,qty,perRun,runs,rows})},'📝 생산지시'),
+            R('button',{className:'btn bp',style:{fontSize:11,padding:'8px 11px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,perRun,runs,rows})},'📋 이미지'),
+            qty>0&&R('button',{onClick:clearRun,style:{padding:'7px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕')
           )
         ),
         qty>0&&R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))',gap:6,marginTop:10}},
@@ -9986,10 +10017,10 @@ const DEFAULT_NAV_SECTIONS=[
         {id:'inv',l:'재고 관리',ic:'📦'},
         {id:'hq',l:'본사재고',ic:'🏢'},
         {id:'bom',l:'제품/BOM',ic:'⊕'},
-        {id:'prod',l:'생산계획',ic:'⚙'},
-        {id:'sched',l:'생산 스케줄',ic:'📅'},
+        {id:'prod',l:'생산 지시',ic:'🏭'},
         {id:'orders',l:'발주현황',ic:'🚚'},
-        {id:'autoOrder',l:'자동발주제안',ic:'🤖'}
+        {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
+        {id:'sched',l:'생산 스케줄',ic:'📅'}
       ]},
       {label:'🔬 연구소',items:[
         {id:'research',l:'연구개발 현황',ic:'🔬'},
@@ -11105,9 +11136,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T19:15:sched-config-table-v18.1',
-  buildTime:'1747224900000',
-  description:'생산스케줄: 행 설정 별도 테이블(prod_schedule_config) 사용 - DATE 타입 충돌 해결'
+  version:'2026-05-14-T20:00:prod-perrun-runs-v20',
+  buildTime:'1747227600000',
+  description:'생산지시: 1회 생산 수량 + 회수 두 입력으로 분리 + 총 수량 자동계산 표시'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
