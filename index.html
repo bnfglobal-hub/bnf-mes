@@ -1003,6 +1003,26 @@ function PageApproval({user}){
     await db('approvals').update({[`step${step}_status`]:status,[`step${step}_at`]:now2(),status:fs,updated_at:now2()}).eq('id',id);
     setSel(null);load();
   };
+  /* 기안 삭제: 본인 기안 + 결재 시작 전(아직 아무도 결재 안 함) 또는 관리자 */
+  const canDelete=(doc)=>{
+    if(!doc)return false;
+    if(isAdmin)return true;
+    if(doc.writer_id!==user.id)return false;
+    /* 결재 시작 전 = 1차 결재자가 아직 '대기' 상태 (승인/반려 아님) */
+    return doc.step1_status==='대기'&&(!doc.step2_id||doc.step2_status==='대기');
+  };
+  const delDoc=async(doc)=>{
+    if(!canDelete(doc)){
+      alert('삭제 권한이 없습니다.\n\n• 본인이 기안한 문서\n• 결재 시작 전(아무도 결재하지 않은 상태)\n• 관리자는 무조건 가능');
+      return;
+    }
+    if(!confirm('"'+doc.title+'" 문서를 삭제할까요?\n삭제하면 복구할 수 없습니다.'))return;
+    try{
+      const{error}=await db('approvals').delete().eq('id',doc.id);
+      if(error)throw error;
+      setSel(null);load();
+    }catch(e){alert('삭제 실패: '+(e.message||e));}
+  };
   const renderFields=()=>{
     if(fType==='leave')return R('div',null,
       R('div',{className:'fg'},
@@ -1014,7 +1034,10 @@ function PageApproval({user}){
     return R('div',{className:'fr'},R('label',{className:'lbl'},'내용'),R('textarea',{className:'inp',value:form.content.body||'',onChange:e=>updC('body',e.target.value),placeholder:'내용 입력',style:{minHeight:120}}));
   };
   if(sel)return R('div',{className:'pg fa'},
-    R('div',{className:'pg-hdr'},R('button',{className:'btn bs',onClick:()=>setSel(null)},'← 목록')),
+    R('div',{className:'pg-hdr'},
+      R('button',{className:'btn bs',onClick:()=>setSel(null)},'← 목록'),
+      canDelete(sel)&&R('button',{className:'btn bs',onClick:()=>delDoc(sel),style:{background:'#FEE2E2',color:'#991B1B',marginLeft:'auto'}},'🗑 기안 삭제')
+    ),
     R('div',{className:'card',style:{marginBottom:12}},
       R('div',{style:{display:'flex',gap:8,marginBottom:10}},R(Bdg2,{cls:ASTAT[sel.status]||'b-g',txt:sel.status}),R(Bdg2,{cls:'b-g',txt:fTypes.find(f=>f.v===sel.form_type)?.l||sel.form_type})),
       R('h2',{style:{fontSize:17,fontWeight:800,marginBottom:10}},sel.title),
@@ -1573,7 +1596,7 @@ const RESEARCH_STAGES=[
 ];
 const RESEARCH_DROPPED={id:'dropped',label:'중단',color:'#EF4444',bg:'#FEF2F2',ic:'⛔',prob:0};
 
-/* ═══════════════ 연구개발일지 (게시판형) ═══════════════ */
+/* ═══════════════ 연구개발일지 (게시판형 + 이미지 복붙 + 파일첨부) ═══════════════ */
 function PageResearchJournal({user}){
   const[entries,setEntries]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -1584,6 +1607,11 @@ function PageResearchJournal({user}){
   const[filterCategory,setFilterCategory]=useState('all');
   const defaultForm={title:'',category:'연구',date:today2(),content:'',tags:''};
   const[form,setForm]=useState(defaultForm);
+  const[attachments,setAttachments]=useState([]);
+  const[uploading,setUploading]=useState(false);
+  const editorRef=useRef(null);
+  const attachInputRef=useRef(null);
+  const imageInputRef=useRef(null);
   const isAdmin=['superadmin','admin'].includes(user.role);
   const CATEGORIES=[
     {v:'연구',c:'#A855F7',bg:'#FAF5FF'},
@@ -1608,18 +1636,131 @@ function PageResearchJournal({user}){
     }
     setLoading(false);
   };
-  const save=async()=>{
-    if(!form.title.trim()||!form.content.trim()){alert('제목과 내용을 입력해주세요');return;}
+
+  /* Storage 업로드 유틸 (이미지/파일 공통) */
+  const uploadToStorage=async(file,kind)=>{
     try{
-      const payload={title:form.title.trim(),category:form.category,entry_date:form.date,content:form.content,tags:form.tags,writer_id:user.id};
+      const safeName=(file.name||'paste.png').replace(/[^a-zA-Z0-9._-]/g,'_');
+      const path='journal/'+kind+'/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safeName;
+      const{data,error}=await sbClient.storage.from('bnf-files').upload(path,file,{
+        cacheControl:'3600',upsert:false,contentType:file.type||'application/octet-stream'
+      });
+      if(error){
+        if(error.message&&(error.message.includes('Bucket not found')||error.message.includes('not found'))){
+          alert('❌ Storage "bnf-files" 버킷이 없습니다.\nSupabase Dashboard → Storage → 버킷 생성 필요');
+        }else if(error.message&&error.message.includes('policy')){
+          alert('❌ Storage 정책 차단됨.\nSupabase → Storage → bnf-files → Policies 확인');
+        }else alert('업로드 실패: '+error.message);
+        return null;
+      }
+      const{data:urlData}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+      return{path,url:urlData?.publicUrl||''};
+    }catch(e){alert('업로드 오류: '+e.message);return null;}
+  };
+
+  /* 클립보드 이미지 붙여넣기 핸들러 */
+  const handlePaste=async(e)=>{
+    const items=e.clipboardData&&e.clipboardData.items;
+    if(!items)return;
+    for(let i=0;i<items.length;i++){
+      const item=items[i];
+      if(item.type&&item.type.startsWith('image/')){
+        e.preventDefault();
+        const file=item.getAsFile();
+        if(!file)continue;
+        setUploading(true);
+        const result=await uploadToStorage(file,'image');
+        setUploading(false);
+        if(result&&result.url){
+          /* 커서 위치에 이미지 삽입 + 자동 줄바꿈(이미지 밑에 바로 글 쓸 수 있게) */
+          document.execCommand('insertHTML',false,
+            '<img src="'+result.url+'" data-path="'+result.path+'" style="max-width:100%;height:auto;display:block;margin:8px 0;border-radius:6px;" alt="첨부이미지" /><div><br></div>'
+          );
+        }
+      }
+    }
+    /* 이미지가 없으면 기본 텍스트 붙여넣기 동작 */
+  };
+
+  /* 파일 선택으로 이미지 삽입 (본문 내부 인라인 이미지) */
+  const insertImageFromFile=async(file)=>{
+    if(!file)return;
+    if(!file.type.startsWith('image/')){alert('이미지 파일만 업로드 가능합니다 (jpg, png, gif 등)');return;}
+    if(file.size>20*1024*1024){alert('❌ 이미지 크기 초과 (20MB 이하만 가능)');return;}
+    setUploading(true);
+    const result=await uploadToStorage(file,'image');
+    setUploading(false);
+    if(result&&result.url){
+      /* 에디터에 포커스 */
+      if(editorRef.current){
+        editorRef.current.focus();
+        /* 빈 상태일 때 플레이스홀더 제거 */
+        if(editorRef.current.innerHTML.includes('연구/실험 내용을 자세히 기록')){
+          editorRef.current.innerHTML='';
+        }
+      }
+      /* 커서 위치에 이미지 + 줄바꿈 삽입 → 이미지 밑에서 바로 타이핑 가능 */
+      document.execCommand('insertHTML',false,
+        '<img src="'+result.url+'" data-path="'+result.path+'" style="max-width:100%;height:auto;display:block;margin:8px 0;border-radius:6px;" alt="첨부이미지" /><div><br></div>'
+      );
+    }
+  };
+
+  /* 파일 첨부 추가 */
+  const addAttachment=async(file)=>{
+    if(!file)return;
+    if(file.size>50*1024*1024){alert('❌ 파일 크기 초과 (50MB 이하만)');return;}
+    setUploading(true);
+    const result=await uploadToStorage(file,'file');
+    setUploading(false);
+    if(result){
+      setAttachments(p=>[...p,{name:file.name,path:result.path,size:file.size,type:file.type||''}]);
+    }
+  };
+  const removeAttachment=async(idx)=>{
+    const att=attachments[idx];
+    if(att&&att.path){try{await sbClient.storage.from('bnf-files').remove([att.path]);}catch(e){}}
+    setAttachments(p=>p.filter((_,i)=>i!==idx));
+  };
+  const downloadAttachment=(a)=>{
+    try{
+      const{data}=sbClient.storage.from('bnf-files').getPublicUrl(a.path);
+      if(data&&data.publicUrl){
+        const link=document.createElement('a');
+        link.href=data.publicUrl;link.download=a.name;link.target='_blank';
+        document.body.appendChild(link);link.click();document.body.removeChild(link);
+      }
+    }catch(e){alert('다운로드 실패: '+e.message);}
+  };
+
+  const save=async()=>{
+    const contentHTML=editorRef.current?editorRef.current.innerHTML:form.content;
+    const plainText=editorRef.current?(editorRef.current.innerText||'').trim():form.content;
+    if(!form.title.trim()||!plainText){alert('제목과 내용을 입력해주세요');return;}
+    try{
+      const payload={
+        title:form.title.trim(),
+        category:form.category,
+        entry_date:form.date,
+        content:contentHTML,
+        tags:form.tags,
+        writer_id:user.id,
+        attachments:attachments
+      };
       let resp;
       if(editEntry){
         resp=await sbClient.from('research_journal').update(payload).eq('id',editEntry.id);
       }else{
         resp=await sbClient.from('research_journal').insert(payload);
       }
-      if(resp.error)throw resp.error;
-      setShowForm(false);setEditEntry(null);setForm(defaultForm);
+      if(resp.error){
+        if(resp.error.message&&resp.error.message.includes('attachments')){
+          alert('⚠️ attachments 컬럼이 없습니다.\n\nSupabase SQL Editor에서 실행:\nALTER TABLE research_journal ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT \'[]\'::jsonb;');
+          return;
+        }
+        throw resp.error;
+      }
+      setShowForm(false);setEditEntry(null);setForm(defaultForm);setAttachments([]);
       load();
     }catch(e){alert('저장 실패: '+(e.message||e));}
   };
@@ -1630,23 +1771,37 @@ function PageResearchJournal({user}){
   };
   const startEdit=(en)=>{
     setEditEntry(en);
-    setForm({title:en.title,category:en.category||'연구',date:en.entry_date,content:en.content,tags:en.tags||''});
+    setForm({title:en.title,category:en.category||'연구',date:en.entry_date,content:en.content||'',tags:en.tags||''});
+    setAttachments(en.attachments||[]);
     setShowForm(true);
     setSelectedEntry(null);
+  };
+  const openNew=()=>{
+    setEditEntry(null);setForm({...defaultForm,date:today2()});setAttachments([]);setShowForm(true);
   };
   
   const filtered=entries.filter(e=>{
     if(filterCategory!=='all'&&e.category!==filterCategory)return false;
-    if(search&&!(e.title.toLowerCase().includes(search.toLowerCase())||e.content.toLowerCase().includes(search.toLowerCase())))return false;
+    if(search){
+      const q=search.toLowerCase();
+      const plain=(e.content||'').replace(/<[^>]+>/g,'');
+      if(!(e.title.toLowerCase().includes(q)||plain.toLowerCase().includes(q)))return false;
+    }
     return true;
   });
   const catColor=(c)=>{const f=CATEGORIES.find(x=>x.v===c);return f?f.c:'#6B7280';};
+  /* HTML에서 텍스트만 추출 (목록 미리보기용) */
+  const stripHTML=(html)=>{
+    if(!html)return '';
+    const tmp=document.createElement('div');tmp.innerHTML=html;
+    return(tmp.innerText||tmp.textContent||'').replace(/\s+/g,' ').trim();
+  };
   
   if(loading)return R('div',{className:'pg fa'},'⏳ 로딩...');
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📔 연구개발일지'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},entries.length+'개의 일지')),
-      R('button',{className:'btn bp',onClick:()=>{setEditEntry(null);setForm({...defaultForm,date:today2()});setShowForm(true);}},'+ 새 일지')
+      R('button',{className:'btn bp',onClick:openNew},'+ 새 일지')
     ),
     /* 필터 */
     R('div',{style:{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}},
@@ -1664,26 +1819,33 @@ function PageResearchJournal({user}){
             R('div',null,'아직 작성된 일지가 없습니다'),
             R('div',{style:{fontSize:11,marginTop:6,color:'#9CA3AF'}},'우측 상단 [+ 새 일지] 버튼으로 추가')
           )
-        : filtered.map(en=>R('div',{key:en.id,className:'card',style:{padding:14,cursor:'pointer',borderLeft:'4px solid '+catColor(en.category)},onClick:()=>setSelectedEntry(en)},
-            R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}},
-              R('div',null,
-                R('span',{style:{display:'inline-block',padding:'2px 8px',background:catColor(en.category),color:'#fff',fontSize:10,borderRadius:10,fontWeight:700,marginRight:8}},en.category||'기타'),
-                R('span',{style:{fontSize:14,fontWeight:700}},en.title)
+        : filtered.map(en=>{
+            const preview=stripHTML(en.content);
+            const hasImg=en.content&&en.content.indexOf('<img')>=0;
+            const attCnt=(en.attachments||[]).length;
+            return R('div',{key:en.id,className:'card',style:{padding:14,cursor:'pointer',borderLeft:'4px solid '+catColor(en.category)},onClick:()=>setSelectedEntry(en)},
+              R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}},
+                R('div',null,
+                  R('span',{style:{display:'inline-block',padding:'2px 8px',background:catColor(en.category),color:'#fff',fontSize:10,borderRadius:10,fontWeight:700,marginRight:8}},en.category||'기타'),
+                  R('span',{style:{fontSize:14,fontWeight:700}},en.title)
+                ),
+                R('div',{style:{fontSize:10,color:'var(--tm)'}},en.entry_date)
               ),
-              R('div',{style:{fontSize:10,color:'var(--tm)'}},en.entry_date)
-            ),
-            R('div',{style:{fontSize:11,color:'#6B7280',lineHeight:1.5,whiteSpace:'pre-wrap',maxHeight:50,overflow:'hidden'}},en.content.slice(0,150)+(en.content.length>150?'...':'')),
-            R('div',{style:{fontSize:10,color:'#9CA3AF',marginTop:6,display:'flex',gap:10}},
-              R('span',null,'✍ ',en.emp?.name||'-'),
-              en.tags&&R('span',null,'🏷 ',en.tags)
-            )
-          ))
+              R('div',{style:{fontSize:11,color:'#6B7280',lineHeight:1.5,maxHeight:50,overflow:'hidden'}},preview.slice(0,150)+(preview.length>150?'...':'')),
+              R('div',{style:{fontSize:10,color:'#9CA3AF',marginTop:6,display:'flex',gap:10,flexWrap:'wrap'}},
+                R('span',null,'✍ ',en.tags||en.emp?.name||'-'),
+                hasImg&&R('span',{style:{color:'#A855F7'}},'🖼 이미지'),
+                attCnt>0&&R('span',{style:{color:'#A855F7'}},'📎 ',attCnt)
+              )
+            );
+          })
     ),
     /* 작성/수정 모달 */
-    showForm&&R(Modal2,{title:editEntry?'일지 수정':'새 연구개발일지',onClose:()=>{setShowForm(false);setEditEntry(null);setForm(defaultForm);},size:680,
-      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
-        R('button',{className:'btn bs',onClick:()=>{setShowForm(false);setEditEntry(null);},style:{flex:1}},'취소'),
-        R('button',{className:'btn bp',onClick:save,style:{flex:2}},editEntry?'수정':'저장')
+    showForm&&R(Modal2,{title:editEntry?'일지 수정':'새 연구개발일지',onClose:()=>{setShowForm(false);setEditEntry(null);setAttachments([]);},size:780,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%',alignItems:'center'}},
+        uploading&&R('span',{style:{fontSize:11,color:'#A855F7',fontWeight:700}},'⏳ 업로드 중...'),
+        R('button',{className:'btn bs',onClick:()=>{setShowForm(false);setEditEntry(null);setAttachments([]);},style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:save,style:{flex:2},disabled:uploading},editEntry?'수정':'저장')
       )
     },
       R('div',{className:'fg'},
@@ -1694,12 +1856,53 @@ function PageResearchJournal({user}){
         ),
         R('div',{className:'fr'},R('label',{className:'lbl'},'날짜'),R('input',{type:'date',className:'inp',value:form.date,onChange:e=>setForm(p=>({...p,date:e.target.value}))})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'제목'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'예: 라면 스프 배합 실험 - 2026.05.14'})),
-        R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'태그 (선택)'),R('input',{className:'inp',value:form.tags,onChange:e=>setForm(p=>({...p,tags:e.target.value})),placeholder:'예: #라면 #스프 #배합'})),
-        R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'내용'),R('textarea',{className:'inp',value:form.content,onChange:e=>setForm(p=>({...p,content:e.target.value})),placeholder:'연구/실험 내용을 자세히 기록하세요.\n\n예시:\n[목적] OEM 신제품 라면 스프 배합비 최적화\n[재료] 다시마 100g, 멸치 200g, 표고버섯 50g\n[방법] 1차 배합 → 2시간 시뮬 끓이기 → 관능 평가\n[결과] 다시마 비율 증가 시 감칠맛 +30%\n[고찰] 다음 차수 다시마 120g으로 진행 예정',rows:14,style:{resize:'vertical',fontFamily:'inherit'}}))
+        R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'작성자 (선택)'),R('input',{className:'inp',value:form.tags,onChange:e=>setForm(p=>({...p,tags:e.target.value})),placeholder:'작성자 이름 (비우면 자동: '+(user.name||user.email||'본인')+')'})),
+        /* 내용 - contentEditable (이미지 복붙 + 파일 삽입) */
+        R('div',{className:'fr',style:{gridColumn:'1/-1'}},
+          R('label',{className:'lbl',style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
+            R('span',null,'내용'),
+            R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+              R('button',{type:'button',className:'btn bs',style:{padding:'4px 12px',fontSize:11,margin:0,background:'#FAF5FF',color:'#7C3AED',borderColor:'#DDD6FE'},onClick:()=>imageInputRef.current&&imageInputRef.current.click(),disabled:uploading},'🖼 이미지 삽입'),
+              R('span',{style:{fontSize:10,color:'#9CA3AF'}},'또는 Ctrl+V로 복붙')
+            )
+          ),
+          R('input',{ref:imageInputRef,type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{if(e.target.files[0]){insertImageFromFile(e.target.files[0]);e.target.value='';}}}),
+          R('div',{
+            ref:editorRef,
+            contentEditable:true,
+            suppressContentEditableWarning:true,
+            onPaste:handlePaste,
+            className:'inp',
+            style:{minHeight:300,maxHeight:600,overflow:'auto',padding:12,whiteSpace:'pre-wrap',lineHeight:1.7,fontSize:13,fontFamily:'inherit',cursor:'text'},
+            dangerouslySetInnerHTML:{__html:form.content||'<div style="color:#9CA3AF;">연구/실험 내용을 자세히 기록하세요.<br>이미지는 🖼 버튼 또는 Ctrl+V로 삽입 → 이미지 아래에 바로 글 작성 가능</div>'},
+            onFocus:e=>{
+              /* 플레이스홀더 제거 (처음 포커스 시) */
+              if(e.currentTarget.innerHTML.includes('연구/실험 내용을 자세히 기록'))e.currentTarget.innerHTML='';
+            }
+          })
+        ),
+        /* 파일 첨부 (본문 외 별도 첨부) */
+        R('div',{className:'fr',style:{gridColumn:'1/-1'}},
+          R('label',{className:'lbl',style:{display:'flex',alignItems:'center',justifyContent:'space-between'}},
+            R('span',null,'📎 파일 첨부 ',R('span',{style:{fontSize:10,color:'#9CA3AF',fontWeight:500}},'(본문에 안 들어가는 별도 첨부)')),
+            R('button',{type:'button',className:'btn bs',style:{padding:'4px 12px',fontSize:11,margin:0},onClick:()=>attachInputRef.current&&attachInputRef.current.click(),disabled:uploading},'+ 파일 추가')
+          ),
+          R('input',{ref:attachInputRef,type:'file',style:{display:'none'},onChange:e=>{if(e.target.files[0]){addAttachment(e.target.files[0]);e.target.value='';}}}),
+          attachments.length===0
+            ? R('div',{style:{fontSize:11,color:'var(--tm)',padding:'10px',background:'#F9FAFB',borderRadius:6,textAlign:'center'}},'첨부 파일 없음 (50MB 이하)')
+            : R('div',{style:{display:'flex',flexDirection:'column',gap:4}},
+                ...attachments.map((a,i)=>R('div',{key:i,style:{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',background:'#FAF5FF',borderRadius:6,fontSize:11,borderLeft:'3px solid #A855F7'}},
+                  R('span',null,'📎'),
+                  R('span',{style:{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:600}},a.name),
+                  R('span',{style:{color:'#9CA3AF',fontSize:10}},((a.size||0)/1024).toFixed(1)+' KB'),
+                  R('button',{type:'button',onClick:()=>removeAttachment(i),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:14,padding:'2px 6px'}},'✕')
+                ))
+              )
+        )
       )
     ),
     /* 상세 보기 */
-    selectedEntry&&R(Modal2,{title:selectedEntry.title,onClose:()=>setSelectedEntry(null),size:680,
+    selectedEntry&&R(Modal2,{title:selectedEntry.title,onClose:()=>setSelectedEntry(null),size:780,
       footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
         R('button',{className:'btn bs',onClick:()=>setSelectedEntry(null),style:{flex:1}},'닫기'),
         (selectedEntry.writer_id===user.id||isAdmin)&&R('button',{className:'btn bp',onClick:()=>startEdit(selectedEntry),style:{flex:1}},'수정'),
@@ -1707,13 +1910,25 @@ function PageResearchJournal({user}){
       )
     },
       R('div',null,
-        R('div',{style:{display:'flex',gap:10,marginBottom:14,paddingBottom:10,borderBottom:'1px solid var(--bd)'}},
+        R('div',{style:{display:'flex',gap:10,marginBottom:14,paddingBottom:10,borderBottom:'1px solid var(--bd)',flexWrap:'wrap'}},
           R('span',{style:{padding:'3px 10px',background:catColor(selectedEntry.category),color:'#fff',fontSize:11,borderRadius:10,fontWeight:700}},selectedEntry.category),
           R('span',{style:{fontSize:12,color:'var(--tm)'}},selectedEntry.entry_date),
-          R('span',{style:{fontSize:12,color:'var(--tm)'}},'✍ '+(selectedEntry.emp?.name||'-')),
-          selectedEntry.tags&&R('span',{style:{fontSize:11,color:'#A855F7'}},selectedEntry.tags)
+          R('span',{style:{fontSize:12,color:'#7C3AED',fontWeight:600}},'✍ '+(selectedEntry.tags||selectedEntry.emp?.name||'-'))
         ),
-        R('div',{style:{whiteSpace:'pre-wrap',lineHeight:1.7,fontSize:13,color:'#1F2937'}},selectedEntry.content)
+        /* 본문 (HTML 렌더) */
+        R('div',{
+          style:{lineHeight:1.7,fontSize:13,color:'#1F2937'},
+          dangerouslySetInnerHTML:{__html:selectedEntry.content||''}
+        }),
+        /* 첨부파일 */
+        selectedEntry.attachments&&selectedEntry.attachments.length>0&&R('div',{style:{marginTop:18,padding:12,background:'#FAF5FF',borderRadius:8,borderLeft:'3px solid #A855F7'}},
+          R('div',{style:{fontSize:11,color:'#A855F7',fontWeight:700,marginBottom:8}},'📎 첨부파일 ('+selectedEntry.attachments.length+'개)'),
+          ...selectedEntry.attachments.map((a,i)=>R('div',{key:i,style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',fontSize:12,borderTop:i>0?'1px solid #EDE9FE':'none'}},
+            R('span',null,'📎'),
+            R('span',{onClick:()=>downloadAttachment(a),style:{flex:1,color:'#7C3AED',textDecoration:'underline',cursor:'pointer',fontWeight:600}},a.name),
+            R('span',{style:{color:'#9CA3AF',fontSize:10}},((a.size||0)/1024).toFixed(1)+' KB')
+          ))
+        )
       )
     )
   );
@@ -2125,7 +2340,7 @@ function PageResearch({user}){
     /* 헤더 */
     R('div',{className:'pg-hdr'},
       R('div',null,
-        R('div',{className:'pg-title'},'🔬 연구소 - 제품 개발'),
+        R('div',{className:'pg-title'},'🔬 연구개발 현황'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'개발 요청 → 레시피 → 샘플 → 생산 → 승인 → 출시 6단계 관리')
       ),
       R('button',{className:'btn bp',onClick:()=>setShowAdd(true)},'+ 새 개발 프로젝트')
@@ -4564,7 +4779,7 @@ function PageAdmin({user}){
                 {k:'autoOrder',v:'자동발주제안'}
               ]},
               {label:'🔬 연구소',color:'#A855F7',bg:'#FAF5FF',items:[
-                {k:'research',v:'연구소'},
+                {k:'research',v:'연구개발 현황'},
                 {k:'research_journal',v:'연구개발일지'},
                 {k:'recipes',v:'레시피'}
               ]},
@@ -5161,7 +5376,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'inv',l:'재고 관리',ic:'📦'},
     {id:'hq',l:'본사 재고',ic:'🏢'},
     {id:'bom',l:'제품/BOM',ic:'🧪'},
-    {id:'research',l:'연구소',ic:'🔬'},
+    {id:'research',l:'연구개발 현황',ic:'🔬'},
     {id:'research_journal',l:'연구개발일지',ic:'📔'},
     {id:'recipes',l:'레시피',ic:'📖'},
     {id:'prod',l:'생산 계획',ic:'🏭'},
@@ -9324,7 +9539,7 @@ const DEFAULT_NAV_SECTIONS=[
         {id:'autoOrder',l:'자동발주제안',ic:'🤖'}
       ]},
       {label:'🔬 연구소',items:[
-        {id:'research',l:'연구소',ic:'🔬'},
+        {id:'research',l:'연구개발 현황',ic:'🔬'},
         {id:'research_journal',l:'연구개발일지',ic:'📔'}
       ]}
     ]
@@ -10435,9 +10650,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T16:00:semi-grouped-by-category-v13',
-  buildTime:'1747213200000',
-  description:'재고관리 반제품 리스트: 분류별 그룹핑 표시 (반제품/원재료/포장지/부재료 등)'
+  version:'2026-05-14-T17:30:journal-author-imagebutton-v15',
+  buildTime:'1747218600000',
+  description:'연구개발일지: 태그→작성자 교체 + 본문 이미지 삽입 버튼 + 이미지 밑 자동 줄바꿈(글 작성 가능)'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
