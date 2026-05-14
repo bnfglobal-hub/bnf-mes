@@ -1741,7 +1741,7 @@ function PageResearchJournal({user}){
   const[selectedEntry,setSelectedEntry]=useState(null);
   const[search,setSearch]=useState('');
   const[filterCategory,setFilterCategory]=useState('all');
-  const defaultForm={title:'',category:'연구',date:today2(),content:'',tags:''};
+  const defaultForm={title:'',category:'연구',date:today2(),content:'',tags:user.name||user.email||''};
   const[form,setForm]=useState(defaultForm);
   const[attachments,setAttachments]=useState([]);
   const[uploading,setUploading]=useState(false);
@@ -1992,7 +1992,7 @@ function PageResearchJournal({user}){
         ),
         R('div',{className:'fr'},R('label',{className:'lbl'},'날짜'),R('input',{type:'date',className:'inp',value:form.date,onChange:e=>setForm(p=>({...p,date:e.target.value}))})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'제목'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'예: 라면 스프 배합 실험 - 2026.05.14'})),
-        R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'작성자 (선택)'),R('input',{className:'inp',value:form.tags,onChange:e=>setForm(p=>({...p,tags:e.target.value})),placeholder:'작성자 이름 (비우면 자동: '+(user.name||user.email||'본인')+')'})),
+        R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'작성자'),R('input',{className:'inp',value:form.tags,onChange:e=>setForm(p=>({...p,tags:e.target.value})),placeholder:'작성자 이름'})),
         /* 내용 - contentEditable (이미지 복붙 + 파일 삽입) */
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},
           R('label',{className:'lbl',style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
@@ -2079,7 +2079,7 @@ function PageOperationStrategy({user}){
   const[selectedEntry,setSelectedEntry]=useState(null);
   const[search,setSearch]=useState('');
   const[filterCategory,setFilterCategory]=useState('all');
-  const defaultForm={title:'',category:'경영',content:'',writer_name:''};
+  const defaultForm={title:'',category:'경영',content:'',writer_name:user.name||user.email||''};
   const[form,setForm]=useState(defaultForm);
   const[attachments,setAttachments]=useState([]);
   const[uploading,setUploading]=useState(false);
@@ -2311,7 +2311,7 @@ function PageOperationStrategy({user}){
             ...CATEGORIES.map(c=>R('option',{key:c.v,value:c.v},c.v))
           )
         ),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'작성자 (선택)'),R('input',{className:'inp',value:form.writer_name,onChange:e=>setForm(p=>({...p,writer_name:e.target.value})),placeholder:'비우면 자동: '+(user.name||user.email||'본인')})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'작성자'),R('input',{className:'inp',value:form.writer_name,onChange:e=>setForm(p=>({...p,writer_name:e.target.value})),placeholder:'작성자 이름'})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},R('label',{className:'lbl'},'제목'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'예: 2026 영업 전략 - 거래처 다변화 방향'})),
         R('div',{className:'fr',style:{gridColumn:'1/-1'}},
           R('label',{className:'lbl',style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
@@ -6920,7 +6920,10 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       const cfg=runConfig[p.id]||{perRun:'',runs:''};
       const perRun=parseFloat(cfg.perRun)||0;
       const runs=parseFloat(cfg.runs)||0;
-      const qty=perRun*runs;
+      /* qty = BOM에 곱하는 값 = 회수만 (1회 생산 수량은 단순 표시용) */
+      const qty=runs;
+      /* totalProduce = 화면 표시용 총 ea (perRun × runs) */
+      const totalProduce=perRun*runs;
       const needs=(p.bom||[]).map(b=>{
         const mat=mats.find(m=>m.c===b.c);
         const needed=b.amt*(qty||1);
@@ -6945,19 +6948,19 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('div',{style:{fontSize:11,color:'#64748b'}},p.cat,' · BOM ',p.bom.length,'종')
           ),
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
-            /* 1회 생산 수량 */
+            /* 1회 생산 수량 (단순 메모용 - BOM에 영향 X) */
             R('span',{style:{fontSize:11,color:'#64748b',fontWeight:600}},'1회 생산 수량'),
             R('input',{type:'number',min:'0',value:cfg.perRun,onChange:e=>updateRunConfig(p.id,'perRun',e.target.value),placeholder:'수량',style:{width:70,padding:'7px 8px',border:'1.5px solid '+(perRun>0?'#D94F1E':'#e2e8f0'),borderRadius:8,fontSize:13,textAlign:'center'}}),
             R('span',{style:{fontSize:12,color:'#64748b',fontWeight:600}},'ea ×'),
-            /* 회수 */
+            /* 회수 (BOM에 곱하는 값) */
             R('input',{type:'number',min:'0',value:cfg.runs,onChange:e=>updateRunConfig(p.id,'runs',e.target.value),placeholder:'회',style:{width:56,padding:'7px 8px',border:'1.5px solid '+(runs>0?'#D94F1E':'#e2e8f0'),borderRadius:8,fontSize:13,textAlign:'center'}}),
             R('span',{style:{fontSize:12,color:'#64748b',fontWeight:600}},'회'),
-            /* 총 수량 자동 표시 */
-            qty>0&&R('span',{style:{fontSize:12,color:'#D94F1E',fontWeight:800,padding:'4px 8px',background:'#FFF5F0',borderRadius:6,border:'1px solid #FCC8B0'}},'= 총 ',qty,' ea'),
+            /* 총 ea 표시 (메모용 - BOM 계산과 무관) */
+            totalProduce>0&&R('span',{style:{fontSize:12,color:'#D94F1E',fontWeight:800,padding:'4px 8px',background:'#FFF5F0',borderRadius:6,border:'1px solid #FCC8B0'}},'= 총 ',totalProduce,' ea'),
             /* 액션 버튼 */
-            R('button',{className:'btn',style:{background:'#475569',color:'#fff',padding:'8px 11px',fontSize:11},disabled:!qty,onClick:()=>qty&&setConfirmData({prod:p,qty,perRun,runs,rows})},'📝 생산지시'),
-            R('button',{className:'btn bp',style:{fontSize:11,padding:'8px 11px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,perRun,runs,rows})},'📋 이미지'),
-            qty>0&&R('button',{onClick:clearRun,style:{padding:'7px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕')
+            R('button',{className:'btn',style:{background:'#475569',color:'#fff',padding:'8px 11px',fontSize:11},disabled:!qty,onClick:()=>qty&&setConfirmData({prod:p,qty,perRun,runs,totalProduce,rows})},'📝 생산지시'),
+            R('button',{className:'btn bp',style:{fontSize:11,padding:'8px 11px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,perRun,runs,totalProduce,rows})},'📋 이미지'),
+            (perRun>0||runs>0)&&R('button',{onClick:clearRun,style:{padding:'7px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕')
           )
         ),
         qty>0&&R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))',gap:6,marginTop:10}},
@@ -11136,9 +11139,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T20:00:prod-perrun-runs-v20',
-  buildTime:'1747227600000',
-  description:'생산지시: 1회 생산 수량 + 회수 두 입력으로 분리 + 총 수량 자동계산 표시'
+  version:'2026-05-14-T20:45:bom-runs-only-v22',
+  buildTime:'1747230300000',
+  description:'생산지시: BOM은 회수에만 곱함 (1회 생산 수량은 메모 표시용)'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
