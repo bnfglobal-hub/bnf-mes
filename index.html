@@ -9734,6 +9734,16 @@ function App(){
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
+   ═══════════════════════════════════════════════════════════ */
+window._BNF_BUILD={
+  version:'2026-05-14-T11:55:hook-fix-v3',
+  buildTime:'1747203300000',
+  description:'React #310 fix: useEffect moved before early return'
+};
+console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
+
 ReactDOM.createRoot(document.getElementById('root')).render(R(App));
 
 </script>
