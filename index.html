@@ -1404,7 +1404,7 @@ function PageFixedCosts({user,variant='adm'}){
 
 
 /* ═══════════════════════════════════════════════════════════
-   🎯 영업 파이프라인 - 제품 개발 11단계 + 개발 중단
+   🎯 영업 현황 - 제품 개발 11단계 + 개발 중단
    ═══════════════════════════════════════════════════════════ */
 const PIPELINE_STAGES=[
   {id:'planning',     label:'기획',           color:'#6366F1',bg:'#EEF2FF',ic:'📝',prob:5},
@@ -1428,11 +1428,12 @@ function PageSalesPipeline({user}){
   const[loading,setLoading]=useState(true);
   const[showAdd,setShowAdd]=useState(false);
   const[editDeal,setEditDeal]=useState(null);
-  const[viewMode,setViewMode]=useState('kanban');  /* kanban | list | analytics */
+  const[viewMode,setViewMode]=useState('list');  /* list | kanban | analytics - 기본 목록 뷰 */
   const[mainTab,setMainTab]=useState('active');  /* active | dropped - 메인 탭 */
   const[filterUser,setFilterUser]=useState('all');
   const[search,setSearch]=useState('');
   const[dragOver,setDragOver]=useState(null);
+  const[collapsedGroups,setCollapsedGroups]=useState({});  /* 담당자별 그룹 접기/펴기 */
   
   /* 전역 드래그 종료 감지 - 어디서 끝나든 dragOver 강제 초기화 (칸 깜빡임 방지) */
   useEffect(()=>{
@@ -1591,8 +1592,8 @@ function PageSalesPipeline({user}){
     /* 헤더 */
     R('div',{className:'pg-hdr'},
       R('div',null,
-        R('div',{className:'pg-title'},'🎯 영업 파이프라인'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'제품 개발 11단계 추적 · 드래그로 단계 이동')
+        R('div',{className:'pg-title'},'🎯 영업 현황'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'제품 개발 11단계 추적 · 담당자별 영업 진행 상황')
       ),
       R('div',{style:{display:'flex',gap:6}},
         R('button',{className:'btn bp',onClick:()=>setShowAdd(true)},'+ 영업 건 추가')
@@ -1679,7 +1680,7 @@ function PageSalesPipeline({user}){
         ...owners.map(o=>R('option',{key:o,value:o},'👤 '+o))
       ),
       R('div',{style:{display:'flex',gap:4,background:'#F3F4F6',padding:3,borderRadius:8}},
-        ...[['kanban','📋 칸반'],['list','📊 목록'],['analytics','📈 분석']].map(([v,l])=>R('button',{
+        ...[['list','📊 목록'],['kanban','📋 칸반'],['analytics','📈 분석']].map(([v,l])=>R('button',{
           key:v,onClick:()=>setViewMode(v),
           style:{padding:'5px 10px',background:viewMode===v?'#fff':'transparent',border:'none',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:viewMode===v?700:500,color:viewMode===v?'var(--p)':'#6B7280',boxShadow:viewMode===v?'0 1px 3px rgba(0,0,0,0.08)':'none',fontFamily:'inherit',transition:'all 0.15s'}
         },l))
@@ -1817,45 +1818,133 @@ function PageSalesPipeline({user}){
     ),
     
     /* ─────── 목록 뷰 ─────── */
-    viewMode==='list'&&R('div',{className:'card',style:{padding:0,overflow:'auto'}},
-      R('table',{style:{width:'100%',fontSize:11}},
-        R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
-          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'영업 건'),
-          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'거래처'),
-          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'단계'),
-          R('th',{style:{padding:'10px 12px',textAlign:'right'}},'금액'),
-          R('th',{style:{padding:'10px 12px',textAlign:'center'}},'확률'),
-          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'담당자'),
-          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'예상 마감'),
-          R('th',{style:{padding:'10px 12px',width:60}})
-        )),
-        R('tbody',null,
-          filteredDeals.length===0
-            ? R('tr',null,R('td',{colSpan:8,style:{padding:30,textAlign:'center',color:'var(--tm)'}},mainTab==='dropped'?'중단된 영업 건이 없습니다.':'영업 건이 없습니다. "+ 영업 건 추가" 버튼으로 시작하세요'))
-            : filteredDeals.map(d=>{
-                const allStages=[...PIPELINE_STAGES,DROPPED_STAGE];
-                const stage=allStages.find(s=>s.id===d.stage)||PIPELINE_STAGES[0];
-                return R('tr',{key:d.id,onClick:()=>setEditDeal(d),style:{cursor:'pointer',borderBottom:'1px solid #F3F4F6',transition:'background 0.15s'},
-                  onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
-                  onMouseLeave:e=>e.currentTarget.style.background='transparent'
-                },
-                  R('td',{style:{padding:'10px 12px',fontWeight:700}},d.title||'-'),
-                  R('td',{style:{padding:'10px 12px',color:'#374151'}},d.customer||'-'),
-                  R('td',{style:{padding:'10px 12px'}},
-                    R('span',{style:{background:stage.bg,color:stage.color,padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}},stage.ic+' '+stage.label)
-                  ),
-                  R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:700,color:'var(--p)'}},fN(+d.amount||0)),
-                  R('td',{style:{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#7C3AED'}},(d.probability!=null?d.probability:stage.prob)+'%'),
-                  R('td',{style:{padding:'10px 12px',color:'#6B7280',fontSize:10}},d.owner||'-'),
-                  R('td',{style:{padding:'10px 12px',color:'#6B7280',fontSize:10}},d.expected_close||'-'),
-                  R('td',{style:{padding:'10px 12px',textAlign:'center'}},
-                    R('button',{onClick:e=>{e.stopPropagation();deleteDeal(d.id);},style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:14}},'🗑')
+    viewMode==='list'&&(()=>{
+      /* 담당자별 그룹핑 */
+      const grouped=new Map();
+      filteredDeals.forEach(d=>{
+        const k=d.owner||'미지정';
+        if(!grouped.has(k))grouped.set(k,[]);
+        grouped.get(k).push(d);
+      });
+      const sortedOwners=Array.from(grouped.entries()).sort((a,b)=>b[1].length-a[1].length);
+      
+      /* 우선순위 추정 (확률 기반) */
+      const getPriority=(prob)=>{
+        if(prob>=80)return{label:'높음',color:'#DC2626',bg:'#FEE2E2'};
+        if(prob>=40)return{label:'보통',color:'#6B7280',bg:'#F3F4F6'};
+        return{label:'낮음',color:'#3B82F6',bg:'#DBEAFE'};
+      };
+      
+      const fmt=(d)=>{
+        if(!d)return'-';
+        try{const dt=new Date(d);if(isNaN(dt))return d;return dt.toLocaleDateString('ko-KR').replace(/\./g,'-').replace(/ /g,'').replace(/-$/,'');}catch(e){return d;}
+      };
+      const fmtDT=(d)=>{
+        if(!d)return'-';
+        try{
+          const dt=new Date(d);if(isNaN(dt))return'-';
+          return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')+' '+String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0');
+        }catch(e){return'-';}
+      };
+      
+      return R('div',{className:'card',style:{padding:0,overflow:'auto'}},
+        filteredDeals.length===0
+          ? R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)',fontSize:12}},mainTab==='dropped'?'⛔ 중단된 영업 건이 없습니다.':'📭 영업 건이 없습니다. "+ 영업 건 추가" 버튼으로 시작하세요')
+          : R('table',{style:{width:'100%',fontSize:11,borderCollapse:'collapse',minWidth:1100}},
+              /* 헤더 */
+              R('thead',null,R('tr',{style:{background:'#FAFAFA',borderBottom:'2px solid #E5E7EB'}},
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',minWidth:280}},'업무명'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:130}},'상태'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:80}},'담당자'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:100}},'시작일'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:100}},'마감일'),
+                R('th',{style:{padding:'12px 14px',textAlign:'center',fontSize:11,fontWeight:700,color:'#374151',width:80}},'우선순위'),
+                R('th',{style:{padding:'12px 14px',textAlign:'center',fontSize:11,fontWeight:700,color:'#374151',width:120}},'진척도'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:80}},'작성자'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:140}},'등록일'),
+                R('th',{style:{padding:'12px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'#374151',width:140}},'수정일'),
+                R('th',{style:{padding:'12px 14px',textAlign:'center',fontSize:11,fontWeight:700,color:'#374151',width:60}},'업무번호'),
+                R('th',{style:{padding:'12px 14px',width:50}})
+              )),
+              R('tbody',null,...sortedOwners.flatMap(([ownerName,ownerDeals])=>{
+                const isCollapsed=(collapsedGroups||{})[ownerName];
+                const rows=[
+                  /* 그룹 헤더 */
+                  R('tr',{key:'g-'+ownerName,style:{background:'linear-gradient(90deg,#FFF8F4,#FFFFFF)',borderBottom:'1px solid #FED7AA',borderTop:'2px solid #FED7AA'}},
+                    R('td',{colSpan:12,style:{padding:'10px 14px',cursor:'pointer'},onClick:()=>setCollapsedGroups(prev=>({...prev,[ownerName]:!prev[ownerName]}))},
+                      R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+                        R('span',{style:{display:'inline-flex',alignItems:'center',justifyContent:'center',width:18,height:18,background:'#fff',border:'1px solid #FED7AA',borderRadius:4,fontSize:12,color:'#9A3412',fontWeight:700,fontFamily:'monospace'}},isCollapsed?'+':'−'),
+                        R('span',{style:{fontSize:13,fontWeight:800,color:'#9A3412'}},'👤 '+ownerName),
+                        R('span',{style:{fontSize:11,fontWeight:700,color:'#D94F1E'}},'('+ownerDeals.length+')'),
+                        R('span',{style:{marginLeft:10,fontSize:10,color:'#9CA3AF'}},
+                          '합계: ',fN(Math.round(ownerDeals.reduce((s,d)=>s+(+d.amount||0),0)/10000)),'만원'
+                        )
+                      )
+                    )
                   )
-                );
-              })
-        )
-      )
-    ),
+                ];
+                if(!isCollapsed){
+                  ownerDeals.forEach((d,idx)=>{
+                    const allStages=[...PIPELINE_STAGES,DROPPED_STAGE];
+                    const stage=allStages.find(s=>s.id===d.stage)||PIPELINE_STAGES[0];
+                    const prob=d.probability!=null?d.probability:stage.prob;
+                    const priority=getPriority(prob);
+                    const taskTitle=d.customer?('고객사 : '+d.customer+(d.title?' - '+d.title:'')):(d.title||'(제목 없음)');
+                    rows.push(R('tr',{key:d.id,onClick:()=>setEditDeal(d),style:{cursor:'pointer',borderBottom:'1px solid #F3F4F6',transition:'background 0.15s',background:idx%2===0?'#fff':'#FAFBFC'},
+                      onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
+                      onMouseLeave:e=>e.currentTarget.style.background=idx%2===0?'#fff':'#FAFBFC'
+                    },
+                      /* 업무명 */
+                      R('td',{style:{padding:'10px 14px',fontWeight:600,color:'#1A1A1A'}},taskTitle),
+                      /* 상태 */
+                      R('td',{style:{padding:'10px 14px'}},
+                        R('span',{style:{display:'inline-flex',alignItems:'center',gap:4,background:stage.bg,color:stage.color,padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}},
+                          R('span',{style:{width:6,height:6,background:stage.color,borderRadius:'50%',display:'inline-block'}}),
+                          stage.label
+                        )
+                      ),
+                      /* 담당자 */
+                      R('td',{style:{padding:'10px 14px',color:'#374151',fontSize:11}},d.owner||'-'),
+                      /* 시작일 */
+                      R('td',{style:{padding:'10px 14px',color:'#374151',fontSize:11}},fmt(d.created_at)),
+                      /* 마감일 */
+                      R('td',{style:{padding:'10px 14px',color:'#374151',fontSize:11}},fmt(d.expected_close)),
+                      /* 우선순위 */
+                      R('td',{style:{padding:'10px 14px',textAlign:'center'}},
+                        R('span',{style:{display:'inline-flex',alignItems:'center',gap:3,fontSize:10,fontWeight:700,color:priority.color}},
+                          R('span',{style:{width:8,height:2,background:priority.color,borderRadius:1}}),
+                          priority.label
+                        )
+                      ),
+                      /* 진척도 */
+                      R('td',{style:{padding:'10px 14px'}},
+                        R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+                          R('div',{style:{flex:1,height:6,background:'#F3F4F6',borderRadius:3,overflow:'hidden',minWidth:50}},
+                            R('div',{style:{height:'100%',width:prob+'%',background:prob>=100?'#22C55E':prob>=50?'#10B981':'#9CA3AF',borderRadius:3,transition:'width 0.3s'}})
+                          ),
+                          R('span',{style:{fontSize:10,fontWeight:700,color:prob>=100?'#15803D':prob>=50?'#10B981':'#6B7280',minWidth:34,textAlign:'right'}},prob+'%')
+                        )
+                      ),
+                      /* 작성자 */
+                      R('td',{style:{padding:'10px 14px',color:'#374151',fontSize:11}},d.owner||'-'),
+                      /* 등록일 */
+                      R('td',{style:{padding:'10px 14px',color:'#6B7280',fontSize:10}},fmtDT(d.created_at)),
+                      /* 수정일 */
+                      R('td',{style:{padding:'10px 14px',color:'#6B7280',fontSize:10}},fmtDT(d.updated_at)),
+                      /* 업무번호 */
+                      R('td',{style:{padding:'10px 14px',textAlign:'center',color:'#9CA3AF',fontSize:11,fontFamily:'monospace'}},d.id||'-'),
+                      /* 삭제 */
+                      R('td',{style:{padding:'10px 14px',textAlign:'center'}},
+                        R('button',{onClick:e=>{e.stopPropagation();deleteDeal(d.id);},style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:13,padding:2}},'🗑')
+                      )
+                    ));
+                  });
+                }
+                return rows;
+              }))
+            )
+      );
+    })(),
     
     /* ─────── 분석 뷰 ─────── */
     viewMode==='analytics'&&R('div',null,
@@ -3185,7 +3274,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'hq_fixed_costs',l:'본사 고정비',ic:'💸',adm:true},
     /* 관리자 페이지 (관리자) */
     {id:'adm_dash',l:'관리자 경영',ic:'📈',adm:true},
-    {id:'sales_pipeline',l:'영업 파이프라인',ic:'🎯',adm:true},
+    {id:'sales_pipeline',l:'영업 현황',ic:'🎯',adm:true},
     {id:'adm_sales',l:'관리자 매출',ic:'💵',adm:true},
     {id:'adm_purchase',l:'관리자 매입',ic:'🛒',adm:true},
     {id:'fixed_costs',l:'고정비 관리',ic:'💸',adm:true},
@@ -7211,7 +7300,7 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
     {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
-    {id:'sales_pipeline',l:'영업 파이프라인',ic:'🎯'},
+    {id:'sales_pipeline',l:'영업 현황',ic:'🎯'},
     {id:'adm_sales',l:'매출 분석',ic:'💵'},
     {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
