@@ -5796,22 +5796,41 @@ function ExchangeRateWidget(){
   const[loading,setLoading]=useState(true);
   const[error,setError]=useState('');
   const[updated,setUpdated]=useState('');
+  const[source,setSource]=useState('');
+  
+  /* Supabase Edge Function URL - 네이버 환율 크롤링 (5분 단위 신선) */
+  const EDGE_URL='https://fchxlplnacyycuddvdmu.supabase.co/functions/v1/exchange-rate';
+  /* Fallback URL - Edge Function이 배포 안됐을 때 (1일 1회 갱신) */
+  const FALLBACK_URL='https://open.er-api.com/v6/latest/USD';
   
   const load=async()=>{
     setError('');
+    /* 1순위: 네이버 크롤링 (Edge Function) */
     try{
-      /* USD 기준 모든 통화 환율 조회 - 무료, CORS 허용, 한국 환율 포함 */
-      const resp=await fetch('https://open.er-api.com/v6/latest/USD');
+      const resp=await fetch(EDGE_URL,{
+        headers:{'apikey':SB_KEY||'','Authorization':'Bearer '+(SB_KEY||'')}
+      });
+      if(resp.ok){
+        const d=await resp.json();
+        if(d&&d.rates&&d.rates.USD){
+          setRates(d.rates);
+          setSource(d.source==='naver'?'네이버 (실시간)':'기본 (1일 갱신)');
+          setUpdated(d.updated_at||new Date().toISOString());
+          setLoading(false);
+          return;
+        }
+      }
+    }catch(e){/* Edge Function 실패 - fallback으로 */}
+    
+    /* 2순위: open.er-api.com fallback */
+    try{
+      const resp=await fetch(FALLBACK_URL);
       if(!resp.ok)throw new Error('API 응답 오류');
       const d=await resp.json();
       if(!d||!d.rates||!d.rates.KRW)throw new Error('환율 데이터 없음');
       const krw=d.rates.KRW;
-      setRates({
-        USD:krw,                          /* 1 USD = ? KRW (미국)*/
-        GBP:krw/d.rates.GBP,              /* 1 GBP = ? KRW (영국)*/
-        JPY:(krw/d.rates.JPY)*100,        /* 100 JPY = ? KRW (일본)*/
-        CNY:krw/d.rates.CNY               /* 1 CNY = ? KRW (중국)*/
-      });
+      setRates({USD:krw,GBP:krw/d.rates.GBP,JPY:(krw/d.rates.JPY)*100,CNY:krw/d.rates.CNY});
+      setSource('기본 (1일 갱신)');
       setUpdated(d.time_last_update_utc||new Date().toISOString());
     }catch(e){
       setError(e.message||'환율 로드 실패');
@@ -5821,8 +5840,8 @@ function ExchangeRateWidget(){
   
   useEffect(()=>{
     load();
-    /* 1시간마다 자동 갱신 */
-    const t=setInterval(load,3600000);
+    /* 네이버 크롤링이 가능한 경우 5분마다 자동 갱신 (Edge Function 사용 시 의미 있음) */
+    const t=setInterval(load,5*60*1000);
     return()=>clearInterval(t);
   },[]);
   
@@ -5838,7 +5857,8 @@ function ExchangeRateWidget(){
       R('div',{style:{display:'flex',alignItems:'center',gap:8}},
         R('span',{style:{fontSize:16}},'💱'),
         R('span',{style:{fontSize:14,fontWeight:800,color:'#1A0C07'}},'실시간 환율'),
-        R('span',{style:{fontSize:10,color:'#9CA3AF'}},'KRW 기준')
+        R('span',{style:{fontSize:10,color:'#9CA3AF'}},'KRW 기준'),
+        source&&R('span',{style:{fontSize:9,color:source.includes('네이버')?'#10B981':'#9CA3AF',padding:'2px 6px',background:source.includes('네이버')?'#ECFDF5':'#F3F4F6',borderRadius:4,fontWeight:600}},'· '+source)
       ),
       R('button',{onClick:load,disabled:loading,style:{background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:6,padding:'3px 10px',fontSize:11,cursor:'pointer',color:'#9A3412',fontWeight:600}},loading?'⏳':'🔄 새로고침')
     ),
@@ -11620,9 +11640,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T23:30:exchange-rate-v29',
-  buildTime:'1747240200000',
-  description:'홈 화면에 실시간 환율 위젯 추가 (미국/영국/일본/중국, 1시간마다 자동갱신)'
+  version:'2026-05-14-T23:50:exchange-naver-v30',
+  buildTime:'1747241400000',
+  description:'환율: Supabase Edge Function으로 네이버 크롤링 + 5분 자동갱신 (Edge Function 미배포 시 fallback 사용)'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
