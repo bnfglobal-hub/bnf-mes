@@ -5583,11 +5583,16 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       return m?{id:si.id,n:m.n,u:m.u,s:m.s,g:m.g}:{id:si.id,n:si.n+' (삭제됨)',u:si.u||'',s:0,g:null};
     });
   },[semiItemsMap,selectedFav,mats]);
-  /* 검색 결과: 반제품 분류 && 현재 완제품에 아직 미등록 */
+  /* 검색 결과: 원재료 전체에서 검색 (분류 무관) - 자기 자신 + 이미 등록된 것만 제외 */
   const semiSearchResults=useMemo(()=>{
     if(!semiSearch||!selectedFav)return [];
     const curList=semiItemsMap[selectedFav.id]||[];
-    return mats.filter(m=>m.g==='반제품'&&m.n&&m.n.includes(semiSearch)&&!curList.find(x=>x.id===m.id)).slice(0,8);
+    const q=semiSearch.toLowerCase();
+    return mats.filter(m=>
+      m.id!==selectedFav.id&&
+      m.n&&(m.n.toLowerCase().includes(q)||(m.c&&String(m.c).includes(semiSearch)))&&
+      !curList.find(x=>x.id===m.id)
+    ).slice(0,10);
   },[semiSearch,selectedFav,semiItemsMap,mats]);
 
   /* ERP 업로드 탭 - 견고한 새 버전 */
@@ -5722,32 +5727,40 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
         /* ─── 반제품 검색/추가 UI ─── */
         selectedFav&&showSemiSearch&&R('div',{style:{padding:'8px 10px',borderBottom:'1px solid var(--bd)',background:'#FAFAFA'}},
           R('div',{style:{fontSize:10,color:'#7C3AED',marginBottom:4,fontWeight:600,display:'flex',alignItems:'center',gap:6}},
-            R('span',null,'💡 검색 결과 클릭으로 연속 추가'),
+            R('span',null,'💡 원재료 전체에서 검색 · 클릭으로 연속 추가'),
             semiMatsData.length>0&&R('span',{style:{marginLeft:'auto',background:'#7C3AED',color:'#fff',padding:'2px 8px',borderRadius:10,fontWeight:700}},'+ '+semiMatsData.length+'개 등록됨')
           ),
-          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'반제품명 검색...',style:{width:'100%',fontSize:11},autoFocus:true}),
-          semiSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:160,overflow:'auto'}},
+          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'원재료/반제품 검색 (이름 또는 코드)...',style:{width:'100%',fontSize:11},autoFocus:true}),
+          semiSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:200,overflow:'auto'}},
             ...semiSearchResults.map(m=>R('div',{key:m.id,onClick:()=>addSemi(m),style:{padding:'8px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff',display:'flex',alignItems:'center',gap:6,transition:'all 0.15s'},
               onMouseEnter:e=>{e.currentTarget.style.background='#F3F0FF';e.currentTarget.style.paddingLeft='14px';},
               onMouseLeave:e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.paddingLeft='10px';}
-            },R('span',{style:{background:'#7C3AED',color:'#fff',padding:'1px 6px',borderRadius:3,fontWeight:700,fontSize:9}},'+ 추가'),R('span',{style:{flex:1}},m.n),R('span',{style:{color:'#7C3AED',fontWeight:700}},m.s,' ',m.u)))
+            },
+              R('span',{style:{background:'#7C3AED',color:'#fff',padding:'1px 6px',borderRadius:3,fontWeight:700,fontSize:9}},'+'),
+              R(Bdg,{g:m.g||'-',sm:true}),
+              R('span',{style:{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),
+              R('span',{style:{color:m.s<=0?'#EF4444':'#7C3AED',fontWeight:700,fontSize:10,whiteSpace:'nowrap'}},m.s,' ',m.u)
+            ))
           ),
           semiSearch&&semiSearchResults.length===0&&R('div',{style:{padding:'8px',fontSize:11,color:'var(--tm)'}},'결과 없음')
         ),
 
         /* ─── 등록된 반제품 없음 ─── */
         selectedFav&&semiMatsData.length===0&&!showSemiSearch&&R('div',{style:{padding:'20px 14px',textAlign:'center',color:'var(--tm)',fontSize:11}},
-          R('div',null,'🔧 등록된 반제품이 없습니다'),
-          R('div',{style:{fontSize:10,marginTop:4,color:'#9CA3AF'}},'우측 상단 "+ 추가" 버튼으로 반제품을 검색해 등록하세요')
+          R('div',null,'🔧 등록된 재료가 없습니다'),
+          R('div',{style:{fontSize:10,marginTop:4,color:'#9CA3AF'}},'우측 상단 "+ 추가" 버튼으로 원재료/반제품을 검색해 등록하세요')
         ),
 
         /* ─── 등록된 반제품 리스트 ─── */
         selectedFav&&semiMatsData.length>0&&R('table',{style:{width:'100%',fontSize:11}},
-          R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'반제품'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
+          R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'재료'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
           R('tbody',null,...semiMatsData.map(m=>R('tr',{key:m.id},
-            R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:m.g===null?'#9CA3AF':'inherit'}},m.n),
+            R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:170,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:m.g===null?'#9CA3AF':'inherit'}},
+              m.g&&R('span',{style:{marginRight:5}},R(Bdg,{g:m.g,sm:true})),
+              m.n
+            ),
             R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'#7C3AED'}},m.s,' ',m.u),
-            R('td',null,R('button',{onClick:()=>removeSemi(m.id),title:'이 완제품에서 반제품 제거',style:{background:'none',border:'none',cursor:'pointer',fontSize:12,padding:'2px 4px',color:'#FCA5A5'}},'✕'))
+            R('td',null,R('button',{onClick:()=>removeSemi(m.id),title:'이 완제품에서 재료 제거',style:{background:'none',border:'none',cursor:'pointer',fontSize:12,padding:'2px 4px',color:'#FCA5A5'}},'✕'))
           )))
         )
       )
@@ -10396,9 +10409,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T14:30:semi-by-product-v10',
-  buildTime:'1747207800000',
-  description:'재고관리: 완제품별 반제품 수동 매핑 (BOM 매칭 제거)'
+  version:'2026-05-14-T15:00:semi-search-all-mats-v11',
+  buildTime:'1747209600000',
+  description:'재고관리 반제품 검색: 원재료 전체에서 검색 (분류 필터 제거) + 분류 뱃지'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
