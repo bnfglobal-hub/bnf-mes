@@ -11004,56 +11004,177 @@ function App(){
             },
               /* 하위 폴더 렌더링 (관리자 폴더에 subSections 있을 때) */
               ...(hasSubSections?sec.subSections.map((subSec,subIdx)=>{
-                const subItems=(subSec.items||[]).filter(checkAccess);
-                if(subItems.length===0)return null;
+                const allSubItems=subSec.items||[];
+                const subItems=allSubItems.filter(checkAccess);
+                if(subItems.length===0&&!navEditMode)return null;
+                const displayItems=navEditMode?allSubItems:subItems;
                 const subKey=folderKey+'-sub-'+subIdx;
-                const subOpen=expandedFolders[subKey]!==false;
+                const subOpen=expandedFolders[subKey]!==false||navEditMode;
                 const subActive=subItems.some(i=>i.id===page);
-                return R('div',{key:subKey,style:{marginBottom:4}},
-                  /* 하위 폴더 헤더 */
-                  R('button',{
-                    onClick:()=>setExpandedFolders(p=>({...p,[subKey]:!subOpen})),
-                    style:{
-                      width:'100%',
-                      display:'flex',alignItems:'center',gap:6,
-                      padding:'6px 10px 6px 18px',
-                      background:subActive?'rgba(217,79,30,0.15)':'rgba(255,255,255,0.04)',
-                      border:'none',
-                      borderLeft:'2px solid '+(subActive?'#D94F1E':'rgba(255,255,255,0.1)'),
-                      color:subActive?'#FED7AA':'rgba(255,255,255,0.75)',
-                      fontSize:11,fontWeight:700,
-                      cursor:'pointer',fontFamily:'inherit',
-                      letterSpacing:-0.2,
-                      textAlign:'left',
-                      borderRadius:'0 4px 4px 0',
-                      marginLeft:6
+                return R('div',{
+                  key:subKey,
+                  style:{marginBottom:4},
+                  draggable:navEditMode,
+                  onDragStart:e=>{
+                    if(navEditMode){
+                      e.stopPropagation();
+                      setDraggedItem({type:'subFolder',secIdx,subIdx});
+                      e.dataTransfer.effectAllowed='move';
                     }
                   },
-                    R('span',{style:{fontSize:9,opacity:0.7,width:8}},subOpen?'▾':'▸'),
-                    R('span',{style:{flex:1}},subSec.label),
-                    R('span',{style:{fontSize:9,opacity:0.5}},'('+subItems.length+')')
+                  onDragOver:e=>{
+                    if(navEditMode&&draggedItem&&draggedItem.type==='subFolder'&&draggedItem.secIdx===secIdx){
+                      e.preventDefault();e.stopPropagation();
+                    }
+                  },
+                  onDrop:e=>{
+                    if(navEditMode&&draggedItem&&draggedItem.type==='subFolder'&&draggedItem.secIdx===secIdx&&draggedItem.subIdx!==subIdx){
+                      e.preventDefault();e.stopPropagation();
+                      setNavSections(p=>{
+                        const next=JSON.parse(JSON.stringify(p));
+                        const subs=next[secIdx].subSections;
+                        const[moved]=subs.splice(draggedItem.subIdx,1);
+                        subs.splice(subIdx,0,moved);
+                        saveNavSections(next);return next;
+                      });
+                      setDraggedItem(null);
+                    }
+                  }
+                },
+                  /* 하위 폴더 헤더 */
+                  R('div',{
+                    onClick:()=>!navEditMode&&setExpandedFolders(p=>({...p,[subKey]:!subOpen})),
+                    style:{
+                      width:'100%',display:'flex',alignItems:'center',gap:6,
+                      padding:'6px 10px 6px 18px',
+                      background:subActive?'rgba(217,79,30,0.15)':navEditMode?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.04)',
+                      borderLeft:'2px solid '+(subActive?'#D94F1E':'rgba(255,255,255,0.1)'),
+                      color:subActive?'#FED7AA':'rgba(255,255,255,0.85)',
+                      fontSize:11,fontWeight:700,
+                      cursor:navEditMode?'grab':'pointer',
+                      letterSpacing:-0.2,textAlign:'left',
+                      borderRadius:'0 4px 4px 0',marginLeft:6,userSelect:'none'
+                    }
+                  },
+                    navEditMode&&R('span',{style:{fontSize:9,opacity:.5}},'⋮⋮'),
+                    !navEditMode&&R('span',{style:{fontSize:9,opacity:0.7,width:8}},subOpen?'▾':'▸'),
+                    navEditMode
+                      ? R('input',{value:subSec.label,
+                          onChange:e=>{
+                            const v=e.target.value;
+                            setNavSections(p=>{
+                              const next=p.map((s,i)=>i===secIdx?{...s,subSections:s.subSections.map((ss,j)=>j===subIdx?{...ss,label:v}:ss)}:s);
+                              saveNavSections(next);return next;
+                            });
+                          },
+                          onClick:e=>e.stopPropagation(),
+                          style:{flex:1,background:'rgba(0,0,0,0.25)',border:'1px solid rgba(255,255,255,0.15)',color:'#fff',padding:'2px 6px',borderRadius:4,fontSize:11,fontFamily:'inherit',outline:'none'}
+                        })
+                      : R('span',{style:{flex:1}},subSec.label),
+                    !navEditMode&&R('span',{style:{fontSize:9,opacity:0.5}},'('+subItems.length+')'),
+                    navEditMode&&R('button',{
+                      onClick:e=>{
+                        e.stopPropagation();
+                        if(confirm('"'+subSec.label+'" 하위 폴더를 삭제할까요? (안의 메뉴들도 함께 삭제됩니다)')){
+                          setNavSections(p=>{
+                            const next=p.map((s,i)=>i===secIdx?{...s,subSections:s.subSections.filter((_,j)=>j!==subIdx)}:s);
+                            saveNavSections(next);return next;
+                          });
+                        }
+                      },
+                      style:{background:'none',border:'none',color:'#fca5a5',cursor:'pointer',fontSize:11,padding:'0 4px'}
+                    },'🗑')
                   ),
+                  /* 편집 모드일 때 메뉴 추가 버튼 */
+                  navEditMode&&R('button',{
+                    onClick:()=>{
+                      const id=prompt('새 메뉴 ID (영문):','menu_'+Date.now());
+                      if(!id)return;
+                      const label=prompt('메뉴 이름:','새 메뉴');
+                      if(!label)return;
+                      const ic=prompt('아이콘 (이모지):','📌')||'📌';
+                      setNavSections(p=>{
+                        const next=p.map((s,i)=>i===secIdx?{...s,subSections:s.subSections.map((ss,j)=>j===subIdx?{...ss,items:[...(ss.items||[]),{id,l:label,ic}]}:ss)}:s);
+                        saveNavSections(next);return next;
+                      });
+                    },
+                    style:{margin:'3px 6px 3px 22px',padding:'3px 8px',background:'rgba(34,197,94,0.12)',border:'1px dashed #22C55E',color:'#86EFAC',borderRadius:5,cursor:'pointer',fontSize:10,width:'calc(100% - 30px)'}
+                  },'+ 하위 메뉴 추가'),
                   /* 하위 폴더 항목들 */
                   subOpen&&R('div',{style:{paddingLeft:14,marginTop:2}},
-                    ...subItems.map(n=>R('button',{
-                      key:n.id,
-                      onClick:()=>{setPage(n.id);setSidebarOpen(false);},
-                      style:{
-                        width:'100%',
-                        display:'flex',alignItems:'center',gap:8,
-                        padding:'6px 10px 6px 16px',
-                        background:page===n.id?'rgba(217,79,30,0.3)':'transparent',
-                        border:'none',
-                        color:page===n.id?'#fff':'rgba(255,255,255,0.7)',
-                        fontSize:11,fontWeight:page===n.id?700:500,
-                        cursor:'pointer',fontFamily:'inherit',textAlign:'left',
-                        borderLeft:'2px solid '+(page===n.id?'#D94F1E':'transparent'),
-                        marginBottom:1
+                    ...displayItems.map((n,subItemIdx)=>{
+                      if(navEditMode){
+                        return R('div',{
+                          key:n.id+'_sub_'+subItemIdx,
+                          style:{display:'flex',alignItems:'center',gap:4,padding:'3px 8px 3px 16px',background:'rgba(255,255,255,0.04)',borderRadius:4,marginBottom:2,cursor:'grab'},
+                          draggable:true,
+                          onDragStart:e=>{e.stopPropagation();setDraggedItem({type:'subItem',secIdx,subIdx,itemIdx:subItemIdx});e.dataTransfer.effectAllowed='move';},
+                          onDragOver:e=>{
+                            if(draggedItem&&draggedItem.type==='subItem'&&draggedItem.secIdx===secIdx&&draggedItem.subIdx===subIdx){
+                              e.preventDefault();e.stopPropagation();
+                            }
+                          },
+                          onDrop:e=>{
+                            if(draggedItem&&draggedItem.type==='subItem'&&draggedItem.secIdx===secIdx&&draggedItem.subIdx===subIdx){
+                              e.preventDefault();e.stopPropagation();
+                              if(draggedItem.itemIdx===subItemIdx){setDraggedItem(null);return;}
+                              setNavSections(p=>{
+                                const next=JSON.parse(JSON.stringify(p));
+                                const items=next[secIdx].subSections[subIdx].items;
+                                const[moved]=items.splice(draggedItem.itemIdx,1);
+                                const insertAt=draggedItem.itemIdx<subItemIdx?subItemIdx-1:subItemIdx;
+                                items.splice(insertAt,0,moved);
+                                saveNavSections(next);return next;
+                              });
+                              setDraggedItem(null);
+                            }
+                          }
+                        },
+                          R('span',{style:{fontSize:9,opacity:.4}},'⋮⋮'),
+                          R('input',{value:n.ic,onChange:e=>{
+                            const v=e.target.value;
+                            setNavSections(p=>{
+                              const next=p.map((s,i)=>i===secIdx?{...s,subSections:s.subSections.map((ss,j)=>j===subIdx?{...ss,items:ss.items.map((it,k)=>k===subItemIdx?{...it,ic:v}:it)}:ss)}:s);
+                              saveNavSections(next);return next;
+                            });
+                          },style:{width:28,background:'rgba(0,0,0,0.25)',border:'1px solid rgba(255,255,255,0.1)',color:'#fff',padding:'2px 4px',borderRadius:4,fontSize:11,textAlign:'center',outline:'none'},title:'아이콘'}),
+                          R('input',{value:n.l,onChange:e=>{
+                            const v=e.target.value;
+                            setNavSections(p=>{
+                              const next=p.map((s,i)=>i===secIdx?{...s,subSections:s.subSections.map((ss,j)=>j===subIdx?{...ss,items:ss.items.map((it,k)=>k===subItemIdx?{...it,l:v}:it)}:ss)}:s);
+                              saveNavSections(next);return next;
+                            });
+                          },style:{flex:1,background:'rgba(0,0,0,0.25)',border:'1px solid rgba(255,255,255,0.1)',color:'#fff',padding:'2px 6px',borderRadius:4,fontSize:11,outline:'none'},title:'메뉴 이름'}),
+                          R('button',{onClick:()=>{
+                            if(confirm('"'+n.l+'" 메뉴를 삭제할까요?')){
+                              setNavSections(p=>{
+                                const next=p.map((s,i)=>i===secIdx?{...s,subSections:s.subSections.map((ss,j)=>j===subIdx?{...ss,items:ss.items.filter((_,k)=>k!==subItemIdx)}:ss)}:s);
+                                saveNavSections(next);return next;
+                              });
+                            }
+                          },style:{background:'none',border:'none',color:'#fca5a5',cursor:'pointer',fontSize:12,padding:'0 4px'}},'✕')
+                        );
                       }
-                    },
-                      R('span',{style:{fontSize:11,opacity:0.85}},n.ic),
-                      R('span',{style:{flex:1}},n.l)
-                    ))
+                      /* 일반 모드 표시 */
+                      return R('button',{
+                        key:n.id,
+                        onClick:()=>{setPage(n.id);setSidebarOpen(false);},
+                        style:{
+                          width:'100%',display:'flex',alignItems:'center',gap:8,
+                          padding:'6px 10px 6px 16px',
+                          background:page===n.id?'rgba(217,79,30,0.3)':'transparent',
+                          border:'none',
+                          color:page===n.id?'#fff':'rgba(255,255,255,0.7)',
+                          fontSize:11,fontWeight:page===n.id?700:500,
+                          cursor:'pointer',fontFamily:'inherit',textAlign:'left',
+                          borderLeft:'2px solid '+(page===n.id?'#D94F1E':'transparent'),
+                          marginBottom:1
+                        }
+                      },
+                        R('span',{style:{fontSize:11,opacity:0.85}},n.ic),
+                        R('span',{style:{flex:1}},n.l)
+                      );
+                    })
                   )
                 );
               }).filter(Boolean):[]),
@@ -11139,9 +11260,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-14-T21:00:bom-menu-rename-v23',
-  buildTime:'1747231200000',
-  description:'메뉴 이름: 제품/BOM → BOM 등록'
+  version:'2026-05-14-T21:30:nav-subfolders-editable-v24',
+  buildTime:'1747233000000',
+  description:'메뉴 편집: 하위 폴더 + 하위 메뉴 이름/아이콘 수정 + 드래그 순서 변경 + 추가/삭제'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
