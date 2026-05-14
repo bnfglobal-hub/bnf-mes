@@ -1403,6 +1403,701 @@ function PageFixedCosts({user,variant='adm'}){
 
 
 
+/* ═══════════════════════════════════════════════════════════
+   🎯 영업 파이프라인 - 제품 개발 11단계 + 개발 중단
+   ═══════════════════════════════════════════════════════════ */
+const PIPELINE_STAGES=[
+  {id:'planning',     label:'기획',           color:'#6366F1',bg:'#EEF2FF',ic:'📝',prob:5},
+  {id:'development',  label:'개발',           color:'#8B5CF6',bg:'#F5F3FF',ic:'⚙️',prob:15},
+  {id:'quote_sent',   label:'견적 전달 완료',  color:'#3B82F6',bg:'#EFF6FF',ic:'📤',prob:30},
+  {id:'quote_adjust', label:'견적 조정 중',    color:'#06B6D4',bg:'#ECFEFF',ic:'🔄',prob:40},
+  {id:'quote_agreed', label:'견적 협의 완료',  color:'#10B981',bg:'#ECFDF5',ic:'✍️',prob:55},
+  {id:'sample_make',  label:'샘플 제작',      color:'#F59E0B',bg:'#FFFBEB',ic:'🧪',prob:65},
+  {id:'sample_sent',  label:'샘플 전달',      color:'#F97316',bg:'#FFF7ED',ic:'📦',prob:75},
+  {id:'sample_adjust',label:'샘플 수정 중',    color:'#EAB308',bg:'#FEFCE8',ic:'🔧',prob:80},
+  {id:'spec_fixed',   label:'제품 스펙 확정',  color:'#14B8A6',bg:'#F0FDFA',ic:'📋',prob:90},
+  {id:'launch_plan',  label:'출시 일정 조율',  color:'#0EA5E9',bg:'#F0F9FF',ic:'📅',prob:95},
+  {id:'launched',     label:'출시 확정',      color:'#22C55E',bg:'#F0FDF4',ic:'🏆',prob:100}
+];
+
+/* 별도 탭 - 개발 중단된 영업건 */
+const DROPPED_STAGE={id:'dropped',label:'개발 중단',color:'#EF4444',bg:'#FEF2F2',ic:'⛔',prob:0};
+
+function PageSalesPipeline({user}){
+  const[deals,setDeals]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[showAdd,setShowAdd]=useState(false);
+  const[editDeal,setEditDeal]=useState(null);
+  const[viewMode,setViewMode]=useState('kanban');  /* kanban | list | analytics */
+  const[mainTab,setMainTab]=useState('active');  /* active | dropped - 메인 탭 */
+  const[filterUser,setFilterUser]=useState('all');
+  const[search,setSearch]=useState('');
+  const[dragOver,setDragOver]=useState(null);
+  
+  /* 전역 드래그 종료 감지 - 어디서 끝나든 dragOver 강제 초기화 (칸 깜빡임 방지) */
+  useEffect(()=>{
+    const onEnd=()=>setDragOver(null);
+    window.addEventListener('dragend',onEnd);
+    window.addEventListener('drop',onEnd);
+    return()=>{
+      window.removeEventListener('dragend',onEnd);
+      window.removeEventListener('drop',onEnd);
+    };
+  },[]);
+  
+  /* Supabase에서 로드 */
+  const load=async()=>{
+    setLoading(true);
+    try{
+      const{data,error}=await sbClient.from('sales_pipeline').select('*').order('updated_at',{ascending:false});
+      if(error){
+        if(error.message&&(error.message.includes('does not exist')||error.message.includes('relation'))){
+          console.warn('sales_pipeline 테이블이 없습니다. SQL을 실행해주세요.');
+          setDeals([]);
+        }else{
+          console.warn(error);
+        }
+      }else{
+        setDeals(data||[]);
+      }
+    }catch(e){console.warn(e);}
+    setLoading(false);
+  };
+  useEffect(()=>{load();},[]);
+  
+  /* 저장 */
+  const saveDeal=async(deal)=>{
+    const now=new Date().toISOString();
+    const allStages=[...PIPELINE_STAGES,DROPPED_STAGE];
+    const payload={
+      title:deal.title,
+      customer:deal.customer||'',
+      stage:deal.stage||'planning',
+      amount:+deal.amount||0,
+      contact_name:deal.contact_name||'',
+      contact_phone:deal.contact_phone||'',
+      contact_email:deal.contact_email||'',
+      expected_close:deal.expected_close||null,
+      probability:deal.probability!=null?+deal.probability:(allStages.find(s=>s.id===deal.stage)?.prob||5),
+      notes:deal.notes||'',
+      owner:deal.owner||user?.name||user?.email||'',
+      /* 제품 정보 */
+      product_name:deal.product_name||'',
+      total_weight:deal.total_weight||'',
+      package_type:deal.package_type||'',
+      food_type:deal.food_type||'',
+      broth_weight:deal.broth_weight||'',
+      solid_weight:deal.solid_weight||'',
+      order_moq:deal.order_moq||'',
+      production_moq:deal.production_moq||'',
+      distribution_channel:deal.distribution_channel||'',
+      updated_at:now
+    };
+    try{
+      if(deal.id){
+        const{error}=await sbClient.from('sales_pipeline').update(payload).eq('id',deal.id);
+        if(error)throw error;
+      }else{
+        payload.created_at=now;
+        const{error}=await sbClient.from('sales_pipeline').insert(payload);
+        if(error)throw error;
+      }
+      await load();
+      return true;
+    }catch(e){
+      if(e.message&&(e.message.includes('does not exist')||e.message.includes('relation'))){
+        alert('❌ sales_pipeline 테이블이 Supabase에 없습니다.\n\n영업파이프라인_테이블생성.sql을 실행해주세요.');
+      }else{
+        alert('저장 실패: '+e.message);
+      }
+      return false;
+    }
+  };
+  
+  const deleteDeal=async(id)=>{
+    if(!confirm('이 영업 건을 삭제할까요?'))return;
+    try{
+      await sbClient.from('sales_pipeline').delete().eq('id',id);
+      await load();
+    }catch(e){alert('삭제 실패: '+e.message);}
+  };
+  
+  /* 단계 이동 */
+  const moveDealStage=async(dealId,newStage)=>{
+    const deal=deals.find(d=>d.id===dealId);
+    if(!deal||deal.stage===newStage)return;
+    const allStages=[...PIPELINE_STAGES,DROPPED_STAGE];
+    const prob=allStages.find(s=>s.id===newStage)?.prob||deal.probability;
+    try{
+      await sbClient.from('sales_pipeline').update({stage:newStage,probability:prob,updated_at:new Date().toISOString()}).eq('id',dealId);
+      await load();
+    }catch(e){alert('이동 실패: '+e.message);}
+  };
+  
+  /* 메인 탭 필터 */
+  const tabDeals=useMemo(()=>{
+    if(mainTab==='dropped')return deals.filter(d=>d.stage==='dropped');
+    return deals.filter(d=>d.stage!=='dropped');
+  },[deals,mainTab]);
+  
+  /* 추가 필터 */
+  const filteredDeals=useMemo(()=>{
+    let arr=[...tabDeals];
+    if(filterUser!=='all')arr=arr.filter(d=>d.owner===filterUser);
+    if(search){
+      const s=search.toLowerCase();
+      arr=arr.filter(d=>(d.title||'').toLowerCase().includes(s)||(d.customer||'').toLowerCase().includes(s)||(d.contact_name||'').toLowerCase().includes(s));
+    }
+    return arr;
+  },[tabDeals,filterUser,search]);
+  
+  /* 단계별 그룹핑 (현재 탭에 따라) */
+  const groupedByStage=useMemo(()=>{
+    const stages=mainTab==='dropped'?[DROPPED_STAGE]:PIPELINE_STAGES;
+    const g={};
+    stages.forEach(s=>{g[s.id]=[];});
+    filteredDeals.forEach(d=>{
+      const stage=d.stage||'planning';
+      if(g[stage])g[stage].push(d);
+      else if(g.planning)g.planning.push(d);
+    });
+    return g;
+  },[filteredDeals,mainTab]);
+  
+  /* 통계 (현재 탭 기준) */
+  const stats=useMemo(()=>{
+    const total=filteredDeals.reduce((s,d)=>s+(+d.amount||0),0);
+    const weighted=filteredDeals.reduce((s,d)=>{
+      const prob=(+d.probability||0)/100;
+      return s+(+d.amount||0)*prob;
+    },0);
+    const launched=filteredDeals.filter(d=>d.stage==='launched').reduce((s,d)=>s+(+d.amount||0),0);
+    const launchedCount=filteredDeals.filter(d=>d.stage==='launched').length;
+    /* 전체 deals에서 dropped 카운트 */
+    const droppedCount=deals.filter(d=>d.stage==='dropped').length;
+    const droppedAmt=deals.filter(d=>d.stage==='dropped').reduce((s,d)=>s+(+d.amount||0),0);
+    const successRate=(launchedCount+droppedCount)>0?launchedCount/(launchedCount+droppedCount)*100:0;
+    return{total,weighted,launched,launchedCount,droppedCount,droppedAmt,successRate,count:filteredDeals.length};
+  },[filteredDeals,deals]);
+  
+  const owners=useMemo(()=>Array.from(new Set(deals.map(d=>d.owner).filter(Boolean))),[deals]);
+  
+  /* 현재 탭의 단계 목록 */
+  const currentStages=mainTab==='dropped'?[DROPPED_STAGE]:PIPELINE_STAGES;
+  
+  if(loading)return R('div',{className:'pg fa',style:{display:'flex',alignItems:'center',justifyContent:'center',height:300,fontSize:14,color:'var(--tm)'}},'⏳ 로딩 중...');
+  
+  return R('div',{className:'pg fa'},
+    /* 헤더 */
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'🎯 영업 파이프라인'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'제품 개발 11단계 추적 · 드래그로 단계 이동')
+      ),
+      R('div',{style:{display:'flex',gap:6}},
+        R('button',{className:'btn bp',onClick:()=>setShowAdd(true)},'+ 영업 건 추가')
+      )
+    ),
+    
+    /* ━━━━━━ 메인 탭: 진행중 / 개발 중단 ━━━━━━ */
+    R('div',{style:{display:'flex',gap:0,marginBottom:14,borderBottom:'2px solid var(--bd)'}},
+      R('button',{
+        onClick:()=>setMainTab('active'),
+        style:{
+          background:'none',border:'none',padding:'10px 20px',cursor:'pointer',fontSize:13,fontWeight:800,fontFamily:'inherit',
+          color:mainTab==='active'?'var(--p)':'#6B7280',
+          borderBottom:mainTab==='active'?'3px solid var(--p)':'3px solid transparent',
+          marginBottom:-2,
+          display:'flex',alignItems:'center',gap:6,
+          transition:'all 0.15s'
+        }
+      },'🚀 진행 중',R('span',{style:{background:mainTab==='active'?'var(--p)':'#E5E7EB',color:mainTab==='active'?'#fff':'#6B7280',padding:'2px 9px',borderRadius:10,fontSize:10}},deals.filter(d=>d.stage!=='dropped').length)),
+      R('button',{
+        onClick:()=>setMainTab('dropped'),
+        style:{
+          background:'none',border:'none',padding:'10px 20px',cursor:'pointer',fontSize:13,fontWeight:800,fontFamily:'inherit',
+          color:mainTab==='dropped'?'#DC2626':'#6B7280',
+          borderBottom:mainTab==='dropped'?'3px solid #DC2626':'3px solid transparent',
+          marginBottom:-2,
+          display:'flex',alignItems:'center',gap:6,
+          transition:'all 0.15s'
+        }
+      },'⛔ 개발 중단',R('span',{style:{background:mainTab==='dropped'?'#DC2626':'#E5E7EB',color:mainTab==='dropped'?'#fff':'#6B7280',padding:'2px 9px',borderRadius:10,fontSize:10}},stats.droppedCount))
+    ),
+    
+    /* ━━━━━━ KPI 카드 (탭별로 다르게) ━━━━━━ */
+    mainTab==='active'
+      ? R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:14}},
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',border:'1px solid #FED7AA'}},
+            R('div',{style:{fontSize:10,color:'#9A3412',fontWeight:700,marginBottom:4}},'📊 진행중 영업'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'var(--p)'}},stats.count,'건'),
+            R('div',{style:{fontSize:10,color:'#9A3412',marginTop:4}},'활성 파이프라인')
+          ),
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#EFF6FF,#DBEAFE)',border:'1px solid #BFDBFE'}},
+            R('div',{style:{fontSize:10,color:'#1E40AF',fontWeight:700,marginBottom:4}},'💰 총 파이프라인'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#3B82F6'}},fN(Math.round(stats.total/10000)),'만'),
+            R('div',{style:{fontSize:10,color:'#1E40AF',marginTop:4}},'예상 매출 합계')
+          ),
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',border:'1px solid #DDD6FE'}},
+            R('div',{style:{fontSize:10,color:'#6D28D9',fontWeight:700,marginBottom:4}},'⚖️ 가중 예상 매출'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED'}},fN(Math.round(stats.weighted/10000)),'만'),
+            R('div',{style:{fontSize:10,color:'#6D28D9',marginTop:4}},'성공 확률 반영')
+          ),
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#F0FDF4,#DCFCE7)',border:'1px solid #BBF7D0'}},
+            R('div',{style:{fontSize:10,color:'#047857',fontWeight:700,marginBottom:4}},'🏆 출시 확정 매출'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#15803D'}},fN(Math.round(stats.launched/10000)),'만'),
+            R('div',{style:{fontSize:10,color:'#047857',marginTop:4}},stats.launchedCount+'건 출시 완료')
+          ),
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#FFFBEB,#FEF3C7)',border:'1px solid #FDE68A'}},
+            R('div',{style:{fontSize:10,color:'#92400E',fontWeight:700,marginBottom:4}},'📈 성공률'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#F59E0B'}},stats.successRate.toFixed(1),'%'),
+            R('div',{style:{fontSize:10,color:'#92400E',marginTop:4}},'출시/(출시+중단)')
+          )
+        )
+      : R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:14}},
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#FEF2F2,#FEE2E2)',border:'1px solid #FECACA'}},
+            R('div',{style:{fontSize:10,color:'#991B1B',fontWeight:700,marginBottom:4}},'⛔ 중단된 영업'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#DC2626'}},stats.droppedCount,'건')
+          ),
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#FEF2F2,#FEE2E2)',border:'1px solid #FECACA'}},
+            R('div',{style:{fontSize:10,color:'#991B1B',fontWeight:700,marginBottom:4}},'💸 손실 기회 금액'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#DC2626'}},fN(Math.round(stats.droppedAmt/10000)),'만'),
+            R('div',{style:{fontSize:10,color:'#991B1B',marginTop:4}},'놓친 영업 합계')
+          ),
+          R('div',{className:'card',style:{padding:14,background:'linear-gradient(135deg,#FFFBEB,#FEF3C7)',border:'1px solid #FDE68A'}},
+            R('div',{style:{fontSize:10,color:'#92400E',fontWeight:700,marginBottom:4}},'📊 전체 성공률'),
+            R('div',{style:{fontSize:22,fontWeight:900,color:'#F59E0B'}},stats.successRate.toFixed(1),'%'),
+            R('div',{style:{fontSize:10,color:'#92400E',marginTop:4}},'출시/(출시+중단)')
+          )
+        ),
+    
+    /* 검색/필터 + 뷰 전환 */
+    R('div',{className:'card',style:{padding:'10px 12px',marginBottom:14,display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}},
+      R('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 영업건/거래처 검색',style:{flex:1,minWidth:160,padding:'7px 10px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}}),
+      owners.length>0&&R('select',{value:filterUser,onChange:e=>setFilterUser(e.target.value),style:{padding:'7px 10px',border:'1.5px solid var(--bd)',borderRadius:8,background:'#fff',fontSize:12,fontFamily:'inherit'}},
+        R('option',{value:'all'},'전체 담당자'),
+        ...owners.map(o=>R('option',{key:o,value:o},'👤 '+o))
+      ),
+      R('div',{style:{display:'flex',gap:4,background:'#F3F4F6',padding:3,borderRadius:8}},
+        ...[['kanban','📋 칸반'],['list','📊 목록'],['analytics','📈 분석']].map(([v,l])=>R('button',{
+          key:v,onClick:()=>setViewMode(v),
+          style:{padding:'5px 10px',background:viewMode===v?'#fff':'transparent',border:'none',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:viewMode===v?700:500,color:viewMode===v?'var(--p)':'#6B7280',boxShadow:viewMode===v?'0 1px 3px rgba(0,0,0,0.08)':'none',fontFamily:'inherit',transition:'all 0.15s'}
+        },l))
+      )
+    ),
+    
+    /* ─────── 칸반 뷰 ─────── */
+    viewMode==='kanban'&&R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:10,minHeight:400,overflowX:'auto'}},
+      ...currentStages.map(stage=>{
+        const stageDeals=groupedByStage[stage.id]||[];
+        const stageTotal=stageDeals.reduce((s,d)=>s+(+d.amount||0),0);
+        const isDragOver=dragOver===stage.id;
+        return R('div',{
+          key:stage.id,
+          onDragOver:e=>{
+            e.preventDefault();
+            if(e.dataTransfer)e.dataTransfer.dropEffect='move';
+            if(dragOver!==stage.id)setDragOver(stage.id);
+          },
+          onDragEnter:e=>{
+            e.preventDefault();
+            setDragOver(stage.id);
+          },
+          onDragLeave:e=>{
+            /* 자식 요소로의 이동은 무시 (relatedTarget이 같은 컬럼 안에 있으면) */
+            if(e.currentTarget.contains(e.relatedTarget))return;
+            /* 컬럼을 진짜로 벗어났을 때만 dragOver 해제 */
+            if(dragOver===stage.id)setDragOver(null);
+          },
+          onDrop:e=>{
+            e.preventDefault();
+            const dealId=+e.dataTransfer.getData('dealId');
+            if(dealId)moveDealStage(dealId,stage.id);
+            setDragOver(null);
+          },
+          style:{
+            background:isDragOver?stage.bg:'#FAFAFA',
+            borderRadius:10,
+            padding:8,
+            border:isDragOver?'2px dashed '+stage.color:'2px solid transparent',
+            transition:'background 0.15s, border-color 0.15s',
+            display:'flex',flexDirection:'column',gap:6,
+            minWidth:200
+          }
+        },
+          R('div',{style:{padding:'10px 12px',background:stage.bg,borderRadius:8,borderTop:'3px solid '+stage.color,marginBottom:4}},
+            R('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+              R('span',{style:{fontSize:14}},stage.ic),
+              R('span',{style:{fontSize:11,fontWeight:800,color:stage.color,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},stage.label),
+              R('span',{style:{background:stage.color,color:'#fff',padding:'1px 8px',borderRadius:10,fontSize:10,fontWeight:700,flexShrink:0}},stageDeals.length)
+            ),
+            stageTotal>0&&R('div',{style:{fontSize:10,color:stage.color,fontWeight:700}},fN(Math.round(stageTotal/10000))+'만원'),
+            R('div',{style:{fontSize:9,color:'#9CA3AF',marginTop:2}},'성공 확률 '+stage.prob+'%')
+          ),
+          stageDeals.length===0
+            ? R('div',{style:{padding:16,textAlign:'center',color:'#9CA3AF',fontSize:10,fontStyle:'italic'}},'드래그해서 이동')
+            : stageDeals.map(deal=>{
+                /* 드래그/클릭 구분용 ref */
+                const dragInfo={isDragging:false,startX:0,startY:0,moved:false};
+                return R('div',{
+                  key:deal.id,
+                  draggable:true,
+                  onDragStart:e=>{
+                    e.dataTransfer.setData('dealId',deal.id);
+                    e.dataTransfer.effectAllowed='move';
+                    dragInfo.isDragging=true;
+                    e.currentTarget.style.opacity='0.4';
+                    /* 드래그 시작 시 즉시 부드러운 효과 */
+                    setTimeout(()=>{if(e.currentTarget)e.currentTarget.style.cursor='grabbing';},0);
+                  },
+                  onDragEnd:e=>{
+                    /* 드래그 종료 시 무조건 원상복구 (드롭 성공이든 실패든) */
+                    e.currentTarget.style.opacity='1';
+                    e.currentTarget.style.cursor='grab';
+                    /* 클릭 방지 플래그 잠시 유지 */
+                    setTimeout(()=>{dragInfo.isDragging=false;},100);
+                  },
+                  onMouseDown:e=>{
+                    dragInfo.startX=e.clientX;
+                    dragInfo.startY=e.clientY;
+                    dragInfo.moved=false;
+                  },
+                  onMouseMove:e=>{
+                    if(e.buttons===1){
+                      const dx=Math.abs(e.clientX-dragInfo.startX);
+                      const dy=Math.abs(e.clientY-dragInfo.startY);
+                      if(dx>5||dy>5)dragInfo.moved=true;
+                    }
+                  },
+                  onClick:e=>{
+                    /* 드래그가 발생했으면 클릭 무시 */
+                    if(dragInfo.isDragging||dragInfo.moved){
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dragInfo.moved=false;
+                      return;
+                    }
+                    setEditDeal(deal);
+                  },
+                  /* 모바일 터치 드래그 - long press로 드래그 시작 */
+                  onTouchStart:e=>{
+                    dragInfo.startX=e.touches[0].clientX;
+                    dragInfo.startY=e.touches[0].clientY;
+                    dragInfo.moved=false;
+                  },
+                  onTouchMove:e=>{
+                    const dx=Math.abs(e.touches[0].clientX-dragInfo.startX);
+                    const dy=Math.abs(e.touches[0].clientY-dragInfo.startY);
+                    if(dx>5||dy>5)dragInfo.moved=true;
+                  },
+                  style:{
+                    background:'#fff',borderRadius:8,padding:'10px 12px',cursor:'grab',
+                    border:'1px solid #E5E7EB',borderLeft:'3px solid '+stage.color,
+                    boxShadow:'0 1px 2px rgba(0,0,0,0.04)',transition:'box-shadow 0.15s, transform 0.15s',
+                    userSelect:'none',  /* 드래그 중 텍스트 선택 방지 */
+                    WebkitUserSelect:'none'
+                  },
+                  onMouseEnter:e=>{e.currentTarget.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)';e.currentTarget.style.transform='translateY(-1px)';},
+                  onMouseLeave:e=>{e.currentTarget.style.boxShadow='0 1px 2px rgba(0,0,0,0.04)';e.currentTarget.style.transform='translateY(0)';}
+                },
+                  R('div',{style:{fontSize:12,fontWeight:700,marginBottom:4,color:'#1A1A1A',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},deal.title||'(제목 없음)'),
+                  R('div',{style:{fontSize:10,color:'#6B7280',marginBottom:6,display:'flex',alignItems:'center',gap:4}},
+                    R('span',null,'🏢'),
+                    R('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},deal.customer||'(미입력)')
+                  ),
+                  +deal.amount>0&&R('div',{style:{fontSize:13,fontWeight:800,color:'var(--p)',marginBottom:6}},fN(+deal.amount),'원'),
+                  R('div',{style:{display:'flex',alignItems:'center',gap:6,fontSize:9,color:'#9CA3AF',flexWrap:'wrap'}},
+                    deal.owner&&R('span',{style:{background:'#F3F4F6',padding:'1px 6px',borderRadius:8,fontWeight:600}},'👤 '+deal.owner.substring(0,8)),
+                    deal.expected_close&&R('span',null,'📅 '+deal.expected_close)
+                  )
+                );
+              })
+        );
+      })
+    ),
+    
+    /* ─────── 목록 뷰 ─────── */
+    viewMode==='list'&&R('div',{className:'card',style:{padding:0,overflow:'auto'}},
+      R('table',{style:{width:'100%',fontSize:11}},
+        R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'영업 건'),
+          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'거래처'),
+          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'단계'),
+          R('th',{style:{padding:'10px 12px',textAlign:'right'}},'금액'),
+          R('th',{style:{padding:'10px 12px',textAlign:'center'}},'확률'),
+          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'담당자'),
+          R('th',{style:{padding:'10px 12px',textAlign:'left'}},'예상 마감'),
+          R('th',{style:{padding:'10px 12px',width:60}})
+        )),
+        R('tbody',null,
+          filteredDeals.length===0
+            ? R('tr',null,R('td',{colSpan:8,style:{padding:30,textAlign:'center',color:'var(--tm)'}},mainTab==='dropped'?'중단된 영업 건이 없습니다.':'영업 건이 없습니다. "+ 영업 건 추가" 버튼으로 시작하세요'))
+            : filteredDeals.map(d=>{
+                const allStages=[...PIPELINE_STAGES,DROPPED_STAGE];
+                const stage=allStages.find(s=>s.id===d.stage)||PIPELINE_STAGES[0];
+                return R('tr',{key:d.id,onClick:()=>setEditDeal(d),style:{cursor:'pointer',borderBottom:'1px solid #F3F4F6',transition:'background 0.15s'},
+                  onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
+                  onMouseLeave:e=>e.currentTarget.style.background='transparent'
+                },
+                  R('td',{style:{padding:'10px 12px',fontWeight:700}},d.title||'-'),
+                  R('td',{style:{padding:'10px 12px',color:'#374151'}},d.customer||'-'),
+                  R('td',{style:{padding:'10px 12px'}},
+                    R('span',{style:{background:stage.bg,color:stage.color,padding:'3px 9px',borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}},stage.ic+' '+stage.label)
+                  ),
+                  R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:700,color:'var(--p)'}},fN(+d.amount||0)),
+                  R('td',{style:{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#7C3AED'}},(d.probability!=null?d.probability:stage.prob)+'%'),
+                  R('td',{style:{padding:'10px 12px',color:'#6B7280',fontSize:10}},d.owner||'-'),
+                  R('td',{style:{padding:'10px 12px',color:'#6B7280',fontSize:10}},d.expected_close||'-'),
+                  R('td',{style:{padding:'10px 12px',textAlign:'center'}},
+                    R('button',{onClick:e=>{e.stopPropagation();deleteDeal(d.id);},style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:14}},'🗑')
+                  )
+                );
+              })
+        )
+      )
+    ),
+    
+    /* ─────── 분석 뷰 ─────── */
+    viewMode==='analytics'&&R('div',null,
+      R('div',{className:'card',style:{padding:16,marginBottom:14}},
+        R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'📊 단계별 영업 분포 ',R('span',{style:{fontSize:10,fontWeight:500,color:'var(--tm)'}},mainTab==='dropped'?'· 개발 중단':'· 진행 중')),
+        R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+          ...currentStages.map(stage=>{
+            const stageDeals=groupedByStage[stage.id]||[];
+            const total=stageDeals.reduce((s,d)=>s+(+d.amount||0),0);
+            const pct=stats.total>0?(total/stats.total*100):0;
+            return R('div',{key:stage.id,style:{display:'grid',gridTemplateColumns:'130px 1fr 140px',gap:10,alignItems:'center'}},
+              R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                R('span',{style:{fontSize:14}},stage.ic),
+                R('span',{style:{fontSize:11,fontWeight:700,color:stage.color,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},stage.label),
+                R('span',{style:{fontSize:9,color:'#9CA3AF',flexShrink:0}},'('+stageDeals.length+')')
+              ),
+              R('div',{style:{height:24,background:'#F3F4F6',borderRadius:6,overflow:'hidden',position:'relative'}},
+                R('div',{style:{height:'100%',background:'linear-gradient(90deg,'+stage.color+', '+stage.color+'CC)',width:Math.max(pct,2)+'%',borderRadius:6,transition:'width 0.3s',display:'flex',alignItems:'center',justifyContent:'flex-end',paddingRight:6}},
+                  pct>10&&R('span',{style:{color:'#fff',fontSize:9,fontWeight:700}},pct.toFixed(0)+'%')
+                )
+              ),
+              R('div',{style:{textAlign:'right',fontSize:11,fontWeight:800,color:stage.color}},fN(Math.round(total/10000))+'만원')
+            );
+          })
+        )
+      ),
+      owners.length>0&&R('div',{className:'card',style:{padding:16,marginBottom:14}},
+        R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'👥 담당자별 실적 (전체)'),
+        R('table',{style:{width:'100%',fontSize:11}},
+          R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+            R('th',{style:{padding:'8px 10px',textAlign:'left'}},'담당자'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'전체'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'진행중'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'🏆 출시'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'⛔ 중단'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'출시 매출'),
+            R('th',{style:{padding:'8px 10px',textAlign:'right'}},'성공률')
+          )),
+          R('tbody',null,...owners.map(owner=>{
+            const myDeals=deals.filter(d=>d.owner===owner);
+            const active=myDeals.filter(d=>!['launched','dropped'].includes(d.stage)).length;
+            const launched=myDeals.filter(d=>d.stage==='launched');
+            const dropped=myDeals.filter(d=>d.stage==='dropped');
+            const launchedAmt=launched.reduce((s,d)=>s+(+d.amount||0),0);
+            const successRate=(launched.length+dropped.length)>0?launched.length/(launched.length+dropped.length)*100:0;
+            return R('tr',{key:owner,style:{borderBottom:'1px solid #F3F4F6'}},
+              R('td',{style:{padding:'8px 10px',fontWeight:700}},'👤 '+owner),
+              R('td',{style:{padding:'8px 10px',textAlign:'right'}},myDeals.length),
+              R('td',{style:{padding:'8px 10px',textAlign:'right',color:'#3B82F6'}},active),
+              R('td',{style:{padding:'8px 10px',textAlign:'right',color:'#15803D',fontWeight:700}},launched.length),
+              R('td',{style:{padding:'8px 10px',textAlign:'right',color:'#DC2626'}},dropped.length),
+              R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:700,color:'var(--p)'}},fN(Math.round(launchedAmt/10000))+'만'),
+              R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:700,color:successRate>=50?'#22C55E':successRate>=30?'#F59E0B':'#EF4444'}},successRate.toFixed(1)+'%')
+            );
+          }))
+        )
+      ),
+      R('div',{className:'card',style:{padding:16}},
+        R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'🏢 거래처별 영업 현황 (상위 10)'),
+        (()=>{
+          const m=new Map();
+          deals.forEach(d=>{
+            const k=d.customer||'미상';
+            if(!m.has(k))m.set(k,{name:k,count:0,total:0,launched:0,dropped:0});
+            const v=m.get(k);v.count++;v.total+=(+d.amount||0);
+            if(d.stage==='launched')v.launched+=(+d.amount||0);
+            if(d.stage==='dropped')v.dropped+=1;
+          });
+          const top=Array.from(m.values()).sort((a,b)=>b.total-a.total).slice(0,10);
+          return top.length===0
+            ? R('div',{style:{padding:20,textAlign:'center',color:'var(--tm)',fontSize:11}},'데이터 없음')
+            : R('table',{style:{width:'100%',fontSize:11}},
+                R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+                  R('th',{style:{padding:'8px 10px',textAlign:'left'}},'거래처'),
+                  R('th',{style:{padding:'8px 10px',textAlign:'right'}},'건수'),
+                  R('th',{style:{padding:'8px 10px',textAlign:'right'}},'전체 파이프라인'),
+                  R('th',{style:{padding:'8px 10px',textAlign:'right'}},'🏆 출시'),
+                  R('th',{style:{padding:'8px 10px',textAlign:'right'}},'⛔ 중단')
+                )),
+                R('tbody',null,...top.map(t=>R('tr',{key:t.name,style:{borderBottom:'1px solid #F3F4F6'}},
+                  R('td',{style:{padding:'8px 10px',fontWeight:700}},t.name),
+                  R('td',{style:{padding:'8px 10px',textAlign:'right'}},t.count),
+                  R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:700,color:'#7C3AED'}},fN(Math.round(t.total/10000))+'만'),
+                  R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:700,color:'#15803D'}},fN(Math.round(t.launched/10000))+'만'),
+                  R('td',{style:{padding:'8px 10px',textAlign:'right',color:'#DC2626',fontWeight:600}},t.dropped)
+                )))
+              );
+        })()
+      )
+    ),
+    
+    (showAdd||editDeal)&&R(DealEditModal,{
+      deal:editDeal,
+      currentUser:user,
+      onSave:async(d)=>{const ok=await saveDeal(d);if(ok){setShowAdd(false);setEditDeal(null);}},
+      onClose:()=>{setShowAdd(false);setEditDeal(null);},
+      onDelete:editDeal?(async()=>{await deleteDeal(editDeal.id);setEditDeal(null);}):null
+    })
+  );
+}
+
+/* ═══ 영업건 추가/수정 모달 ═══════════════════════ */
+function DealEditModal({deal,currentUser,onSave,onClose,onDelete}){
+  const allStages=[...PIPELINE_STAGES,DROPPED_STAGE];
+  const[form,setForm]=useState(()=>({
+    id:deal?.id,
+    title:deal?.title||'',
+    customer:deal?.customer||'',
+    stage:deal?.stage||'planning',
+    amount:deal?.amount||0,
+    contact_name:deal?.contact_name||'',
+    contact_phone:deal?.contact_phone||'',
+    contact_email:deal?.contact_email||'',
+    expected_close:deal?.expected_close||'',
+    probability:deal?.probability!=null?deal.probability:5,
+    notes:deal?.notes||'',
+    owner:deal?.owner||currentUser?.name||currentUser?.email||'',
+    /* 제품 정보 */
+    product_name:deal?.product_name||'',                    /* 제품명 */
+    total_weight:deal?.total_weight||'',                    /* 총 중량 */
+    package_type:deal?.package_type||'',                    /* 패키지 형태 */
+    food_type:deal?.food_type||'',                          /* 식품의 유형 */
+    broth_weight:deal?.broth_weight||'',                    /* 육수/소스 중량 */
+    solid_weight:deal?.solid_weight||'',                    /* 고형물 중량 */
+    order_moq:deal?.order_moq||'',                          /* 발주 MOQ */
+    production_moq:deal?.production_moq||'',                /* 생산 MOQ */
+    distribution_channel:deal?.distribution_channel||''     /* 최종 유통 경로 */
+  }));
+  const upd=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const ls={display:'block',fontSize:10,color:'var(--tm)',marginBottom:3,fontWeight:600};
+  const is={width:'100%',padding:'7px 10px',border:'1.5px solid var(--bd)',borderRadius:6,fontSize:12,fontFamily:'inherit'};
+  
+  useEffect(()=>{
+    const stage=allStages.find(s=>s.id===form.stage);
+    if(stage)setForm(p=>({...p,probability:stage.prob}));
+  },[form.stage]);
+  
+  const handleSave=()=>{
+    if(!form.title.trim()){alert('영업 건 제목을 입력해주세요.');return;}
+    onSave(form);
+  };
+  
+  return R('div',{onClick:onClose,style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+    R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,padding:0,maxWidth:560,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column'}},
+      R('div',{style:{padding:'14px 20px',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)'}},
+        R('div',{style:{fontSize:14,fontWeight:800,color:'#1A1A1A'}},deal?.id?'✏️ 영업 건 수정':'➕ 새 영업 건'),
+        R('button',{onClick:onClose,style:{background:'rgba(0,0,0,0.05)',border:'none',width:28,height:28,borderRadius:6,cursor:'pointer',fontSize:14,fontWeight:700}},'✕')
+      ),
+      R('div',{style:{padding:'16px 20px',overflow:'auto',flex:1}},
+        R('div',{style:{display:'grid',gap:10}},
+          R('div',null,R('label',{style:ls},'영업 건 제목 *'),R('input',{value:form.title,onChange:e=>upd('title',e.target.value),style:is,placeholder:'예: 쌀국수 신메뉴 OEM 개발'})),
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'거래처/회사'),R('input',{value:form.customer,onChange:e=>upd('customer',e.target.value),style:is,placeholder:'예: (주)데어리킹랜드'})),
+            R('div',null,R('label',{style:ls},'예상 매출'),R('input',{type:'number',value:form.amount,onChange:e=>upd('amount',e.target.value),style:{...is,textAlign:'right'},placeholder:'0'}))
+          ),
+          R('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'영업 단계'),R('select',{value:form.stage,onChange:e=>upd('stage',e.target.value),style:{...is,background:'#fff'}},
+              R('optgroup',{label:'진행 단계'},...PIPELINE_STAGES.map(s=>R('option',{key:s.id,value:s.id},s.ic+' '+s.label+' ('+s.prob+'%)'))),
+              R('optgroup',{label:'중단'},R('option',{value:'dropped'},DROPPED_STAGE.ic+' '+DROPPED_STAGE.label))
+            )),
+            R('div',null,R('label',{style:ls},'성공 확률'),R('input',{type:'number',min:0,max:100,value:form.probability,onChange:e=>upd('probability',e.target.value),style:{...is,textAlign:'right'}}))
+          ),
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'담당자'),R('input',{value:form.owner,onChange:e=>upd('owner',e.target.value),style:is,placeholder:'이름'})),
+            R('div',null,R('label',{style:ls},'예상 마감일'),R('input',{type:'date',value:form.expected_close||'',onChange:e=>upd('expected_close',e.target.value),style:is}))
+          ),
+          R('div',{style:{padding:'8px 10px',background:'#F9FAFB',borderRadius:6,fontSize:11,fontWeight:700,color:'#374151'}},'📞 담당자 연락처'),
+          R('div',null,R('label',{style:ls},'이름'),R('input',{value:form.contact_name,onChange:e=>upd('contact_name',e.target.value),style:is,placeholder:'담당자 이름'})),
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'연락처'),R('input',{value:form.contact_phone,onChange:e=>upd('contact_phone',e.target.value),style:is,placeholder:'010-1234-5678'})),
+            R('div',null,R('label',{style:ls},'이메일'),R('input',{value:form.contact_email,onChange:e=>upd('contact_email',e.target.value),style:is,placeholder:'name@company.com'}))
+          ),
+          
+          /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+          /* 🧪 제품 정보 섹션                  */
+          /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+          R('div',{style:{padding:'8px 10px',background:'#FFF8F4',borderRadius:6,fontSize:11,fontWeight:700,color:'#9A3412',border:'1px solid #FED7AA',marginTop:6}},'🧪 제품 정보'),
+          
+          /* 제품명 + 총 중량 */
+          R('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'제품명'),R('input',{value:form.product_name,onChange:e=>upd('product_name',e.target.value),style:is,placeholder:'예: 매운 소고기 쌀국수'})),
+            R('div',null,R('label',{style:ls},'총 중량'),R('input',{value:form.total_weight,onChange:e=>upd('total_weight',e.target.value),style:is,placeholder:'예: 440g'}))
+          ),
+          
+          /* 패키지 형태 + 식품의 유형 */
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'패키지 형태'),R('select',{value:form.package_type,onChange:e=>upd('package_type',e.target.value),style:{...is,background:'#fff'}},
+              R('option',{value:''},'선택...'),
+              R('option',{value:'삼방파우치'},'📦 삼방파우치'),
+              R('option',{value:'트레이+종이슬리브'},'🍱 트레이+종이슬리브'),
+              R('option',{value:'캡파우치'},'🥡 캡파우치'),
+              R('option',{value:'기타'},'❓ 기타')
+            )),
+            R('div',null,R('label',{style:ls},'식품의 유형'),R('select',{value:form.food_type,onChange:e=>upd('food_type',e.target.value),style:{...is,background:'#fff'}},
+              R('option',{value:''},'선택...'),
+              R('option',{value:'냉동밀키트'},'❄️ 냉동밀키트'),
+              R('option',{value:'국/탕류'},'🍲 국/탕류'),
+              R('option',{value:'수산물가공품'},'🐟 수산물가공품'),
+              R('option',{value:'절임류'},'🥬 절임류'),
+              R('option',{value:'양념육'},'🥩 양념육'),
+              R('option',{value:'합포장'},'📦 합포장')
+            ))
+          ),
+          
+          /* 세부 스펙 - 육수/소스 중량 + 고형물 중량 */
+          R('div',{style:{padding:'6px 10px',background:'#FAFAFA',borderRadius:6,fontSize:10,fontWeight:700,color:'#6B7280',marginTop:2}},'📋 세부 스펙'),
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'육수/소스 중량'),R('input',{value:form.broth_weight,onChange:e=>upd('broth_weight',e.target.value),style:is,placeholder:'예: 280g'})),
+            R('div',null,R('label',{style:ls},'고형물 중량'),R('input',{value:form.solid_weight,onChange:e=>upd('solid_weight',e.target.value),style:is,placeholder:'예: 160g'}))
+          ),
+          
+          /* MOQ - 발주 + 생산 */
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            R('div',null,R('label',{style:ls},'발주 MOQ'),R('input',{value:form.order_moq,onChange:e=>upd('order_moq',e.target.value),style:is,placeholder:'예: 1,000개'})),
+            R('div',null,R('label',{style:ls},'생산 MOQ'),R('input',{value:form.production_moq,onChange:e=>upd('production_moq',e.target.value),style:is,placeholder:'예: 5,000개'}))
+          ),
+          
+          /* 최종 유통 경로 */
+          R('div',null,R('label',{style:ls},'최종 유통 경로'),R('select',{value:form.distribution_channel,onChange:e=>upd('distribution_channel',e.target.value),style:{...is,background:'#fff'}},
+            R('option',{value:''},'선택...'),
+            R('option',{value:'B2B'},'🏢 B2B (기업 거래)'),
+            R('option',{value:'B2C'},'🛒 B2C (소비자 직접)'),
+            R('option',{value:'B2B+B2C'},'🔀 B2B + B2C (혼합)')
+          )),
+          
+          R('div',null,R('label',{style:ls},'메모/특이사항'),R('textarea',{value:form.notes,onChange:e=>upd('notes',e.target.value),style:{...is,minHeight:80,resize:'vertical',fontFamily:'inherit'},placeholder:'영업 진행 상황, 고객 요구사항, 중단 사유 등'}))
+        )
+      ),
+      R('div',{style:{padding:'12px 20px',borderTop:'1px solid var(--bd)',display:'flex',gap:8,justifyContent:'space-between',alignItems:'center'}},
+        deal?.id&&onDelete
+          ? R('button',{onClick:onDelete,style:{background:'#FEE2E2',color:'#DC2626',border:'none',padding:'8px 14px',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700}},'🗑 삭제')
+          : R('span'),
+        R('div',{style:{display:'flex',gap:6}},
+          R('button',{onClick:onClose,style:{background:'#F3F4F6',color:'#374151',border:'none',padding:'8px 16px',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'취소'),
+          R('button',{onClick:handleSave,style:{background:'var(--p)',color:'#fff',border:'none',padding:'8px 20px',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'💾 저장')
+        )
+      )
+    )
+  );
+}
+
+
 /* ═══ 공장 가동률 ════════════════════════════════════ */
 function PagePlant({user}){
   const[ops,setOps]=useState([]);
@@ -2490,6 +3185,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'hq_fixed_costs',l:'본사 고정비',ic:'💸',adm:true},
     /* 관리자 페이지 (관리자) */
     {id:'adm_dash',l:'관리자 경영',ic:'📈',adm:true},
+    {id:'sales_pipeline',l:'영업 파이프라인',ic:'🎯',adm:true},
     {id:'adm_sales',l:'관리자 매출',ic:'💵',adm:true},
     {id:'adm_purchase',l:'관리자 매입',ic:'🛒',adm:true},
     {id:'fixed_costs',l:'고정비 관리',ic:'💸',adm:true},
@@ -2919,28 +3615,81 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
     });
   },[matchedProd,mats]);
 
-  /* ERP 업로드 탭 */
+  /* ERP 업로드 탭 - 견고한 새 버전 */
   if(invTab==='erp'){
+    /* 안전한 클릭 핸들러 - fRef가 없거나 current가 없는 경우도 처리 */
+    const handleUploadClick=(ev)=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      if(fRef&&fRef.current){
+        fRef.current.value='';  /* 같은 파일 재선택 가능하게 초기화 */
+        fRef.current.click();
+      }else{
+        alert('파일 입력 초기화 실패. 페이지를 새로고침해주세요.');
+      }
+    };
+    
+    const handleFileChange=(ev)=>{
+      const f=ev.target.files&&ev.target.files[0];
+      if(f){
+        if(typeof parseXL==='function'){
+          parseXL(f);
+        }else{
+          alert('업로드 기능 로딩 실패. 페이지를 새로고침해주세요.');
+        }
+      }
+    };
+    
+    const handleDrop=(ev)=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.currentTarget.style.borderColor='var(--bd)';
+      ev.currentTarget.style.background='#fafafa';
+      const f=ev.dataTransfer&&ev.dataTransfer.files&&ev.dataTransfer.files[0];
+      if(f){
+        if(typeof parseXL==='function'){
+          parseXL(f);
+        }else{
+          alert('업로드 기능 로딩 실패. 페이지를 새로고침해주세요.');
+        }
+      }
+    };
+    
     return R('div',{className:'pg fa'},
       R('div',{className:'pg-hdr'},
         R('div',null,R('div',{className:'pg-title'},'📦 재고 관리'),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},'이카운트 ERP 재고 관리 업로드')),
         R('div',{className:'tab-row',style:{margin:0}},
           R('button',{className:'tab',onClick:()=>setInvTab('list')},'재고목록'),
-          R('button',{className:'tab act'},'ERP 업로드')
+          R('button',{className:'tab act'},'📤 ERP 업로드')
         )
       ),
+      
+      /* 숨겨진 파일 input - 항상 렌더링 */
+      R('input',{
+        ref:fRef,
+        type:'file',
+        accept:'.xlsx,.xls',
+        style:{position:'absolute',left:-9999,top:-9999,opacity:0,pointerEvents:'none'},
+        onChange:handleFileChange
+      }),
+      
+      /* 메인 업로드 박스 */
       R('div',{
         onDragOver:ev=>{ev.preventDefault();ev.currentTarget.style.borderColor='#D94F1E';ev.currentTarget.style.background='#FFF0E8';},
         onDragLeave:ev=>{ev.currentTarget.style.borderColor='var(--bd)';ev.currentTarget.style.background='#fafafa';},
-        onDrop:ev=>{ev.preventDefault();ev.currentTarget.style.borderColor='var(--bd)';ev.currentTarget.style.background='#fafafa';const f=ev.dataTransfer.files[0];if(f)parseXL(f);},
-        onClick:()=>fRef&&fRef.current&&fRef.current.click(),
+        onDrop:handleDrop,
+        onClick:handleUploadClick,
         style:{border:'2.5px dashed var(--bd)',borderRadius:14,padding:'40px 20px',textAlign:'center',background:'#fafafa',cursor:'pointer',marginBottom:16,transition:'all .2s'}
       },
-        fRef&&R('input',{ref:fRef,type:'file',accept:'.xlsx,.xls',style:{display:'none'},onChange:ev=>ev.target.files[0]&&parseXL(ev.target.files[0])}),
         R('div',{style:{fontSize:40,marginBottom:10}},'📤'),
         R('div',{style:{fontSize:16,fontWeight:700,marginBottom:6}},'이카운트 재고 관리 엑셀 업로드'),
-        R('div',{style:{fontSize:13,color:'var(--tm)'}},'클릭 또는 드래그&드롭 · .xlsx .xls 파일')
+        R('div',{style:{fontSize:13,color:'var(--tm)',marginBottom:10}},'클릭 또는 드래그&드롭 · .xlsx .xls 파일'),
+        R('button',{
+          onClick:handleUploadClick,
+          style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'8px 20px',cursor:'pointer',fontSize:12,fontWeight:700,marginTop:6}
+        },'📁 파일 선택')
       ),
+      
       R('div',{className:'card'},
         R('div',{className:'card-title',style:{marginBottom:10}},'📋 이카운트 다운로드 순서'),
         R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
@@ -6462,6 +7211,7 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
     {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
+    {id:'sales_pipeline',l:'영업 파이프라인',ic:'🎯'},
     {id:'adm_sales',l:'매출 분석',ic:'💵'},
     {id:'adm_purchase',l:'매입 분석',ic:'🛒'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
@@ -6672,6 +7422,17 @@ function App(){
     
     const onTouchStart=(e)=>{
       const t=e.touches[0];
+      /* 드래그 가능한 카드/요소 위에서 시작한 터치는 스와이프 뒤로가기 무시 */
+      const target=e.target;
+      if(target&&target.closest&&target.closest('[draggable="true"]')){
+        isEdgeSwipe=false;
+        return;
+      }
+      /* input/textarea/select 위에서 시작한 터치도 무시 (입력 방해 방지) */
+      if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.tagName==='SELECT')){
+        isEdgeSwipe=false;
+        return;
+      }
       /* 왼쪽 가장자리에서 시작한 터치만 추적 */
       if(t.clientX<=EDGE_THRESHOLD){
         touchStartX=t.clientX;
@@ -6848,32 +7609,71 @@ function App(){
     },500);
   },[dbReady,mats,prods,orders,hqItems,cats,quote,pqty]);
 
-  /* ERP 업로드 */
+  /* ERP 업로드 - 견고한 버전 */
   const parseXL=f=>{
+    if(!f){alert('파일이 선택되지 않았습니다.');return;}
+    if(typeof XLSX==='undefined'){alert('엑셀 라이브러리 로딩 실패. 페이지를 새로고침해주세요.');return;}
+    
+    /* 파일 형식 검증 */
+    const ext=f.name.toLowerCase().split('.').pop();
+    if(!['xlsx','xls'].includes(ext)){
+      alert('지원하지 않는 파일 형식입니다.\n.xlsx 또는 .xls 파일을 업로드해주세요.\n\n선택한 파일: '+f.name);
+      return;
+    }
+    
     const reader=new FileReader();
     reader.onload=ev=>{
       try{
         const wb=XLSX.read(ev.target.result,{type:'array'});
+        if(!wb||!wb.SheetNames||wb.SheetNames.length===0){
+          alert('엑셀 파일에 시트가 없습니다.');
+          return;
+        }
         const ws=wb.Sheets[wb.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-        let upd=0,add=0;const next=[...mats];
+        if(rows.length<3){
+          alert('데이터가 부족합니다.\n최소 3행 이상 필요합니다.\n현재: '+rows.length+'행');
+          return;
+        }
+        
+        let upd=0,add=0,skipped=0;
+        const next=[...mats];
         const SKIP=['공정품','기타','박스스티커','스티커','상품'];
         rows.forEach((row,i)=>{
           if(i<2)return;
-          const c=String(row[0]||'').trim();const raw=String(row[1]||'').trim();const qty=parseFloat(row[2])||0;
-          if(!c||!raw)return;
-          const cm=raw.match(/^\[([^\]]+)\]/);const g=cm?cm[1]:'기타';
-          if(SKIP.includes(g))return;
+          const c=String(row[0]||'').trim();
+          const raw=String(row[1]||'').trim();
+          const qty=parseFloat(row[2])||0;
+          if(!c||!raw){skipped++;return;}
+          const cm=raw.match(/^\[([^\]]+)\]/);
+          const g=cm?cm[1]:'기타';
+          if(SKIP.includes(g)){skipped++;return;}
           const n=raw.replace(/^\[[^\]]+\]/,'').replace(/\[[a-zA-Z가-힣]+\]\s*$/,'').trim().slice(0,50);
-          let unit='ea';const rl=raw.toLowerCase();
-          if(rl.includes('[kg]'))unit='kg';else if(rl.includes('[l]'))unit='L';else if(rl.includes('[box]'))unit='box';else if(raw.includes('[롤]'))unit='롤';
+          let unit='ea';
+          const rl=raw.toLowerCase();
+          if(rl.includes('[kg]'))unit='kg';
+          else if(rl.includes('[l]'))unit='L';
+          else if(rl.includes('[box]'))unit='box';
+          else if(raw.includes('[롤]'))unit='롤';
           const idx=next.findIndex(m=>m.c===c);
-          if(idx>=0){next[idx]={...next[idx],s:qty};upd++;}else{next.push({id:uid(),c,g,n,u:unit,s:qty,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
+          if(idx>=0){next[idx]={...next[idx],s:qty};upd++;}
+          else{next.push({id:uid(),c,g,n,u:unit,s:qty,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
         });
-        setMats(next);setRk(r=>r+1);
-        alert('업로드 완료!\n업데이트: '+upd+'\n신규: '+add+'\n총: '+next.length+'개');
-      }catch(e){alert('파일 오류: '+e.message);}
+        
+        if(upd===0&&add===0){
+          alert('처리된 데이터가 없습니다.\n\n• 행 수: '+rows.length+'\n• 건너뜀: '+skipped+'\n\n[엑셀 형식 확인]\n1열: 품목코드\n2열: 품목명 ([분류명]포함)\n3열: 수량\n3행부터 데이터 시작');
+          return;
+        }
+        
+        setMats(next);
+        setRk(r=>r+1);
+        alert('✅ 업로드 완료!\n\n📥 업데이트: '+upd+'건\n📦 신규 추가: '+add+'건\n⏭️ 건너뜀: '+skipped+'건\n\n📊 총 품목: '+next.length+'개');
+      }catch(e){
+        console.error('ERP upload error:',e);
+        alert('파일 처리 오류:\n\n'+e.message+'\n\n다시 시도하거나 파일을 확인해주세요.');
+      }
     };
+    reader.onerror=()=>{alert('파일 읽기 실패. 다시 시도해주세요.');};
     reader.readAsArrayBuffer(f);
   };
 
@@ -6993,6 +7793,7 @@ function App(){
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
+    if(page==='sales_pipeline'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageSalesPipeline,{user});}
     if(page==='cost')return R(PageCost,{prods,mats});
         if(page==='data')return R(PageData,{mats,prods,orders,hqItems,cats,quote,pqty,onImport:handleImport});
     if(page==='cats')return R('div',{className:'pg fa'},
