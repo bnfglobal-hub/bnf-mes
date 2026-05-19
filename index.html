@@ -6244,47 +6244,16 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   const[sortBy,setSortBy]=useState('cat');
   /* 즐겨찾기는 코드(c) 기준으로 저장 (mat.id가 ERP 업로드 시 바뀌어도 보존됨) */
   const[favoriteCodes,setFavoriteCodes]=useState(()=>{
-    try{
-      const v=JSON.parse(localStorage.getItem('bnf_fav_mat_codes')||'null');
-      if(v)return v;
-      /* 마이그레이션: 옛 id 기반 데이터를 코드 기반으로 변환 */
-      const oldIds=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
-      if(oldIds.length>0){
-        const codes=oldIds.map(id=>{const m=mats.find(x=>x.id===id);return m?m.c:null;}).filter(Boolean);
-        localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(codes));
-        return codes;
-      }
-      return [];
-    }catch(e){return [];}
+    try{return JSON.parse(localStorage.getItem('bnf_fav_mat_codes')||'[]');}catch(e){return [];}
   });
-  /* 호환성: favorites 라는 이름으로도 접근 가능 (현재 mats 기준 id 배열) */
+  /* favorites: 현재 mats 기준 id 배열 (코드를 id로 동적 변환) */
   const favorites=useMemo(()=>favoriteCodes.map(c=>{const m=mats.find(x=>x.c===c);return m?m.id:null;}).filter(Boolean),[favoriteCodes,mats]);
-  const setFavorites=null; /* 직접 호출 방지 */
   
   /* 반제품 매핑도 코드 기반으로 저장 (완제품 코드 → 반제품 코드 배열) */
   const[semiItemsMapByCode,setSemiItemsMapByCode]=useState(()=>{
-    try{
-      const v=JSON.parse(localStorage.getItem('bnf_semi_items_map_code')||'null');
-      if(v)return v;
-      /* 마이그레이션: 옛 id 기반 → 코드 기반 변환 */
-      const oldMap=JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');
-      const newMap={};
-      Object.keys(oldMap).forEach(prodId=>{
-        const prodMat=mats.find(m=>m.id===prodId);
-        if(!prodMat)return;
-        const items=oldMap[prodId]||[];
-        newMap[prodMat.c]=items.map(si=>{
-          const semiMat=mats.find(m=>m.id===si.id);
-          return{c:semiMat?semiMat.c:'',n:si.n,u:si.u};
-        }).filter(x=>x.c);
-      });
-      if(Object.keys(newMap).length>0){
-        localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(newMap));
-      }
-      return newMap;
-    }catch(e){return {};}
+    try{return JSON.parse(localStorage.getItem('bnf_semi_items_map_code')||'{}');}catch(e){return {};}
   });
-  /* 호환성: semiItemsMap 이름으로 id 기반 변환 view */
+  /* semiItemsMap: id 기반 view (UI 호환용) */
   const semiItemsMap=useMemo(()=>{
     const result={};
     Object.keys(semiItemsMapByCode).forEach(prodCode=>{
@@ -6298,9 +6267,45 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
     });
     return result;
   },[semiItemsMapByCode,mats]);
-  const setSemiItemsMap=null; /* 직접 호출 방지 */
-  /* 완제품ID별 반제품 매핑: { [완제품ID]: [{id,n,u}, ...] } - 수동 등록 (BOM과 무관) */
-  const[semiItemsMap,setSemiItemsMap]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');}catch(e){return {};}});
+  
+  /* 옛 데이터(id 기반)에서 코드 기반으로 일회성 자동 마이그레이션 - mats 로드 후 실행 */
+  useEffect(()=>{
+    if(!mats||mats.length===0)return;
+    /* 즐겨찾기 마이그레이션 */
+    try{
+      const hasNew=localStorage.getItem('bnf_fav_mat_codes');
+      const oldIds=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
+      if(!hasNew&&oldIds.length>0){
+        const codes=oldIds.map(id=>{const m=mats.find(x=>x.id===id);return m?m.c:null;}).filter(Boolean);
+        if(codes.length>0){
+          localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(codes));
+          setFavoriteCodes(codes);
+        }
+      }
+    }catch(e){}
+    /* 반제품 매핑 마이그레이션 */
+    try{
+      const hasNew=localStorage.getItem('bnf_semi_items_map_code');
+      const oldMap=JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');
+      if(!hasNew&&Object.keys(oldMap).length>0){
+        const newMap={};
+        Object.keys(oldMap).forEach(prodId=>{
+          const prodMat=mats.find(m=>m.id===prodId);
+          if(!prodMat)return;
+          const items=oldMap[prodId]||[];
+          newMap[prodMat.c]=items.map(si=>{
+            const semiMat=mats.find(m=>m.id===si.id);
+            return{c:semiMat?semiMat.c:'',n:si.n,u:si.u};
+          }).filter(x=>x.c);
+        });
+        if(Object.keys(newMap).length>0){
+          localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(newMap));
+          setSemiItemsMapByCode(newMap);
+        }
+      }
+    }catch(e){}
+  },[mats]);
+  
   const[selectedFav,setSelectedFav]=useState(null);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
@@ -11796,9 +11801,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T09:00:fav-card-scroll-v37',
-  buildTime:'1747648800000',
-  description:'완제품 재고 현황 카드 자체에 스크롤 적용 (마우스 휠 동작) + 헤더 sticky 고정'
+  version:'2026-05-19-T09:30:syntax-fix-v38',
+  buildTime:'1747650600000',
+  description:'v36의 중복 변수 선언 SyntaxError 수정 - 즐겨찾기/반제품매핑 코드기반 안전하게 마이그레이션'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
