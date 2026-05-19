@@ -6798,28 +6798,27 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   const getFavSection=()=>{return favMats.length>0?R('div',{style:{marginBottom:14}},
     R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
       /* ═══ 좌측: 완제품 재고 현황 (클릭하면 우측에 반제품 매핑 보기) ═══ */
-      R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
-        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between'}},
+      R('div',{className:'card',style:{padding:0,maxHeight:450,overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch'}},
+        /* 헤더 - sticky로 고정 */
+        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:5}},
           R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)'}},'⭐ 완제품 재고 현황'),
           R('div',{style:{fontSize:10,color:'var(--tm)'}},
             selectedFav?R('span',{style:{color:'var(--p)',fontWeight:700}},'🔗 ',selectedFav.n.substring(0,12),(selectedFav.n.length>12?'..':''),' 선택됨'):favMats.length+'종 · 클릭하여 반제품 보기'
           )
         ),
-        /* 10개 초과 시 스크롤 - 약 10행 높이 = 약 388px */
-        R('div',{style:{maxHeight:388,overflowY:'auto'}},
-          R('table',{style:{width:'100%',fontSize:11}},
-            R('thead',{style:{position:'sticky',top:0,background:'#fff',zIndex:1}},R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
-            R('tbody',null,...favMats.map(m=>{
-              const isSel=selectedFav&&selectedFav.id===m.id;
-              return R('tr',{key:m.id,onClick:()=>{setSelectedFav(isSel?null:m);setShowSemiSearch(false);setSemiSearch('');},style:{cursor:'pointer',background:isSel?'#FFE5DA':'transparent',transition:'background 0.15s'}},
-                R('td',{style:{padding:'8px 10px',fontWeight:isSel?800:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSel?'var(--p)':'#1A1A1A'}},
-                  isSel?R('span',{style:{marginRight:4}},'▶'):'',m.n
-                ),
-                R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,' ',m.u),
-                R('td',null,R('button',{onClick:e=>{e.stopPropagation();toggleFav(m.id);if(isSel)setSelectedFav(null);},title:'즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024'}},'⭐'))
-              );
-            }))
-          )
+        /* 표 */
+        R('table',{style:{width:'100%',fontSize:11}},
+          R('thead',{style:{position:'sticky',top:42,background:'#fff',zIndex:4}},R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
+          R('tbody',null,...favMats.map(m=>{
+            const isSel=selectedFav&&selectedFav.id===m.id;
+            return R('tr',{key:m.id,onClick:()=>{setSelectedFav(isSel?null:m);setShowSemiSearch(false);setSemiSearch('');},style:{cursor:'pointer',background:isSel?'#FFE5DA':'transparent',transition:'background 0.15s'}},
+              R('td',{style:{padding:'8px 10px',fontWeight:isSel?800:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSel?'var(--p)':'#1A1A1A'}},
+                isSel?R('span',{style:{marginRight:4}},'▶'):'',m.n
+              ),
+              R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,' ',m.u),
+              R('td',null,R('button',{onClick:e=>{e.stopPropagation();toggleFav(m.id);if(isSel)setSelectedFav(null);},title:'즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024'}},'⭐'))
+            );
+          }))
         )
       ),
       /* ═══ 우측: 선택된 완제품의 반제품 재고 (수동 매핑) ═══ */
@@ -11797,9 +11796,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T08:30:fav-semi-by-code-v36',
-  buildTime:'1747647000000',
-  description:'즐겨찾기/반제품매핑을 코드(c)기반으로 변경 → 삭제/재업로드 후 자동복원 + 완제품재고 10개 스크롤'
+  version:'2026-05-19-T09:00:fav-card-scroll-v37',
+  buildTime:'1747648800000',
+  description:'완제품 재고 현황 카드 자체에 스크롤 적용 (마우스 휠 동작) + 헤더 sticky 고정'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
