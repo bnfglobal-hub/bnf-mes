@@ -6426,44 +6426,42 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       return;
     }
     setErpSyncing(true);
-    setErpStatus('이카운트 로그인 중...');
+    setErpStatus('Edge Function 통해 이카운트 호출 중...');
     try{
-      /* Step 1: 이카운트 로그인 */
-      const zone=erpCreds.zone||'CA';
-      const loginURL='https://oapi'+zone+'.ecount.com/OAPI/V2/OAPILogin';
-      const loginResp=await fetch(loginURL,{
+      /* Supabase Edge Function 'ecount-sync'로 프록시 호출 (CORS 우회) */
+      const SB_BASE=(typeof SB_URL!=='undefined'?SB_URL:'').replace(/\/$/,'');
+      const EDGE_URL=SB_BASE+'/functions/v1/ecount-sync';
+      const resp=await fetch(EDGE_URL,{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{
+          'Content-Type':'application/json',
+          'apikey':SB_KEY||'',
+          'Authorization':'Bearer '+(SB_KEY||'')
+        },
         body:JSON.stringify({
-          COM_CODE:erpCreds.com_code,
-          USER_ID:erpCreds.user_id,
-          API_CERT_KEY:erpCreds.api_cert_key,
-          LAN_TYPE:'ko-KR',
-          ZONE:zone
+          com_code:erpCreds.com_code,
+          user_id:erpCreds.user_id,
+          api_cert_key:erpCreds.api_cert_key,
+          zone:erpCreds.zone||'CA'
         })
       });
-      if(!loginResp.ok)throw new Error('로그인 실패 ('+loginResp.status+')');
-      const loginData=await loginResp.json();
-      const sessionId=loginData?.Data?.Datas?.SESSION_ID||loginData?.Data?.SESSION_ID;
-      if(!sessionId)throw new Error('세션 ID 없음 - 인증 정보를 확인하세요');
+      if(!resp.ok){
+        const errTxt=await resp.text();
+        if(resp.status===404){
+          throw new Error('NO_EDGE_FUNCTION');
+        }
+        throw new Error('Edge Function 오류 ('+resp.status+'): '+errTxt.slice(0,200));
+      }
+      const result=await resp.json();
+      if(!result||!result.items){
+        throw new Error(result.error||'재고 데이터 없음');
+      }
+      const items=result.items;
 
-      /* Step 2: 재고 조회 */
-      setErpStatus('재고 데이터 가져오는 중...');
-      const today=new Date().toISOString().slice(0,10).replace(/-/g,'');
-      const invURL='https://oapi'+zone+'.ecount.com/OAPI/V2/ViewInventory/GetListInventoryStatus?SESSION_ID='+sessionId;
-      const invResp=await fetch(invURL,{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({BASE_DATE:today})
-      });
-      if(!invResp.ok)throw new Error('재고 조회 실패 ('+invResp.status+')');
-      const invData=await invResp.json();
-      const items=invData?.Data?.Result||invData?.Data||[];
-      if(!Array.isArray(items))throw new Error('재고 데이터 형식 오류');
-
-      /* Step 3: 받은 데이터로 mats 매칭 업데이트 */
+      /* 받은 데이터로 mats 매칭 업데이트 */
       setErpStatus('재고 정보 업데이트 중... ('+items.length+'개)');
       let matched=0,unmatched=0;
+      const unmatchedList=[];
       items.forEach(it=>{
         const code=(it.PROD_CD||it.ITEM_CD||it.code||'').trim();
         const stock=parseFloat(it.BAL_QTY||it.STOCK||it.qty||0)||0;
@@ -6472,16 +6470,26 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
         if(mat){
           onUpd&&onUpd(mat.id,{...mat,s:stock});
           matched++;
-        }else unmatched++;
+        }else{
+          unmatched++;
+          if(unmatchedList.length<5)unmatchedList.push(code);
+        }
       });
 
       setErpStatus('');
-      alert('✅ 동기화 완료\n\n매칭: '+matched+'개\n미매칭: '+unmatched+'개\n\n'+(unmatched>0?'※ 코드가 일치하지 않는 품목은 수동 매칭하세요.':''));
+      let msg='✅ 동기화 완료\n\n매칭: '+matched+'개\n미매칭: '+unmatched+'개';
+      if(unmatchedList.length>0){
+        msg+='\n\n미매칭 코드 예: '+unmatchedList.join(', ');
+        msg+='\n※ 이 품목들은 이천공장 시스템에 없거나 코드가 다릅니다.';
+      }
+      alert(msg);
     }catch(e){
       setErpStatus('');
       let msg=e.message||'알 수 없는 오류';
-      if(msg.includes('Failed to fetch')||msg.includes('NetworkError')||msg.includes('CORS')){
-        msg='\n\n❌ CORS 차단 (브라우저 보안)\n\n이카운트 OPEN API는 보안상 브라우저에서 직접 호출이 차단됩니다.\n\n해결 방법:\n1) Supabase Edge Function으로 프록시 구성\n2) 백엔드 서버 추가\n3) 또는 현재 방식대로 Excel 다운로드 → 업로드\n\n자세한 안내는 채팅으로 요청해주세요.';
+      if(msg==='NO_EDGE_FUNCTION'){
+        msg='❌ Supabase Edge Function "ecount-sync"가 배포되지 않았습니다.\n\n이카운트 API는 CORS 보안 때문에 브라우저에서 직접 호출 불가능합니다.\n\n해결: Supabase에 ecount-sync Edge Function을 배포해주세요.\n(가이드 파일이 제공됩니다)';
+      }else if(msg.includes('Failed to fetch')||msg.includes('NetworkError')){
+        msg='❌ Supabase 연결 실패\n\n인터넷 연결을 확인하거나, Supabase 프로젝트가 정상 작동 중인지 확인하세요.';
       }
       alert('동기화 실패\n\n'+msg);
     }
@@ -6545,6 +6553,71 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
         style:{position:'absolute',left:-9999,top:-9999,opacity:0,pointerEvents:'none'},
         onChange:handleFileChange
       }),
+
+      /* ═══ 이카운트 ERP 자동 동기화 (최상단 배치) ═══ */
+      R('div',{className:'card',style:{padding:16,marginBottom:14,background:'linear-gradient(135deg,#F0F9FF,#E0F2FE)',border:'1px solid #93C5FD'}},
+        R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}},
+          R('div',null,
+            R('div',{style:{fontSize:14,fontWeight:800,color:'#1E40AF',marginBottom:4}},'🔄 ERP 자동 동기화'),
+            R('div',{style:{fontSize:11,color:'#3B82F6'}},
+              erpCreds.com_code
+                ?'연결됨: '+erpCreds.com_code+' / '+erpCreds.user_id+' (Zone: '+erpCreds.zone+')'
+                :'이카운트 OPEN API로 재고 자동 동기화 (인증 정보 입력 필요)'
+            ),
+            erpStatus&&R('div',{style:{fontSize:11,color:'#7C3AED',marginTop:4,fontWeight:700}},'⏳ ',erpStatus)
+          ),
+          R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+            R('button',{onClick:openErpSettings,disabled:erpSyncing,style:{background:'#fff',color:'#1E40AF',border:'1px solid #93C5FD',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:12,fontWeight:700}},'⚙ ERP 설정'),
+            R('button',{onClick:syncFromERP,disabled:erpSyncing,style:{background:erpSyncing?'#9CA3AF':'#1E40AF',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:erpSyncing?'not-allowed':'pointer',fontSize:12,fontWeight:800}},erpSyncing?'⏳ 동기화 중...':'🔄 ERP 동기화')
+          )
+        ),
+        R('div',{style:{marginTop:10,padding:10,background:'rgba(255,255,255,0.6)',borderRadius:8,fontSize:11,color:'#1E40AF',lineHeight:1.6}},
+          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠ 사전 준비'),
+          '① 이카운트 ERP에 OPEN API 사용 신청 필요 (이카운트 고객센터 문의)',R('br'),
+          '② API 인증키(API_CERT_KEY) 발급 받기',R('br'),
+          '③ [⚙ ERP 설정]에서 회사코드 / 사용자 ID / 인증키 / Zone 입력',R('br'),
+          '④ [🔄 ERP 동기화] 버튼 클릭'
+        )
+      ),
+
+      /* ═══ 재고 데이터 관리 (위험 작업) ═══ */
+      R('div',{className:'card',style:{padding:14,marginBottom:14,background:'#FEF2F2',border:'1px solid #FECACA'}},
+        R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}},
+          R('div',null,
+            R('div',{style:{fontSize:13,fontWeight:800,color:'#991B1B',marginBottom:3}},'🗑 재고 데이터 관리'),
+            R('div',{style:{fontSize:11,color:'#DC2626'}},'전체 '+mats.length+'종 품목 · 현재 누적된 재고 데이터를 초기화할 수 있습니다')
+          ),
+          R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+            /* 재고만 0으로 (품목은 유지) */
+            R('button',{
+              onClick:()=>{
+                if(!isAdmin){alert('관리자만 가능합니다');return;}
+                if(!confirm('⚠️ 모든 품목의 재고 수량을 0으로 초기화합니다.\n\n품목 목록은 유지되고, 재고 수량(s)과 월 사용량(mu)만 0으로 리셋됩니다.\n계속하시겠습니까?'))return;
+                if(!confirm('정말로 진행하시겠습니까? 이 작업은 되돌릴 수 없습니다.'))return;
+                mats.forEach(m=>{onUpd&&onUpd(m.id,{...m,s:0});});
+                alert('✅ '+mats.length+'개 품목의 재고가 0으로 초기화되었습니다');
+              },
+              style:{background:'#fff',color:'#991B1B',border:'1px solid #FCA5A5',borderRadius:8,padding:'7px 12px',cursor:'pointer',fontSize:11,fontWeight:700}
+            },'⌀ 재고만 0으로'),
+            /* 전체 품목 삭제 */
+            R('button',{
+              onClick:()=>{
+                if(!isAdmin){alert('관리자만 가능합니다');return;}
+                const cnt=mats.length;
+                if(cnt===0){alert('삭제할 품목이 없습니다');return;}
+                const code=prompt('⚠️ 위험: 전체 '+cnt+'종 품목을 영구 삭제합니다.\n\n품목 데이터 / 재고 / 입출고 이력 / BOM 매핑 모두 사라집니다.\n\n진행하시려면 아래에 "삭제"를 입력하세요:');
+                if(code!=='삭제'){alert('취소되었습니다');return;}
+                if(!confirm('마지막 확인: 정말 '+cnt+'개 품목을 전부 삭제하시겠습니까?\n\n이 작업은 절대 되돌릴 수 없습니다.'))return;
+                /* 한 번에 모든 ID 삭제 */
+                const ids=mats.map(m=>m.id);
+                ids.forEach(id=>onDel&&onDel(id));
+                alert('✅ '+cnt+'개 품목이 모두 삭제되었습니다');
+              },
+              style:{background:'#991B1B',color:'#fff',border:'none',borderRadius:8,padding:'7px 12px',cursor:'pointer',fontSize:11,fontWeight:700}
+            },'🗑 전체 품목 삭제')
+          )
+        )
+      ),
       
       /* 메인 업로드 박스 */
       R('div',{
@@ -6561,32 +6634,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
           onClick:handleUploadClick,
           style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'8px 20px',cursor:'pointer',fontSize:12,fontWeight:700,marginTop:6}
         },'📁 파일 선택')
-      ),
-
-      /* ═══ 이카운트 ERP 자동 동기화 ═══ */
-      R('div',{className:'card',style:{padding:16,marginBottom:14,background:'linear-gradient(135deg,#F0F9FF,#E0F2FE)',border:'1px solid #93C5FD'}},
-        R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}},
-          R('div',null,
-            R('div',{style:{fontSize:14,fontWeight:800,color:'#1E40AF',marginBottom:4}},'🔄 ERP 자동 동기화'),
-            R('div',{style:{fontSize:11,color:'#3B82F6'}},
-              erpCreds.com_code
-                ?'연결됨: '+erpCreds.com_code+' / '+erpCreds.user_id+' (Zone: '+erpCreds.zone+')'
-                :'이카운트 OPEN API로 재고 자동 동기화 (인증 정보 입력 필요)'
-            ),
-            erpStatus&&R('div',{style:{fontSize:11,color:'#7C3AED',marginTop:4,fontWeight:700}},'⏳ ',erpStatus)
-          ),
-          R('div',{style:{display:'flex',gap:6}},
-            R('button',{onClick:openErpSettings,disabled:erpSyncing,style:{background:'#fff',color:'#1E40AF',border:'1px solid #93C5FD',borderRadius:8,padding:'8px 14px',cursor:'pointer',fontSize:12,fontWeight:700}},'⚙ ERP 설정'),
-            R('button',{onClick:syncFromERP,disabled:erpSyncing,style:{background:erpSyncing?'#9CA3AF':'#1E40AF',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:erpSyncing?'not-allowed':'pointer',fontSize:12,fontWeight:800}},erpSyncing?'⏳ 동기화 중...':'🔄 ERP 동기화')
-          )
-        ),
-        R('div',{style:{marginTop:10,padding:10,background:'rgba(255,255,255,0.6)',borderRadius:8,fontSize:11,color:'#1E40AF',lineHeight:1.6}},
-          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠ 사전 준비'),
-          '① 이카운트 ERP에 OPEN API 사용 신청 필요 (이카운트 고객센터 문의)',R('br'),
-          '② API 인증키(API_CERT_KEY) 발급 받기',R('br'),
-          '③ [⚙ ERP 설정]에서 회사코드 / 사용자 ID / 인증키 / Zone 입력',R('br'),
-          '④ [🔄 ERP 동기화] 버튼 클릭'
-        )
       ),
       
       /* ERP 인증 정보 입력 모달 */
@@ -11640,9 +11687,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-15-T00:30:icon-kurly-style-v31',
-  buildTime:'1747244400000',
-  description:'iOS 홈 아이콘 마켓컬리 스타일 - 산세리프 + 가로선 + 캡슐형 MES 뱃지'
+  version:'2026-05-15-T01:00:ecount-sync-edge-v32',
+  buildTime:'1747246200000',
+  description:'재고관리: ERP동기화 상단 이동 + 데이터삭제 버튼 + 이카운트 동기화 Edge Function 우회'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
