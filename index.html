@@ -10926,7 +10926,8 @@ const DEFAULT_NAV_SECTIONS=[
         {id:'prod',l:'생산 지시',ic:'🏭'},
         {id:'orders',l:'발주현황',ic:'🚚'},
         {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
-        {id:'sched',l:'생산 스케줄',ic:'📅'}
+        {id:'sched',l:'생산 스케줄',ic:'📅'},
+        {id:'shipSched',l:'출고 스케줄',ic:'🚚'}
       ]},
       {label:'🔬 연구소',items:[
         {id:'research',l:'연구개발 현황',ic:'🔬'},
@@ -10972,6 +10973,27 @@ function loadNavSections(){
     if(saved){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
+        /* 경영지원팀에 shipSched 없으면 자동 추가 (마이그레이션) */
+        let updated=false;
+        p.forEach(sec=>{
+          if(sec.subSections){
+            sec.subSections.forEach(sub=>{
+              if(sub.label&&sub.label.includes('경영지원팀')&&sub.items){
+                const hasShip=sub.items.some(x=>x.id==='shipSched');
+                if(!hasShip){
+                  const schedIdx=sub.items.findIndex(x=>x.id==='sched');
+                  if(schedIdx>=0){
+                    sub.items.splice(schedIdx+1,0,{id:'shipSched',l:'출고 스케줄',ic:'🚚'});
+                  }else{
+                    sub.items.push({id:'shipSched',l:'출고 스케줄',ic:'🚚'});
+                  }
+                  updated=true;
+                }
+              }
+            });
+          }
+        });
+        if(updated){localStorage.setItem('bnf_nav_sections_v11',JSON.stringify(p));}
         return p;
       }
     }
@@ -12274,9 +12296,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T11:30:print-no-script-tag-v42',
-  buildTime:'1747657800000',
-  description:'파레트 인쇄 html 안의 script 태그 완전 제거 - 부모창에서 w.print() 직접 호출'
+  version:'2026-05-19-T12:00:shipSched-menu-fix-v43',
+  buildTime:'1747659600000',
+  description:'출고 스케줄 메뉴 DEFAULT_NAV_SECTIONS에 추가 + localStorage 저장 메뉴도 자동 마이그레이션'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
