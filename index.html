@@ -5840,8 +5840,8 @@ function ExchangeRateWidget(){
   
   useEffect(()=>{
     load();
-    /* 네이버 크롤링이 가능한 경우 5분마다 자동 갱신 (Edge Function 사용 시 의미 있음) */
-    const t=setInterval(load,5*60*1000);
+    /* 6시간마다 자동 갱신 (인트라넷 부하 감소) */
+    const t=setInterval(load,6*60*60*1000);
     return()=>clearInterval(t);
   },[]);
   
@@ -6242,7 +6242,63 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   const[search,setSearch]=useState('');
   const[catF,setCatF]=useState('전체');
   const[sortBy,setSortBy]=useState('cat');
-  const[favorites,setFavorites]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');}catch(e){return [];}});
+  /* 즐겨찾기는 코드(c) 기준으로 저장 (mat.id가 ERP 업로드 시 바뀌어도 보존됨) */
+  const[favoriteCodes,setFavoriteCodes]=useState(()=>{
+    try{
+      const v=JSON.parse(localStorage.getItem('bnf_fav_mat_codes')||'null');
+      if(v)return v;
+      /* 마이그레이션: 옛 id 기반 데이터를 코드 기반으로 변환 */
+      const oldIds=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
+      if(oldIds.length>0){
+        const codes=oldIds.map(id=>{const m=mats.find(x=>x.id===id);return m?m.c:null;}).filter(Boolean);
+        localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(codes));
+        return codes;
+      }
+      return [];
+    }catch(e){return [];}
+  });
+  /* 호환성: favorites 라는 이름으로도 접근 가능 (현재 mats 기준 id 배열) */
+  const favorites=useMemo(()=>favoriteCodes.map(c=>{const m=mats.find(x=>x.c===c);return m?m.id:null;}).filter(Boolean),[favoriteCodes,mats]);
+  const setFavorites=null; /* 직접 호출 방지 */
+  
+  /* 반제품 매핑도 코드 기반으로 저장 (완제품 코드 → 반제품 코드 배열) */
+  const[semiItemsMapByCode,setSemiItemsMapByCode]=useState(()=>{
+    try{
+      const v=JSON.parse(localStorage.getItem('bnf_semi_items_map_code')||'null');
+      if(v)return v;
+      /* 마이그레이션: 옛 id 기반 → 코드 기반 변환 */
+      const oldMap=JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');
+      const newMap={};
+      Object.keys(oldMap).forEach(prodId=>{
+        const prodMat=mats.find(m=>m.id===prodId);
+        if(!prodMat)return;
+        const items=oldMap[prodId]||[];
+        newMap[prodMat.c]=items.map(si=>{
+          const semiMat=mats.find(m=>m.id===si.id);
+          return{c:semiMat?semiMat.c:'',n:si.n,u:si.u};
+        }).filter(x=>x.c);
+      });
+      if(Object.keys(newMap).length>0){
+        localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(newMap));
+      }
+      return newMap;
+    }catch(e){return {};}
+  });
+  /* 호환성: semiItemsMap 이름으로 id 기반 변환 view */
+  const semiItemsMap=useMemo(()=>{
+    const result={};
+    Object.keys(semiItemsMapByCode).forEach(prodCode=>{
+      const prodMat=mats.find(m=>m.c===prodCode);
+      if(!prodMat)return;
+      const items=semiItemsMapByCode[prodCode]||[];
+      result[prodMat.id]=items.map(si=>{
+        const semiMat=mats.find(m=>m.c===si.c);
+        return{id:semiMat?semiMat.id:'__missing__'+si.c,n:si.n,u:si.u};
+      });
+    });
+    return result;
+  },[semiItemsMapByCode,mats]);
+  const setSemiItemsMap=null; /* 직접 호출 방지 */
   /* 완제품ID별 반제품 매핑: { [완제품ID]: [{id,n,u}, ...] } - 수동 등록 (BOM과 무관) */
   const[semiItemsMap,setSemiItemsMap]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');}catch(e){return {};}});
   const[selectedFav,setSelectedFav]=useState(null);
@@ -6321,33 +6377,46 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
     return b;
   },[mats,catF,search,sortBy]);
   /* 즐겨찾기/반제품 함수 & 데이터 (ERP 탭, 일반 탭 둘 다에서 사용) */
+  /* id로 호출되더라도 내부적으로는 코드(c)로 변환해서 저장 → ERP 업로드/삭제해도 보존됨 */
   const toggleFav=(id)=>{
-    setFavorites(prev=>{
-      const next=prev.includes(id)?prev.filter(x=>x!==id):[...prev,id];
-      localStorage.setItem('bnf_fav_mats',JSON.stringify(next));
+    const mat=mats.find(m=>m.id===id);
+    if(!mat)return;
+    const code=mat.c;
+    setFavoriteCodes(prev=>{
+      const next=prev.includes(code)?prev.filter(x=>x!==code):[...prev,code];
+      localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(next));
       return next;
     });
   };
   /* 선택된 완제품에 반제품 추가 (수동 매핑) - 검색어 유지하여 연속 클릭 가능 */
   const addSemi=(mat)=>{
     if(!selectedFav){alert('먼저 좌측에서 완제품을 선택하세요');return;}
-    const favId=selectedFav.id;
-    setSemiItemsMap(prev=>{
-      const cur=prev[favId]||[];
-      if(cur.find(x=>x.id===mat.id))return prev;
-      const next={...prev,[favId]:[...cur,{id:mat.id,n:mat.n,u:mat.u}]};
-      localStorage.setItem('bnf_semi_items_map',JSON.stringify(next));
+    const prodCode=selectedFav.c;
+    if(!prodCode||!mat.c)return;
+    setSemiItemsMapByCode(prev=>{
+      const cur=prev[prodCode]||[];
+      if(cur.find(x=>x.c===mat.c))return prev;
+      const next={...prev,[prodCode]:[...cur,{c:mat.c,n:mat.n,u:mat.u}]};
+      localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
       return next;
     });
-    /* setSemiSearch('') 제거 - 검색어 유지 → 이미 추가된 항목은 결과에서 자동 제외되고 나머지 클릭 계속 가능 */
   };
   const removeSemi=(id)=>{
     if(!selectedFav)return;
-    const favId=selectedFav.id;
-    setSemiItemsMap(prev=>{
-      const cur=prev[favId]||[];
-      const next={...prev,[favId]:cur.filter(x=>x.id!==id)};
-      localStorage.setItem('bnf_semi_items_map',JSON.stringify(next));
+    const prodCode=selectedFav.c;
+    /* id로 전달받은 반제품을 코드로 변환 */
+    const semiMat=mats.find(m=>m.id===id);
+    const semiCode=semiMat?semiMat.c:null;
+    /* 만약 mat이 이미 삭제된 경우 id에서 __missing__ 접두어로 추적 */
+    let codeToRemove=semiCode;
+    if(!codeToRemove&&typeof id==='string'&&id.startsWith('__missing__')){
+      codeToRemove=id.replace('__missing__','');
+    }
+    if(!codeToRemove)return;
+    setSemiItemsMapByCode(prev=>{
+      const cur=prev[prodCode]||[];
+      const next={...prev,[prodCode]:cur.filter(x=>x.c!==codeToRemove)};
+      localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
       return next;
     });
   };
@@ -6486,13 +6555,23 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       if(result&&result.verification_progress){
         setErpStatus('');
         const v=result.verification_progress;
-        let msg='🔍 이카운트 API 검증 진행 중\n\n';
-        msg+='로그인 API: '+(v.login_called?'호출됨 ✓':'미호출 ✗')+'\n';
-        if(v.login_message)msg+='  → '+v.login_message+'\n';
-        msg+='재고조회 API: '+(v.inventory_called?'호출됨 ✓':'미호출 ✗')+'\n';
-        if(v.inventory_message)msg+='  → '+v.inventory_message+'\n';
-        msg+='\n📌 이카운트 → API 인증현황 페이지에서\n   "검증된 메뉴" 목록 확인하세요.';
-        msg+='\n\n검증 완료 시 운영 인증키 발급 가능.';
+        let msg='⚠ 실 데이터 동기화 안 됨 (테스트 인증키 사용 중)\n\n';
+        msg+='━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        msg+='【API 호출 상태】\n';
+        msg+='  로그인: '+(v.login_called?'✓ 호출됨':'✗ 미호출');
+        if(v.login_message)msg+=' ('+v.login_message+')';
+        msg+='\n  재고조회: '+(v.inventory_called?'✓ 호출됨':'✗ 미호출');
+        if(v.inventory_message)msg+=' ('+v.inventory_message+')';
+        msg+='\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+        msg+='📌 현재 상황\n';
+        msg+='테스트 인증키로는 실제 재고 데이터를 받을 수 없습니다.\n';
+        msg+='API 호출만 이뤄지고 이카운트 검증 카운트가 쌓이는 중입니다.\n\n';
+        msg+='📌 다음 단계\n';
+        msg+='1. 이카운트 → API 인증현황 페이지에서 "검증된 메뉴" 확인\n';
+        msg+='2. 검증 완료 후 [키발급] 으로 운영 인증키 받기\n';
+        msg+='3. 운영 키 받으면 사이트 ERP 설정에서 키 교체\n';
+        msg+='4. 그 후 동기화 → 실제 재고 데이터 들어옴\n\n';
+        msg+='💡 그 전까지는 엑셀 다운로드 → 업로드 방식 사용';
         alert(msg);
         return;
       }
@@ -6587,11 +6666,14 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
           )
         ),
         R('div',{style:{marginTop:10,padding:10,background:'rgba(255,255,255,0.6)',borderRadius:8,fontSize:11,color:'#1E40AF',lineHeight:1.6}},
-          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠ 사전 준비'),
-          '① 이카운트 ERP에 OPEN API 사용 신청 필요 (이카운트 고객센터 문의)',R('br'),
-          '② API 인증키(API_CERT_KEY) 발급 받기',R('br'),
-          '③ [⚙ ERP 설정]에서 회사코드 / 사용자 ID / 인증키 / Zone 입력',R('br'),
-          '④ [🔄 ERP 동기화] 버튼 클릭'
+          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠ 사용 단계'),
+          '① 이카운트 ERP에서 OPEN API 신청 → 테스트 인증키 발급',R('br'),
+          '② [⚙ ERP 설정]에서 회사코드 / 사용자ID / 인증키 / Zone 입력',R('br'),
+          '③ [🔄 ERP 동기화] 여러 번 호출 → 이카운트 검증 카운트 증가',R('br'),
+          '④ 이카운트 API 인증현황에서 검증 완료 확인 → [키발급]으로 ',R('b',null,'운영 인증키'),' 받기',R('br'),
+          '⑤ 사이트 ERP 설정에서 운영 인증키로 교체 → 그제서야 실 재고 데이터 동기화 가능',R('br'),
+          R('br'),
+          R('span',{style:{color:'#DC2626',fontWeight:700}},'※ 테스트 인증키 상태에서는 동기화해도 실 재고 데이터가 들어오지 않습니다 (검증 카운트만 쌓임)')
         )
       ),
 
@@ -6629,14 +6711,14 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
                 const toDelete=mats.filter(m=>!usedCodes.has(m.c));
                 const willKeep=mats.length-toDelete.length;
                 if(toDelete.length===0){
-                  alert('삭제 가능한 품목이 없습니다.\n\n현재 모든 품목('+mats.length+'종)이 BOM에서 사용 중입니다.\nBOM 보호 정책으로 인해 삭제할 수 없습니다.');
+                  alert('삭제 가능한 품목이 없습니다.\n\n현재 모든 품목('+mats.length+'종)이 BOM에서 사용 중입니다.');
                   return;
                 }
-                const code=prompt('🔒 BOM 보호 모드로 재고 품목을 삭제합니다.\n\n• 삭제 대상: '+toDelete.length+'종 (BOM에서 사용 안 함)\n• 보호: '+willKeep+'종 (BOM에 사용 중)\n• BOM 자체: 영향 없음 (모두 보존)\n\n진행하려면 아래에 "삭제"를 입력하세요:');
+                const code=prompt('🔒 재고 품목 삭제 (BOM 보호 모드)\n\n【삭제 대상】 '+toDelete.length+'종 (BOM 미사용)\n【보호 대상】 '+willKeep+'종 (BOM 사용 중)\n\n【다음 데이터는 보존됩니다】\n  ✓ BOM 데이터 (완제품 17종 등)\n  ✓ 완제품 즐겨찾기 (코드 기준)\n  ✓ 완제품-반제품 매핑\n  ✓ 본사재고 데이터 (코드 기준)\n\n👉 ERP에서 같은 품목을 재업로드하면\n   위 데이터가 자동으로 복원됩니다.\n\n진행하려면 "삭제" 입력:');
                 if(code!=='삭제'){alert('취소되었습니다');return;}
-                if(!confirm('마지막 확인: '+toDelete.length+'개 품목을 삭제합니다.\n\nBOM에 사용 중인 '+willKeep+'개는 보호되어 남습니다.\n계속하시겠습니까?'))return;
+                if(!confirm('마지막 확인: '+toDelete.length+'개 품목을 삭제합니다.\n\nBOM/즐겨찾기/매핑/본사재고는 그대로 보존됩니다.\n계속하시겠습니까?'))return;
                 toDelete.forEach(m=>onDel&&onDel(m.id));
-                alert('✅ 삭제 완료\n\n삭제: '+toDelete.length+'개\n보호 (BOM 사용 중): '+willKeep+'개\n\nBOM 데이터는 모두 그대로 유지됩니다.');
+                alert('✅ 삭제 완료\n\n삭제: '+toDelete.length+'개\n보호 (BOM 사용 중): '+willKeep+'개\n\n💾 보존된 데이터\n  • BOM\n  • 즐겨찾기 / 반제품 매핑\n  • 본사재고 / 월사용량\n\n→ ERP 재업로드 시 자동 복원됩니다.');
               },
               style:{background:'#991B1B',color:'#fff',border:'none',borderRadius:8,padding:'7px 12px',cursor:'pointer',fontSize:11,fontWeight:700}
             },'🗑 재고 품목 삭제 (BOM 보호)')
@@ -6723,18 +6805,21 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
             selectedFav?R('span',{style:{color:'var(--p)',fontWeight:700}},'🔗 ',selectedFav.n.substring(0,12),(selectedFav.n.length>12?'..':''),' 선택됨'):favMats.length+'종 · 클릭하여 반제품 보기'
           )
         ),
-        R('table',{style:{width:'100%',fontSize:11}},
-          R('thead',null,R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
-          R('tbody',null,...favMats.map(m=>{
-            const isSel=selectedFav&&selectedFav.id===m.id;
-            return R('tr',{key:m.id,onClick:()=>{setSelectedFav(isSel?null:m);setShowSemiSearch(false);setSemiSearch('');},style:{cursor:'pointer',background:isSel?'#FFE5DA':'transparent',transition:'background 0.15s'}},
-              R('td',{style:{padding:'8px 10px',fontWeight:isSel?800:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSel?'var(--p)':'#1A1A1A'}},
-                isSel?R('span',{style:{marginRight:4}},'▶'):'',m.n
-              ),
-              R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,' ',m.u),
-              R('td',null,R('button',{onClick:e=>{e.stopPropagation();toggleFav(m.id);if(isSel)setSelectedFav(null);},title:'즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024'}},'⭐'))
-            );
-          }))
+        /* 10개 초과 시 스크롤 - 약 10행 높이 = 약 388px */
+        R('div',{style:{maxHeight:388,overflowY:'auto'}},
+          R('table',{style:{width:'100%',fontSize:11}},
+            R('thead',{style:{position:'sticky',top:0,background:'#fff',zIndex:1}},R('tr',null,R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
+            R('tbody',null,...favMats.map(m=>{
+              const isSel=selectedFav&&selectedFav.id===m.id;
+              return R('tr',{key:m.id,onClick:()=>{setSelectedFav(isSel?null:m);setShowSemiSearch(false);setSemiSearch('');},style:{cursor:'pointer',background:isSel?'#FFE5DA':'transparent',transition:'background 0.15s'}},
+                R('td',{style:{padding:'8px 10px',fontWeight:isSel?800:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSel?'var(--p)':'#1A1A1A'}},
+                  isSel?R('span',{style:{marginRight:4}},'▶'):'',m.n
+                ),
+                R('td',{style:{padding:'8px 10px',textAlign:'right',fontWeight:800,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,' ',m.u),
+                R('td',null,R('button',{onClick:e=>{e.stopPropagation();toggleFav(m.id);if(isSel)setSelectedFav(null);},title:'즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024'}},'⭐'))
+              );
+            }))
+          )
         )
       ),
       /* ═══ 우측: 선택된 완제품의 반제품 재고 (수동 매핑) ═══ */
@@ -11712,9 +11797,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T07:30:bom-safe-delete-v34',
-  buildTime:'1747643400000',
-  description:'재고 품목 삭제: BOM 사용 중인 코드는 자동 보호 (BOM은 영향 없음)'
+  version:'2026-05-19-T08:30:fav-semi-by-code-v36',
+  buildTime:'1747647000000',
+  description:'즐겨찾기/반제품매핑을 코드(c)기반으로 변경 → 삭제/재업로드 후 자동복원 + 완제품재고 10개 스크롤'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
