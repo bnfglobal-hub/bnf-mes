@@ -1239,7 +1239,7 @@ function PageShipSchedule({user,isAdmin}){
       '</style></head><body>'+
       '<div class="no-print" style="background:#FBB024;color:#fff;padding:10px;text-align:center;margin-bottom:10px"><b>🖨 인쇄 미리보기</b> · Ctrl+P 또는 우상단 인쇄 버튼 클릭 · 인쇄 후 이 탭 닫기</div>'+
       labelsHtml+
-      '<script>setTimeout(()=>window.print(),500)</script>'+
+      '<scr'+'ipt>setTimeout(function(){window.print()},500)<\/scr'+'ipt>'+
       '</body></html>';
     const w=window.open('','_blank');
     w.document.write(html);
@@ -12270,9 +12270,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T10:30:inv-scroll-aj-pallet-v40',
-  buildTime:'1747654200000',
-  description:'재고 페이지 전체 스크롤 가능 + AJ 파레트 등록/라벨 인쇄 기능 (표 클립보드 복사 + 인쇄용 PDF 생성)'
+  version:'2026-05-19-T11:00:script-tag-fix-v41',
+  buildTime:'1747656000000',
+  description:'v40 긴급 수정 - 파레트 라벨 인쇄 코드의 </script> 문자열이 HTML 파서를 깨던 문제 해결'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
