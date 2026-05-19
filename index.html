@@ -980,7 +980,6 @@ function PageProdSchedule(){
 
 
 /* ═══ 출고 스케줄 (컬리 발주 PDF 자동 분석) ════════════════════════ */
-<<<<<<< HEAD
 /* ═══ 생산 통합 플래너 ════════════════════════════════════════════════ */
 function PageProductionPlanner({mats,prods,isAdmin,onCreateOrder}){
   const LS_KEY='bnf_prod_plans_v1';
@@ -1309,8 +1308,6 @@ function PageProductionPlanner({mats,prods,isAdmin,onCreateOrder}){
   );
 }
 
-=======
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
 function PageShipSchedule({user,isAdmin}){
   const[results,setResults]=useState([]); /* [{센터, 발주코드, 입고일, 품목들[]}] */
   const[loading,setLoading]=useState(false);
@@ -1345,7 +1342,6 @@ function PageShipSchedule({user,isAdmin}){
     const orderMatch=t.match(/T\d{8}_[A-Z0-9]+/);
     const orderCode=orderMatch?orderMatch[0]:'';
     /* 입고일/입차일 */
-<<<<<<< HEAD
     const dateMatch=t.match(/(\d{4}-\d{2}-\d{2})\s*\(수|목|금|토|일|월|화\)/)||t.match(/입고[^가-힣]*?(\d{4}-\d{2}-\d{2})/);
     const arrivalDate=dateMatch?dateMatch[1]:'';
     /* 센터명 */
@@ -1398,41 +1394,6 @@ function PageShipSchedule({user,isAdmin}){
     });
     
     return{center,orderCode,arrivalDate,isAgent,items,rawText:t.slice(0,800)};
-=======
-    const dateMatch=t.match(/입고(?:대행센터\s*입차)?[일\s]*[:\s]*(\d{4}-\d{2}-\d{2})/);
-    const arrivalDate=dateMatch?dateMatch[1]:'';
-    /* 센터명 - XX냉동(YY) 형식 */
-    const centerMatch=t.match(/([가-힣]+냉동\s*\([^)]+\))/);
-    let center=centerMatch?centerMatch[1].replace(/\s+/g,''):'';
-    /* 입고대행 여부 */
-    const isAgent=t.includes('입고대행');
-    /* 입고대행이면 최종 입고지가 진짜 출고지 - 창원물류대행 같은 형식으로 */
-    if(isAgent&&center){
-      center=center+' (대행)';
-    }
-
-    /* 품목 추출 정규식
-       패턴: 마스터코드 바코드 [카테고리]품명... 총수량 (소)날짜 박스수 박스당입수 규격
-       PDF 줄바꿈 처리 위해 [\s\S]+? 사용 */
-    const items=[];
-    const itemRe=/(M[K]?\d{10,11})\s+(\d{13})\s+\[([^\]]+)\]([\s\S]+?)\s+(\d+)\s+\(소\)\s*(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)\s+(\d+g)/g;
-    let m;
-    while((m=itemRe.exec(t))!==null){
-      let productName=m[4].trim().replace(/\s+/g,'');
-      items.push({
-        masterCode:m[1],
-        barcode:m[2],
-        category:m[3],
-        productName:'['+m[3]+']'+productName,
-        totalQty:parseInt(m[5]),
-        bestBefore:m[6],
-        boxes:parseInt(m[7]),
-        boxIn:parseInt(m[8]),
-        spec:m[9]
-      });
-    }
-    return{center,orderCode,arrivalDate,isAgent,items,rawText:t.slice(0,500)};
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
   };
 
   /* 파일 처리 */
@@ -1455,11 +1416,7 @@ function PageShipSchedule({user,isAdmin}){
         }
         const parsed=parsePdfText(fullText);
         if(parsed.items.length===0){
-<<<<<<< HEAD
           skipped.push(file.name+' (품목 추출 실패)\n   추출된 텍스트 앞부분: '+parsed.rawText.slice(0,200));
-=======
-          skipped.push(file.name+' (품목 추출 실패)');
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
         }else{
           parsed.fileName=file.name;
           newResults.push(parsed);
@@ -7256,73 +7213,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   const[search,setSearch]=useState('');
   const[catF,setCatF]=useState('전체');
   const[sortBy,setSortBy]=useState('cat');
-<<<<<<< HEAD
-=======
-  /* 즐겨찾기는 코드(c) 기준으로 저장 (mat.id가 ERP 업로드 시 바뀌어도 보존됨) */
-  const[favoriteCodes,setFavoriteCodes]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem('bnf_fav_mat_codes')||'[]');}catch(e){return [];}
-  });
-  /* favorites: 현재 mats 기준 id 배열 (코드를 id로 동적 변환) */
-  const favorites=useMemo(()=>favoriteCodes.map(c=>{const m=mats.find(x=>x.c===c);return m?m.id:null;}).filter(Boolean),[favoriteCodes,mats]);
-  
-  /* 반제품 매핑도 코드 기반으로 저장 (완제품 코드 → 반제품 코드 배열) */
-  const[semiItemsMapByCode,setSemiItemsMapByCode]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem('bnf_semi_items_map_code')||'{}');}catch(e){return {};}
-  });
-  /* semiItemsMap: id 기반 view (UI 호환용) */
-  const semiItemsMap=useMemo(()=>{
-    const result={};
-    Object.keys(semiItemsMapByCode).forEach(prodCode=>{
-      const prodMat=mats.find(m=>m.c===prodCode);
-      if(!prodMat)return;
-      const items=semiItemsMapByCode[prodCode]||[];
-      result[prodMat.id]=items.map(si=>{
-        const semiMat=mats.find(m=>m.c===si.c);
-        return{id:semiMat?semiMat.id:'__missing__'+si.c,n:si.n,u:si.u};
-      });
-    });
-    return result;
-  },[semiItemsMapByCode,mats]);
-  
-  /* 옛 데이터(id 기반)에서 코드 기반으로 일회성 자동 마이그레이션 - mats 로드 후 실행 */
-  useEffect(()=>{
-    if(!mats||mats.length===0)return;
-    /* 즐겨찾기 마이그레이션 */
-    try{
-      const hasNew=localStorage.getItem('bnf_fav_mat_codes');
-      const oldIds=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
-      if(!hasNew&&oldIds.length>0){
-        const codes=oldIds.map(id=>{const m=mats.find(x=>x.id===id);return m?m.c:null;}).filter(Boolean);
-        if(codes.length>0){
-          localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(codes));
-          setFavoriteCodes(codes);
-        }
-      }
-    }catch(e){}
-    /* 반제품 매핑 마이그레이션 */
-    try{
-      const hasNew=localStorage.getItem('bnf_semi_items_map_code');
-      const oldMap=JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');
-      if(!hasNew&&Object.keys(oldMap).length>0){
-        const newMap={};
-        Object.keys(oldMap).forEach(prodId=>{
-          const prodMat=mats.find(m=>m.id===prodId);
-          if(!prodMat)return;
-          const items=oldMap[prodId]||[];
-          newMap[prodMat.c]=items.map(si=>{
-            const semiMat=mats.find(m=>m.id===si.id);
-            return{c:semiMat?semiMat.c:'',n:si.n,u:si.u};
-          }).filter(x=>x.c);
-        });
-        if(Object.keys(newMap).length>0){
-          localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(newMap));
-          setSemiItemsMapByCode(newMap);
-        }
-      }
-    }catch(e){}
-  },[mats]);
-  
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
   const[selectedFav,setSelectedFav]=useState(null);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
@@ -7400,7 +7290,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   },[mats,catF,search,sortBy]);
   /* 즐겨찾기/반제품 함수 & 데이터 (ERP 탭, 일반 탭 둘 다에서 사용) */
   /* id로 호출되더라도 내부적으로는 코드(c)로 변환해서 저장 → ERP 업로드/삭제해도 보존됨 */
-<<<<<<< HEAD
   /* addSemi/removeSemi는 App 레벨에서 props로 받음 */
   const addSemi=(mat)=>{
     if(!selectedFav){alert('먼저 좌측에서 완제품을 선택하세요');return;}
@@ -7409,49 +7298,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   const removeSemi=(id)=>{
     if(!selectedFav)return;
     if(_removeSemi)_removeSemi(selectedFav,id);
-=======
-  const toggleFav=(id)=>{
-    const mat=mats.find(m=>m.id===id);
-    if(!mat)return;
-    const code=mat.c;
-    setFavoriteCodes(prev=>{
-      const next=prev.includes(code)?prev.filter(x=>x!==code):[...prev,code];
-      localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(next));
-      return next;
-    });
-  };
-  /* 선택된 완제품에 반제품 추가 (수동 매핑) - 검색어 유지하여 연속 클릭 가능 */
-  const addSemi=(mat)=>{
-    if(!selectedFav){alert('먼저 좌측에서 완제품을 선택하세요');return;}
-    const prodCode=selectedFav.c;
-    if(!prodCode||!mat.c)return;
-    setSemiItemsMapByCode(prev=>{
-      const cur=prev[prodCode]||[];
-      if(cur.find(x=>x.c===mat.c))return prev;
-      const next={...prev,[prodCode]:[...cur,{c:mat.c,n:mat.n,u:mat.u}]};
-      localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
-      return next;
-    });
-  };
-  const removeSemi=(id)=>{
-    if(!selectedFav)return;
-    const prodCode=selectedFav.c;
-    /* id로 전달받은 반제품을 코드로 변환 */
-    const semiMat=mats.find(m=>m.id===id);
-    const semiCode=semiMat?semiMat.c:null;
-    /* 만약 mat이 이미 삭제된 경우 id에서 __missing__ 접두어로 추적 */
-    let codeToRemove=semiCode;
-    if(!codeToRemove&&typeof id==='string'&&id.startsWith('__missing__')){
-      codeToRemove=id.replace('__missing__','');
-    }
-    if(!codeToRemove)return;
-    setSemiItemsMapByCode(prev=>{
-      const cur=prev[prodCode]||[];
-      const next={...prev,[prodCode]:cur.filter(x=>x.c!==codeToRemove)};
-      localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
-      return next;
-    });
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
   };
 
   const favMats=mats.filter(m=>favorites.includes(m.id)).sort((a,b)=>(a.n||'').localeCompare(b.n||'','ko'));
@@ -7923,7 +7769,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
 
   return R('div',{className:'pg fa',style:{overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch'}},
     R('div',{className:'inv-wrap'},
-<<<<<<< HEAD
       R('div',{className:'cat-col',style:{display:'none'}}),
       R('div',{className:'inv-main'},
         getFavSection(),
@@ -7931,15 +7776,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
           R('button',{className:'tab act',style:{fontSize:11,padding:'4px 12px'}},'재고목록'),
           R('button',{className:'tab',style:{fontSize:11,padding:'4px 12px'},onClick:()=>setInvTab('erp')},'📤 ERP 업로드')
         ),
-=======
-    R('div',{className:'cat-col',style:{display:'none'}}),  /* 옛 사이드바 숨김 */
-    R('div',{className:'inv-main'},
-      getFavSection(),
-      R('div',{style:{display:'flex',gap:8,marginBottom:10,alignItems:'center',borderBottom:'1px solid var(--bd)',paddingBottom:8}},
-        R('button',{className:'tab act',style:{fontSize:11,padding:'4px 12px'}},'재고목록'),
-        R('button',{className:'tab',style:{fontSize:11,padding:'4px 12px'},onClick:()=>setInvTab('erp')},'📤 ERP 업로드')
-      ),
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
       
       /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
       /* 📦 분류 필터 - 항상 잘 보이게 강조 표시   */
@@ -11575,7 +11411,6 @@ function loadNavSections(){
                   }
                   updated=true;
                 }
-<<<<<<< HEAD
                 /* prodPlan 없으면 추가 */
                 const hasPlan=sub.items.some(x=>x.id==='prodPlan');
                 if(!hasPlan){
@@ -11587,8 +11422,6 @@ function loadNavSections(){
                   }
                   updated=true;
                 }
-=======
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
               }
             });
           }
@@ -12976,15 +12809,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-<<<<<<< HEAD
   version:'2026-05-19-T15:00:mobile-table-fix-v48',
   buildTime:'1747670400000',
   description:'모바일 표 가로 스크롤 강화 (글자 겹침 X) + 견적서 진입 시 번호/날짜 자동 갱신'
-=======
-  version:'2026-05-19-T12:00:shipSched-menu-fix-v43',
-  buildTime:'1747659600000',
-  description:'출고 스케줄 메뉴 DEFAULT_NAV_SECTIONS에 추가 + localStorage 저장 메뉴도 자동 마이그레이션'
->>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
