@@ -469,6 +469,9 @@ function EC({initVal,onSave,type,style,placeholder,className,rk}){
 
 /* ═══ 인트라넷 헬퍼 ════════════════════════════════════ */
 const fDate=d=>d?new Date(d).toLocaleDateString('ko-KR'):'-';
+/* ── 안전한 문자열 검색 헬퍼 (undefined/null/number 모두 안전) ── */
+const safeStr=v=>String(v==null?'':v);
+const safeIncludes=(haystack,needle)=>safeStr(haystack).toLowerCase().includes(safeStr(needle).toLowerCase());
 const fDT=d=>d?new Date(d).toLocaleString('ko-KR'):'-';
 const fTime=d=>d?new Date(d).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-';
 function cleanItemName(name){
@@ -997,9 +1000,15 @@ function PageProductionPlanner({mats,prods,isAdmin,onCreateOrder}){
   const saveResults=(arr)=>{setResults(arr);try{localStorage.setItem('bnf_prod_results_v1',JSON.stringify(arr));}catch(e){}};
 
   const filteredProds=useMemo(()=>{
+    if(!prods||!Array.isArray(prods))return [];
     if(!prodSearch)return prods.slice(0,10);
-    const q=prodSearch.toLowerCase();
-    return prods.filter(p=>p.name&&(p.name.toLowerCase().includes(q)||p.id.includes(q))).slice(0,10);
+    const q=String(prodSearch||'').toLowerCase();
+    return prods.filter(p=>{
+      if(!p)return false;
+      const name=String(p.name||'').toLowerCase();
+      const id=String(p.id||'');
+      return name.includes(q)||id.includes(q);
+    }).slice(0,10);
   },[prodSearch,prods]);
 
   const addPlan=(prod)=>{
@@ -2748,7 +2757,7 @@ function PageResearchJournal({user}){
     if(search){
       const q=search.toLowerCase();
       const plain=(e.content||'').replace(/<[^>]+>/g,'');
-      if(!(e.title.toLowerCase().includes(q)||plain.toLowerCase().includes(q)))return false;
+      if(!(safeIncludes(e.title,q)||safeIncludes(plain,q)))return false;
     }
     return true;
   });
@@ -3070,7 +3079,7 @@ function PageOperationStrategy({user}){
     if(search){
       const q=search.toLowerCase();
       const plain=(e.content||'').replace(/<[^>]+>/g,'');
-      if(!(e.title.toLowerCase().includes(q)||plain.toLowerCase().includes(q)))return false;
+      if(!(safeIncludes(e.title,q)||safeIncludes(plain,q)))return false;
     }
     return true;
   });
@@ -7132,7 +7141,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
 
 function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[search,setSearch]=useState('');const[showD,setShowD]=useState(false);
-  const fl=useMemo(()=>{if(!search)return[];const q=search.toLowerCase();return mats.filter(m=>m.n.toLowerCase().includes(q)||m.c.includes(search)).slice(0,12);},[search,mats]);
+  const fl=useMemo(()=>{if(!search)return[];const q=search.toLowerCase();return mats.filter(m=>m&&(safeIncludes(m.n,q)||safeIncludes(m.c,search))).slice(0,12);},[search,mats]);
   const rows=hqItems.map(h=>{
     const mat=mats.find(m=>m.c===h.matCode)||{};
     const totalStock=(+h.hqStock||0)+(+mat.s||0);
@@ -7280,7 +7289,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
     let b=[...mats];
     if(catF==='부족')b=b.filter(m=>m.mu>0&&m.s<m.mu);
     else if(catF!=='전체')b=b.filter(m=>m.g===catF);
-    if(search){const q=search.toLowerCase();b=b.filter(m=>m.n.toLowerCase().includes(q)||m.c.includes(search));}
+    if(search){b=b.filter(m=>m&&(safeIncludes(m.n,search)||safeIncludes(m.c,search)));}
     if(sortBy==='name_asc')b.sort((a,x)=>a.n.localeCompare(x.n,'ko'));
     else if(sortBy==='name_desc')b.sort((a,x)=>x.n.localeCompare(a.n,'ko'));
     else if(sortBy==='stock_desc')b.sort((a,x)=>x.s-a.s);
@@ -7317,7 +7326,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
     const q=semiSearch.toLowerCase();
     return mats.filter(m=>
       m.id!==selectedFav.id&&
-      m.n&&(m.n.toLowerCase().includes(q)||(m.c&&String(m.c).includes(semiSearch)))&&
+      (safeIncludes(m.n,q)||safeIncludes(m.c,semiSearch))&&
       !curList.find(x=>x.id===m.id)
     ).slice(0,10);
   },[semiSearch,selectedFav,semiItemsMap,mats]);
@@ -7917,12 +7926,12 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
   const fl=useMemo(()=>{
     if(!search)return[];
     const q=search.toLowerCase();
-    return mats.filter(m=>m.n.toLowerCase().includes(q)||m.c.includes(search)).slice(0,12);
+    return mats.filter(m=>m&&(safeIncludes(m.n,q)||safeIncludes(m.c,search))).slice(0,12);
   },[search,mats]);
   const pfl=useMemo(()=>{
     if(!pSearch)return[];
     const q=pSearch.toLowerCase();
-    return mats.filter(m=>m.g==='제품'&&(m.n.toLowerCase().includes(q)||m.c.includes(pSearch))).slice(0,8);
+    return mats.filter(m=>m&&m.g==='제품'&&(safeIncludes(m.n,q)||safeIncludes(m.c,pSearch))).slice(0,8);
   },[pSearch,mats]);
   const addBom=m=>{
     if(bom.find(b=>b.c===m.c))return;
@@ -8024,9 +8033,15 @@ function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal}){
   const[expId,setExpId]=useState(null);
   const[editMod,setEditMod]=useState(null);
   const filtered=useMemo(()=>{
+    if(!prods||!Array.isArray(prods))return [];
     if(!prodSearch)return prods;
-    const q=prodSearch.toLowerCase();
-    return prods.filter(p=>p.name.toLowerCase().includes(q)||p.cat.includes(q));
+    const q=String(prodSearch||'').toLowerCase();
+    return prods.filter(p=>{
+      if(!p)return false;
+      const name=String(p.name||'').toLowerCase();
+      const cat=String(p.cat||'');
+      return name.includes(q)||cat.includes(q);
+    });
   },[prods,prodSearch]);
   return R('div',{className:'pg fa'},
     R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:14,flexWrap:'wrap'}},
@@ -8403,7 +8418,17 @@ function PageQuote({quote,setQuote,user}){
   const vat=quote.vat?Math.round(supply*0.1):0;
   const total=supply+vat;
   
-  const filteredCust=custSearch?custList.filter(c=>c.name.toLowerCase().includes(custSearch.toLowerCase())||c.rep?.toLowerCase().includes(custSearch.toLowerCase())):custList.slice(0,10);
+  const filteredCust=useMemo(()=>{
+    if(!custList||!Array.isArray(custList))return [];
+    if(!custSearch)return custList.slice(0,10);
+    const q=String(custSearch||'').toLowerCase();
+    return custList.filter(c=>{
+      if(!c)return false;
+      const name=String(c.name||'').toLowerCase();
+      const rep=String(c.rep||'').toLowerCase();
+      return name.includes(q)||rep.includes(q);
+    });
+  },[custList,custSearch]);
   
   const selectCust=(c)=>{
     setQuote(p=>({...p,company:{name:c.name,rep:c.rep||'',bizNum:c.biz_num||'',tel:c.tel||'',fax:c.fax||'',addr:c.addr||''}}));
@@ -9115,7 +9140,16 @@ function PageFiles({user}){
     }catch(e){alert('삭제 실패: '+e.message);}
   };
   
-  const visibleFiles=files.filter(f=>{if(f.folder!==currentFolder)return false;if(search&&!f.name.toLowerCase().includes(search.toLowerCase()))return false;return true;});
+  const visibleFiles=files.filter(f=>{
+    if(!f)return false;
+    if(f.folder!==currentFolder)return false;
+    if(search){
+      const fname=String(f.name||'').toLowerCase();
+      const q=String(search||'').toLowerCase();
+      if(!fname.includes(q))return false;
+    }
+    return true;
+  });
   const fSize=b=>{if(!b)return'-';const k=b/1024;if(k<1024)return k.toFixed(1)+' KB';const m=k/1024;if(m<1024)return m.toFixed(1)+' MB';return(m/1024).toFixed(2)+' GB';};
   const fIcon=(f)=>{const ext=(f.name.split('.').pop()||'').toLowerCase();if(['jpg','jpeg','png','gif','webp'].includes(ext))return'🖼️';if(['xlsx','xls','csv'].includes(ext))return'📊';if(['pptx','ppt'].includes(ext))return'📽️';if(['doc','docx','hwp'].includes(ext))return'📝';if(ext==='pdf')return'📕';if(['zip','rar'].includes(ext))return'🗜️';return'📄';};
   const totalSize=files.reduce((s,f)=>s+(+f.size_bytes||0),0);
@@ -9537,7 +9571,7 @@ function PagePurchaseAnalysis({mats,variant='hq'}){
       ),
       R('table',null,
         R('thead',null,R('tr',null,R('th',null,'거래처'),R('th',{style:{textAlign:'right'}},'품목수'),R('th',{style:{textAlign:'right'}},'총 매입금액'),R('th',{style:{textAlign:'right'}},'비율'),R('th',null,'월별 추이'))),
-        R('tbody',null,...supplierStats.filter(s=>!searchSupplier||s.name.toLowerCase().includes(searchSupplier.toLowerCase())).slice(0,30).map((sup,idx)=>R('tr',{key:sup.name,onClick:()=>setSelectedSupplier(sup),style:{cursor:'pointer',transition:'background 0.15s'},
+        R('tbody',null,...supplierStats.filter(s=>!searchSupplier||safeIncludes(s.name,searchSupplier)).slice(0,30).map((sup,idx)=>R('tr',{key:sup.name,onClick:()=>setSelectedSupplier(sup),style:{cursor:'pointer',transition:'background 0.15s'},
           onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
           onMouseLeave:e=>e.currentTarget.style.background='transparent'
         },
@@ -9551,7 +9585,7 @@ function PagePurchaseAnalysis({mats,variant='hq'}){
             )
           )
         ))),
-        supplierStats.filter(s=>!searchSupplier||s.name.toLowerCase().includes(searchSupplier.toLowerCase())).length===0&&R('tbody',null,R('tr',null,R('td',{colSpan:5,style:{padding:20,textAlign:'center',color:'var(--tm)'}},'검색 결과 없음')))
+        supplierStats.filter(s=>!searchSupplier||safeIncludes(s.name,searchSupplier)).length===0&&R('tbody',null,R('tr',null,R('td',{colSpan:5,style:{padding:20,textAlign:'center',color:'var(--tm)'}},'검색 결과 없음')))
       )
     ),
     viewMode==='monthly'&&R('div',{className:'card',style:{padding:0,overflow:'auto'}},
@@ -10923,7 +10957,7 @@ function PageSalesAnalysis({user,variant='hq'}){
           R('label',{style:{fontSize:11,fontWeight:600,color:'var(--tm)',display:'block',marginBottom:4}},'📦 품목 검색'),
           R('input',{value:searchProd,onChange:e=>setSearchProd(e.target.value),placeholder:'품목명 입력...',style:{width:'100%',padding:'8px 12px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}}),
           searchProd&&R('div',{style:{maxHeight:200,overflow:'auto',marginTop:6,border:'1px solid var(--bd)',borderRadius:8,background:'#fff'}},
-            ...topProducts.filter(p=>p.name.toLowerCase().includes(searchProd.toLowerCase())).slice(0,15).map(p=>
+            ...topProducts.filter(p=>safeIncludes(p.name,searchProd)).slice(0,15).map(p=>
               R('div',{key:p.name,onClick:()=>{setSelectedProd(p);setSearchProd('');},style:{padding:'8px 10px',cursor:'pointer',borderBottom:'1px solid #F3F4F6',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:11,transition:'background 0.15s'},
                 onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
                 onMouseLeave:e=>e.currentTarget.style.background='transparent'
@@ -10932,14 +10966,14 @@ function PageSalesAnalysis({user,variant='hq'}){
                 R('span',{style:{color:'var(--p)',fontWeight:700,fontSize:10}},fN(Math.round(p.amount/10000))+'만')
               )
             ),
-            topProducts.filter(p=>p.name.toLowerCase().includes(searchProd.toLowerCase())).length===0&&R('div',{style:{padding:14,textAlign:'center',color:'var(--tm)',fontSize:11}},'결과 없음')
+            topProducts.filter(p=>safeIncludes(p.name,searchProd)).length===0&&R('div',{style:{padding:14,textAlign:'center',color:'var(--tm)',fontSize:11}},'결과 없음')
           )
         ),
         R('div',null,
           R('label',{style:{fontSize:11,fontWeight:600,color:'var(--tm)',display:'block',marginBottom:4}},'🏢 거래처 검색'),
           R('input',{value:searchCust,onChange:e=>setSearchCust(e.target.value),placeholder:'거래처명 입력...',style:{width:'100%',padding:'8px 12px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}}),
           searchCust&&R('div',{style:{maxHeight:200,overflow:'auto',marginTop:6,border:'1px solid var(--bd)',borderRadius:8,background:'#fff'}},
-            ...topCustomers.filter(c=>c.name.toLowerCase().includes(searchCust.toLowerCase())).slice(0,15).map(c=>
+            ...topCustomers.filter(c=>safeIncludes(c.name,searchCust)).slice(0,15).map(c=>
               R('div',{key:c.name,onClick:()=>{setSelectedCust(c);setSearchCust('');},style:{padding:'8px 10px',cursor:'pointer',borderBottom:'1px solid #F3F4F6',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:11,transition:'background 0.15s'},
                 onMouseEnter:e=>e.currentTarget.style.background='#FFF8F4',
                 onMouseLeave:e=>e.currentTarget.style.background='transparent'
@@ -10948,7 +10982,7 @@ function PageSalesAnalysis({user,variant='hq'}){
                 R('span',{style:{color:'var(--p)',fontWeight:700,fontSize:10}},fN(Math.round(c.amount/10000))+'만')
               )
             ),
-            topCustomers.filter(c=>c.name.toLowerCase().includes(searchCust.toLowerCase())).length===0&&R('div',{style:{padding:14,textAlign:'center',color:'var(--tm)',fontSize:11}},'결과 없음')
+            topCustomers.filter(c=>safeIncludes(c.name,searchCust)).length===0&&R('div',{style:{padding:14,textAlign:'center',color:'var(--tm)',fontSize:11}},'결과 없음')
           )
         )
       )
@@ -12809,9 +12843,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T15:00:mobile-table-fix-v48',
-  buildTime:'1747670400000',
-  description:'모바일 표 가로 스크롤 강화 (글자 겹침 X) + 견적서 진입 시 번호/날짜 자동 갱신'
+  version:'2026-05-19-T16:00:safe-search-v49',
+  buildTime:'1747674000000',
+  description:'모든 검색에서 .toLowerCase() / .includes() 안전화 - p.id가 숫자거나 name이 null이어도 깨지지 않음'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
