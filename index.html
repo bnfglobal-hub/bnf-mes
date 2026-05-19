@@ -975,6 +975,327 @@ function PageProdSchedule(){
 }
 
 
+/* ═══ 출고 스케줄 (컬리 발주 PDF 자동 분석) ════════════════════════ */
+function PageShipSchedule({user,isAdmin}){
+  const[results,setResults]=useState([]); /* [{센터, 발주코드, 입고일, 품목들[]}] */
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState('');
+  const[palletBoxes,setPalletBoxes]=useState(30); /* 팔레트당 박스 수 (기본 30) */
+  const[copied,setCopied]=useState(false);
+  const fileRef=useRef();
+
+  /* PDF.js 동적 로드 */
+  const loadPdfJs=()=>new Promise((resolve,reject)=>{
+    if(window.pdfjsLib){
+      try{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}catch(e){}
+      return resolve(window.pdfjsLib);
+    }
+    const script=document.createElement('script');
+    script.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload=()=>{
+      try{
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      }catch(e){reject(e);}
+    };
+    script.onerror=()=>reject(new Error('PDF.js 라이브러리 로드 실패'));
+    document.head.appendChild(script);
+  });
+
+  /* PDF 텍스트에서 발주 정보 파싱 */
+  const parsePdfText=(text)=>{
+    /* 공백 정규화 */
+    const t=text.replace(/\s+/g,' ');
+    /* 발주코드 (T20260520_XXXXX) */
+    const orderMatch=t.match(/T\d{8}_[A-Z0-9]+/);
+    const orderCode=orderMatch?orderMatch[0]:'';
+    /* 입고일/입차일 */
+    const dateMatch=t.match(/입고(?:대행센터\s*입차)?[일\s]*[:\s]*(\d{4}-\d{2}-\d{2})/);
+    const arrivalDate=dateMatch?dateMatch[1]:'';
+    /* 센터명 - XX냉동(YY) 형식 */
+    const centerMatch=t.match(/([가-힣]+냉동\s*\([^)]+\))/);
+    let center=centerMatch?centerMatch[1].replace(/\s+/g,''):'';
+    /* 입고대행 여부 */
+    const isAgent=t.includes('입고대행');
+    /* 입고대행이면 최종 입고지가 진짜 출고지 - 창원물류대행 같은 형식으로 */
+    if(isAgent&&center){
+      center=center+' (대행)';
+    }
+
+    /* 품목 추출 정규식
+       패턴: 마스터코드 바코드 [카테고리]품명... 총수량 (소)날짜 박스수 박스당입수 규격
+       PDF 줄바꿈 처리 위해 [\s\S]+? 사용 */
+    const items=[];
+    const itemRe=/(M[K]?\d{10,11})\s+(\d{13})\s+\[([^\]]+)\]([\s\S]+?)\s+(\d+)\s+\(소\)\s*(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)\s+(\d+g)/g;
+    let m;
+    while((m=itemRe.exec(t))!==null){
+      let productName=m[4].trim().replace(/\s+/g,'');
+      items.push({
+        masterCode:m[1],
+        barcode:m[2],
+        category:m[3],
+        productName:'['+m[3]+']'+productName,
+        totalQty:parseInt(m[5]),
+        bestBefore:m[6],
+        boxes:parseInt(m[7]),
+        boxIn:parseInt(m[8]),
+        spec:m[9]
+      });
+    }
+    return{center,orderCode,arrivalDate,isAgent,items,rawText:t.slice(0,500)};
+  };
+
+  /* 파일 처리 */
+  const handleFiles=async(files)=>{
+    if(!files||files.length===0)return;
+    setLoading(true);setError('');
+    try{
+      const pdfjs=await loadPdfJs();
+      const newResults=[];
+      const skipped=[];
+      for(const file of Array.from(files)){
+        if(!file.name.toLowerCase().endsWith('.pdf')){skipped.push(file.name+' (PDF 아님)');continue;}
+        const arrayBuffer=await file.arrayBuffer();
+        const pdf=await pdfjs.getDocument({data:arrayBuffer}).promise;
+        let fullText='';
+        for(let i=1;i<=pdf.numPages;i++){
+          const page=await pdf.getPage(i);
+          const textContent=await page.getTextContent();
+          fullText+=textContent.items.map(it=>it.str).join(' ')+'\n';
+        }
+        const parsed=parsePdfText(fullText);
+        if(parsed.items.length===0){
+          skipped.push(file.name+' (품목 추출 실패)');
+        }else{
+          parsed.fileName=file.name;
+          newResults.push(parsed);
+        }
+      }
+      setResults(prev=>[...prev,...newResults]);
+      if(skipped.length>0)setError('일부 파일 건너뜀:\n'+skipped.join('\n'));
+    }catch(e){
+      setError('처리 실패: '+(e.message||'알 수 없는 오류'));
+    }
+    setLoading(false);
+  };
+
+  /* 결과 병합: 같은 센터가 여러 PDF에 나뉘어 있으면 합치기 */
+  const merged=useMemo(()=>{
+    const map={};
+    results.forEach(r=>{
+      const key=r.center||'(센터 미확인)';
+      if(!map[key]){map[key]={center:key,orderCodes:[],arrivalDate:r.arrivalDate,isAgent:r.isAgent,items:[]};}
+      if(r.orderCode&&!map[key].orderCodes.includes(r.orderCode))map[key].orderCodes.push(r.orderCode);
+      r.items.forEach(it=>{
+        /* 같은 상품 코드가 있으면 합산 */
+        const existing=map[key].items.find(x=>x.masterCode===it.masterCode);
+        if(existing){
+          existing.totalQty+=it.totalQty;
+          existing.boxes+=it.boxes;
+        }else{
+          map[key].items.push({...it});
+        }
+      });
+    });
+    return Object.values(map);
+  },[results]);
+
+  /* 전체 합계: 상품별 총 수량 */
+  const grandTotal=useMemo(()=>{
+    const tot={};
+    merged.forEach(r=>r.items.forEach(it=>{
+      const key=it.productName;
+      tot[key]=(tot[key]||0)+it.totalQty;
+    }));
+    return tot;
+  },[merged]);
+
+  /* 카카오톡 형식 텍스트 생성 */
+  const generateText=()=>{
+    if(merged.length===0)return '';
+    const date=merged[0].arrivalDate||'';
+    let header='';
+    if(date){
+      const d=new Date(date);
+      const day=['일','월','화','수','목','금','토'][d.getDay()];
+      header=(d.getMonth()+1)+'/'+d.getDate()+'('+day+') 출고 예정 상품\n\n';
+    }
+    let txt=header;
+    merged.forEach(r=>{
+      txt+='【'+r.center+'】\n';
+      txt+='제품명\t박스수\t제품수량\t소비기한\n';
+      r.items.forEach(it=>{
+        const shortName=it.productName.replace(/\[[^\]]+\]/g,'').trim();
+        const shortBB=it.bestBefore.slice(2).replace(/-/g,'.');
+        txt+=shortName+'\t'+it.boxes+'\t'+it.totalQty+'\t'+shortBB+'\n';
+      });
+      const totalBoxes=r.items.reduce((s,it)=>s+it.boxes,0);
+      const pallets=(totalBoxes/palletBoxes).toFixed(palletBoxes===30?6:2).replace(/\.?0+$/,'');
+      txt+='합계: '+totalBoxes+'박스 · 팔레트 '+pallets+'\n\n';
+    });
+    txt+='━━━ 전체 합계 ━━━\n';
+    Object.keys(grandTotal).forEach(k=>{
+      const shortName=k.replace(/\[[^\]]+\]/g,'').trim();
+      txt+=shortName+': '+grandTotal[k]+' ea\n';
+    });
+    return txt;
+  };
+
+  const copyToClipboard=()=>{
+    const txt=generateText();
+    if(!txt)return;
+    navigator.clipboard.writeText(txt).then(()=>{
+      setCopied(true);
+      setTimeout(()=>setCopied(false),2000);
+    }).catch(()=>{
+      /* 대체: textarea 트릭 */
+      const ta=document.createElement('textarea');
+      ta.value=txt;document.body.appendChild(ta);ta.select();
+      try{document.execCommand('copy');setCopied(true);setTimeout(()=>setCopied(false),2000);}catch(e){alert('복사 실패. 텍스트 영역에서 직접 복사하세요.');}
+      document.body.removeChild(ta);
+    });
+  };
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'🚚 출고 스케줄'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'컬리 발주 PDF를 업로드하면 자동으로 센터별 출고 일정/팔레트 계산')
+      ),
+      results.length>0&&R('button',{onClick:()=>{setResults([]);setError('');},style:{background:'#EF4444',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',cursor:'pointer',fontSize:12,fontWeight:700}},'🔄 전체 초기화')
+    ),
+
+    /* 업로드 영역 */
+    R('input',{
+      ref:fileRef,
+      type:'file',
+      accept:'.pdf',
+      multiple:true,
+      style:{display:'none'},
+      onChange:e=>{handleFiles(e.target.files);e.target.value='';}
+    }),
+    R('div',{
+      onClick:()=>fileRef.current&&fileRef.current.click(),
+      onDragOver:e=>{e.preventDefault();e.currentTarget.style.borderColor='#7C3AED';e.currentTarget.style.background='#F5F3FF';},
+      onDragLeave:e=>{e.currentTarget.style.borderColor='var(--bd)';e.currentTarget.style.background='#fafafa';},
+      onDrop:e=>{e.preventDefault();e.currentTarget.style.borderColor='var(--bd)';e.currentTarget.style.background='#fafafa';handleFiles(e.dataTransfer.files);},
+      style:{border:'2.5px dashed var(--bd)',borderRadius:14,padding:'30px 20px',textAlign:'center',background:'#fafafa',cursor:'pointer',marginBottom:14,transition:'all .2s'}
+    },
+      R('div',{style:{fontSize:36,marginBottom:8}},'📤'),
+      R('div',{style:{fontSize:15,fontWeight:700,marginBottom:4}},'컬리 거래명세서 PDF 업로드'),
+      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:10}},'클릭 또는 드래그&드롭 · 여러 파일 동시 가능'),
+      R('button',{
+        onClick:e=>{e.stopPropagation();fileRef.current&&fileRef.current.click();},
+        disabled:loading,
+        style:{background:loading?'#9CA3AF':'#7C3AED',color:'#fff',border:'none',borderRadius:8,padding:'8px 20px',cursor:loading?'not-allowed':'pointer',fontSize:12,fontWeight:700}
+      },loading?'⏳ 분석 중...':'📁 PDF 선택')
+    ),
+
+    /* 팔레트당 박스 수 설정 */
+    R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:14,padding:'8px 12px',background:'#F0F9FF',borderRadius:8,fontSize:12}},
+      R('span',{style:{fontWeight:700,color:'#1E40AF'}},'팔레트당 박스 수:'),
+      R('input',{
+        type:'number',
+        value:palletBoxes,
+        onChange:e=>setPalletBoxes(parseInt(e.target.value)||30),
+        min:1,
+        style:{width:60,padding:'4px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:12,textAlign:'center'}
+      }),
+      R('span',{style:{color:'#6B7280'}},'박스 = 1팔레트 (기본값 30)')
+    ),
+
+    /* 에러 표시 */
+    error&&R('div',{style:{padding:10,marginBottom:12,background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,fontSize:11,color:'#991B1B',whiteSpace:'pre-line'}},'⚠ '+error),
+
+    /* 결과 표시 */
+    merged.length===0
+      ?R('div',{style:{padding:40,textAlign:'center',color:'#9CA3AF',fontSize:13}},
+          R('div',{style:{fontSize:36,marginBottom:8}},'📋'),
+          R('div',null,'PDF를 업로드하면 출고 스케줄이 여기 표시됩니다')
+        )
+      :R('div',null,
+          /* 센터별 카드 */
+          ...merged.map((r,idx)=>{
+            const totalBoxes=r.items.reduce((s,it)=>s+it.boxes,0);
+            const totalQty=r.items.reduce((s,it)=>s+it.totalQty,0);
+            const pallets=totalBoxes/palletBoxes;
+            return R('div',{key:idx,className:'card',style:{padding:0,marginBottom:14,overflow:'hidden'}},
+              R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:6}},
+                R('div',null,
+                  R('span',{style:{fontSize:14,fontWeight:800,color:'#5B21B6'}},'📦 ',r.center),
+                  r.isAgent&&R('span',{style:{marginLeft:8,fontSize:10,background:'#FBB024',color:'#fff',padding:'2px 8px',borderRadius:10,fontWeight:700}},'입고대행')
+                ),
+                R('div',{style:{fontSize:10,color:'#7C3AED'}},
+                  r.arrivalDate&&'입고: '+r.arrivalDate+'  ',
+                  r.orderCodes.length>0&&' · '+r.orderCodes.join(', ')
+                )
+              ),
+              R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
+                R('thead',{style:{background:'#FAFAFA'}},R('tr',null,
+                  R('th',{style:{padding:'8px 12px',textAlign:'left',fontSize:11,color:'#6B7280',fontWeight:700}},'품목명'),
+                  R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#6B7280',fontWeight:700}},'박스수'),
+                  R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#6B7280',fontWeight:700}},'제품수량'),
+                  R('th',{style:{padding:'8px 12px',textAlign:'center',fontSize:11,color:'#6B7280',fontWeight:700}},'박스입수'),
+                  R('th',{style:{padding:'8px 12px',textAlign:'center',fontSize:11,color:'#6B7280',fontWeight:700}},'소비기한')
+                )),
+                R('tbody',null,
+                  ...r.items.map((it,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F3F4F6'}},
+                    R('td',{style:{padding:'8px 12px',fontWeight:600}},it.productName),
+                    R('td',{style:{padding:'8px 12px',textAlign:'right',fontWeight:700,color:'#7C3AED'}},it.boxes,' 박스'),
+                    R('td',{style:{padding:'8px 12px',textAlign:'right',fontWeight:700}},it.totalQty.toLocaleString(),' ea'),
+                    R('td',{style:{padding:'8px 12px',textAlign:'center',color:'#6B7280',fontSize:11}},it.boxIn,'입'),
+                    R('td',{style:{padding:'8px 12px',textAlign:'center',color:'#EF4444',fontWeight:700,fontSize:11}},it.bestBefore)
+                  ))
+                ),
+                R('tfoot',null,R('tr',{style:{background:'#F9FAFB',borderTop:'2px solid #E5E7EB'}},
+                  R('td',{style:{padding:'10px 12px',fontWeight:800}},'합계'),
+                  R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:800,color:'#7C3AED'}},totalBoxes,' 박스'),
+                  R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:800}},totalQty.toLocaleString(),' ea'),
+                  R('td',{style:{padding:'10px 12px',textAlign:'center',fontWeight:800,color:'#059669'},colSpan:2},'🚛 팔레트 ',pallets.toFixed(2))
+                ))
+              )
+            );
+          }),
+
+          /* 전체 합계 카드 */
+          R('div',{className:'card',style:{padding:14,marginBottom:14,background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',border:'1px solid #FED7AA'}},
+            R('div',{style:{fontSize:14,fontWeight:800,color:'#9A3412',marginBottom:10}},'📊 전체 합계 (모든 센터)'),
+            R('table',{style:{width:'100%',fontSize:12}},
+              R('tbody',null,...Object.keys(grandTotal).map(k=>{
+                const shortName=k.replace(/\[[^\]]+\]/g,'').trim();
+                const tag=(k.match(/\[([^\]]+)\]/g)||[]).join('');
+                return R('tr',{key:k,style:{borderBottom:'1px solid #FED7AA'}},
+                  R('td',{style:{padding:'8px 4px'}},
+                    tag&&R('span',{style:{fontSize:10,color:'#9CA3AF',marginRight:4}},tag),
+                    R('span',{style:{fontWeight:700}},shortName)
+                  ),
+                  R('td',{style:{padding:'8px 4px',textAlign:'right',fontWeight:800,color:'#D94F1E',fontSize:14}},grandTotal[k].toLocaleString()),
+                  R('td',{style:{padding:'8px 4px',color:'#9CA3AF',fontSize:11,width:30}},'ea')
+                );
+              }))
+            )
+          ),
+
+          /* 카카오톡 텍스트 영역 */
+          R('div',{className:'card',style:{padding:14,marginBottom:14}},
+            R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+              R('div',{style:{fontSize:13,fontWeight:800,color:'#1A0C07'}},'💬 카카오톡 전송용 텍스트'),
+              R('button',{
+                onClick:copyToClipboard,
+                style:{background:copied?'#10B981':'#FBB024',color:'#fff',border:'none',borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:700}
+              },copied?'✓ 복사됨!':'📋 클립보드에 복사')
+            ),
+            R('textarea',{
+              value:generateText(),
+              readOnly:true,
+              style:{width:'100%',minHeight:200,padding:10,border:'1px solid var(--bd)',borderRadius:8,fontSize:11,fontFamily:'monospace',resize:'vertical',background:'#fafafa'}
+            })
+          )
+        )
+  );
+}
+
+
 /* ═══ 공지사항 ════════════════════════════════════════ */
 function PageNotices({user}){
   const[notices,setNotices]=useState([]);const[sel,setSel]=useState(null);
@@ -5235,7 +5556,8 @@ function PageAdmin({user}){
                 {k:'prod',v:'생산 지시'},
                 {k:'orders',v:'발주현황'},
                 {k:'autoOrder',v:'자동발주제안'},
-                {k:'sched',v:'생산 스케줄'}
+                {k:'sched',v:'생산 스케줄'},
+                {k:'shipSched',v:'출고 스케줄'}
               ]},
               {label:'🔬 연구소',color:'#A855F7',bg:'#FAF5FF',items:[
                 {k:'research',v:'연구개발 현황'},
@@ -5934,6 +6256,7 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
     {id:'recipes',l:'레시피',ic:'📖'},
     {id:'prod',l:'생산 지시',ic:'🏭'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
+    {id:'shipSched',l:'출고 스케줄',ic:'🚚'},
     {id:'operation',l:'공장 가동률',ic:'⚙️'},
     {id:'orders',l:'발주 현황',ic:'📋'},
     {id:'autoOrder',l:'자동 발주',ic:'🛒'},
@@ -11164,6 +11487,7 @@ function App(){
     if(page==='prod')return R(PageProd,{mats,prods,pqty,setPqty,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);}});
     if(page==='operation')return R(PagePlant,{user});
     if(page==='sched')return R(PageProdSchedule);
+    if(page==='shipSched')return R(PageShipSchedule,{user,isAdmin});
     if(page==='operation')return R(PageOperation,{user});
     if(page==='recipes')return R(PageRecipes,{user,mats,prods});
     if(page==='autoOrder')return R(PageAutoOrder,{user,mats,onCreateOrder:o=>{
@@ -11801,9 +12125,9 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
-  version:'2026-05-19-T09:30:syntax-fix-v38',
-  buildTime:'1747650600000',
-  description:'v36의 중복 변수 선언 SyntaxError 수정 - 즐겨찾기/반제품매핑 코드기반 안전하게 마이그레이션'
+  version:'2026-05-19-T10:00:ship-schedule-v39',
+  buildTime:'1747652400000',
+  description:'출고 스케줄 메뉴 추가 - 컬리 발주 PDF 자동 분석/팔레트계산/카카오톡 텍스트 변환'
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
