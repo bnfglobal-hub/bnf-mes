@@ -250,10 +250,14 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
   }
   .mobile-hdr-btn:active{background:#F1F3F5;}
   
-  /* 테이블 - 가로 스크롤 가능, 글자 깨짐 방지 */
-  .tw{overflow-x:auto !important; -webkit-overflow-scrolling:touch;}
-  .tw table{min-width:560px;}
-  .tw th, .tw td{white-space:nowrap;}
+  /* 테이블 - 가로 스크롤 가능, 글자 겹침 완전 방지 */
+  .tw{overflow-x:auto !important; -webkit-overflow-scrolling:touch; overflow-y:visible;}
+  .tw table{min-width:680px; table-layout:auto;}
+  .tw th, .tw td{
+    white-space:nowrap !important;
+    padding:8px 10px !important;
+  }
+  .tw td input.ci{min-width:60px;}
   
   /* 카드 - 모서리 둥글게, 그림자 부드럽게 */
   .card{
@@ -976,6 +980,337 @@ function PageProdSchedule(){
 
 
 /* ═══ 출고 스케줄 (컬리 발주 PDF 자동 분석) ════════════════════════ */
+<<<<<<< HEAD
+/* ═══ 생산 통합 플래너 ════════════════════════════════════════════════ */
+function PageProductionPlanner({mats,prods,isAdmin,onCreateOrder}){
+  const LS_KEY='bnf_prod_plans_v1';
+  const[plans,setPlans]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_KEY)||'[]');}catch(e){return[];}});
+  const[prodSearch,setProdSearch]=useState('');
+  const[selDate,setSelDate]=useState(new Date().toISOString().slice(0,10));
+  const[selQty,setSelQty]=useState('');
+  const[filterDate,setFilterDate]=useState('');
+  const[tab,setTab]=useState('plan'); // plan | shortage | order | result
+  const[results,setResults]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_results_v1')||'[]');}catch(e){return[];}});
+  const[showAddResult,setShowAddResult]=useState(null);
+  const[resultQty,setResultQty]=useState('');
+
+  const savePlans=(arr)=>{setPlans(arr);try{localStorage.setItem(LS_KEY,JSON.stringify(arr));}catch(e){}};
+  const saveResults=(arr)=>{setResults(arr);try{localStorage.setItem('bnf_prod_results_v1',JSON.stringify(arr));}catch(e){}};
+
+  const filteredProds=useMemo(()=>{
+    if(!prodSearch)return prods.slice(0,10);
+    const q=prodSearch.toLowerCase();
+    return prods.filter(p=>p.name&&(p.name.toLowerCase().includes(q)||p.id.includes(q))).slice(0,10);
+  },[prodSearch,prods]);
+
+  const addPlan=(prod)=>{
+    if(!selQty||!selDate){alert('날짜와 수량을 입력하세요');return;}
+    const qty=parseInt(selQty);
+    if(!qty||qty<=0){alert('수량을 올바르게 입력하세요');return;}
+    const np={id:uid(),prodId:prod.id,prodName:prod.name,date:selDate,qty,bom:prod.bom||[],status:'planned',createdAt:new Date().toISOString()};
+    savePlans([...plans,np]);
+    setProdSearch('');setSelQty('');
+  };
+
+  const removePlan=(id)=>{if(confirm('삭제할까요?'))savePlans(plans.filter(p=>p.id!==id));};
+
+  /* 날짜 필터된 계획 */
+  const filteredPlans=useMemo(()=>{
+    let arr=filterDate?plans.filter(p=>p.date===filterDate):plans;
+    return arr.sort((a,b)=>a.date.localeCompare(b.date));
+  },[plans,filterDate]);
+
+  /* 원재료 통합 소요량 계산 (날짜 필터 적용) */
+  const requirements=useMemo(()=>{
+    const req={};
+    filteredPlans.filter(p=>p.status!=='done').forEach(plan=>{
+      (plan.bom||[]).forEach(b=>{
+        if(!b.c||!b.amt)return;
+        if(!req[b.c])req[b.c]={matCode:b.c,needed:0,plans:[]};
+        req[b.c].needed+=b.amt*plan.qty;
+        req[b.c].plans.push({planId:plan.id,prodName:plan.prodName,date:plan.date,qty:plan.qty,unitAmt:b.amt,totalAmt:b.amt*plan.qty});
+      });
+    });
+    /* mats 정보 합치기 */
+    return Object.values(req).map(r=>{
+      const mat=mats.find(m=>m.c===r.matCode);
+      const stock=mat?mat.s:0;
+      const shortage=Math.max(0,r.needed-stock);
+      return{...r,mat,matName:mat?mat.n:r.matCode,stock,shortage,unit:mat?mat.u:'',ok:shortage===0};
+    }).sort((a,b)=>b.shortage-a.shortage);
+  },[filteredPlans,mats]);
+
+  const shortages=requirements.filter(r=>!r.ok);
+  const sufficient=requirements.filter(r=>r.ok);
+
+  /* 탭 뱃지 */
+  const Bdg=({n,c})=>n>0?R('span',{style:{marginLeft:4,background:c||'#EF4444',color:'#fff',borderRadius:10,fontSize:10,padding:'1px 6px',fontWeight:800}},n):null;
+
+  /* 생산 실행 */
+  const executePlan=(plan)=>{
+    const rqty=parseInt(resultQty)||plan.qty;
+    /* 재고 차감 */
+    (plan.bom||[]).forEach(b=>{
+      const mat=mats.find(m=>m.c===b.c);
+      if(!mat)return;
+      const used=b.amt*rqty;
+      /* onUpd는 없어서 직접 mats 업데이트 불가 - 일단 실적만 기록 */
+    });
+    const result={id:uid(),planId:plan.id,prodName:plan.prodName,date:plan.date,plannedQty:plan.qty,actualQty:rqty,bom:plan.bom,executedAt:new Date().toISOString()};
+    saveResults([...results,result]);
+    savePlans(plans.map(p=>p.id===plan.id?{...p,status:'done',actualQty:rqty}:p));
+    setShowAddResult(null);setResultQty('');
+    alert('✅ 생산 실적 등록 완료\n\n제품: '+plan.prodName+'\n실적: '+rqty.toLocaleString()+'개\n날짜: '+plan.date);
+  };
+
+  /* 탭 버튼 */
+  const TabBtn=({id,label,cnt,color})=>R('button',{
+    onClick:()=>setTab(id),
+    style:{padding:'8px 14px',background:tab===id?'#1A0C07':'#fff',color:tab===id?'#fff':'#374151',border:'1px solid var(--bd)',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',gap:4}
+  },label,cnt>0&&R('span',{style:{background:color||'#EF4444',color:'#fff',borderRadius:10,fontSize:10,padding:'1px 6px',fontWeight:800}},cnt));
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'🏭 생산 통합 플래너'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'생산 계획 → 원재료 소요량 → 부족 발주 → 실적 등록까지 원스탑')
+      )
+    ),
+
+    /* ── 부족수량 최상단 배너 ── */
+    shortages.length>0&&R('div',{style:{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'12px 16px',marginBottom:14}},
+      R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}},
+        R('div',{style:{fontSize:13,fontWeight:800,color:'#991B1B'}},'🚨 원재료 부족 '+shortages.length+'종 (계획 수량 기준)'),
+        filterDate&&R('span',{style:{fontSize:11,color:'#9CA3AF'}},filterDate+' 기준')
+      ),
+      R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+        ...shortages.slice(0,8).map(r=>R('div',{key:r.matCode,style:{background:'#fff',border:'1px solid #FECACA',borderRadius:6,padding:'6px 10px',fontSize:11}},
+          R('div',{style:{fontWeight:700,color:'#991B1B'}},r.matName),
+          R('div',{style:{color:'#6B7280'}},
+            '필요 ',R('b',{style:{color:'#EF4444'}},r.needed.toLocaleString()),r.unit,
+            ' · 재고 ',r.stock.toLocaleString(),r.unit,
+            ' · ',R('b',{style:{color:'#DC2626'}},'-'+r.shortage.toLocaleString()),r.unit,' 부족'
+          )
+        )),
+        shortages.length>8&&R('div',{style:{fontSize:11,color:'#9CA3AF',padding:'6px 10px'}},'+'+( shortages.length-8)+'종 더...')
+      )
+    ),
+
+    /* ── 날짜 필터 ── */
+    R('div',{style:{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap',alignItems:'center'}},
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',background:'#fff',border:'1px solid var(--bd)',borderRadius:8,padding:'4px 10px'}},'📅 날짜 필터:',
+        R('input',{type:'date',value:filterDate,onChange:e=>setFilterDate(e.target.value),style:{border:'none',outline:'none',fontSize:12,fontFamily:'inherit'}}),
+        filterDate&&R('button',{onClick:()=>setFilterDate(''),style:{background:'none',border:'none',cursor:'pointer',color:'#9CA3AF',fontSize:12}},'✕')
+      ),
+      R('div',{style:{fontSize:11,color:'#6B7280'}},filteredPlans.filter(p=>p.status!=='done').length+'개 계획 중'),
+      R('div',{style:{marginLeft:'auto',display:'flex',gap:6}},
+        R(TabBtn,{id:'plan',label:'📋 생산 계획',cnt:filteredPlans.filter(p=>p.status!=='done').length,color:'#3B82F6'}),
+        R(TabBtn,{id:'shortage',label:'⚠ 부족 원재료',cnt:shortages.length,color:'#EF4444'}),
+        R(TabBtn,{id:'order',label:'📦 발주 생성',cnt:0,color:'#10B981'}),
+        R(TabBtn,{id:'result',label:'✅ 실적',cnt:results.length,color:'#7C3AED'})
+      )
+    ),
+
+    /* ════ 탭: 생산 계획 ════ */
+    tab==='plan'&&R('div',null,
+      /* 새 계획 추가 */
+      R('div',{className:'card',style:{padding:14,marginBottom:14}},
+        R('div',{style:{fontSize:13,fontWeight:800,marginBottom:10}},'➕ 생산 계획 추가'),
+        R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}},
+          R('div',{style:{flex:'0 0 auto'}},
+            R('div',{style:{fontSize:11,color:'#6B7280',marginBottom:4}},'생산일'),
+            R('input',{type:'date',value:selDate,onChange:e=>setSelDate(e.target.value),style:{padding:'7px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}})
+          ),
+          R('div',{style:{flex:1,minWidth:200}},
+            R('div',{style:{fontSize:11,color:'#6B7280',marginBottom:4}},'제품 검색'),
+            R('input',{
+              value:prodSearch,onChange:e=>setProdSearch(e.target.value),
+              placeholder:'제품명 입력...',
+              style:{width:'100%',padding:'7px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit',boxSizing:'border-box'}
+            })
+          ),
+          R('div',{style:{flex:'0 0 120px'}},
+            R('div',{style:{fontSize:11,color:'#6B7280',marginBottom:4}},'생산 수량 (ea)'),
+            R('input',{type:'number',value:selQty,onChange:e=>setSelQty(e.target.value),placeholder:'수량',style:{width:'100%',padding:'7px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit',boxSizing:'border-box'}})
+          )
+        ),
+        /* 제품 검색 결과 */
+        prodSearch&&filteredProds.length>0&&R('div',{style:{marginTop:8,border:'1px solid var(--bd)',borderRadius:8,overflow:'hidden'}},
+          ...filteredProds.map(p=>R('div',{
+            key:p.id,
+            onClick:()=>addPlan(p),
+            style:{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #F3F4F6',display:'flex',alignItems:'center',justifyContent:'space-between'},
+            onMouseEnter:e=>e.currentTarget.style.background='#F9FAFB',
+            onMouseLeave:e=>e.currentTarget.style.background='transparent'
+          },
+            R('div',null,
+              R('div',{style:{fontSize:13,fontWeight:700}},p.name),
+              R('div',{style:{fontSize:10,color:'#9CA3AF'}},'BOM: '+(p.bom||[]).length+'종')
+            ),
+            R('div',{style:{background:'#1A0C07',color:'#fff',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:700}},'+ 추가')
+          ))
+        )
+      ),
+
+      /* 계획 목록 - 날짜별 그룹 */
+      filteredPlans.filter(p=>p.status!=='done').length===0
+        ?R('div',{style:{padding:40,textAlign:'center',color:'#9CA3AF'}},
+            R('div',{style:{fontSize:36,marginBottom:8}},'📋'),
+            R('div',null,'생산 계획이 없습니다. 위에서 추가하세요.')
+          )
+        :R('div',null,
+          ...Object.entries(
+            filteredPlans.filter(p=>p.status!=='done').reduce((g,p)=>{(g[p.date]=g[p.date]||[]).push(p);return g;},{})
+          ).sort(([a],[b])=>a.localeCompare(b)).map(([date,ps])=>{
+            const d=new Date(date);
+            const dayStr=['일','월','화','수','목','금','토'][d.getDay()];
+            const daysLeft=Math.ceil((d-new Date())/(1000*60*60*24));
+            return R('div',{key:date,className:'card',style:{padding:0,marginBottom:12,overflow:'hidden'}},
+              R('div',{style:{padding:'10px 14px',background:daysLeft<=0?'#FEF2F2':daysLeft<=3?'#FFF7ED':'#F0FDF4',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',gap:10}},
+                R('div',{style:{fontSize:14,fontWeight:900,color:daysLeft<=0?'#991B1B':daysLeft<=3?'#9A3412':'#166534'}},
+                  date,' (',dayStr,')'
+                ),
+                R('div',{style:{fontSize:11,color:'#6B7280'}},
+                  daysLeft<=0?R('span',{style:{color:'#EF4444',fontWeight:700}},'오늘/지남'):
+                  daysLeft===1?R('span',{style:{color:'#F59E0B',fontWeight:700}},'내일'):
+                  R('span',null,'D-'+daysLeft)
+                ),
+                R('div',{style:{fontSize:11,color:'#6B7280',marginLeft:'auto'}},ps.length+'개 계획')
+              ),
+              R('div',{style:{padding:'0 0 4px'}},
+                ...ps.map(p=>R('div',{key:p.id,style:{padding:'12px 14px',borderBottom:'1px solid #F9FAFB',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+                  R('div',{style:{flex:1,minWidth:0}},
+                    R('div',{style:{fontSize:13,fontWeight:700,marginBottom:3}},p.prodName),
+                    R('div',{style:{fontSize:11,color:'#6B7280'}},'BOM: '+(p.bom||[]).length+'종 원재료'),
+                    /* BOM 원재료 부족 현황 */
+                    R('div',{style:{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}},
+                      ...(p.bom||[]).map(b=>{
+                        const mat=mats.find(m=>m.c===b.c);
+                        const needed=b.amt*p.qty;
+                        const short=mat?Math.max(0,needed-mat.s):needed;
+                        return short>0?R('span',{key:b.c,style:{background:'#FEF2F2',color:'#991B1B',fontSize:10,padding:'2px 6px',borderRadius:4,fontWeight:700}},
+                          (mat?mat.n:b.c),': -',short.toLocaleString(),(mat?mat.u:'')
+                        ):null;
+                      }).filter(Boolean)
+                    )
+                  ),
+                  R('div',{style:{textAlign:'right',flexShrink:0}},
+                    R('div',{style:{fontSize:20,fontWeight:900,color:'#1A0C07'}},p.qty.toLocaleString()),
+                    R('div',{style:{fontSize:10,color:'#9CA3AF'}},'생산 목표 (ea)')
+                  ),
+                  R('div',{style:{display:'flex',gap:6,flexShrink:0}},
+                    showAddResult===p.id
+                      ?R('div',{style:{display:'flex',gap:4,alignItems:'center'}},
+                          R('input',{type:'number',value:resultQty,onChange:e=>setResultQty(e.target.value),placeholder:p.qty,style:{width:80,padding:'6px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:12,fontFamily:'inherit'}}),
+                          R('button',{onClick:()=>executePlan(p),style:{background:'#10B981',color:'#fff',border:'none',borderRadius:6,padding:'6px 10px',cursor:'pointer',fontSize:11,fontWeight:700}},'확정'),
+                          R('button',{onClick:()=>{setShowAddResult(null);setResultQty('');},style:{background:'#fff',color:'#6B7280',border:'1px solid var(--bd)',borderRadius:6,padding:'6px 8px',cursor:'pointer',fontSize:11}},'취소')
+                        )
+                      :R('button',{onClick:()=>{setShowAddResult(p.id);setResultQty(String(p.qty));},style:{background:'#10B981',color:'#fff',border:'none',borderRadius:6,padding:'6px 12px',cursor:'pointer',fontSize:11,fontWeight:700}},'✅ 실적 입력'),
+                    R('button',{onClick:()=>removePlan(p.id),style:{background:'none',color:'#9CA3AF',border:'1px solid var(--bd)',borderRadius:6,padding:'6px 8px',cursor:'pointer',fontSize:11}},'✕')
+                  )
+                ))
+              )
+            );
+          })
+        )
+    ),
+
+    /* ════ 탭: 부족 원재료 ════ */
+    tab==='shortage'&&R('div',null,
+      shortages.length===0
+        ?R('div',{style:{padding:40,textAlign:'center',color:'#10B981'}},
+            R('div',{style:{fontSize:36,marginBottom:8}},'✅'),
+            R('div',{style:{fontWeight:700}},'부족 원재료 없음'),
+            R('div',{style:{fontSize:12,color:'#9CA3AF',marginTop:4}},'계획된 생산을 위한 재고가 충분합니다')
+          )
+        :R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
+            R('div',{style:{padding:'10px 14px',background:'#FEF2F2',borderBottom:'1px solid #FECACA',display:'flex',alignItems:'center',justifyContent:'space-between'}},
+              R('div',{style:{fontSize:13,fontWeight:800,color:'#991B1B'}},'🚨 부족 원재료 '+shortages.length+'종'),
+              R('button',{
+                onClick:()=>{
+                  if(!onCreateOrder)return;
+                  shortages.forEach(r=>{
+                    if(r.mat)onCreateOrder({matCode:r.matCode,matName:r.matName,qty:r.shortage,supplier:r.mat?.supplier||'',unit:r.unit,memo:'생산 플래너 자동 생성'});
+                  });
+                  alert('✅ '+shortages.length+'건 발주 생성 완료!\n\n발주현황 페이지에서 확인하세요.');
+                  setTab('order');
+                },
+                style:{background:'#EF4444',color:'#fff',border:'none',borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:800}
+              },'📦 전체 발주 자동 생성')
+            ),
+            R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
+              R('thead',{style:{background:'#FFF5F5'}},R('tr',null,
+                R('th',{style:{padding:'8px 12px',textAlign:'left',fontSize:11,color:'#6B7280',fontWeight:700}},'원재료'),
+                R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#6B7280',fontWeight:700}},'소요량'),
+                R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#6B7280',fontWeight:700}},'현재 재고'),
+                R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#EF4444',fontWeight:700}},'부족'),
+                R('th',{style:{padding:'8px 12px',textAlign:'left',fontSize:11,color:'#6B7280',fontWeight:700}},'관련 생산')
+              )),
+              R('tbody',null,...shortages.map((r,i)=>R('tr',{key:r.matCode,style:{borderTop:'1px solid #FEE2E2',background:i%2===0?'#fff':'#FFF5F5'}},
+                R('td',{style:{padding:'10px 12px',fontWeight:700}},r.matName),
+                R('td',{style:{padding:'10px 12px',textAlign:'right'}},r.needed.toLocaleString(),' ',r.unit),
+                R('td',{style:{padding:'10px 12px',textAlign:'right',color:r.stock>0?'#374151':'#9CA3AF'}},r.stock.toLocaleString(),' ',r.unit),
+                R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:800,color:'#EF4444'}},'-',r.shortage.toLocaleString(),' ',r.unit),
+                R('td',{style:{padding:'8px 12px',fontSize:10,color:'#6B7280'}},
+                  r.plans.map(p=>p.prodName+'('+p.date+') ×'+p.qty.toLocaleString()).join(', ')
+                )
+              )))
+            )
+          ),
+      sufficient.length>0&&R('div',{className:'card',style:{padding:10,marginTop:12,background:'#F0FDF4',border:'1px solid #BBF7D0'}},
+        R('div',{style:{fontSize:12,fontWeight:700,color:'#166534',marginBottom:6}},'✅ 충분한 원재료 '+sufficient.length+'종'),
+        R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+          ...sufficient.map(r=>R('span',{key:r.matCode,style:{fontSize:11,background:'#fff',border:'1px solid #BBF7D0',borderRadius:6,padding:'3px 8px'}},r.matName,' ✓'))
+        )
+      )
+    ),
+
+    /* ════ 탭: 발주 생성 ════ */
+    tab==='order'&&R('div',null,
+      R('div',{style:{padding:30,textAlign:'center',color:'#6B7280'}},
+        R('div',{style:{fontSize:36,marginBottom:8}},'📦'),
+        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},'부족 원재료 탭에서 "전체 발주 자동 생성" 버튼을 누르면'),
+        R('div',{style:{fontSize:12}},'발주현황 페이지에 자동으로 생성됩니다'),
+        R('button',{onClick:()=>setTab('shortage'),style:{marginTop:14,background:'#EF4444',color:'#fff',border:'none',borderRadius:8,padding:'8px 16px',cursor:'pointer',fontSize:12,fontWeight:700}},'⚠ 부족 원재료 확인')
+      )
+    ),
+
+    /* ════ 탭: 실적 ════ */
+    tab==='result'&&R('div',null,
+      results.length===0
+        ?R('div',{style:{padding:40,textAlign:'center',color:'#9CA3AF'}},'생산 실적이 없습니다.')
+        :R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
+            R('div',{style:{padding:'10px 14px',borderBottom:'1px solid var(--bd)'}},'✅ 생산 실적 ',R('span',{style:{fontSize:12,color:'#9CA3AF'}},results.length,'건')),
+            R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
+              R('thead',{style:{background:'#F9FAFB'}},R('tr',null,
+                R('th',{style:{padding:'8px 12px',textAlign:'left',fontSize:11,color:'#6B7280',fontWeight:700}},'날짜'),
+                R('th',{style:{padding:'8px 12px',textAlign:'left',fontSize:11,color:'#6B7280',fontWeight:700}},'제품'),
+                R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#6B7280',fontWeight:700}},'계획'),
+                R('th',{style:{padding:'8px 12px',textAlign:'right',fontSize:11,color:'#6B7280',fontWeight:700}},'실적'),
+                R('th',{style:{padding:'8px 12px',textAlign:'center',fontSize:11,color:'#6B7280',fontWeight:700}},'달성률'),
+                R('th',{style:{padding:'8px 12px',textAlign:'left',fontSize:11,color:'#6B7280',fontWeight:700}},'등록시각')
+              )),
+              R('tbody',null,...[...results].reverse().map((r,i)=>{
+                const rate=Math.round(r.actualQty/r.plannedQty*100);
+                return R('tr',{key:r.id,style:{borderTop:'1px solid #F3F4F6',background:i%2===0?'#fff':'#FAFAFA'}},
+                  R('td',{style:{padding:'10px 12px',fontWeight:700}},r.date),
+                  R('td',{style:{padding:'10px 12px',fontWeight:600}},r.prodName),
+                  R('td',{style:{padding:'10px 12px',textAlign:'right',color:'#6B7280'}},r.plannedQty.toLocaleString()),
+                  R('td',{style:{padding:'10px 12px',textAlign:'right',fontWeight:800,color:rate>=100?'#10B981':'#F59E0B'}},r.actualQty.toLocaleString()),
+                  R('td',{style:{padding:'10px 12px',textAlign:'center'}},
+                    R('span',{style:{background:rate>=100?'#ECFDF5':rate>=80?'#FFF7ED':'#FEF2F2',color:rate>=100?'#059669':rate>=80?'#B45309':'#DC2626',borderRadius:6,padding:'3px 8px',fontSize:12,fontWeight:700}},rate+'%')
+                  ),
+                  R('td',{style:{padding:'10px 12px',fontSize:11,color:'#9CA3AF'}},(r.executedAt||'').slice(0,16).replace('T',' '))
+                );
+              }))
+            )
+          )
+    )
+  );
+}
+
+=======
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
 function PageShipSchedule({user,isAdmin}){
   const[results,setResults]=useState([]); /* [{센터, 발주코드, 입고일, 품목들[]}] */
   const[loading,setLoading]=useState(false);
@@ -1010,6 +1345,60 @@ function PageShipSchedule({user,isAdmin}){
     const orderMatch=t.match(/T\d{8}_[A-Z0-9]+/);
     const orderCode=orderMatch?orderMatch[0]:'';
     /* 입고일/입차일 */
+<<<<<<< HEAD
+    const dateMatch=t.match(/(\d{4}-\d{2}-\d{2})\s*\(수|목|금|토|일|월|화\)/)||t.match(/입고[^가-힣]*?(\d{4}-\d{2}-\d{2})/);
+    const arrivalDate=dateMatch?dateMatch[1]:'';
+    /* 센터명 */
+    const centerMatch=t.match(/([가-힣]+냉동\s*\([^)]+\))/);
+    let center=centerMatch?centerMatch[1].replace(/\s+/g,''):'';
+    const isAgent=t.includes('입고대행');
+    if(isAgent&&center)center=center+' (대행)';
+
+    const items=[];
+    /* 전략 1: 마스터코드 기준으로 텍스트 분할 후 각 구간 파싱 */
+    const masterRe=/M[K]?\d{8,14}/g;
+    const masterMatches=[...t.matchAll(masterRe)];
+    masterMatches.forEach((mm,idx)=>{
+      const start=mm.index;
+      const end=masterMatches[idx+1]?masterMatches[idx+1].index:t.length;
+      const seg=t.slice(start,end);
+      
+      /* 바코드 (13자리 숫자) */
+      const bcM=seg.match(/\d{13}/);
+      if(!bcM)return;
+      
+      /* 카테고리와 품명 [외할머니댁]일산털레기수제비 */
+      const nameM=seg.match(/\[([^\]]+)\]([^(]+?)(?:\s+\d+\s+\(소\)|\s+\(소\))/);
+      if(!nameM)return;
+      const category=nameM[1];
+      const productRaw=nameM[2].trim().replace(/\s+/g,'');
+      
+      /* 총수량 + 소비기한 */
+      const dateM=seg.match(/(\d+)\s+\(소\)\s*(\d{4}-\d{2}-\d{2})/);
+      if(!dateM)return;
+      const totalQty=parseInt(dateM[1]);
+      const bestBefore=dateM[2];
+      
+      /* 박스수 + 박스당입수 + 규격 (소비기한 이후) */
+      const afterDate=seg.slice(seg.indexOf(bestBefore)+bestBefore.length);
+      const numM=afterDate.match(/(\d+)\s+(\d+)\s+(\d+g)/);
+      if(!numM)return;
+      
+      items.push({
+        masterCode:mm[0],
+        barcode:bcM[0],
+        category,
+        productName:'['+category+']'+productRaw,
+        totalQty,
+        bestBefore,
+        boxes:parseInt(numM[1]),
+        boxIn:parseInt(numM[2]),
+        spec:numM[3]
+      });
+    });
+    
+    return{center,orderCode,arrivalDate,isAgent,items,rawText:t.slice(0,800)};
+=======
     const dateMatch=t.match(/입고(?:대행센터\s*입차)?[일\s]*[:\s]*(\d{4}-\d{2}-\d{2})/);
     const arrivalDate=dateMatch?dateMatch[1]:'';
     /* 센터명 - XX냉동(YY) 형식 */
@@ -1043,6 +1432,7 @@ function PageShipSchedule({user,isAdmin}){
       });
     }
     return{center,orderCode,arrivalDate,isAgent,items,rawText:t.slice(0,500)};
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
   };
 
   /* 파일 처리 */
@@ -1065,7 +1455,11 @@ function PageShipSchedule({user,isAdmin}){
         }
         const parsed=parsePdfText(fullText);
         if(parsed.items.length===0){
+<<<<<<< HEAD
+          skipped.push(file.name+' (품목 추출 실패)\n   추출된 텍스트 앞부분: '+parsed.rawText.slice(0,200));
+=======
           skipped.push(file.name+' (품목 추출 실패)');
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
         }else{
           parsed.fileName=file.name;
           newResults.push(parsed);
@@ -6260,6 +6654,144 @@ function EC({initVal,onSave,type,style,placeholder,className,rk}){
 
 /* ────── PAGE: 홈 ────── */
 /* ═══════════ 환율 위젯 (홈 화면) ═══════════ */
+/* ═══════════ 날씨 위젯 (이천공장 기준) ═══════════ */
+function WeatherWidget(){
+  const[weather,setWeather]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[error,setError]=useState('');
+  const[updated,setUpdated]=useState('');
+
+  /* WMO 날씨 코드 → 한국어 + 이모지 */
+  const getWeatherInfo=(code)=>{
+    if(code===0)return{label:'맑음',icon:'☀️',color:'#F59E0B'};
+    if(code<=2)return{label:'대체로 맑음',icon:'🌤️',color:'#F59E0B'};
+    if(code===3)return{label:'흐림',icon:'☁️',color:'#6B7280'};
+    if(code<=48)return{label:'안개',icon:'🌫️',color:'#9CA3AF'};
+    if(code<=55)return{label:'이슬비',icon:'🌦️',color:'#3B82F6'};
+    if(code<=65)return{label:'비',icon:'🌧️',color:'#1D4ED8'};
+    if(code<=75)return{label:'눈',icon:'❄️',color:'#60A5FA'};
+    if(code<=82)return{label:'소나기',icon:'⛈️',color:'#1D4ED8'};
+    if(code<=99)return{label:'천둥번개',icon:'⛈️',color:'#7C3AED'};
+    return{label:'알 수 없음',icon:'🌡️',color:'#6B7280'};
+  };
+
+  /* 풍속 → 설명 */
+  const getWindLabel=(spd)=>{
+    if(spd<1)return'고요';
+    if(spd<6)return'약풍';
+    if(spd<12)return'미풍';
+    if(spd<20)return'보통';
+    if(spd<29)return'강풍';
+    return'매우 강풍';
+  };
+
+  const load=async()=>{
+    setError('');
+    try{
+      /* Open-Meteo - 이천공장 (37.27°N, 127.43°E) */
+      const resp=await fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=37.27&longitude=127.43'+
+        '&current=temperature_2m,apparent_temperature,weathercode,windspeed_10m,'+
+        'relativehumidity_2m,precipitation,visibility'+
+        '&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum'+
+        '&timezone=Asia%2FSeoul&forecast_days=3'
+      );
+      if(!resp.ok)throw new Error('날씨 API 응답 오류');
+      const d=await resp.json();
+      const c=d.current;
+      const daily=d.daily;
+      setWeather({
+        temp:Math.round(c.temperature_2m),
+        feelsLike:Math.round(c.apparent_temperature),
+        code:c.weathercode,
+        wind:Math.round(c.windspeed_10m),
+        humidity:c.relativehumidity_2m,
+        precip:c.precipitation||0,
+        forecast:[0,1,2].map(i=>({
+          date:daily.time[i],
+          code:daily.weathercode[i],
+          max:Math.round(daily.temperature_2m_max[i]),
+          min:Math.round(daily.temperature_2m_min[i]),
+          precip:daily.precipitation_sum[i]
+        }))
+      });
+      setUpdated(new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+    }catch(e){
+      setError(e.message||'날씨 정보를 불러올 수 없습니다');
+    }
+    setLoading(false);
+  };
+
+  useEffect(()=>{
+    load();
+    /* 30분마다 자동 갱신 */
+    const t=setInterval(load,30*60*1000);
+    return()=>clearInterval(t);
+  },[]);
+
+  const getDayLabel=(dateStr,idx)=>{
+    if(idx===0)return'오늘';
+    if(idx===1)return'내일';
+    const d=new Date(dateStr);
+    return['일','월','화','수','목','금','토'][d.getDay()]+'요일';
+  };
+
+  if(loading)return R('div',{className:'card',style:{padding:'12px 16px',marginBottom:14,minHeight:80,display:'flex',alignItems:'center',justifyContent:'center',color:'#9CA3AF',fontSize:12}},'🌡️ 날씨 정보 불러오는 중...');
+  if(error)return R('div',{className:'card',style:{padding:'12px 16px',marginBottom:14,fontSize:11,color:'#EF4444'}},'⚠ ',error,R('button',{onClick:load,style:{marginLeft:8,background:'none',border:'1px solid #EF4444',borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:10,color:'#EF4444'}},'재시도'));
+
+  const info=getWeatherInfo(weather.code);
+  return R('div',{className:'card',style:{padding:0,marginBottom:14,overflow:'hidden',border:'1px solid #E5E7EB'}},
+    /* 상단: 현재 날씨 */
+    R('div',{style:{padding:'14px 16px',background:`linear-gradient(135deg,${info.color}18,${info.color}08)`,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:12}},
+        R('div',{style:{fontSize:48,lineHeight:1}},info.icon),
+        R('div',null,
+          R('div',{style:{fontSize:32,fontWeight:900,color:'#1A0C07',lineHeight:1}},weather.temp,'°C'),
+          R('div',{style:{fontSize:12,color:'#6B7280',marginTop:2}},info.label),
+          R('div',{style:{fontSize:11,color:'#9CA3AF'}},'체감 ',weather.feelsLike,'°C')
+        )
+      ),
+      R('div',{style:{display:'flex',gap:16,flexWrap:'wrap'}},
+        R('div',{style:{textAlign:'center'}},
+          R('div',{style:{fontSize:18}},'💧'),
+          R('div',{style:{fontSize:13,fontWeight:700,color:'#3B82F6'}},weather.humidity,'%'),
+          R('div',{style:{fontSize:10,color:'#9CA3AF'}},'습도')
+        ),
+        R('div',{style:{textAlign:'center'}},
+          R('div',{style:{fontSize:18}},'💨'),
+          R('div',{style:{fontSize:13,fontWeight:700,color:'#10B981'}},weather.wind,'m/s'),
+          R('div',{style:{fontSize:10,color:'#9CA3AF'}},getWindLabel(weather.wind))
+        ),
+        R('div',{style:{textAlign:'center'}},
+          R('div',{style:{fontSize:18}},'🌧'),
+          R('div',{style:{fontSize:13,fontWeight:700,color:'#6366F1'}},weather.precip,'mm'),
+          R('div',{style:{fontSize:10,color:'#9CA3AF'}},'강수')
+        )
+      ),
+      R('div',{style:{fontSize:10,color:'#9CA3AF',alignSelf:'flex-end'}},
+        '📍 이천공장 · ',updated,' 기준',R('br'),
+        R('button',{onClick:load,style:{background:'none',border:'none',cursor:'pointer',fontSize:10,color:'#9CA3AF',padding:0,textDecoration:'underline'}},'새로고침')
+      )
+    ),
+    /* 하단: 3일 예보 */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',borderTop:'1px solid #F3F4F6'}},
+      ...weather.forecast.map((f,i)=>{
+        const fi=getWeatherInfo(f.code);
+        return R('div',{key:i,style:{padding:'10px 12px',textAlign:'center',borderRight:i<2?'1px solid #F3F4F6':'none',background:i===0?`${fi.color}08`:'transparent'}},
+          R('div',{style:{fontSize:11,fontWeight:700,color:i===0?fi.color:'#6B7280',marginBottom:4}},getDayLabel(f.date,i)),
+          R('div',{style:{fontSize:22,marginBottom:4}},fi.icon),
+          R('div',{style:{fontSize:11,color:'#374151'}},
+            R('span',{style:{fontWeight:700,color:'#EF4444'}},f.max,'°'),
+            R('span',{style:{color:'#9CA3AF',margin:'0 4px'}},'·'),
+            R('span',{style:{fontWeight:700,color:'#3B82F6'}},f.min,'°')
+          ),
+          f.precip>0&&R('div',{style:{fontSize:10,color:'#6366F1',marginTop:2}},'💧 ',f.precip,'mm')
+        );
+      })
+    )
+  );
+}
+
 function ExchangeRateWidget(){
   const[rates,setRates]=useState(null);
   const[loading,setLoading]=useState(true);
@@ -6481,6 +7013,9 @@ function PageHome({user,mats,prods,orders,pqty,shortCnt,onGoPage,isAdmin}){
       )
     ),
     
+    /* ━━━━━━ 🌤️ 날씨 위젯 ━━━━━━ */
+    R(WeatherWidget),
+
     /* ━━━━━━ 💱 환율 위젯 ━━━━━━ */
     R(ExchangeRateWidget),
     
@@ -6703,15 +7238,26 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   );
 }
 
-function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSetProds}){
+function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSetProds,
+  favoriteCodes:_favCodes,favorites:_favorites,semiItemsMap:_semiMap,semiItemsMapByCode:_semiByCode,
+  toggleFav:_toggleFav,addSemi:_addSemi,removeSemi:_removeSemi}){
+  /* 즐겨찾기/반제품매핑은 App 레벨에서 props로 받음 - 페이지 이동해도 유지 */
+  const favoriteCodes=_favCodes||[];
+  const favorites=_favorites||[];
+  const semiItemsMap=_semiMap||{};
+  const semiItemsMapByCode=_semiByCode||{};
+  const toggleFav=_toggleFav||(()=>{});
+
   const[monthlySales,setMonthlySales]=useState({});
-  const[autoSupplier,setAutoSupplier]=useState({});  /* 코드별 매입처 (purchases에서) */
-  const[autoPrice,setAutoPrice]=useState({});         /* 코드별 매입단가 (purchases에서) */
-  const[autoMU,setAutoMU]=useState({});               /* 코드별 월사용량 (sales에서) */
+  const[autoSupplier,setAutoSupplier]=useState({});
+  const[autoPrice,setAutoPrice]=useState({});
+  const[autoMU,setAutoMU]=useState({});
   const[invTab,setInvTab]=useState('list');
   const[search,setSearch]=useState('');
   const[catF,setCatF]=useState('전체');
   const[sortBy,setSortBy]=useState('cat');
+<<<<<<< HEAD
+=======
   /* 즐겨찾기는 코드(c) 기준으로 저장 (mat.id가 ERP 업로드 시 바뀌어도 보존됨) */
   const[favoriteCodes,setFavoriteCodes]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('bnf_fav_mat_codes')||'[]');}catch(e){return [];}
@@ -6776,10 +7322,11 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
     }catch(e){}
   },[mats]);
   
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
   const[selectedFav,setSelectedFav]=useState(null);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
-  /* ERP 동기화 - 이카운트 OPEN API */
+  /* ERP 동기화 */
   const[erpSyncing,setErpSyncing]=useState(false);
   const[erpModalOpen,setErpModalOpen]=useState(false);
   const[erpStatus,setErpStatus]=useState('');
@@ -6853,6 +7400,16 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
   },[mats,catF,search,sortBy]);
   /* 즐겨찾기/반제품 함수 & 데이터 (ERP 탭, 일반 탭 둘 다에서 사용) */
   /* id로 호출되더라도 내부적으로는 코드(c)로 변환해서 저장 → ERP 업로드/삭제해도 보존됨 */
+<<<<<<< HEAD
+  /* addSemi/removeSemi는 App 레벨에서 props로 받음 */
+  const addSemi=(mat)=>{
+    if(!selectedFav){alert('먼저 좌측에서 완제품을 선택하세요');return;}
+    if(_addSemi)_addSemi(selectedFav,mat);
+  };
+  const removeSemi=(id)=>{
+    if(!selectedFav)return;
+    if(_removeSemi)_removeSemi(selectedFav,id);
+=======
   const toggleFav=(id)=>{
     const mat=mats.find(m=>m.id===id);
     if(!mat)return;
@@ -6894,6 +7451,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
       localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
       return next;
     });
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
   };
 
   const favMats=mats.filter(m=>favorites.includes(m.id)).sort((a,b)=>(a.n||'').localeCompare(b.n||'','ko'));
@@ -7365,6 +7923,15 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
 
   return R('div',{className:'pg fa',style:{overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch'}},
     R('div',{className:'inv-wrap'},
+<<<<<<< HEAD
+      R('div',{className:'cat-col',style:{display:'none'}}),
+      R('div',{className:'inv-main'},
+        getFavSection(),
+        R('div',{style:{display:'flex',gap:8,marginBottom:10,alignItems:'center',borderBottom:'1px solid var(--bd)',paddingBottom:8}},
+          R('button',{className:'tab act',style:{fontSize:11,padding:'4px 12px'}},'재고목록'),
+          R('button',{className:'tab',style:{fontSize:11,padding:'4px 12px'},onClick:()=>setInvTab('erp')},'📤 ERP 업로드')
+        ),
+=======
     R('div',{className:'cat-col',style:{display:'none'}}),  /* 옛 사이드바 숨김 */
     R('div',{className:'inv-main'},
       getFavSection(),
@@ -7372,6 +7939,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef,prods,onSe
         R('button',{className:'tab act',style:{fontSize:11,padding:'4px 12px'}},'재고목록'),
         R('button',{className:'tab',style:{fontSize:11,padding:'4px 12px'},onClick:()=>setInvTab('erp')},'📤 ERP 업로드')
       ),
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
       
       /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
       /* 📦 분류 필터 - 항상 잘 보이게 강조 표시   */
@@ -7972,7 +8540,21 @@ function PageQuote({quote,setQuote,user}){
   const[sentList,setSentList]=useState([]);const[loadingSent,setLoadingSent]=useState(false);
   const[custList,setCustList]=useState([]);const[custSearch,setCustSearch]=useState('');const[showCustList,setShowCustList]=useState(false);
   
-  useEffect(()=>{loadCust();if(tab==='sent')loadSent();},[tab]);
+  useEffect(()=>{
+    loadCust();
+    if(tab==='sent')loadSent();
+    /* 견적서 작성 탭 진입 시 견적번호+날짜를 오늘 자동으로 갱신 (작성 안 한 경우) */
+    if(tab==='write'&&quote.items.every(i=>!i.name)&&!quote.company.name){
+      const today=new Date();
+      const yyyy=today.getFullYear();
+      const mm=String(today.getMonth()+1).padStart(2,'0');
+      const dd=String(today.getDate()).padStart(2,'0');
+      const hh=String(today.getHours()).padStart(2,'0');
+      const min=String(today.getMinutes()).padStart(2,'0');
+      const newNumber=yyyy+'-'+mm+dd+'-'+hh+min;
+      setQuote(p=>({...p,number:newNumber,date:yyyy+'-'+mm+'-'+dd,createdAt:today.toISOString()}));
+    }
+  },[tab]);
   const loadCust=async()=>{try{const{data}=await sbClient.from('customers').select('*').order('name');setCustList(data||[]);}catch(e){}};
   const loadSent=async()=>{setLoadingSent(true);try{const{data}=await sbClient.from('quotes').select('*').order('created_at',{ascending:false}).limit(50);setSentList(data||[]);}catch(e){}setLoadingSent(false);};
   
@@ -9007,11 +9589,14 @@ function PageAutoOrder({user,mats,onCreateOrder}){
     filtered.length===0?R('div',{className:'empty'},R('div',{className:'empty-ic'},'✅'),'발주 필요 품목 없음'):
     R('div',{className:'tw'},
       R('table',null,
-        R('thead',null,R('tr',null,R('th',null,'품목'),R('th',{style:{textAlign:'right',width:70}},'현재고'),R('th',{style:{textAlign:'right',width:75}},'안전재고'),R('th',{style:{textAlign:'right',width:75}},'재발주점'),R('th',{style:{textAlign:'right',width:90,background:'#FFF5F0'}},'추천량'),R('th',{style:{width:130}},'매입처'),R('th',{style:{width:75}}))),
+        R('thead',null,R('tr',null,R('th',{style:{minWidth:200}},'품목'),R('th',{style:{textAlign:'right',minWidth:80}},'현재고'),R('th',{style:{textAlign:'right',minWidth:80}},'안전재고'),R('th',{style:{textAlign:'right',minWidth:80}},'재발주점'),R('th',{style:{textAlign:'right',minWidth:90,background:'#FFF5F0'}},'추천량'),R('th',{style:{minWidth:140}},'매입처'),R('th',{style:{minWidth:80}}))),
         R('tbody',null,
           ...filtered.map(s=>R('tr',{key:s.c,className:s.s===0?'dng':''},
-            R('td',null,R('div',{style:{fontSize:12,fontWeight:600}},s.n),R('div',{style:{fontSize:10,color:'var(--tm)'}},s.c)),
-            R('td',{style:{textAlign:'right',fontWeight:700,color:s.s===0?'#dc2626':'#1a1a1a'}},s.s,s.u),
+            R('td',{style:{minWidth:200}},
+              R('div',{style:{fontSize:12,fontWeight:600,whiteSpace:'nowrap',display:'block'}},s.n),
+              R('div',{style:{fontSize:10,color:'var(--tm)',display:'block',marginTop:2}},s.c)
+            ),
+            R('td',{style:{textAlign:'right',fontWeight:700,color:s.s===0?'#dc2626':'#1a1a1a',whiteSpace:'nowrap'}},s.s,' ',s.u),
             R('td',{style:{textAlign:'right'}},R('input',{type:'number',defaultValue:s.safety,onBlur:e=>updRule(s.c,{safety_stock:+e.target.value,item_name:s.n}),className:'ci',style:{textAlign:'right'}})),
             R('td',{style:{textAlign:'right'}},R('input',{type:'number',defaultValue:s.reorder,onBlur:e=>updRule(s.c,{reorder_point:+e.target.value,item_name:s.n}),className:'ci',style:{textAlign:'right'}})),
             R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)',background:'#FFF5F0'}},R('input',{type:'number',defaultValue:s.recommendQty,onBlur:e=>updRule(s.c,{reorder_qty:+e.target.value,item_name:s.n}),className:'ci',style:{textAlign:'right',fontWeight:800,color:'var(--p)'}})),
@@ -10924,6 +11509,7 @@ const DEFAULT_NAV_SECTIONS=[
         {id:'hq',l:'본사재고',ic:'🏢'},
         {id:'bom',l:'BOM 등록',ic:'⊕'},
         {id:'prod',l:'생산 지시',ic:'🏭'},
+        {id:'prodPlan',l:'생산 통합 플래너',ic:'🗂️'},
         {id:'orders',l:'발주현황',ic:'🚚'},
         {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
         {id:'sched',l:'생산 스케줄',ic:'📅'},
@@ -10989,6 +11575,20 @@ function loadNavSections(){
                   }
                   updated=true;
                 }
+<<<<<<< HEAD
+                /* prodPlan 없으면 추가 */
+                const hasPlan=sub.items.some(x=>x.id==='prodPlan');
+                if(!hasPlan){
+                  const prodIdx=sub.items.findIndex(x=>x.id==='prod');
+                  if(prodIdx>=0){
+                    sub.items.splice(prodIdx+1,0,{id:'prodPlan',l:'생산 통합 플래너',ic:'🗂️'});
+                  }else{
+                    sub.items.push({id:'prodPlan',l:'생산 통합 플래너',ic:'🗂️'});
+                  }
+                  updated=true;
+                }
+=======
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
               }
             });
           }
@@ -11351,7 +11951,81 @@ function App(){
   const updMat=(id,k,v)=>setMats(p=>p.map(m=>m.id===id?{...m,[k]:v}:m));
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
 
-  /* ═══ 앱 내 알림 뱃지 카운트 ═══ */
+  /* ═══ 즐겨찾기 / 반제품매핑 - App 레벨 (페이지 이동해도 유지) ═══ */
+  const[favoriteCodes,setFavoriteCodes]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem('bnf_fav_mat_codes')||'[]');}catch(e){return [];}
+  });
+  const[semiItemsMapByCode,setSemiItemsMapByCode]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem('bnf_semi_items_map_code')||'{}');}catch(e){return {};}
+  });
+  /* mats 로드 후 옛 데이터 자동 마이그레이션 (id→코드) */
+  useEffect(()=>{
+    if(!mats||mats.length===0)return;
+    try{
+      if(!localStorage.getItem('bnf_fav_mat_codes')){
+        const oldIds=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
+        if(oldIds.length>0){
+          const codes=oldIds.map(id=>{const m=mats.find(x=>x.id===id);return m?m.c:null;}).filter(Boolean);
+          if(codes.length>0){localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(codes));setFavoriteCodes(codes);}
+        }
+      }
+      if(!localStorage.getItem('bnf_semi_items_map_code')){
+        const oldMap=JSON.parse(localStorage.getItem('bnf_semi_items_map')||'{}');
+        if(Object.keys(oldMap).length>0){
+          const newMap={};
+          Object.keys(oldMap).forEach(prodId=>{
+            const pm=mats.find(m=>m.id===prodId);if(!pm)return;
+            newMap[pm.c]=(oldMap[prodId]||[]).map(si=>{const sm=mats.find(m=>m.id===si.id);return{c:sm?sm.c:'',n:si.n,u:si.u};}).filter(x=>x.c);
+          });
+          if(Object.keys(newMap).length>0){localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(newMap));setSemiItemsMapByCode(newMap);}
+        }
+      }
+    }catch(e){}
+  },[mats.length]);
+
+  /* 즐겨찾기 함수 (App 레벨) */
+  const favorites=useMemo(()=>favoriteCodes.map(c=>{const m=mats.find(x=>x.c===c);return m?m.id:null;}).filter(Boolean),[favoriteCodes,mats]);
+  const semiItemsMap=useMemo(()=>{
+    const result={};
+    Object.keys(semiItemsMapByCode).forEach(prodCode=>{
+      const pm=mats.find(m=>m.c===prodCode);if(!pm)return;
+      result[pm.id]=(semiItemsMapByCode[prodCode]||[]).map(si=>{const sm=mats.find(m=>m.c===si.c);return{id:sm?sm.id:'__missing__'+si.c,n:si.n,u:si.u};});
+    });
+    return result;
+  },[semiItemsMapByCode,mats]);
+  const toggleFav=(id)=>{
+    const mat=mats.find(m=>m.id===id);if(!mat||!mat.c)return;
+    setFavoriteCodes(prev=>{
+      const next=prev.includes(mat.c)?prev.filter(x=>x!==mat.c):[...prev,mat.c];
+      localStorage.setItem('bnf_fav_mat_codes',JSON.stringify(next));
+      return next;
+    });
+  };
+  const addSemi=(selectedFav,mat)=>{
+    if(!selectedFav||!mat.c)return;
+    const prodCode=selectedFav.c;
+    setSemiItemsMapByCode(prev=>{
+      const cur=prev[prodCode]||[];
+      if(cur.find(x=>x.c===mat.c))return prev;
+      const next={...prev,[prodCode]:[...cur,{c:mat.c,n:mat.n,u:mat.u}]};
+      localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
+      return next;
+    });
+  };
+  const removeSemi=(selectedFav,id)=>{
+    if(!selectedFav)return;
+    const prodCode=selectedFav.c;
+    const semiMat=mats.find(m=>m.id===id);
+    const codeToRemove=semiMat?semiMat.c:(typeof id==='string'&&id.startsWith('__missing__')?id.replace('__missing__',''):null);
+    if(!codeToRemove)return;
+    setSemiItemsMapByCode(prev=>{
+      const next={...prev,[prodCode]:(prev[prodCode]||[]).filter(x=>x.c!==codeToRemove)};
+      localStorage.setItem('bnf_semi_items_map_code',JSON.stringify(next));
+      return next;
+    });
+  };
+
+
   const[notif,setNotif]=useState({approval:0,notice:0,total:0});
   const[notifPanel,setNotifPanel]=useState(false);
   const[notifItems,setNotifItems]=useState([]);
@@ -11652,10 +12326,16 @@ function App(){
     }
     const p={user,mats,cats,isAdmin,rk};
     if(page==='home')return R(PageHome,{user,mats,prods,orders,pqty,shortCnt,onGoPage:setPage,isAdmin});
-    if(page==='inv')return R(PageInv,{...p,prods,onSetProds:setProds,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
+    if(page==='inv')return R(PageInv,{...p,prods,onSetProds:setProds,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef,
+      favoriteCodes,favorites,semiItemsMap,semiItemsMapByCode,
+      toggleFav,
+      addSemi:(sf,mat)=>addSemi(sf,mat),
+      removeSemi:(sf,id)=>removeSemi(sf,id)
+    });
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
     if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true)});
     if(page==='prod')return R(PageProd,{mats,prods,pqty,setPqty,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);}});
+    if(page==='prodPlan')return R(PageProductionPlanner,{mats,prods,isAdmin,onCreateOrder:o=>{setOrders(p=>[...p,{id:uid(),matCode:o.matCode,matName:o.matName,qty:o.qty,supplier:o.supplier||'',unit:o.unit||'',step:1,status:'발주대기',reqDate:new Date().toISOString().slice(0,10),expDate:'',memo:o.memo||'생산 플래너 자동 생성'}]);setPage('orders');}});
     if(page==='operation')return R(PagePlant,{user});
     if(page==='sched')return R(PageProdSchedule);
     if(page==='shipSched')return R(PageShipSchedule,{user,isAdmin});
@@ -12296,9 +12976,15 @@ function App(){
    🔖 BUILD SIGNATURE (캐시 무효화용 - 매 빌드마다 변경)
    ═══════════════════════════════════════════════════════════ */
 window._BNF_BUILD={
+<<<<<<< HEAD
+  version:'2026-05-19-T15:00:mobile-table-fix-v48',
+  buildTime:'1747670400000',
+  description:'모바일 표 가로 스크롤 강화 (글자 겹침 X) + 견적서 진입 시 번호/날짜 자동 갱신'
+=======
   version:'2026-05-19-T12:00:shipSched-menu-fix-v43',
   buildTime:'1747659600000',
   description:'출고 스케줄 메뉴 DEFAULT_NAV_SECTIONS에 추가 + localStorage 저장 메뉴도 자동 마이그레이션'
+>>>>>>> 3d4a4341298d52eb46fae6c1ff39897d6c375137
 };
 console.log('🔖 B&F MES Build:',window._BNF_BUILD.version);
 
