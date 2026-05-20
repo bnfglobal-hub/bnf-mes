@@ -209,6 +209,12 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
   /* 사이드바 오버레이 닫기 */
   .sb{border-radius:0 16px 16px 0 !important;}
 }
+
+/* ═ 홈 화면 모바일 반응형 ═ */
+@media(max-width:768px){
+  .home-row{grid-template-columns:1fr !important;gap:10px !important;}
+  .pg-title{font-size:18px !important;}
+}
 </style>
 <script>
 window._deferredPrompt=null;
@@ -1816,7 +1822,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     ),
 
     /* ═══ 1행: 날씨(50%) + 환율(50%) ═══ */
-    R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
+    R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
       /* 날씨 */
       R('div',{className:'card',style:{background:'linear-gradient(135deg,#1E40AF,#3B82F6)',color:'#fff',borderRadius:14,padding:'20px',border:'none',position:'relative',overflow:'hidden'}},
         R('div',{style:{position:'absolute',right:16,top:14,fontSize:52,opacity:0.25}},weather?weather.icon:'🌤️'),
@@ -1878,7 +1884,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     ),
 
     /* ═══ 3행: 바로가기 + 나의 할일 ═══ */
-    R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
+    R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
       /* 바로가기 */
       R('div',{className:'card',style:{borderRadius:14}},
         R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
