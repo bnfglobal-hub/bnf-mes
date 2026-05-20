@@ -2419,8 +2419,8 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
               return R('tr',{key:m.id+'_'+rk,className:st==='bad'?'dng':''},
                 R('td',{style:{color:'#cbd5e1',textAlign:'center',fontSize:14}},'⠿'),
                 R('td',{style:{overflow:'hidden'}},R('div',{style:{display:'flex',alignItems:'center',gap:4,minWidth:0}},
-                  isAdmin?R(EC,{rk:m.id+'n'+rk,initVal:m.n,onSave:v=>onUpd(m.id,'n',v),className:'ci',style:{fontWeight:500,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}):R('span',{style:{fontSize:12,fontWeight:500,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:m.n},m.n),
-                  R('button',{onClick:()=>toggleFav(m.id),title:favorites.includes(m.id)?'즐겨찾기 해제':'완제품 즐겨찾기',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'0 2px',color:favorites.includes(m.id)?'#FBB024':'#d1d5db',lineHeight:1,flexShrink:0}},favorites.includes(m.id)?'⭐':'☆')
+                  isAdmin?R(EC,{rk:m.id+'n'+rk,initVal:m.n,onSave:v=>onUpd(m.id,'n',v),className:'ci',style:{fontWeight:500,flex:1,minWidth:0,width:'auto',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}):R('span',{style:{fontSize:12,fontWeight:500,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:m.n},m.n),
+                  R('button',{type:'button',onClick:e=>{e.stopPropagation();toggleFav(m.id);},title:favorites.includes(m.id)?'즐겨찾기 해제':'완제품 즐겨찾기',style:{background:'none',border:'none',cursor:'pointer',fontSize:15,padding:'4px 6px',color:favorites.includes(m.id)?'#FBB024':'#d1d5db',lineHeight:1,flexShrink:0,minWidth:28,position:'relative',zIndex:2}},favorites.includes(m.id)?'⭐':'☆')
                 )),
                 R('td',null,R(Bdg,{g:m.g,sm:true})),
                 R('td',{style:{textAlign:'right',fontWeight:700,color:st==='bad'?'#dc2626':st==='warn'?'#d97706':'#D94F1E'}},
