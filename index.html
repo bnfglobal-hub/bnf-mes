@@ -215,6 +215,40 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
   .home-row{grid-template-columns:1fr !important;gap:10px !important;}
   .pg-title{font-size:18px !important;}
 }
+
+/* ═ 재고 모바일 - 테이블 가로 스크롤 ═ */
+@media(max-width:768px){
+  .inv-main{overflow-x:auto !important;padding:8px !important;}
+  .inv-tbl{overflow-x:auto !important;width:100% !important;}
+  .inv-tbl table{min-width:720px !important;}
+  .inv-tbl table td,.inv-tbl table th{white-space:nowrap !important;padding:6px 8px !important;}
+  .inv-tbl table td:nth-child(3){min-width:140px !important;}
+  
+  /* 카테고리 줄을 가로로 스크롤 (이미 있지만 강화) */
+  .cat-col{
+    display:flex !important;
+    flex-direction:row !important;
+    overflow-x:auto !important;
+    width:100% !important;
+    max-height:none !important;
+    height:auto !important;
+    padding:6px 8px !important;
+    gap:4px !important;
+  }
+  .cat-col .cb{
+    flex-shrink:0 !important;
+    min-width:max-content !important;
+    border-left:none !important;
+    border-bottom:3px solid transparent !important;
+    padding:6px 12px !important;
+    font-size:11px !important;
+    white-space:nowrap !important;
+  }
+  .cat-col .cb.active,.cat-col .cb.act{
+    border-bottom-color:var(--p) !important;
+    background:#FFF8F4 !important;
+  }
+}
 </style>
 <script>
 window._deferredPrompt=null;
@@ -1747,212 +1781,293 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[rates,setRates]=useState(null);
   const[rateHistory,setRateHistory]=useState([]);
   const[weather,setWeather]=useState(null);
+  const[wxHourly,setWxHourly]=useState([]);
+  const[wxDaily,setWxDaily]=useState([]);
+  const[wxTab,setWxTab]=useState('hour');
   const[news,setNews]=useState([]);
   const[rateTab,setRateTab]=useState('week');
   const[myLinks,setMyLinks]=useState([]);
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
+  const[editMode,setEditMode]=useState(false);
+  const[sectionOrder,setSectionOrder]=useState(()=>{try{const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');return Array.isArray(v)&&v.length===4?v:['wr','news','lt','stats'];}catch(e){return['wr','news','lt','stats'];}});
+  const[dragged,setDragged]=useState(null);
   const chartRef=useRef();
 
-  const CURRENCIES=[
-    {code:'USD',name:'미국 달러',flag:'🇺🇸',color:'#3B82F6'},
-    {code:'CNH',name:'중국 위안',flag:'🇨🇳',color:'#EF4444'},
-    {code:'GBP',name:'영국 파운드',flag:'🇬🇧',color:'#8B5CF6'},
-    {code:'JPY',name:'일본 엔(100)',flag:'🇯🇵',color:'#22C55E'}
+  const CUR=[
+    {code:'USD',name:'미국 달러',flag:'🇺🇸'},
+    {code:'CNH',name:'중국 위안',flag:'🇨🇳'},
+    {code:'GBP',name:'영국 파운드',flag:'🇬🇧'},
+    {code:'JPY',name:'일본 엔(100)',flag:'🇯🇵'}
   ];
 
+  /* 외부 데이터 로드 */
   useEffect(()=>{
-    /* 환율 */
-    fetch('https://open.er-api.com/v6/latest/KRW')
-      .then(r=>r.json()).then(data=>{
-        if(data&&data.rates){
-          const r={};
-          CURRENCIES.forEach(c=>{
-            const code=c.code==='CNH'?'CNY':c.code;
-            const rate=data.rates[code];
-            if(rate)r[c.code]=c.code==='JPY'?Math.round(1/rate*100*100)/100:Math.round(1/rate*100)/100;
-          });
-          setRates(r);
-          const today=new Date().toISOString().slice(0,10);
-          const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');
-          if(!hist.find(h=>h.date===today)){hist.push({date:today,...r});if(hist.length>90)hist.shift();localStorage.setItem('bnf_rate_hist',JSON.stringify(hist));}
-          setRateHistory(hist);
+    fetch('https://open.er-api.com/v6/latest/KRW').then(r=>r.json()).then(data=>{
+      if(data&&data.rates){
+        const r={};
+        CUR.forEach(c=>{
+          const code=c.code==='CNH'?'CNY':c.code;
+          const rate=data.rates[code];
+          if(rate)r[c.code]=c.code==='JPY'?Math.round(1/rate*100*100)/100:Math.round(1/rate*100)/100;
+        });
+        setRates(r);
+        const today=new Date().toISOString().slice(0,10);
+        const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');
+        if(!hist.find(h=>h.date===today)){hist.push({date:today,...r});if(hist.length>90)hist.shift();localStorage.setItem('bnf_rate_hist',JSON.stringify(hist));}
+        setRateHistory(hist);
+      }
+    }).catch(()=>{const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');if(hist.length>0){const l=hist[hist.length-1];setRates({USD:l.USD,CNH:l.CNH,GBP:l.GBP,JPY:l.JPY});setRateHistory(hist);}});
+
+    /* 현재 날씨 - wttr.in */
+    fetch('https://wttr.in/Icheon+South+Korea?format=j1').then(r=>r.json()).then(data=>{
+      if(data&&data.current_condition){const c=data.current_condition[0];
+        setWeather({temp:c.temp_C,feel:c.FeelsLikeC,desc:c.lang_ko&&c.lang_ko[0]?c.lang_ko[0].value:c.weatherDesc[0].value,humidity:c.humidity,wind:c.windspeedKmph,icon:+c.temp_C>30?'🌡️':+c.temp_C>20?'☀️':+c.temp_C>10?'🌤️':+c.temp_C>0?'🌥️':'❄️'});}
+    }).catch(()=>{});
+    
+    /* 시간별/일별 - Open-Meteo (무료, 키 불필요) */
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=37.272&longitude=127.435&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&timezone=Asia/Seoul&forecast_days=7').then(r=>r.json()).then(data=>{
+      const wcIcon=(c)=>{
+        if(c===0)return '☀️';
+        if(c<=3)return '🌤️';
+        if(c<=48)return '🌫️';
+        if(c<=67)return '🌧️';
+        if(c<=77)return '❄️';
+        if(c<=82)return '🌦️';
+        if(c<=99)return '⛈️';
+        return '🌤️';
+      };
+      if(data.hourly){
+        /* 오늘 시간별 (현재시각 이후 8개, 3시간 간격) */
+        const now=new Date();
+        const todayStr=now.toISOString().slice(0,10);
+        const hourly=[];
+        for(let i=0;i<data.hourly.time.length;i++){
+          const t=new Date(data.hourly.time[i]);
+          if(t.getTime()<now.getTime()-3600000)continue;
+          if(t.toISOString().slice(0,10)!==todayStr&&hourly.length>=8)break;
+          if(i%3===0||hourly.length<8){
+            hourly.push({
+              hour:t.getHours(),
+              temp:Math.round(data.hourly.temperature_2m[i]),
+              icon:wcIcon(data.hourly.weather_code[i]),
+              rain:data.hourly.precipitation_probability?data.hourly.precipitation_probability[i]:0
+            });
+            if(hourly.length>=8)break;
+          }
         }
-      }).catch(()=>{const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');if(hist.length>0){const l=hist[hist.length-1];setRates({USD:l.USD,CNH:l.CNH,GBP:l.GBP,JPY:l.JPY});setRateHistory(hist);}});
+        setWxHourly(hourly);
+      }
+      if(data.daily){
+        const days=['일','월','화','수','목','금','토'];
+        const daily=data.daily.time.map((d,i)=>{
+          const dt=new Date(d);
+          const isToday=dt.toDateString()===new Date().toDateString();
+          return{
+            date:d,
+            dayName:isToday?'오늘':days[dt.getDay()],
+            mon:dt.getMonth()+1,day:dt.getDate(),
+            max:Math.round(data.daily.temperature_2m_max[i]),
+            min:Math.round(data.daily.temperature_2m_min[i]),
+            icon:wcIcon(data.daily.weather_code[i]),
+            rain:data.daily.precipitation_probability_max?data.daily.precipitation_probability_max[i]:0,
+            isToday,
+            dow:dt.getDay()
+          };
+        });
+        setWxDaily(daily);
+      }
+    }).catch(()=>{});
 
-    /* 날씨 */
-    fetch('https://wttr.in/Icheon+South+Korea?format=j1')
-      .then(r=>r.json()).then(data=>{
-        if(data&&data.current_condition){const c=data.current_condition[0];
-          setWeather({temp:c.temp_C,feel:c.FeelsLikeC,desc:c.lang_ko&&c.lang_ko[0]?c.lang_ko[0].value:c.weatherDesc[0].value,humidity:c.humidity,wind:c.windspeedKmph,
-            icon:+c.temp_C>30?'🌡️':+c.temp_C>20?'☀️':+c.temp_C>10?'🌤️':+c.temp_C>0?'🌥️':'❄️'});}
-      }).catch(()=>{});
+    /* 네이버 뉴스 검색 - 본 기사 제외 */
+    loadFreshNews();
 
-    /* 뉴스 */
-    fetch('https://api.rss2json.com/v1/api.json?rss_url=https://news.google.com/rss/search?q=%EC%8B%9D%ED%92%88+%EC%82%B0%EC%97%85&hl=ko&gl=KR&ceid=KR:ko')
-      .then(r=>r.json()).then(data=>{if(data&&data.items)setNews(data.items.slice(0,5));}).catch(()=>{});
-
-    /* 바로가기 */
     sbClient.from('user_links').select('*').order('created_at').limit(8)
       .then(({data})=>{if(data)setMyLinks(data);}).catch(()=>{});
   },[]);
 
-  /* 환율 차트 */
+  const loadFreshNews=()=>{
+    const keywords=['식품','식품산업','식품제조','외식산업','식품업계','식품안전','농수산물','식품기업'];
+    const kw=keywords[Math.floor(Math.random()*keywords.length)];
+    const url='https://api.rss2json.com/v1/api.json?count=20&rss_url='+encodeURIComponent('https://news.google.com/rss/search?q='+encodeURIComponent(kw)+'&hl=ko&gl=KR&ceid=KR:ko');
+    fetch(url).then(r=>r.json()).then(data=>{
+      if(data&&data.items){
+        const seenIds=new Set(JSON.parse(localStorage.getItem('bnf_seen_news')||'[]'));
+        const fresh=data.items.filter(n=>!seenIds.has(n.link)).slice(0,4);
+        const final=fresh.length>=4?fresh:[...fresh,...data.items.filter(n=>seenIds.has(n.link))].slice(0,4);
+        setNews(final);
+        final.forEach(n=>seenIds.add(n.link));
+        const arr=Array.from(seenIds);
+        if(arr.length>100)arr.splice(0,arr.length-100);
+        localStorage.setItem('bnf_seen_news',JSON.stringify(arr));
+      }
+    }).catch(()=>{});
+  };
+
   useEffect(()=>{
     if(!window.Chart||!chartRef.current||!rateHistory.length)return;
     const ex=Chart.getChart(chartRef.current);if(ex)ex.destroy();
     const days=rateTab==='week'?7:30;const data=rateHistory.slice(-days);
     if(!data.length)return;
-    new Chart(chartRef.current,{type:'line',data:{labels:data.map(d=>d.date.slice(5)),datasets:[{label:'USD/KRW',data:data.map(d=>d.USD||null),borderColor:'#3B82F6',backgroundColor:'#3B82F622',borderWidth:2,fill:true,tension:0.3,pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>v.toLocaleString()}}}}});
+    new Chart(chartRef.current,{type:'line',data:{labels:data.map(d=>d.date.slice(5)),datasets:[{label:'USD/KRW',data:data.map(d=>d.USD||null),borderColor:'#3B82F6',backgroundColor:'#3B82F622',borderWidth:2,fill:true,tension:0.3,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>v.toLocaleString(),font:{size:9}}},x:{ticks:{font:{size:9}}}}}});
   },[rateHistory,rateTab]);
 
-  const prevRate=code=>rateHistory.length>=2?rateHistory[rateHistory.length-2][code]:null;
-  const RDiff=({cur,prev})=>{if(!prev||!cur)return null;const d=cur-prev;return R('span',{style:{fontSize:9,fontWeight:700,color:d>=0?'#EF4444':'#3B82F6',marginLeft:4}},(d>=0?'▲':'▼')+Math.abs(d).toFixed(1));};
+  const prev=code=>rateHistory.length>=2?rateHistory[rateHistory.length-2][code]:null;
+  const Diff=({cur,p})=>{if(!p||!cur)return null;const d=cur-p;return R('span',{style:{fontSize:9,fontWeight:700,color:d>=0?'#EF4444':'#3B82F6',marginLeft:4}},(d>=0?'▲':'▼')+Math.abs(d).toFixed(1));};
 
-  /* 할일 관리 */
-  const addTodo=()=>{if(!todoInput.trim())return;const next=[...todos,{id:Date.now(),text:todoInput.trim(),done:false,created:new Date().toISOString()}];setTodos(next);localStorage.setItem('bnf_todos',JSON.stringify(next));setTodoInput('');};
-  const toggleTodo=id=>{const next=todos.map(t=>t.id===id?{...t,done:!t.done}:t);setTodos(next);localStorage.setItem('bnf_todos',JSON.stringify(next));};
-  const delTodo=id=>{const next=todos.filter(t=>t.id!==id);setTodos(next);localStorage.setItem('bnf_todos',JSON.stringify(next));};
+  const addTodo=()=>{if(!todoInput.trim())return;const n=[...todos,{id:Date.now(),text:todoInput.trim(),done:false}];setTodos(n);localStorage.setItem('bnf_todos',JSON.stringify(n));setTodoInput('');};
+  const togTodo=id=>{const n=todos.map(t=>t.id===id?{...t,done:!t.done}:t);setTodos(n);localStorage.setItem('bnf_todos',JSON.stringify(n));};
+  const delTodo=id=>{const n=todos.filter(t=>t.id!==id);setTodos(n);localStorage.setItem('bnf_todos',JSON.stringify(n));};
 
-  return R('div',{className:'pg fa'},
-    /* 인사 */
-    R('div',{style:{marginBottom:16}},
-      R('div',{style:{fontSize:20,fontWeight:800,color:'#1F2937'}},'관리자님, 안녕하세요 👋'),
-      R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:4}},new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}))
-    ),
+  const moveSec=(from,to)=>{const arr=[...sectionOrder];const[m]=arr.splice(from,1);arr.splice(to,0,m);setSectionOrder(arr);localStorage.setItem('bnf_home_order',JSON.stringify(arr));};
 
-    /* ═══ 1행: 날씨(50%) + 환율(50%) ═══ */
-    R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
-      /* 날씨 */
-      R('div',{className:'card',style:{background:'linear-gradient(135deg,#1E40AF,#3B82F6)',color:'#fff',borderRadius:14,padding:'20px',border:'none',position:'relative',overflow:'hidden'}},
-        R('div',{style:{position:'absolute',right:16,top:14,fontSize:52,opacity:0.25}},weather?weather.icon:'🌤️'),
-        R('div',{style:{fontSize:12,opacity:0.8,fontWeight:600}},'📍 이천시 현재 날씨'),
-        weather?R('div',null,
-          R('div',{style:{fontSize:42,fontWeight:900,marginTop:10,letterSpacing:-1}},weather.temp,'°C'),
-          R('div',{style:{fontSize:13,opacity:0.9,marginTop:4}},weather.desc),
-          R('div',{style:{display:'flex',gap:16,marginTop:14,fontSize:11,opacity:0.8}},
-            R('span',null,'🌡 체감 ',weather.feel,'°'),
-            R('span',null,'💧 습도 ',weather.humidity,'%'),
-            R('span',null,'💨 바람 ',weather.wind,'km/h')
-          )
-        ):R('div',{style:{fontSize:13,marginTop:20,opacity:0.7}},'날씨 로딩 중...')
-      ),
-
-      /* 환율 */
-      R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14}},
-        R('div',{style:{padding:'10px 16px',background:'#1E293B',color:'#fff',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-          R('div',{style:{fontSize:12,fontWeight:700}},'💱 실시간 환율'),
-          R('div',{style:{fontSize:9,opacity:0.5}},rates?'매매기준율':'로딩...')
-        ),
-        rates?R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:0}},
-          ...CURRENCIES.map((c,i)=>{
-            const rate=rates[c.code];
-            return R('div',{key:c.code,style:{padding:'8px 12px',borderRight:i%2===0?'1px solid #F3F4F6':'none',borderBottom:i<2?'1px solid #F3F4F6':'none'}},
-              R('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                R('span',{style:{fontSize:16}},c.flag),
-                R('span',{style:{fontSize:10,color:'#9CA3AF',fontWeight:600}},c.code)
-              ),
-              R('div',{style:{fontSize:15,fontWeight:900,color:'#1F2937',marginTop:2}},rate?rate.toLocaleString()+'원':'—',R(RDiff,{cur:rate,prev:prevRate(c.code)}))
-            );
-          })
-        ):null,
-        rateHistory.length>1&&R('div',{style:{borderTop:'1px solid #F3F4F6',padding:'6px 12px'}},
-          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}},
-            R('span',{style:{fontSize:9,color:'#6B7280',fontWeight:600}},'USD/KRW'),
-            R('div',{style:{display:'flex',gap:3}},...['week','month'].map(t=>R('button',{key:t,onClick:()=>setRateTab(t),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab===t?'#3B82F6':'#ddd'),background:rateTab===t?'#3B82F6':'#fff',color:rateTab===t?'#fff':'#999',cursor:'pointer'}},t==='week'?'주간':'월간')))
-          ),
-          R('div',{style:{height:60}},R('canvas',{ref:chartRef}))
+  /* ═ 섹션 빌더 ═ */
+  const buildWR=()=>R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+    /* 날씨 */
+    R('div',{className:'card',style:{background:'linear-gradient(135deg,#1E40AF,#3B82F6)',color:'#fff',borderRadius:14,padding:'20px',border:'none',position:'relative',overflow:'hidden',minHeight:180,boxSizing:'border-box'}},
+      R('div',{style:{position:'absolute',right:16,top:14,fontSize:60,opacity:0.25}},weather?weather.icon:'🌤️'),
+      R('div',{style:{fontSize:12,opacity:0.85,fontWeight:600}},'📍 이천시 현재 날씨'),
+      weather?R('div',null,
+        R('div',{style:{fontSize:44,fontWeight:900,marginTop:12,letterSpacing:-1}},weather.temp,'°C'),
+        R('div',{style:{fontSize:13,opacity:0.9,marginTop:4}},weather.desc),
+        R('div',{style:{display:'flex',gap:14,marginTop:18,fontSize:11,opacity:0.85,flexWrap:'wrap'}},
+          R('span',null,'🌡 체감 ',weather.feel,'°'),
+          R('span',null,'💧 ',weather.humidity,'%'),
+          R('span',null,'💨 ',weather.wind,'km/h')
         )
-      )
+      ):R('div',{style:{fontSize:13,marginTop:30,opacity:0.7}},'날씨 로딩 중...')
     ),
-
-    /* ═══ 2행: 뉴스 ═══ */
-    R('div',{className:'card',style:{marginBottom:14,borderRadius:14}},
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
-        R('div',{style:{fontSize:13,fontWeight:700}},'📰 식품·산업 뉴스'),
-        R('a',{href:'https://news.google.com/search?q=%EC%8B%9D%ED%92%88+%EC%82%B0%EC%97%85&hl=ko',target:'_blank',style:{fontSize:10,color:'var(--p)',textDecoration:'none'}},'더보기 →')
+    /* 환율 */
+    R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14,minHeight:180,display:'flex',flexDirection:'column'}},
+      R('div',{style:{padding:'10px 16px',background:'#1E293B',color:'#fff',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('div',{style:{fontSize:12,fontWeight:700}},'💱 실시간 환율'),
+        R('div',{style:{fontSize:9,opacity:0.5}},rates?'매매기준율':'로딩...')
       ),
-      news.length>0
-        ?R('div',null,...news.map((n,i)=>R('a',{key:i,href:n.link,target:'_blank',rel:'noopener',
-            style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:i<news.length-1?'1px solid #F3F4F6':'none',textDecoration:'none',color:'#374151',gap:10},
-            onMouseEnter:e=>e.currentTarget.style.color='#D94F1E',onMouseLeave:e=>e.currentTarget.style.color='#374151'
-          },
-            R('div',{style:{flex:1,fontSize:12,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},n.title.replace(/<[^>]+>/g,'')),
-            R('div',{style:{fontSize:9,color:'#9CA3AF',whiteSpace:'nowrap'}},n.pubDate?n.pubDate.slice(5,10):'')
-          )))
-        :R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'뉴스 로딩 중...')
-    ),
-
-    /* ═══ 3행: 바로가기 + 나의 할일 ═══ */
-    R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}},
-      /* 바로가기 */
-      R('div',{className:'card',style:{borderRadius:14}},
-        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
-          R('div',{style:{fontSize:13,fontWeight:700}},'🔗 바로가기'),
-          R('button',{onClick:()=>onGoPage('links'),style:{fontSize:10,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontWeight:600}},'전체보기 →')
-        ),
-        myLinks.length>0
-          ?R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
-            ...myLinks.slice(0,6).map(l=>R('div',{key:l.id,onClick:()=>{let u=l.url;if(!u.startsWith('http'))u='https://'+u;window.open(u,'_blank');},
-              style:{display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'8px 4px',cursor:'pointer',borderRadius:10,width:60,transition:'background .15s'},
-              onMouseEnter:e=>e.currentTarget.style.background='#F3F4F6',onMouseLeave:e=>e.currentTarget.style.background='transparent'
-            },
-              R('div',{style:{width:40,height:40,borderRadius:10,background:l.color||'#D94F1E',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}},l.icon||'🔗'),
-              R('div',{style:{fontSize:9,fontWeight:600,color:'#6B7280',textAlign:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:56}},l.title)
-            ))
+      rates?R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',flex:1}},
+        ...CUR.map((c,i)=>R('div',{key:c.code,style:{padding:'8px 12px',borderRight:i%2===0?'1px solid #F3F4F6':'none',borderBottom:i<2?'1px solid #F3F4F6':'none',display:'flex',flexDirection:'column',justifyContent:'center'}},
+          R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+            R('span',{style:{fontSize:16}},c.flag),
+            R('span',{style:{fontSize:10,color:'#9CA3AF',fontWeight:700}},c.code)
+          ),
+          R('div',{style:{fontSize:15,fontWeight:900,color:'#1F2937',marginTop:3}},rates[c.code]?rates[c.code].toLocaleString()+'원':'—',R(Diff,{cur:rates[c.code],p:prev(c.code)}))
+        ))
+      ):R('div',{style:{padding:30,textAlign:'center',color:'#ccc',fontSize:11,flex:1,display:'flex',alignItems:'center',justifyContent:'center'}},'로딩...'),
+      rateHistory.length>1&&R('div',{style:{borderTop:'1px solid #F3F4F6',padding:'6px 12px'}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}},
+          R('span',{style:{fontSize:9,color:'#6B7280',fontWeight:600}},'USD/KRW'),
+          R('div',{style:{display:'flex',gap:3}},
+            R('button',{onClick:()=>setRateTab('week'),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab==='week'?'#3B82F6':'#ddd'),background:rateTab==='week'?'#3B82F6':'#fff',color:rateTab==='week'?'#fff':'#999',cursor:'pointer'}},'주간'),
+            R('button',{onClick:()=>setRateTab('month'),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab==='month'?'#3B82F6':'#ddd'),background:rateTab==='month'?'#3B82F6':'#fff',color:rateTab==='month'?'#fff':'#999',cursor:'pointer'}},'월간')
           )
-          :R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'바로가기를 등록해주세요')
-      ),
-
-      /* 나의 할일 */
-      R('div',{className:'card',style:{borderRadius:14}},
-        R('div',{style:{fontSize:13,fontWeight:700,marginBottom:10}},'✅ 나의 할일'),
-        R('div',{style:{display:'flex',gap:6,marginBottom:10}},
-          R('input',{className:'inp',value:todoInput,onChange:e=>setTodoInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addTodo();},placeholder:'할일 입력 후 Enter',style:{flex:1,fontSize:11}}),
-          R('button',{onClick:addTodo,style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',cursor:'pointer',fontSize:11,fontWeight:700}},'+')
         ),
-        todos.length>0
-          ?R('div',{style:{maxHeight:180,overflow:'auto'}},
-            ...todos.slice().reverse().slice(0,8).map(t=>R('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:'1px solid #F3F4F6'}},
-              R('button',{onClick:()=>toggleTodo(t.id),style:{background:'none',border:'2px solid '+(t.done?'#22C55E':'#D1D5DB'),borderRadius:'50%',width:18,height:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#22C55E',flexShrink:0}},t.done?'✓':''),
-              R('div',{style:{flex:1,fontSize:11,color:t.done?'#D1D5DB':'#374151',textDecoration:t.done?'line-through':'none'}},t.text),
-              R('button',{onClick:()=>delTodo(t.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:12,padding:'0 4px'}},'✕')
-            ))
-          )
-          :R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'할일을 추가해주세요')
-      )
-    ),
-
-    /* ═══ 4행: 운영 대시보드 ═══ */
-    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:10}},
-      R('div',{className:'card',onClick:()=>onGoPage('inv'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',onMouseLeave:e=>e.currentTarget.style.boxShadow='none'},
-        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-          R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'📦 재고 현황'),
-          R('div',{style:{fontSize:18}},stockHealthPct>=90?'✅':stockHealthPct>=70?'⚠️':'🚨')
-        ),
-        R('div',{style:{fontSize:32,fontWeight:900,color:'var(--p)',marginTop:8}},stockHealthPct,'%'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},totalMats,'종 중 ',goodMats,'종 정상'),
-        shortCnt>0&&R('div',{style:{marginTop:6,padding:'4px 8px',background:'#FEF2F2',borderRadius:6,fontSize:10,color:'#EF4444',fontWeight:700}},'⚠ 부족 ',shortCnt,'종')
-      ),
-      R('div',{className:'card',onClick:()=>onGoPage('sched'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',onMouseLeave:e=>e.currentTarget.style.boxShadow='none'},
-        R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'📅 생산 스케줄'),
-        R('div',{style:{fontSize:32,fontWeight:900,color:'#3B82F6',marginTop:8}},prods.length),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'등록 제품')
-      ),
-      R('div',{className:'card',onClick:()=>onGoPage('orders'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',onMouseLeave:e=>e.currentTarget.style.boxShadow='none'},
-        R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'🚚 발주 현황'),
-        R('div',{style:{fontSize:32,fontWeight:900,color:'#F59E0B',marginTop:8}},orders.filter(o=>o.step<3).length),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'진행중 / 전체 ',orders.length,'건')
-      ),
-      R('div',{className:'card',onClick:()=>onGoPage('quote'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',onMouseLeave:e=>e.currentTarget.style.boxShadow='none'},
-        R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'📄 견적서'),
-        R('div',{style:{fontSize:24,fontWeight:900,color:'#7C3AED',marginTop:8}},'작성'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'견적서 작성/관리')
+        R('div',{style:{height:42}},R('canvas',{ref:chartRef}))
       )
     )
   );
-}
 
+  const buildNews=()=>R('div',{className:'card',style:{borderRadius:14}},
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
+      R('div',{style:{fontSize:13,fontWeight:700}},'📰 식품·산업 뉴스'),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+        R('button',{onClick:loadFreshNews,style:{background:'none',border:'1px solid #E5E7EB',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:10,color:'#6B7280'},title:'새 기사 보기'},'🔄'),
+        R('a',{href:'https://search.naver.com/search.naver?where=news&query=%EC%8B%9D%ED%92%88',target:'_blank',style:{fontSize:10,color:'var(--p)',textDecoration:'none'}},'더보기 →')
+      )
+    ),
+    news.length>0?R('div',null,...news.map((n,i)=>R('a',{key:i,href:n.link,target:'_blank',rel:'noopener',
+      style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:i<news.length-1?'1px solid #F3F4F6':'none',textDecoration:'none',color:'#374151',gap:10}
+    },
+      R('div',{style:{flex:1,fontSize:12,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},n.title.replace(/<[^>]+>/g,'')),
+      R('div',{style:{fontSize:9,color:'#9CA3AF',whiteSpace:'nowrap'}},n.pubDate?n.pubDate.slice(5,10):'')
+    ))):R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'뉴스 로딩 중...')
+  );
+
+  const buildLT=()=>R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+    R('div',{className:'card',style:{borderRadius:14}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+        R('div',{style:{fontSize:13,fontWeight:700}},'🔗 바로가기'),
+        R('button',{onClick:()=>!editMode&&onGoPage('links'),style:{fontSize:10,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontWeight:600}},'전체보기 →')
+      ),
+      myLinks.length>0?R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+        ...myLinks.slice(0,6).map(l=>R('div',{key:l.id,onClick:()=>{if(editMode)return;let u=l.url;if(!u.startsWith('http'))u='https://'+u;window.open(u,'_blank');},
+          style:{display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'6px 4px',cursor:editMode?'inherit':'pointer',borderRadius:10,width:54}
+        },
+          R('div',{style:{width:38,height:38,borderRadius:10,background:l.color||'#D94F1E',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}},l.icon||'🔗'),
+          R('div',{style:{fontSize:9,fontWeight:600,color:'#6B7280',textAlign:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:50}},l.title)
+        ))
+      ):R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'바로가기 등록')
+    ),
+    R('div',{className:'card',style:{borderRadius:14}},
+      R('div',{style:{fontSize:13,fontWeight:700,marginBottom:10}},'✅ 나의 할일'),
+      R('div',{style:{display:'flex',gap:6,marginBottom:10}},
+        R('input',{className:'inp',value:todoInput,onChange:e=>setTodoInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addTodo();},placeholder:'할일 입력 후 Enter',style:{flex:1,fontSize:11}}),
+        R('button',{onClick:addTodo,style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'6px 12px',cursor:'pointer',fontSize:11,fontWeight:700}},'+')
+      ),
+      todos.length>0?R('div',{style:{maxHeight:120,overflow:'auto'}},
+        ...todos.slice().reverse().slice(0,6).map(t=>R('div',{key:t.id,style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #F3F4F6'}},
+          R('button',{onClick:()=>togTodo(t.id),style:{background:'none',border:'2px solid '+(t.done?'#22C55E':'#D1D5DB'),borderRadius:'50%',width:16,height:16,cursor:'pointer',fontSize:9,color:'#22C55E',flexShrink:0}},t.done?'✓':''),
+          R('div',{style:{flex:1,fontSize:11,color:t.done?'#D1D5DB':'#374151',textDecoration:t.done?'line-through':'none'}},t.text),
+          R('button',{onClick:()=>delTodo(t.id),style:{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:12}},'✕')
+        ))
+      ):R('div',{style:{padding:'12px 0',textAlign:'center',color:'#ccc',fontSize:11}},'할일을 추가해주세요')
+    )
+  );
+
+  const buildStats=()=>R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8}},
+    R('div',{className:'card',onClick:()=>!editMode&&onGoPage('inv'),style:{cursor:editMode?'move':'pointer',borderRadius:10,padding:'10px 12px'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('div',{style:{fontSize:10,fontWeight:700,color:'var(--tm)'}},'📦 재고'),
+        R('div',{style:{fontSize:13}},stockHealthPct>=90?'✅':stockHealthPct>=70?'⚠️':'🚨')
+      ),
+      R('div',{style:{fontSize:18,fontWeight:900,color:'var(--p)',marginTop:3}},stockHealthPct,'%'),
+      R('div',{style:{fontSize:9,color:'var(--tm)'}},totalMats,'종 ',goodMats,'정상'),
+      shortCnt>0&&R('div',{style:{marginTop:2,fontSize:9,color:'#EF4444',fontWeight:700}},'⚠ 부족 ',shortCnt)
+    ),
+    R('div',{className:'card',onClick:()=>!editMode&&onGoPage('sched'),style:{cursor:editMode?'move':'pointer',borderRadius:10,padding:'10px 12px'}},
+      R('div',{style:{fontSize:10,fontWeight:700,color:'var(--tm)'}},'📅 생산계획'),
+      R('div',{style:{fontSize:18,fontWeight:900,color:'#3B82F6',marginTop:3}},prods.length),
+      R('div',{style:{fontSize:9,color:'var(--tm)'}},'등록 제품')
+    ),
+    R('div',{className:'card',onClick:()=>!editMode&&onGoPage('orders'),style:{cursor:editMode?'move':'pointer',borderRadius:10,padding:'10px 12px'}},
+      R('div',{style:{fontSize:10,fontWeight:700,color:'var(--tm)'}},'🚚 발주'),
+      R('div',{style:{fontSize:18,fontWeight:900,color:'#F59E0B',marginTop:3}},orders.filter(o=>o.step<3).length),
+      R('div',{style:{fontSize:9,color:'var(--tm)'}},'진행중 / ',orders.length)
+    ),
+    R('div',{className:'card',onClick:()=>!editMode&&onGoPage('quote'),style:{cursor:editMode?'move':'pointer',borderRadius:10,padding:'10px 12px'}},
+      R('div',{style:{fontSize:10,fontWeight:700,color:'var(--tm)'}},'📄 견적서'),
+      R('div',{style:{fontSize:14,fontWeight:900,color:'#7C3AED',marginTop:3}},'작성'),
+      R('div',{style:{fontSize:9,color:'var(--tm)'}},'견적서 관리')
+    )
+  );
+
+  const builders={wr:buildWR,news:buildNews,lt:buildLT,stats:buildStats};
+
+  const renderSection=(id,idx)=>{
+    const builder=builders[id];if(!builder)return null;
+    const dragProps=editMode?{
+      draggable:true,
+      onDragStart:e=>{setDragged(id);e.dataTransfer.effectAllowed='move';},
+      onDragOver:e=>{e.preventDefault();e.dataTransfer.dropEffect='move';},
+      onDrop:e=>{e.preventDefault();if(dragged&&dragged!==id){moveSec(sectionOrder.indexOf(dragged),sectionOrder.indexOf(id));}setDragged(null);},
+      onDragEnd:()=>setDragged(null)
+    }:{};
+    return R('div',{key:id,...dragProps,style:{position:'relative',marginBottom:14,...(editMode?{border:'2px dashed '+(dragged===id?'#D94F1E':'#D1D5DB'),borderRadius:14,padding:6,cursor:'move',opacity:dragged===id?0.4:1,transition:'opacity .2s, border-color .2s'}:{})}},
+      editMode&&R('div',{style:{position:'absolute',top:-10,left:14,background:'#D94F1E',color:'#fff',padding:'2px 10px',borderRadius:6,fontSize:10,fontWeight:700,zIndex:10}},'⠿ DRAG'),
+      builder()
+    );
+  };
+
+  return R('div',{className:'pg fa'},
+    R('div',{style:{marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}},
+      R('div',null,
+        R('div',{style:{fontSize:20,fontWeight:800,color:'#1F2937'}},'관리자님, 안녕하세요 👋'),
+        R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:4}},new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}))
+      ),
+      R('button',{onClick:()=>setEditMode(!editMode),style:{background:editMode?'#D94F1E':'#fff',color:editMode?'#fff':'#374151',border:'1px solid '+(editMode?'#D94F1E':'#E5E7EB'),borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}},editMode?'✓ 완료':'⠿ 편집')
+    ),
+    editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:8,marginBottom:14,fontSize:11,color:'#92400E',fontWeight:600}},'💡 박스를 드래그하여 위치를 변경하세요. 완료 버튼을 누르면 저장됩니다.'),
+    ...sectionOrder.map((id,idx)=>renderSection(id,idx))
+  );
+}
 
 function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[search,setSearch]=useState('');const[showD,setShowD]=useState(false);
@@ -2027,6 +2142,28 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const[sortBy,setSortBy]=useState('cat');
   const[favorites,setFavorites]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');}catch(e){return [];}});
   const[semiItems,setSemiItems]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_semi_items')||'[]');}catch(e){return [];}});
+  /* Supabase에서 favorites 복원 (다른 기기에서 설정한 값) */
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+      .then(({data})=>{
+        if(data&&data.state_data){
+          if(data.state_data.bnf_favorites){
+            const lf=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
+            if(lf.length===0&&data.state_data.bnf_favorites.length>0){
+              setFavorites(data.state_data.bnf_favorites);
+              localStorage.setItem('bnf_fav_mats',JSON.stringify(data.state_data.bnf_favorites));
+            }
+          }
+          if(data.state_data.bnf_semi_items){
+            const ls=JSON.parse(localStorage.getItem('bnf_semi_items')||'[]');
+            if(ls.length===0&&data.state_data.bnf_semi_items.length>0){
+              setSemiItems(data.state_data.bnf_semi_items);
+              localStorage.setItem('bnf_semi_items',JSON.stringify(data.state_data.bnf_semi_items));
+            }
+          }
+        }
+      }).catch(()=>{});
+  },[]);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
@@ -2054,6 +2191,14 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     setFavorites(prev=>{
       const next=prev.includes(id)?prev.filter(x=>x!==id):[...prev,id];
       localStorage.setItem('bnf_fav_mats',JSON.stringify(next));
+      /* Supabase에 백업 (app_state에 favorites 키로) */
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+        .then(({data})=>{
+          if(data&&data.state_data){
+            const sd={...data.state_data,bnf_favorites:next,bnf_semi_items:JSON.parse(localStorage.getItem('bnf_semi_items')||'[]')};
+            sbClient.from('app_state').upsert({id:1,state_data:sd,updated_at:new Date().toISOString()});
+          }
+        }).catch(()=>{});
       return next;
     });
   };
@@ -2062,6 +2207,13 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       if(prev.find(x=>x.id===mat.id))return prev;
       const next=[...prev,{id:mat.id,n:mat.n,u:mat.u}];
       localStorage.setItem('bnf_semi_items',JSON.stringify(next));
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+        .then(({data})=>{
+          if(data&&data.state_data){
+            const sd={...data.state_data,bnf_semi_items:next,bnf_favorites:JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]')};
+            sbClient.from('app_state').upsert({id:1,state_data:sd,updated_at:new Date().toISOString()});
+          }
+        }).catch(()=>{});
       return next;
     });
     setShowSemiSearch(false);setSemiSearch('');
