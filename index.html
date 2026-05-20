@@ -1738,52 +1738,67 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage}){
   const goodMats=mats.filter(m=>!m.mu||m.s>=m.mu).length;
   const stockHealthPct=totalMats>0?Math.round(goodMats/totalMats*100):100;
 
-  /* ═══ 환율 데이터 ═══ */
   const[rates,setRates]=useState(null);
   const[rateHistory,setRateHistory]=useState([]);
+  const[weather,setWeather]=useState(null);
+  const[news,setNews]=useState([]);
   const[rateTab,setRateTab]=useState('week');
   const chartRef=useRef();
 
   const CURRENCIES=[
     {code:'USD',name:'미국 달러',flag:'🇺🇸',color:'#3B82F6'},
-    {code:'CNY',name:'중국 위안',flag:'🇨🇳',color:'#EF4444'},
+    {code:'CNH',name:'중국 위안',flag:'🇨🇳',color:'#EF4444'},
     {code:'GBP',name:'영국 파운드',flag:'🇬🇧',color:'#8B5CF6'},
     {code:'JPY',name:'일본 엔(100)',flag:'🇯🇵',color:'#22C55E'}
   ];
 
   useEffect(()=>{
-    /* 현재 환율 가져오기 (open.er-api.com - 무료, 키 불필요) */
+    /* 환율 */
     fetch('https://open.er-api.com/v6/latest/KRW')
-      .then(r=>r.json())
-      .then(data=>{
+      .then(r=>r.json()).then(data=>{
         if(data&&data.rates){
           const r={};
           CURRENCIES.forEach(c=>{
-            const rate=data.rates[c.code];
+            const code=c.code==='CNH'?'CNY':c.code;
+            const rate=data.rates[code];
             if(rate)r[c.code]=c.code==='JPY'?Math.round(1/rate*100*100)/100:Math.round(1/rate*100)/100;
           });
           setRates(r);
-          /* localStorage에 히스토리 저장 */
           const today=new Date().toISOString().slice(0,10);
           const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');
-          const exists=hist.find(h=>h.date===today);
-          if(!exists){
+          if(!hist.find(h=>h.date===today)){
             hist.push({date:today,...r});
             if(hist.length>90)hist.shift();
             localStorage.setItem('bnf_rate_hist',JSON.stringify(hist));
           }
           setRateHistory(hist);
         }
-      })
-      .catch(()=>{
-        /* 캐시에서 로드 */
+      }).catch(()=>{
         const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');
-        if(hist.length>0){
-          const last=hist[hist.length-1];
-          setRates({USD:last.USD,CNY:last.CNY,GBP:last.GBP,JPY:last.JPY});
-          setRateHistory(hist);
-        }
+        if(hist.length>0){const l=hist[hist.length-1];setRates({USD:l.USD,CNH:l.CNH,GBP:l.GBP,JPY:l.JPY});setRateHistory(hist);}
       });
+
+    /* 날씨 (이천) */
+    fetch('https://wttr.in/Icheon+South+Korea?format=j1')
+      .then(r=>r.json()).then(data=>{
+        if(data&&data.current_condition){
+          const c=data.current_condition[0];
+          setWeather({
+            temp:c.temp_C,
+            feel:c.FeelsLikeC,
+            desc:c.lang_ko&&c.lang_ko[0]?c.lang_ko[0].value:c.weatherDesc[0].value,
+            humidity:c.humidity,
+            wind:c.windspeedKmph,
+            icon:+c.temp_C>30?'🌡️':+c.temp_C>20?'☀️':+c.temp_C>10?'🌤️':+c.temp_C>0?'🌥️':'❄️'
+          });
+        }
+      }).catch(()=>{});
+
+    /* 뉴스 (경제/산업) */
+    fetch('https://api.rss2json.com/v1/api.json?rss_url=https://news.google.com/rss/search?q=%EC%8B%9D%ED%92%88+%EC%82%B0%EC%97%85&hl=ko&gl=KR&ceid=KR:ko')
+      .then(r=>r.json()).then(data=>{
+        if(data&&data.items)setNews(data.items.slice(0,5));
+      }).catch(()=>{});
   },[]);
 
   /* 환율 차트 */
@@ -1793,114 +1808,128 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage}){
     const days=rateTab==='week'?7:30;
     const data=rateHistory.slice(-days);
     if(!data.length)return;
-    new Chart(chartRef.current,{
-      type:'line',
-      data:{
-        labels:data.map(d=>d.date.slice(5)),
-        datasets:CURRENCIES.filter(c=>c.code==='USD').map(c=>({
-          label:c.code+'/KRW',
-          data:data.map(d=>d[c.code]||null),
-          borderColor:c.color,
-          backgroundColor:c.color+'22',
-          borderWidth:2,fill:true,tension:0.3,pointRadius:3
-        }))
-      },
-      options:{
-        responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.raw?ctx.raw.toLocaleString()+'원':''}}},
-        scales:{y:{ticks:{callback:v=>v.toLocaleString()}}}
-      }
-    });
+    new Chart(chartRef.current,{type:'line',data:{
+      labels:data.map(d=>d.date.slice(5)),
+      datasets:[{label:'USD/KRW',data:data.map(d=>d.USD||null),borderColor:'#3B82F6',backgroundColor:'#3B82F622',borderWidth:2,fill:true,tension:0.3,pointRadius:3}]
+    },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>v.toLocaleString()}}}}});
   },[rateHistory,rateTab]);
 
-  const prevRate=(code)=>{
-    if(rateHistory.length<2)return null;
-    return rateHistory[rateHistory.length-2][code];
-  };
-
-  const Diff=({cur,prev})=>{
+  const prevRate=code=>rateHistory.length>=2?rateHistory[rateHistory.length-2][code]:null;
+  const RDiff=({cur,prev})=>{
     if(!prev||!cur)return null;
-    const d=cur-prev;const p=((d/prev)*100);
-    return R('span',{style:{fontSize:10,fontWeight:700,color:d>=0?'#EF4444':'#3B82F6',marginLeft:6}},
-      (d>=0?'▲':'▼')+Math.abs(d).toFixed(1),' ('+(d>=0?'+':'')+p.toFixed(2)+'%)'
-    );
+    const d=cur-prev;
+    return R('span',{style:{fontSize:9,fontWeight:700,color:d>=0?'#EF4444':'#3B82F6',marginLeft:4}},(d>=0?'▲':'▼')+Math.abs(d).toFixed(1));
   };
 
   return R('div',{className:'pg fa'},
-    R('div',{style:{marginBottom:20}},
+    /* 인사 */
+    R('div',{style:{marginBottom:16}},
       R('div',{style:{fontSize:20,fontWeight:800,color:'#1F2937'}},'관리자님, 안녕하세요 👋'),
       R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:4}},new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}))
     ),
 
-    /* ═══ 실시간 환율 ═══ */
-    R('div',{className:'card',style:{marginBottom:14,padding:0,overflow:'hidden',borderRadius:14,boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}},
-      R('div',{style:{padding:'14px 18px',background:'linear-gradient(135deg,#1E293B,#334155)',color:'#fff',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-        R('div',null,
-          R('div',{style:{fontSize:13,fontWeight:700}},'💱 실시간 환율'),
-          R('div',{style:{fontSize:10,opacity:0.7}},'매매기준율 · 영업일 11시 갱신')
-        ),
-        R('div',{style:{fontSize:10,opacity:0.5}},rates?'✅ 실시간':'⏳ 로딩')
-      ),
-      /* 환율 카드 4개 */
-      rates&&R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:0}},
-        ...CURRENCIES.map((c,i)=>{
-          const rate=rates[c.code];
-          const prev=prevRate(c.code);
-          const isUp=prev&&rate>prev;
-          return R('div',{key:c.code,style:{padding:'14px 18px',borderBottom:i<2?'1px solid #F3F4F6':'none',borderRight:i%2===0?'1px solid #F3F4F6':'none',display:'flex',alignItems:'center',gap:12}},
-            R('div',{style:{fontSize:28,lineHeight:1}},c.flag),
-            R('div',{style:{flex:1}},
-              R('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                R('span',{style:{fontSize:11,fontWeight:700,color:'#6B7280'}},c.code),
-                R('span',{style:{fontSize:10,color:'#9CA3AF'}},c.name)
-              ),
-              R('div',{style:{display:'flex',alignItems:'baseline',gap:4,marginTop:4}},
-                R('span',{style:{fontSize:22,fontWeight:900,color:'#1F2937',letterSpacing:-0.5}},rate?rate.toLocaleString():'—'),
-                R('span',{style:{fontSize:11,color:'#9CA3AF'}},'원'),
-                R(Diff,{cur:rate,prev})
-              )
-            )
-          );
-        })
-      ),
-      !rates&&R('div',{style:{padding:'30px',textAlign:'center',color:'#9CA3AF',fontSize:12}},'환율 로딩 중...'),
-      /* 차트 */
-      rateHistory.length>1&&R('div',{style:{borderTop:'1px solid #F3F4F6'}},
-        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 18px 4px'}},
-          R('div',{style:{fontSize:11,fontWeight:700,color:'#6B7280'}},'🇺🇸 USD/KRW 추이'),
-          R('div',{style:{display:'flex',gap:4}},
-            R('button',{onClick:()=>setRateTab('week'),style:{padding:'3px 10px',fontSize:10,borderRadius:20,border:'1px solid '+(rateTab==='week'?'#3B82F6':'#E5E7EB'),background:rateTab==='week'?'#3B82F6':'#fff',color:rateTab==='week'?'#fff':'#6B7280',cursor:'pointer',fontWeight:600}},'주간'),
-            R('button',{onClick:()=>setRateTab('month'),style:{padding:'3px 10px',fontSize:10,borderRadius:20,border:'1px solid '+(rateTab==='month'?'#3B82F6':'#E5E7EB'),background:rateTab==='month'?'#3B82F6':'#fff',color:rateTab==='month'?'#fff':'#6B7280',cursor:'pointer',fontWeight:600}},'월간')
+    /* ═══ 1행: 날씨 + 환율 ═══ */
+    R('div',{style:{display:'grid',gridTemplateColumns:'280px 1fr',gap:12,marginBottom:14}},
+      /* 날씨 */
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#1E40AF,#3B82F6)',color:'#fff',borderRadius:14,padding:'18px 20px',border:'none',position:'relative',overflow:'hidden'}},
+        R('div',{style:{position:'absolute',right:14,top:10,fontSize:48,opacity:0.3}},weather?weather.icon:'🌤️'),
+        R('div',{style:{fontSize:11,opacity:0.8,fontWeight:600}},'📍 이천시 날씨'),
+        weather?R('div',null,
+          R('div',{style:{fontSize:36,fontWeight:900,marginTop:8}},weather.temp,'°'),
+          R('div',{style:{fontSize:12,opacity:0.9,marginTop:2}},weather.desc),
+          R('div',{style:{display:'flex',gap:12,marginTop:10,fontSize:10,opacity:0.8}},
+            R('span',null,'체감 ',weather.feel,'°'),
+            R('span',null,'💧',weather.humidity,'%'),
+            R('span',null,'💨',weather.wind,'km/h')
           )
+        ):R('div',{style:{fontSize:12,marginTop:12,opacity:0.7}},'날씨 로딩 중...')
+      ),
+
+      /* 환율 */
+      R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14}},
+        R('div',{style:{padding:'10px 16px',background:'#1E293B',color:'#fff',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          R('div',{style:{fontSize:12,fontWeight:700}},'💱 실시간 환율'),
+          R('div',{style:{fontSize:9,opacity:0.5}},rates?'매매기준율':'로딩...')
         ),
-        R('div',{style:{height:140,padding:'0 14px 10px'}},R('canvas',{ref:chartRef}))
+        rates?R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:0}},
+          ...CURRENCIES.map((c,i)=>{
+            const rate=rates[c.code];
+            return R('div',{key:c.code,style:{padding:'10px 12px',borderRight:i<3?'1px solid #F3F4F6':'none',textAlign:'center'}},
+              R('div',{style:{fontSize:16}},c.flag),
+              R('div',{style:{fontSize:9,color:'#9CA3AF',fontWeight:600,marginTop:2}},c.code),
+              R('div',{style:{fontSize:15,fontWeight:900,color:'#1F2937',marginTop:2}},rate?rate.toLocaleString():'—'),
+              R(RDiff,{cur:rate,prev:prevRate(c.code)})
+            );
+          })
+        ):R('div',{style:{padding:20,textAlign:'center',color:'#ccc',fontSize:11}},'환율 로딩...'),
+        rateHistory.length>1&&R('div',{style:{borderTop:'1px solid #F3F4F6',padding:'8px 12px'}},
+          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+            R('span',{style:{fontSize:10,color:'#6B7280',fontWeight:600}},'USD/KRW'),
+            R('div',{style:{display:'flex',gap:4}},
+              ...['week','month'].map(t=>R('button',{key:t,onClick:()=>setRateTab(t),style:{padding:'2px 8px',fontSize:9,borderRadius:20,border:'1px solid '+(rateTab===t?'#3B82F6':'#E5E7EB'),background:rateTab===t?'#3B82F6':'#fff',color:rateTab===t?'#fff':'#999',cursor:'pointer'}},t==='week'?'주간':'월간'))
+            )
+          ),
+          R('div',{style:{height:80}},R('canvas',{ref:chartRef}))
+        )
       )
     ),
 
-    /* ═══ 운영 현황 카드 ═══ */
-    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}},
-      R('div',{className:'card',onClick:()=>onGoPage('inv'),style:{cursor:'pointer',transition:'transform .15s'}},
-        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-          R('div',{style:{fontSize:11,fontWeight:600,color:'var(--tm)'}},'📦 재고 현황'),
-          R('div',{style:{fontSize:20}},stockHealthPct>=90?'✅':stockHealthPct>=70?'⚠️':'🚨')
-        ),
-        R('div',{style:{fontSize:28,fontWeight:900,color:'var(--p)',marginTop:6}},stockHealthPct,'%'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},totalMats,'종 중 ',goodMats,'종 정상'),
-        shortCnt>0&&R('div',{style:{fontSize:10,color:'#EF4444',fontWeight:700,marginTop:4}},'⚠ 부족 ',shortCnt,'종')
+    /* ═══ 2행: 뉴스 ═══ */
+    R('div',{className:'card',style:{marginBottom:14,borderRadius:14}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
+        R('div',{style:{fontSize:13,fontWeight:700}},'📰 식품·산업 뉴스'),
+        R('a',{href:'https://news.google.com/search?q=%EC%8B%9D%ED%92%88+%EC%82%B0%EC%97%85&hl=ko',target:'_blank',style:{fontSize:10,color:'var(--p)',textDecoration:'none'}},'더보기 →')
       ),
-      R('div',{className:'card',onClick:()=>onGoPage('sched'),style:{cursor:'pointer'}},
-        R('div',{style:{fontSize:11,fontWeight:600,color:'var(--tm)'}},'📅 생산 스케줄'),
-        R('div',{style:{fontSize:28,fontWeight:900,color:'#3B82F6',marginTop:6}},prods.length),
+      news.length>0
+        ?R('div',{style:{display:'flex',flexDirection:'column',gap:0}},
+          ...news.map((n,i)=>R('a',{key:i,href:n.link,target:'_blank',rel:'noopener',
+            style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:i<news.length-1?'1px solid #F3F4F6':'none',textDecoration:'none',color:'#374151',gap:12},
+            onMouseEnter:e=>e.currentTarget.style.color='#D94F1E',
+            onMouseLeave:e=>e.currentTarget.style.color='#374151'
+          },
+            R('div',{style:{flex:1,fontSize:12,fontWeight:500,lineHeight:1.4,overflow:'hidden',textOverflow:'ellipsis',display:'-webkit-box',WebkitLineClamp:1,WebkitBoxOrient:'vertical'}},n.title.replace(/<[^>]+>/g,'')),
+            R('div',{style:{fontSize:9,color:'#9CA3AF',whiteSpace:'nowrap',flexShrink:0}},n.pubDate?n.pubDate.slice(0,10):'')
+          ))
+        )
+        :R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'뉴스 로딩 중...')
+    ),
+
+    /* ═══ 3행: 운영 현황 ═══ */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:10}},
+      R('div',{className:'card',onClick:()=>onGoPage('inv'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},
+        onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',
+        onMouseLeave:e=>e.currentTarget.style.boxShadow='none'
+      },
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'📦 재고 현황'),
+          R('div',{style:{fontSize:18}},stockHealthPct>=90?'✅':stockHealthPct>=70?'⚠️':'🚨')
+        ),
+        R('div',{style:{fontSize:32,fontWeight:900,color:'var(--p)',marginTop:8}},stockHealthPct,'%'),
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},totalMats,'종 중 ',goodMats,'종 정상'),
+        shortCnt>0&&R('div',{style:{marginTop:6,padding:'4px 8px',background:'#FEF2F2',borderRadius:6,fontSize:10,color:'#EF4444',fontWeight:700}},'⚠ 부족 ',shortCnt,'종')
+      ),
+      R('div',{className:'card',onClick:()=>onGoPage('sched'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},
+        onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',
+        onMouseLeave:e=>e.currentTarget.style.boxShadow='none'
+      },
+        R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'📅 생산 스케줄'),
+        R('div',{style:{fontSize:32,fontWeight:900,color:'#3B82F6',marginTop:8}},prods.length),
         R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'등록 제품')
       ),
-      R('div',{className:'card',onClick:()=>onGoPage('orders'),style:{cursor:'pointer'}},
-        R('div',{style:{fontSize:11,fontWeight:600,color:'var(--tm)'}},'🚚 발주 현황'),
-        R('div',{style:{fontSize:28,fontWeight:900,color:'#F59E0B',marginTop:6}},orders.filter(o=>o.step<3).length),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'진행중 / 전체 ',orders.length)
+      R('div',{className:'card',onClick:()=>onGoPage('orders'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},
+        onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',
+        onMouseLeave:e=>e.currentTarget.style.boxShadow='none'
+      },
+        R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'🚚 발주 현황'),
+        R('div',{style:{fontSize:32,fontWeight:900,color:'#F59E0B',marginTop:8}},orders.filter(o=>o.step<3).length),
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'진행중 / 전체 ',orders.length,'건')
       ),
-      R('div',{className:'card',onClick:()=>onGoPage('quote'),style:{cursor:'pointer'}},
-        R('div',{style:{fontSize:11,fontWeight:600,color:'var(--tm)'}},'📄 견적서'),
-        R('div',{style:{fontSize:22,fontWeight:900,color:'#7C3AED',marginTop:6}},'작성'),
+      R('div',{className:'card',onClick:()=>onGoPage('quote'),style:{cursor:'pointer',borderRadius:12,transition:'box-shadow .15s'},
+        onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)',
+        onMouseLeave:e=>e.currentTarget.style.boxShadow='none'
+      },
+        R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'📄 견적서'),
+        R('div',{style:{fontSize:24,fontWeight:900,color:'#7C3AED',marginTop:8}},'작성'),
         R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'견적서 작성/관리')
       )
     )
