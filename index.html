@@ -1786,6 +1786,8 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[wxTab,setWxTab]=useState('hour');
   const[news,setNews]=useState([]);
   const[rateTab,setRateTab]=useState('week');
+  const[ratesUpdatedAt,setRatesUpdatedAt]=useState(null);
+  const[weatherUpdatedAt,setWeatherUpdatedAt]=useState(null);
   const[myLinks,setMyLinks]=useState([]);
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
@@ -1801,8 +1803,8 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     {code:'JPY',name:'일본 엔(100)',flag:'🇯🇵'}
   ];
 
-  /* 외부 데이터 로드 */
-  useEffect(()=>{
+  /* 데이터 로더 (새로고침 버튼에서도 호출) */
+  const loadRates=()=>{
     fetch('https://open.er-api.com/v6/latest/KRW').then(r=>r.json()).then(data=>{
       if(data&&data.rates){
         const r={};
@@ -1812,19 +1814,23 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
           if(rate)r[c.code]=c.code==='JPY'?Math.round(1/rate*100*100)/100:Math.round(1/rate*100)/100;
         });
         setRates(r);
+        setRatesUpdatedAt(new Date());
         const today=new Date().toISOString().slice(0,10);
         const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');
         if(!hist.find(h=>h.date===today)){hist.push({date:today,...r});if(hist.length>90)hist.shift();localStorage.setItem('bnf_rate_hist',JSON.stringify(hist));}
         setRateHistory(hist);
       }
     }).catch(()=>{const hist=JSON.parse(localStorage.getItem('bnf_rate_hist')||'[]');if(hist.length>0){const l=hist[hist.length-1];setRates({USD:l.USD,CNH:l.CNH,GBP:l.GBP,JPY:l.JPY});setRateHistory(hist);}});
+  };
 
+  const loadWeather=()=>{
     /* 현재 날씨 - wttr.in */
     fetch('https://wttr.in/Icheon+South+Korea?format=j1').then(r=>r.json()).then(data=>{
       if(data&&data.current_condition){const c=data.current_condition[0];
-        setWeather({temp:c.temp_C,feel:c.FeelsLikeC,desc:c.lang_ko&&c.lang_ko[0]?c.lang_ko[0].value:c.weatherDesc[0].value,humidity:c.humidity,wind:c.windspeedKmph,icon:+c.temp_C>30?'🌡️':+c.temp_C>20?'☀️':+c.temp_C>10?'🌤️':+c.temp_C>0?'🌥️':'❄️'});}
+        setWeather({temp:c.temp_C,feel:c.FeelsLikeC,desc:c.lang_ko&&c.lang_ko[0]?c.lang_ko[0].value:c.weatherDesc[0].value,humidity:c.humidity,wind:c.windspeedKmph,icon:+c.temp_C>30?'🌡️':+c.temp_C>20?'☀️':+c.temp_C>10?'🌤️':+c.temp_C>0?'🌥️':'❄️'});
+        setWeatherUpdatedAt(new Date());}
     }).catch(()=>{});
-    
+
     /* 시간별/일별 - Open-Meteo (무료, 키 불필요) */
     fetch('https://api.open-meteo.com/v1/forecast?latitude=37.272&longitude=127.435&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&timezone=Asia/Seoul&forecast_days=7').then(r=>r.json()).then(data=>{
       const wcIcon=(c)=>{
@@ -1878,10 +1884,13 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
         setWxDaily(daily);
       }
     }).catch(()=>{});
+  };
 
-    /* 네이버 뉴스 검색 - 본 기사 제외 */
+  /* 외부 데이터 로드 (mount 시 1회) */
+  useEffect(()=>{
+    loadRates();
+    loadWeather();
     loadFreshNews();
-
     sbClient.from('user_links').select('*').order('created_at').limit(8)
       .then(({data})=>{if(data)setMyLinks(data);}).catch(()=>{});
   },[]);
@@ -1923,44 +1932,97 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
 
   /* ═ 섹션 빌더 ═ */
   const buildWR=()=>R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
-    /* 날씨 */
-    R('div',{className:'card',style:{background:'linear-gradient(135deg,#1E40AF,#3B82F6)',color:'#fff',borderRadius:14,padding:'20px',border:'none',position:'relative',overflow:'hidden',minHeight:180,boxSizing:'border-box'}},
-      R('div',{style:{position:'absolute',right:16,top:14,fontSize:60,opacity:0.25}},weather?weather.icon:'🌤️'),
-      R('div',{style:{fontSize:12,opacity:0.85,fontWeight:600}},'📍 이천시 현재 날씨'),
-      weather?R('div',null,
-        R('div',{style:{fontSize:44,fontWeight:900,marginTop:12,letterSpacing:-1}},weather.temp,'°C'),
-        R('div',{style:{fontSize:13,opacity:0.9,marginTop:4}},weather.desc),
-        R('div',{style:{display:'flex',gap:14,marginTop:18,fontSize:11,opacity:0.85,flexWrap:'wrap'}},
-          R('span',null,'🌡 체감 ',weather.feel,'°'),
-          R('span',null,'💧 ',weather.humidity,'%'),
-          R('span',null,'💨 ',weather.wind,'km/h')
-        )
-      ):R('div',{style:{fontSize:13,marginTop:30,opacity:0.7}},'날씨 로딩 중...')
-    ),
-    /* 환율 */
-    R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14,minHeight:180,display:'flex',flexDirection:'column'}},
-      R('div',{style:{padding:'10px 16px',background:'#1E293B',color:'#fff',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-        R('div',{style:{fontSize:12,fontWeight:700}},'💱 실시간 환율'),
-        R('div',{style:{fontSize:9,opacity:0.5}},rates?'매매기준율':'로딩...')
+    /* 날씨 카드 */
+    R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14,display:'flex',flexDirection:'column'}},
+      R('div',{style:{padding:'14px 16px 8px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}},
+        R('div',{style:{minWidth:0,flex:1}},
+          R('div',{style:{fontSize:13,fontWeight:700,color:'var(--t)',display:'flex',alignItems:'center',gap:6}},
+            R('span',{style:{fontSize:15}},weather?weather.icon:'🌤️'),'오늘의 날씨'),
+          R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3}},
+            weatherUpdatedAt?weatherUpdatedAt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 기준 · 이천공장':'이천공장')
+        ),
+        R('button',{onClick:loadWeather,title:'새로고침',style:{background:'transparent',border:'1px solid var(--bd)',borderRadius:999,width:24,height:24,padding:0,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--tm)',fontSize:11}},'↻')
       ),
-      rates?R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',flex:1}},
-        ...CUR.map((c,i)=>R('div',{key:c.code,style:{padding:'8px 12px',borderRight:i%2===0?'1px solid #F3F4F6':'none',borderBottom:i<2?'1px solid #F3F4F6':'none',display:'flex',flexDirection:'column',justifyContent:'center'}},
-          R('div',{style:{display:'flex',alignItems:'center',gap:6}},
-            R('span',{style:{fontSize:16}},c.flag),
-            R('span',{style:{fontSize:10,color:'#9CA3AF',fontWeight:700}},c.code)
-          ),
-          R('div',{style:{fontSize:15,fontWeight:900,color:'#1F2937',marginTop:3}},rates[c.code]?rates[c.code].toLocaleString()+'원':'—',R(Diff,{cur:rates[c.code],p:prev(c.code)}))
-        ))
-      ):R('div',{style:{padding:30,textAlign:'center',color:'#ccc',fontSize:11,flex:1,display:'flex',alignItems:'center',justifyContent:'center'}},'로딩...'),
-      rateHistory.length>1&&R('div',{style:{borderTop:'1px solid #F3F4F6',padding:'6px 12px'}},
-        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}},
-          R('span',{style:{fontSize:9,color:'#6B7280',fontWeight:600}},'USD/KRW'),
-          R('div',{style:{display:'flex',gap:3}},
-            R('button',{onClick:()=>setRateTab('week'),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab==='week'?'#3B82F6':'#ddd'),background:rateTab==='week'?'#3B82F6':'#fff',color:rateTab==='week'?'#fff':'#999',cursor:'pointer'}},'주간'),
-            R('button',{onClick:()=>setRateTab('month'),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab==='month'?'#3B82F6':'#ddd'),background:rateTab==='month'?'#3B82F6':'#fff',color:rateTab==='month'?'#fff':'#999',cursor:'pointer'}},'월간')
+      R('div',{style:{display:'flex',alignItems:'center',gap:14,padding:'4px 16px 12px'}},
+        R('div',{style:{fontSize:46,lineHeight:1,flexShrink:0}},weather?weather.icon:'🌤️'),
+        R('div',{style:{flex:1,minWidth:0}},
+          weather?R('div',null,
+            R('div',{style:{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}},
+              R('div',{style:{fontSize:36,fontWeight:700,color:'var(--t)',letterSpacing:-1,lineHeight:1}},weather.temp,'°'),
+              R('div',{style:{fontSize:12,color:'var(--tm)'}},weather.desc)
+            ),
+            R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:5}},
+              '체감 ',weather.feel,'° · 습도 ',weather.humidity,'% · 바람 ',weather.wind,'km/h')
+          ):R('div',{style:{fontSize:12,color:'var(--tm)'}},'날씨 로딩 중...')
+        )
+      ),
+      R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',borderTop:'1px solid var(--bd)'}},
+        ['hour','day'].map(t=>R('button',{key:t,onClick:()=>setWxTab(t),style:{padding:'8px 0',background:'transparent',border:'none',borderBottom:'2px solid '+(wxTab===t?'var(--p)':'transparent'),cursor:'pointer',fontSize:11,fontWeight:wxTab===t?700:500,color:wxTab===t?'var(--t)':'var(--tm)',fontFamily:'inherit'}},t==='hour'?'시간별 (24h)':'주간 (7일)'))
+      ),
+      wxTab==='hour'?
+        R('div',{style:{display:'flex',gap:4,overflowX:'auto',padding:'10px 8px 12px'}},
+          wxHourly.length>0?wxHourly.map((h,i)=>R('div',{key:i,style:{flex:'1 0 auto',minWidth:44,textAlign:'center',padding:'4px 2px'}},
+            R('div',{style:{fontSize:10,fontWeight:i===0?700:500,color:i===0?'var(--p)':'var(--tm)',marginBottom:4}},i===0?'지금':h.hour+'시'),
+            R('div',{style:{fontSize:18,lineHeight:1}},h.icon),
+            R('div',{style:{fontSize:11,fontWeight:600,color:'var(--t)',marginTop:4}},h.temp,'°'),
+            h.rain>=20?R('div',{style:{fontSize:8,color:'#3B82F6',marginTop:1}},'💧',h.rain,'%'):R('div',{style:{height:11}})
+          )):R('div',{style:{padding:'14px',color:'var(--tm)',fontSize:11,width:'100%',textAlign:'center'}},'시간별 예보 로딩 중...')
+        )
+      :
+        R('div',{style:{display:'flex',gap:4,overflowX:'auto',padding:'10px 8px 12px'}},
+          wxDaily.length>0?wxDaily.slice(0,7).map((d,i)=>R('div',{key:i,style:{flex:'1 0 auto',minWidth:42,textAlign:'center',padding:'4px 2px'}},
+            R('div',{style:{fontSize:10,fontWeight:d.isToday?700:500,color:d.dow===0?'#EF4444':d.dow===6?'#3B82F6':d.isToday?'var(--p)':'var(--tm)',marginBottom:2}},d.dayName),
+            R('div',{style:{fontSize:9,color:'var(--tm)',marginBottom:2}},d.mon+'/'+d.day),
+            R('div',{style:{fontSize:18,lineHeight:1}},d.icon),
+            R('div',{style:{fontSize:10,fontWeight:600,color:'var(--t)',marginTop:4}},d.max,'°/',R('span',{style:{color:'var(--tm)',fontWeight:500}},d.min,'°')),
+            d.rain>=20?R('div',{style:{fontSize:8,color:'#3B82F6',marginTop:1}},'💧',d.rain,'%'):R('div',{style:{height:11}})
+          )):R('div',{style:{padding:'14px',color:'var(--tm)',fontSize:11,width:'100%',textAlign:'center'}},'주간 예보 로딩 중...')
+        )
+    ),
+    /* 환율 카드 */
+    R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14,display:'flex',flexDirection:'column'}},
+      R('div',{style:{padding:'14px 16px 8px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,flexWrap:'wrap'}},
+        R('div',{style:{minWidth:0,flex:1}},
+          R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+            R('div',{style:{fontSize:13,fontWeight:700,color:'var(--t)',display:'flex',alignItems:'center',gap:5}},R('span',{style:{fontSize:13,color:'var(--ok)'}},'💱'),'실시간 환율'),
+            R('span',{style:{fontSize:10,color:'var(--tm)'}},'KRW 기준'),
+            R('span',{style:{fontSize:9,color:'var(--tm)',background:'var(--bg)',padding:'2px 7px',borderRadius:999,border:'1px solid var(--bd)'}},'1일 갱신')
           )
         ),
-        R('div',{style:{height:42}},R('canvas',{ref:chartRef}))
+        R('button',{onClick:loadRates,style:{background:'transparent',border:'1px solid var(--bd)',borderRadius:6,padding:'3px 9px',cursor:'pointer',fontSize:10,color:'var(--tm)',display:'inline-flex',alignItems:'center',gap:3,fontFamily:'inherit'}},R('span',null,'↻'),'새로고침')
+      ),
+      rates?R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,padding:'4px 12px 8px'}},
+        ...CUR.map(c=>{
+          const country=c.code==='USD'?'US':c.code==='CNH'?'CN':c.code==='GBP'?'GB':'JP';
+          const displayCode=c.code==='CNH'?'CNY':c.code;
+          const accent=c.code==='USD'?'#3B82F6':c.code==='GBP'?'#6366F1':c.code==='JPY'?'#EC4899':'#F59E0B';
+          const base=c.code==='JPY'?'100 JPY':'1 '+displayCode;
+          return R('div',{key:c.code,style:{position:'relative',padding:'9px 11px 9px 14px',border:'1px solid var(--bd)',borderRadius:8,background:'#fff'}},
+            R('div',{style:{position:'absolute',left:0,top:9,bottom:9,width:3,background:accent,borderRadius:'0 2px 2px 0'}}),
+            R('div',{style:{display:'flex',alignItems:'center',gap:5,fontSize:10,color:'var(--tm)'}},
+              R('span',{style:{fontSize:9,fontWeight:700,background:'var(--bg)',padding:'1px 5px',borderRadius:3,letterSpacing:0.3,color:'var(--t)'}},country),
+              c.name+' ('+displayCode+')'
+            ),
+            R('div',{style:{fontSize:17,fontWeight:700,color:'var(--t)',marginTop:5}},
+              rates[c.code]?rates[c.code].toLocaleString()+' 원':'—',
+              R(Diff,{cur:rates[c.code],p:prev(c.code)})
+            ),
+            R('div',{style:{fontSize:9,color:'var(--tm)',marginTop:2}},base)
+          );
+        })
+      ):R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)',fontSize:11}},'환율 로딩 중...'),
+      rateHistory.length>1&&R('div',{style:{borderTop:'1px solid var(--bd)',padding:'6px 14px 4px'}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}},
+          R('span',{style:{fontSize:9,color:'var(--tm)',fontWeight:600}},'USD/KRW 추이'),
+          R('div',{style:{display:'flex',gap:3}},
+            R('button',{onClick:()=>setRateTab('week'),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab==='week'?'var(--p)':'var(--bd)'),background:rateTab==='week'?'var(--p)':'#fff',color:rateTab==='week'?'#fff':'var(--tm)',cursor:'pointer',fontFamily:'inherit'}},'주간'),
+            R('button',{onClick:()=>setRateTab('month'),style:{padding:'1px 7px',fontSize:8,borderRadius:20,border:'1px solid '+(rateTab==='month'?'var(--p)':'var(--bd)'),background:rateTab==='month'?'var(--p)':'#fff',color:rateTab==='month'?'#fff':'var(--tm)',cursor:'pointer',fontFamily:'inherit'}},'월간')
+          )
+        ),
+        R('div',{style:{height:38}},R('canvas',{ref:chartRef}))
+      ),
+      R('div',{style:{padding:'6px 14px 10px',textAlign:'right',fontSize:9,color:'var(--tm)'}},
+        '최종 갱신: ',ratesUpdatedAt?ratesUpdatedAt.toLocaleString('ko-KR',{year:'numeric',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—'
       )
     )
   );
