@@ -2145,6 +2145,8 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
 
 function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[search,setSearch]=useState('');const[showD,setShowD]=useState(false);
+  const searchRef=useRef(null);
+  const ignoreBlur=useRef(false);
   const fl=useMemo(()=>{if(!search)return[];const q=search.toLowerCase();return mats.filter(m=>m.n.toLowerCase().includes(q)||m.c.includes(search)).slice(0,12);},[search,mats]);
   const rows=hqItems.map(h=>{
     const mat=mats.find(m=>m.c===h.matCode)||{};
@@ -2169,9 +2171,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     ),
     /* 검색 + 추가 */
     R('div',{className:'card',style:{marginBottom:12,position:'relative',zIndex:10}},
-      R('input',{value:search,onChange:e=>{setSearch(e.target.value);setShowD(true);},onFocus:()=>setShowD(true),onBlur:()=>setTimeout(()=>setShowD(false),200),placeholder:'🔍 품목 검색해서 추가 (연속 클릭 가능)',style:{width:'100%',padding:'9px 12px',border:'1.5px solid #D94F1E',borderRadius:9,fontSize:13}}),
+      R('input',{value:search,ref:searchRef,onChange:e=>{setSearch(e.target.value);setShowD(true);},onFocus:()=>setShowD(true),onBlur:()=>{if(ignoreBlur.current)return;setTimeout(()=>setShowD(false),200);},placeholder:'🔍 품목 검색해서 추가 (연속 클릭 가능)',style:{width:'100%',padding:'9px 12px',border:'1.5px solid #D94F1E',borderRadius:9,fontSize:13}}),
       showD&&fl.length>0&&R('div',{style:{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:'1px solid var(--bd)',borderRadius:10,boxShadow:'0 4px 20px rgba(0,0,0,.12)',zIndex:50,maxHeight:240,overflowY:'auto',marginTop:3}},
-        fl.map(m=>{const already=hqItems.some(h=>h.matCode===m.c);return R('div',{key:m.c,style:{padding:'9px 13px',cursor:already?'default':'pointer',borderBottom:'1px solid #f0ebe8',display:'flex',gap:8,alignItems:'center',background:already?'#f0fdf4':'#fff'},onMouseDown:e=>{e.preventDefault();if(!already)onAddHQ({id:uid(),matCode:m.c,matName:m.n,hqStock:0,note:''});}},
+        fl.map(m=>{const already=hqItems.some(h=>h.matCode===m.c);return R('div',{key:m.c,style:{padding:'9px 13px',cursor:already?'default':'pointer',borderBottom:'1px solid #f0ebe8',display:'flex',gap:8,alignItems:'center',background:already?'#f0fdf4':'#fff',userSelect:'none'},onMouseDown:e=>{e.preventDefault();ignoreBlur.current=true;if(!already)onAddHQ({id:uid(),matCode:m.c,matName:m.n,hqStock:0,note:''});setTimeout(()=>{ignoreBlur.current=false;searchRef.current&&searchRef.current.focus();},0);}},
           R(Bdg,{g:m.g,sm:true}),R('div',{style:{flex:1,minWidth:0}},R('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),R('div',{style:{fontSize:10,color:'#94a3b8'}},m.c,' · 공장재고: ',m.s,m.u)),
           R('span',{style:{background:already?'#059669':'#D94F1E',color:'#fff',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}},already?'✓':'＋'));})
       )
@@ -2240,6 +2242,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   },[]);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
+  const semiSearchInputRef=useRef(null);
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
   /* ── DB 상태 ── */
   const[loading,setLoading]=useState(true);
@@ -2290,6 +2293,8 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       return next;
     });
     setSemiSearch(''); /* 검색어만 비우고 검색창은 열린 채로 유지 - 연속 추가 가능 */
+    /* input에 다시 포커스 (입력 컨텍스트 유지) */
+    setTimeout(()=>{if(semiSearchInputRef.current)semiSearchInputRef.current.focus();},0);
   };
   const removeSemi=(id)=>{
     setSemiItems(prev=>{const next=prev.filter(x=>x.id!==id);localStorage.setItem('bnf_semi_items',JSON.stringify(next));return next;});
@@ -2358,9 +2363,9 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),title:showSemiSearch?'검색 닫기':'반제품 추가',style:{background:showSemiSearch?'#fff':'#7C3AED',color:showSemiSearch?'#7C3AED':'#fff',border:showSemiSearch?'1px solid #7C3AED':'none',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontSize:11,fontWeight:700}},showSemiSearch?'✕ 닫기':'+ 추가')
         ),
         showSemiSearch&&R('div',{style:{padding:'8px 10px',borderBottom:'1px solid var(--bd)',background:'#FAFAFA'}},
-          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'품목명 검색 (추가 후에도 검색창 유지)',style:{width:'100%',fontSize:11},autoFocus:true}),
+          R('input',{ref:semiSearchInputRef,className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'품목명 검색 (추가 후에도 검색창 유지)',style:{width:'100%',fontSize:11},autoFocus:true}),
           semiSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:160,overflow:'auto'}},
-            ...semiSearchResults.map(m=>R('div',{key:m.id,onClick:()=>addSemi(m),style:{padding:'6px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff'},
+            ...semiSearchResults.map(m=>R('div',{key:m.id,onMouseDown:e=>{e.preventDefault();addSemi(m);},style:{padding:'6px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff',userSelect:'none'},
               onMouseEnter:e=>e.currentTarget.style.background='#F3F0FF',
               onMouseLeave:e=>e.currentTarget.style.background='#fff'
             },'+ ',m.n,' (',m.s,' ',m.u,')'))
