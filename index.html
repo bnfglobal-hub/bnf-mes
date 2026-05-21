@@ -1446,8 +1446,12 @@ function PagePlant({user}){
 
   const totalWd=monthData.reduce((s,m)=>s+m.wd,0);
   const totalAd=monthData.reduce((s,m)=>s+m.ad,0);
-  const yearRate=totalWd>0?(totalAd/totalWd*100):0;
-  const activeCount=monthData.filter(m=>m.ad>0).length;
+  /* 연간 평균 가동률: 데이터 있는 월(ad>0)만 평균 - 미입력 월은 제외 */
+  const enteredMonths=monthData.filter(m=>m.ad>0);
+  const enteredWd=enteredMonths.reduce((s,m)=>s+m.wd,0);
+  const enteredAd=enteredMonths.reduce((s,m)=>s+m.ad,0);
+  const yearRate=enteredWd>0?(enteredAd/enteredWd*100):0;
+  const activeCount=enteredMonths.length;
 
   /* BEP 계산 */
   const totalYearFC=Object.values(monthlyFC).reduce((a,b)=>a+b,0);
@@ -1543,7 +1547,7 @@ function PagePlant({user}){
       R('div',{className:'card'},
         R('div',{style:{fontSize:11,color:'var(--tm)'}},'연간 평균 가동률'),
         R('div',{style:{fontSize:24,fontWeight:900,color:yearRate>=targetRate?'#22C55E':yearRate>0?'#EF4444':'#ccc',marginTop:4}},yearRate.toFixed(1)+'%'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'목표 대비 ',(yearRate>=targetRate?'+':'')+(yearRate-targetRate).toFixed(1)+'%p')
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'입력 완료 '+activeCount+'개월 기준 · 목표 대비 ',(yearRate>=targetRate?'+':'')+(yearRate-targetRate).toFixed(1)+'%p')
       ),
       R('div',{className:'card'},
         R('div',{style:{fontSize:11,color:'var(--tm)'}},'총 실 생산일수'),
@@ -1552,17 +1556,8 @@ function PagePlant({user}){
       ),
       R('div',{className:'card'},
         R('div',{style:{fontSize:11,color:'var(--tm)'}},'입력 완료'),
-        R('div',{style:{fontSize:24,fontWeight:900,color:'#3B82F6',marginTop:4}},activeCount,'개월')
-      ),
-      R('div',{className:'card',style:{background:bepHasData?'linear-gradient(135deg,#FEFCE8,#FEF9C3)':'#F9F9F9',border:bepHasData?'1px solid #FDE047':'1px solid var(--bd)'}},
-        R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:600}},'📐 BEP 손익분기'),
-        bepHasData
-          ? R('div',null,
-              R('div',{style:{fontSize:22,fontWeight:900,color:'#854D0E',marginTop:4}},bepRate.toFixed(1)+'%'),
-              R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'월 평균 고정비 '+fN(Math.round(avgMonthFC/10000))+'만원'),
-              R('div',{style:{fontSize:10,fontWeight:700,marginTop:4,color:yearRate>=bepRate?'#22C55E':'#EF4444'}},yearRate>=bepRate?'✅ 손익분기 초과 가동 중':'⚠️ 손익분기 미달')
-            )
-          : R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:8}},'💸 고정비 관리에 데이터를 입력하면 자동 계산됩니다')
+        R('div',{style:{fontSize:24,fontWeight:900,color:'#3B82F6',marginTop:4}},activeCount,'개월'),
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'/ 12개월 중')
       )
     ),
 
@@ -1582,24 +1577,30 @@ function PagePlant({user}){
         R('table',null,
           R('thead',null,R('tr',null,
             R('th',{style:{width:50,textAlign:'center'}},'월'),
-            R('th',{style:{textAlign:'right',width:100}},'가동가능일수'),
-            R('th',{style:{textAlign:'right',width:120,background:'#FFF8F4'}},'실 생산일수'),
-            R('th',{style:{textAlign:'right',width:90}},'가동률'),
-            R('th',{style:{textAlign:'right',width:80}},'목표 대비'),
-            R('th',{style:{textAlign:'right',width:100,background:'#FEFCE8'}},'월 고정비'),
-            R('th',null,'메모')
+            R('th',{style:{textAlign:'right',width:90}},'가동가능일수'),
+            R('th',{style:{textAlign:'right',width:90,background:'#FFF8F4'}},'실 생산일수'),
+            R('th',{style:{textAlign:'right',width:80}},'가동률'),
+            R('th',{style:{textAlign:'center',width:100,background:'#FEFCE8'}},'BEP 도달')
           )),
-          R('tbody',null,...monthData.map(m=>
-            R('tr',{key:m.month},
+          R('tbody',null,...monthData.map(m=>{
+            const overBep=bepHasData&&m.ad>0&&m.rate>=bepRate;
+            const noData=m.ad<=0;
+            return R('tr',{key:m.month},
               R('td',{style:{textAlign:'center',fontWeight:700}},m.month+'월'),
               R('td',null,R('input',{type:'number',value:m.wd,onChange:e=>updField(m.month,'working_days',e.target.value),onBlur:e=>{const k=m.month+'_working_days';if(saveTimers.current[k]){clearTimeout(saveTimers.current[k]);actualSave(m.month,'working_days',e.target.value);}},style:{width:'100%',textAlign:'right',border:'1px solid var(--bd)',borderRadius:4,padding:'4px 6px',fontSize:12}})),
               R('td',{style:{background:'#FFF8F4'}},R('input',{type:'number',step:'0.5',value:m.ad,onChange:e=>updField(m.month,'actual_days',e.target.value),onBlur:e=>{const k=m.month+'_actual_days';if(saveTimers.current[k]){clearTimeout(saveTimers.current[k]);actualSave(m.month,'actual_days',e.target.value);}},style:{width:'100%',textAlign:'right',border:'1.5px solid #D94F1E',borderRadius:4,padding:'4px 6px',fontSize:12,fontWeight:700,color:'var(--p)',background:'#FFF8F4'}})),
-              R('td',{style:{textAlign:'right',fontWeight:800,fontSize:12,color:m.rate>=targetRate?'#22C55E':m.rate>bepRate?'#F59E0B':m.rate>0?'#EF4444':'#ccc'}},m.rate.toFixed(1)+'%'),
-              R('td',{style:{textAlign:'right',fontSize:10,color:m.ad>0?(m.rate>=targetRate?'#22C55E':'#EF4444'):'#ccc'}},m.ad>0?((m.rate>=targetRate?'+':'')+(m.rate-targetRate).toFixed(1)+'%p'):'-'),
-              R('td',{style:{textAlign:'right',fontSize:10,background:'#FEFCE8',color:m.fc>0?'#854D0E':'#ccc'}},m.fc>0?fN(Math.round(m.fc/10000))+'만':'-'),
-              R('td',null,R('input',{type:'text',value:m.memo,onChange:e=>updField(m.month,'memo',e.target.value),onBlur:e=>{const k=m.month+'_memo';if(saveTimers.current[k]){clearTimeout(saveTimers.current[k]);actualSave(m.month,'memo',e.target.value);}},placeholder:'메모',style:{width:'100%',border:'1px solid var(--bd)',borderRadius:4,padding:'4px 6px',fontSize:11}}))
-            )
-          ))
+              R('td',{style:{textAlign:'right',fontWeight:800,fontSize:13,color:m.rate>=targetRate?'#22C55E':m.rate>bepRate?'#F59E0B':m.rate>0?'#EF4444':'#ccc'}},m.rate.toFixed(1)+'%'),
+              R('td',{style:{textAlign:'center',fontSize:11,background:'#FEFCE8'}},
+                !bepHasData
+                  ? R('span',{style:{color:'#cbd5e1'}},'BEP 미설정')
+                  : noData
+                    ? R('span',{style:{color:'#ccc'}},'-')
+                    : overBep
+                      ? R('span',{style:{color:'#15803D',fontWeight:700,background:'#D1FAE5',padding:'2px 8px',borderRadius:10}},'✓ 도달')
+                      : R('span',{style:{color:'#B91C1C',fontWeight:700,background:'#FEE2E2',padding:'2px 8px',borderRadius:10}},'✕ 미달')
+              )
+            );
+          }))
         )
       )
     )
@@ -3604,6 +3605,27 @@ ${quote.note?`<div class="note"><b>특이사항:</b>\n${quote.note}</div>`:''}
 
 function PageCost({prods,mats}){
   const[selId,setSelId]=useState('');const[overPrices,setOverPrices]=useState({});
+  /* 매입 데이터 - purchases 테이블에서 최근 매입 단가 자동 가져오기 */
+  const[recentPurchasePrices,setRecentPurchasePrices]=useState({}); /* {mat_code: 단가} */
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const{data}=await sbClient.from('purchases').select('mat_code,amount,qty,purchase_date').order('purchase_date',{ascending:false}).limit(5000);
+        if(!data)return;
+        const m={};
+        data.forEach(p=>{
+          if(!p.mat_code)return;
+          /* 가장 최근 매입가만 유지 (이미 정렬됨) */
+          if(m[p.mat_code]===undefined){
+            const qty=+p.qty||0;
+            const amt=+p.amount||0;
+            if(qty>0&&amt>0)m[p.mat_code]=amt/qty;
+          }
+        });
+        setRecentPurchasePrices(m);
+      }catch(e){console.warn('[Cost] 매입가 로드 실패',e);}
+    })();
+  },[]);
   const[fixedCosts,setFixedCosts]=useState([
     {id:'l2',name:'간접 인건비',rawCost:0,qty:1,kind:'indirect'},
     {id:'l3',name:'고정비',rawCost:0,qty:1,kind:'indirect'},
@@ -3618,7 +3640,19 @@ function PageCost({prods,mats}){
   const[dailyProd,setDailyProd]=useState(7300);
   const[targetPrice,setTargetPrice]=useState(2290);
   const prod=prods.find(p=>p.id===selId);
-  const bomRows=useMemo(()=>{if(!prod)return[];return prod.bom.map(b=>{const mat=mats.find(m=>m.c===b.c);const up=overPrices[b.c]!==undefined?overPrices[b.c]:(mat?mat.price:0)||0;return{...b,mat,unitPrice:up,applied:up*b.amt};});},[prod,mats,overPrices]);
+  /* BOM 단가 적용 우선순위: 1) 사용자 수동 override 2) 최근 매입가 3) mats.price */
+  const bomRows=useMemo(()=>{
+    if(!prod)return[];
+    return prod.bom.map(b=>{
+      const mat=mats.find(m=>m.c===b.c);
+      const purchasePrice=recentPurchasePrices[b.c];
+      const matPrice=mat?mat.price:0;
+      const autoPrice=purchasePrice||matPrice||0;
+      const up=overPrices[b.c]!==undefined?overPrices[b.c]:autoPrice;
+      const source=overPrices[b.c]!==undefined?'수동':(purchasePrice?'매입':matPrice?'재고':'없음');
+      return{...b,mat,unitPrice:up,applied:up*b.amt,source};
+    });
+  },[prod,mats,overPrices,recentPurchasePrices]);
   const matTotal=bomRows.reduce((s,r)=>s+r.applied,0);
   const totalWorkers=workers.reduce((s,w)=>s+(+w.count||0),0);
   const totalWage=totalWorkers*wagePerPerson;
@@ -3644,26 +3678,32 @@ function PageCost({prods,mats}){
       R('div',null,
         /* 원재료 */
         R('div',{className:'card',style:{marginBottom:12}},
-          R('div',{className:'card-title',style:{marginBottom:10,display:'flex',justifyContent:'space-between'}},R('span',null,'🌾 원재료비 분석'),R('span',{style:{fontSize:11,color:'var(--tm)'}},'1개 생산 기준')),
+          R('div',{className:'card-title',style:{marginBottom:10,display:'flex',justifyContent:'space-between'}},R('span',null,'🌾 원재료비 분석'),R('span',{style:{fontSize:11,color:'var(--tm)'}},'1개 생산 기준 · 매입자료 자동 연동')),
           R('div',{style:{overflow:'auto'}},
-            R('table',{style:{minWidth:480}},
-              R('thead',null,R('tr',null,R('th',{style:{width:'30%'}},'구분'),R('th',{style:{textAlign:'right',width:65}},'중량'),R('th',{style:{textAlign:'center',width:45}},'단위'),R('th',{style:{textAlign:'right',width:80}},'매입단가'),R('th',{style:{textAlign:'right',width:90}},'적용단가'))),
+            R('table',{style:{minWidth:560}},
+              R('thead',null,R('tr',null,R('th',{style:{width:'26%'}},'구분'),R('th',{style:{textAlign:'right',width:60}},'중량'),R('th',{style:{textAlign:'center',width:40}},'단위'),R('th',{style:{textAlign:'right',width:90}},'매입단가'),R('th',{style:{textAlign:'center',width:54}},'출처'),R('th',{style:{textAlign:'right',width:90}},'적용단가'))),
               R('tbody',null,
                 ...bomRows.map(r=>R('tr',{key:r.c},
                   R('td',{style:{fontSize:12,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.name),
                   R('td',{style:{textAlign:'right',fontSize:12}},r.amt),
                   R('td',{style:{textAlign:'center',fontSize:11,color:'var(--tm)'}},r.unit),
                   R('td',{style:{textAlign:'right'}},R(EC,{rk:r.c+'up',initVal:r.unitPrice||0,type:'number',onSave:v=>setOverPrices(p=>({...p,[r.c]:+v})),className:'ci',style:{textAlign:'right',color:'#0369a1'}})),
+                  R('td',{style:{textAlign:'center',fontSize:9}},
+                    r.source==='매입'?R('span',{style:{background:'#D1FAE5',color:'#15803D',padding:'1px 5px',borderRadius:8,fontWeight:700}},'매입'):
+                    r.source==='수동'?R('span',{style:{background:'#FFF7ED',color:'#C2410C',padding:'1px 5px',borderRadius:8,fontWeight:700}},'수동'):
+                    r.source==='재고'?R('span',{style:{background:'#EFF6FF',color:'#1D4ED8',padding:'1px 5px',borderRadius:8,fontWeight:700}},'재고'):
+                    R('span',{style:{color:'#cbd5e1'}},'-')
+                  ),
                   R('td',{style:{textAlign:'right',fontWeight:700,color:r.applied>0?'#1A1A1A':'#94a3b8',fontSize:12}},r.applied>0?fN(Math.round(r.applied*1000)/1000):'-')
                 )),
-                R('tr',{style:{background:'#fff5f0'}},R('td',{colSpan:4,style:{textAlign:'right',fontWeight:700,fontSize:13}},'원재료비 합계'),R('td',{style:{textAlign:'right',fontWeight:800,fontSize:13,color:'var(--p)'}},fN(Math.round(matTotal*1000)/1000)+'원'))
+                R('tr',{style:{background:'#fff5f0'}},R('td',{colSpan:5,style:{textAlign:'right',fontWeight:700,fontSize:13}},'원재료비 합계'),R('td',{style:{textAlign:'right',fontWeight:800,fontSize:13,color:'var(--p)'}},fN(Math.round(matTotal*1000)/1000)+'원'))
               )
             )
           )
         ),
-        /* 인건비/고정비/부대비용 - 매입단가/수량/적용단가 */
+        /* 제조원가 (인건비/고정비/부대비용 통합) */
         R('div',{className:'card',style:{marginBottom:12}},
-          R('div',{className:'card-title',style:{marginBottom:10,display:'flex',justifyContent:'space-between'}},R('span',null,'💰 인건비 / 고정비 / 부대비용'),R('button',{className:'btn bs btn-sm',onClick:()=>setFixedCosts(p=>[...p,{id:'l'+Date.now(),name:'',rawCost:0,qty:1,kind:'indirect'}])},'+ 항목')),
+          R('div',{className:'card-title',style:{marginBottom:10,display:'flex',justifyContent:'space-between'}},R('span',null,'🏭 제조원가'),R('button',{className:'btn bs btn-sm',onClick:()=>setFixedCosts(p=>[...p,{id:'l'+Date.now(),name:'',rawCost:0,qty:1,kind:'indirect'}])},'+ 항목')),
           R('div',{style:{overflow:'auto'}},
             R('table',{style:{minWidth:560}},
               R('thead',null,R('tr',null,R('th',{style:{width:65}},'구분'),R('th',null,'항목명'),R('th',{style:{textAlign:'right',width:110}},'매입단가'),R('th',{style:{textAlign:'right',width:90}},'일 생산수량'),R('th',{style:{textAlign:'right',width:100,background:'#fff5f0'}},'적용단가'),R('th',{style:{width:30}}))),
@@ -5090,7 +5130,7 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
-    {id:'adm_dash',l:'경영 대시보드',ic:'📈'},
+    {id:'purchase_data',l:'매입 자료',ic:'🛒'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
     {id:'cost',l:'원가분석',ic:'💰'},
     {id:'data',l:'데이터관리',ic:'💾'},
@@ -5104,11 +5144,16 @@ function loadNavSections(){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
         /* 본사(hq) 섹션 + 관리자 섹션에서 제거된 항목들 자동 정리 */
-        const REMOVED_IDS=new Set(['adm_sales','adm_purchase','fixed_costs','hq_dash','hq_sales','hq_purchase','hq_fixed_costs']);
+        const REMOVED_IDS=new Set(['adm_sales','adm_purchase','fixed_costs','adm_dash','hq_dash','hq_sales','hq_purchase','hq_fixed_costs']);
         let changed=false;
         const filtered=p.filter(s=>{if(s&&s.type==='hq'){changed=true;return false;}return true;}).map(s=>{
           if(s&&Array.isArray(s.items)){
             const newItems=s.items.filter(it=>!REMOVED_IDS.has(it.id));
+            /* 관리자 섹션에 purchase_data 없으면 추가 */
+            if(s.type==='admin'&&!newItems.find(it=>it.id==='purchase_data')){
+              newItems.unshift({id:'purchase_data',l:'매입 자료',ic:'🛒'});
+              changed=true;
+            }
             if(newItems.length!==s.items.length){changed=true;return{...s,items:newItems};}
           }
           return s;
