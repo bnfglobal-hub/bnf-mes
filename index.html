@@ -22,6 +22,7 @@ input,button,select,textarea{font-family:inherit;font-size:13px}
 @keyframes fa{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes prog{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.85)}}
 .fa{animation:fa .18s ease}
 .app{display:flex;flex-direction:column;height:100vh;width:100vw;overflow:hidden;background:var(--bg)}
 .hdr{height:52px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px;z-index:20;box-shadow:0 1px 4px rgba(0,0,0,.05)}
@@ -2288,7 +2289,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
         }).catch(()=>{});
       return next;
     });
-    setShowSemiSearch(false);setSemiSearch('');
+    setSemiSearch(''); /* 검색어만 비우고 검색창은 열린 채로 유지 - 연속 추가 가능 */
   };
   const removeSemi=(id)=>{
     setSemiItems(prev=>{const next=prev.filter(x=>x.id!==id);localStorage.setItem('bnf_semi_items',JSON.stringify(next));return next;});
@@ -2354,17 +2355,18 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
         R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between'}},
           R('div',{style:{fontSize:12,fontWeight:700,color:'#7C3AED'}},'🔧 반제품 재고 현황'),
-          R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),style:{background:'#7C3AED',color:'#fff',border:'none',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:11,fontWeight:700}},'+')
+          R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),title:showSemiSearch?'검색 닫기':'반제품 추가',style:{background:showSemiSearch?'#fff':'#7C3AED',color:showSemiSearch?'#7C3AED':'#fff',border:showSemiSearch?'1px solid #7C3AED':'none',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontSize:11,fontWeight:700}},showSemiSearch?'✕ 닫기':'+ 추가')
         ),
         showSemiSearch&&R('div',{style:{padding:'8px 10px',borderBottom:'1px solid var(--bd)',background:'#FAFAFA'}},
-          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'품목명 검색...',style:{width:'100%',fontSize:11},autoFocus:true}),
+          R('input',{className:'inp',value:semiSearch,onChange:e=>setSemiSearch(e.target.value),placeholder:'품목명 검색 (추가 후에도 검색창 유지)',style:{width:'100%',fontSize:11},autoFocus:true}),
           semiSearchResults.length>0&&R('div',{style:{marginTop:4,maxHeight:160,overflow:'auto'}},
             ...semiSearchResults.map(m=>R('div',{key:m.id,onClick:()=>addSemi(m),style:{padding:'6px 10px',cursor:'pointer',fontSize:11,borderBottom:'1px solid var(--bd)',background:'#fff'},
               onMouseEnter:e=>e.currentTarget.style.background='#F3F0FF',
               onMouseLeave:e=>e.currentTarget.style.background='#fff'
-            },m.n,' (',m.s,' ',m.u,')'))
+            },'+ ',m.n,' (',m.s,' ',m.u,')'))
           ),
-          semiSearch&&semiSearchResults.length===0&&R('div',{style:{padding:'8px',fontSize:11,color:'var(--tm)'}},'결과 없음')
+          semiSearch&&semiSearchResults.length===0&&R('div',{style:{padding:'8px',fontSize:11,color:'var(--tm)'}},'결과 없음'),
+          semiItems.length>0&&R('div',{style:{padding:'4px 0 0',fontSize:10,color:'var(--tm)',textAlign:'right'}},'추가됨: '+semiItems.length+'개')
         ),
         semiMatsData.length===0?R('div',{style:{padding:'20px 14px',textAlign:'center',color:'var(--tm)',fontSize:11}},R('div',null,'+ 버튼으로 반제품을 추가하세요')):null,
         semiMatsData.length>0&&R('table',{style:{width:'100%',fontSize:11}},
@@ -4981,8 +4983,9 @@ function App(){
       /* 우측 정보 - 1열로 나란히 (모바일에서도 한 줄, 줄바꿈 금지) */
       R('div',{className:'hdr-info',style:{display:'flex',alignItems:'center',gap:10,flexWrap:'nowrap',whiteSpace:'nowrap'}},
         shortCnt>0&&R('div',{style:{background:'#D94F1E',color:'#fff',borderRadius:20,fontSize:11,padding:'3px 9px',fontWeight:700,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4,flexShrink:0},onClick:()=>setPage('inv'),title:'재고 부족 품목'},'⚠ '+shortCnt),
-        saveStatus==='saving'&&R('span',{style:{fontSize:11,color:'#D94F1E',flexShrink:0}},'⏳'),
-        saveStatus==='saved'&&R('span',{style:{fontSize:11,color:'var(--ok)',flexShrink:0}},'✓'),
+        saveStatus==='saving'&&R('span',{style:{fontSize:10,color:'#D97706',background:'#FEF3C7',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,display:'inline-flex',alignItems:'center',gap:4},title:'서버 자동 저장 중'},R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:'50%',background:'#D97706',animation:'pulse 1s ease infinite'}}),'저장중'),
+        saveStatus==='saved'&&R('span',{style:{fontSize:10,color:'#15803d',background:'#D1FAE5',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0},title:'서버에 저장 완료'},'✓ 저장됨'),
+        saveStatus==='error'&&R('span',{style:{fontSize:10,color:'#DC2626',background:'#FEE2E2',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,cursor:'help'},title:'저장 실패 - 네트워크 확인'},'✕ 저장실패'),
         R('div',{className:'hdr-name',style:{fontSize:12,color:'var(--tm)',flexShrink:0}},(user.name||'사용자')+' · '+(user.position||'')),
         (!isInstalled&&R('button',{onClick:installApp,style:{padding:'4px 10px',background:'#D94F1E',border:'none',borderRadius:6,color:'#fff',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'📱 앱설치')),
         R('button',{onClick:()=>{localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'#f3ede9',border:'none',borderRadius:6,color:'var(--tm)',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
