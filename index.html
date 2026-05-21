@@ -2525,6 +2525,15 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     .filter(si=>!(prodSemiMap[semiPickerFor]||[]).includes(si.id))
     .filter(si=>!semiPickerSearch||si.n.includes(semiPickerSearch)):[];
 
+  /* hook들은 항상 동일한 순서로 호출되어야 하므로 if return 이전에 선언 (ERP 탭에서도 hook 개수 일치) */
+  const invMainRef=useRef(null);
+  const invTblRef=useRef(null);
+  const scrollToTable=()=>{
+    setTimeout(()=>{
+      if(invTblRef.current)invTblRef.current.scrollIntoView({behavior:'smooth',block:'start'});
+    },50);
+  };
+
   /* ERP 업로드 탭 */
   if(invTab==='erp'){
     return R('div',{className:'pg fa'},
@@ -2679,14 +2688,6 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     )
   ):null;}catch(e){console.warn('FavSection error:',e);return null;}};
 
-
-  const invMainRef=useRef(null);
-  const invTblRef=useRef(null);
-  const scrollToTable=()=>{
-    setTimeout(()=>{
-      if(invTblRef.current)invTblRef.current.scrollIntoView({behavior:'smooth',block:'start'});
-    },50);
-  };
 
   return R('div',{className:'inv-wrap'},
     R('div',{className:'cat-col'},
@@ -4946,12 +4947,6 @@ function PageData({mats,prods,orders,hqItems,cats,quote,pqty,onImport}){
 
 /* ═══ 통합 APP ══════════════════════════════════════════ */
 const DEFAULT_NAV_SECTIONS=[
-  {label:'🏢 비엔에프글로벌 본사',type:'hq',adminOnly:true,items:[
-    {id:'hq_dash',l:'경영 대시보드',ic:'📈'},
-    {id:'hq_sales',l:'매출 분석',ic:'💵'},
-    {id:'hq_purchase',l:'매입 분석',ic:'🛒'},
-    {id:'hq_fixed_costs',l:'고정비 관리',ic:'💸'}
-  ]},
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'home',l:'홈',ic:'⊞'},
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -4982,7 +4977,18 @@ const DEFAULT_NAV_SECTIONS=[
 function loadNavSections(){
   try{
     const saved=localStorage.getItem('bnf_nav_sections_v3');
-    if(saved){const p=JSON.parse(saved);if(Array.isArray(p)&&p.length>0)return p;}
+    if(saved){
+      const p=JSON.parse(saved);
+      if(Array.isArray(p)&&p.length>0){
+        /* 본사(hq) 섹션 자동 제거 - 사용자 커스터마이징은 유지 */
+        const filtered=p.filter(s=>s&&s.type!=='hq');
+        if(filtered.length!==p.length){
+          /* 본사 섹션이 있었으면 정리해서 다시 저장 */
+          try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}
+        }
+        return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
+      }
+    }
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
