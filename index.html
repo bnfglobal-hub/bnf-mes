@@ -229,6 +229,12 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 }
 
 /* ═ 재고 모바일 - 테이블 가로 스크롤 ═ */
+.fav-grid{grid-template-columns:1fr}
+.fav-grid.two{grid-template-columns:1fr 1fr}
+@media(max-width:768px){
+  .fav-grid,.fav-grid.two{grid-template-columns:1fr !important}
+  .fav-grid .card{max-height:320px !important}
+}
 @media(max-width:768px){
   .inv-main{overflow-x:auto !important;padding:8px !important;}
   .inv-tbl{overflow-x:auto !important;width:100% !important;}
@@ -2672,7 +2678,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   }
   /* 완제품/반제품 현황 섹션 */
   const getFavSection=()=>{try{return favMats.length>0||semiMatsData.length>0?R('div',{style:{marginBottom:14}},
-    R('div',{style:{display:'grid',gridTemplateColumns:semiMatsData.length>0||showSemiSearch?'1fr 1fr':'1fr',gap:12}},
+    R('div',{className:'fav-grid'+((semiMatsData.length>0||showSemiSearch)?' two':''),style:{display:'grid',gap:12}},
       /* 완제품 재고 현황 (클릭하면 우측 패널에 연결된 반제품 표시) */
       favMats.length>0&&R('div',{className:'card',style:{padding:0,overflow:'hidden',display:'flex',flexDirection:'column',maxHeight:440}},
         R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}},
