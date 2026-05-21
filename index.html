@@ -387,12 +387,30 @@ function PageProdSchedule(){
   const[filterAssignee,setFilterAssignee]=useState('');
   const[filterFloor,setFilterFloor]=useState('all'); /* all|prod1|prod2|rd */
   const[filterStatus,setFilterStatus]=useState('all');
+  const[cellEdit,setCellEdit]=useState(null); /* {date, cat, value} - 인라인 빠른 입력 */
+  const cellEditRef=useRef(null);
   const st=useRef(null);
   const captureRef=useRef(null);
   const days=Array.from({length:7},(_,i)=>addDD(startMonday,i));
   const dayL=['월','화','수','목','금','토','일'];
 
   useEffect(()=>{loadWeek();},[startMonday]);
+  useEffect(()=>{if(cellEdit&&cellEditRef.current){cellEditRef.current.focus();cellEditRef.current.select();}},[cellEdit]);
+
+  const startInlineEdit=(date,cat,e)=>{
+    if(e){e.stopPropagation();e.preventDefault();}
+    setCellEdit({date,cat,value:''});
+  };
+  const commitInlineEdit=()=>{
+    if(!cellEdit)return;
+    const txt=(cellEdit.value||'').trim();
+    if(txt){
+      const newItem={id:'i_'+Date.now()+Math.random().toString(36).slice(2,6),cat:cellEdit.cat,name:txt,workType:'',qty:'',unit:'ea',startTime:'',endTime:'',assignee:'',customer:'',memo:'',status:'예정',date:cellEdit.date};
+      upsertItem(newItem);
+    }
+    setCellEdit(null);
+  };
+  const cancelInlineEdit=()=>setCellEdit(null);
 
   const loadWeek=async()=>{
     try{
@@ -426,13 +444,15 @@ function PageProdSchedule(){
   const saveWeek=(nd)=>{
     setSaving('s');
     if(st.current)clearTimeout(st.current);
+    const ws=startMonday;
     st.current=setTimeout(async()=>{
       try{
-        await sbClient.from('prod_schedule').upsert({week_start:startMonday,schedule_data:nd,updated_at:now2()});
-        setSaving('d');
-      }catch(e){setSaving('e');}
+        const{error}=await sbClient.from('prod_schedule').upsert({week_start:ws,schedule_data:nd,updated_at:now2()});
+        if(error){console.error('생산스케줄 저장 실패:',error);setSaving('e');alert('저장 실패: '+(error.message||error.code||'알 수 없는 오류'));}
+        else{setSaving('d');}
+      }catch(e){console.error('생산스케줄 저장 오류:',e);setSaving('e');alert('저장 오류: '+e.message);}
       setTimeout(()=>setSaving(''),1800);
-    },500);
+    },200);
   };
 
   const upsertItem=(item)=>{
@@ -583,11 +603,14 @@ function PageProdSchedule(){
       R('thead',null,R('tr',null,
         R('th',{style:{padding:'10px 6px',background:'#1F2937',color:'#fff',fontWeight:700,textAlign:'center',fontSize:11,position:'sticky',left:0,zIndex:2}},'카테고리'),
         ...days.map((d,i)=>{
-          const isW=new Date(d).getDay()===0||new Date(d).getDay()===6;
+          const wd=new Date(d).getDay();
+          const isSat=wd===6;const isSun=wd===0;const isW=isSat||isSun;
           const tday=isToday(d);
-          return R('th',{key:i,style:{padding:'8px 4px',background:tday?'#FFF5F0':isW?'#FFFBEB':'#1F2937',color:tday?'var(--p)':'#fff',borderLeft:'1px solid #374151',textAlign:'center',fontSize:11}},
+          const bg=tday?'#FFF5F0':isSun?'#FEF2F2':isSat?'#EFF6FF':'#1F2937';
+          const fg=tday?'var(--p)':isSun?'#DC2626':isSat?'#2563EB':'#fff';
+          return R('th',{key:i,style:{padding:'8px 4px',background:bg,color:fg,borderLeft:'1px solid #374151',textAlign:'center',fontSize:11}},
             R('div',{style:{fontWeight:800,fontSize:13}},fSD(d)),
-            R('div',{style:{opacity:tday?1:0.7,fontSize:10,fontWeight:tday?700:500}},dayL[i],tday?' · 오늘':'')
+            R('div',{style:{opacity:tday?1:isW?1:0.7,fontSize:10,fontWeight:tday||isW?700:500}},dayL[i],tday?' · 오늘':'')
           );
         })
       )),
@@ -596,12 +619,30 @@ function PageProdSchedule(){
         ...days.map((d,di)=>{
           const items=(weekData[d]||[]).filter(it=>it.cat===cat.key&&matchFilter(it,d));
           const tday=isToday(d);
-          return R('td',{key:di,onClick:()=>openNew(d,cat.key),style:{padding:5,verticalAlign:'top',minHeight:48,borderTop:'1px solid var(--bd)',borderLeft:'1px solid var(--bd)',cursor:'pointer',background:tday?'rgba(217,79,30,0.03)':'#fff',transition:'background .1s'},
-            onMouseEnter:e=>e.currentTarget.style.background=tday?'rgba(217,79,30,0.08)':'#FAFAFA',
-            onMouseLeave:e=>e.currentTarget.style.background=tday?'rgba(217,79,30,0.03)':'#fff'
+          const editing=cellEdit&&cellEdit.date===d&&cellEdit.cat===cat.key;
+          return R('td',{key:di,
+            onClick:()=>{if(!editing)openNew(d,cat.key);},
+            onDoubleClick:e=>startInlineEdit(d,cat.key,e),
+            title:'클릭: 상세 모달 / 더블클릭: 빠른 입력',
+            style:{padding:5,verticalAlign:'top',minHeight:48,borderTop:'1px solid var(--bd)',borderLeft:'1px solid var(--bd)',cursor:'pointer',background:tday?'rgba(217,79,30,0.03)':'#fff',transition:'background .1s'},
+            onMouseEnter:e=>{if(!editing)e.currentTarget.style.background=tday?'rgba(217,79,30,0.08)':'#FAFAFA';},
+            onMouseLeave:e=>{if(!editing)e.currentTarget.style.background=tday?'rgba(217,79,30,0.03)':'#fff';}
           },
             items.map(it=>R(ItemChip,{key:it.id,item:it,date:d})),
-            items.length===0&&R('div',{style:{fontSize:9,color:'#D1D5DB',textAlign:'center',padding:'4px 0'}},'+')
+            editing&&R('textarea',{
+              ref:cellEditRef,
+              value:cellEdit.value,
+              onChange:e=>setCellEdit(p=>p?{...p,value:e.target.value}:p),
+              onBlur:commitInlineEdit,
+              onClick:e=>e.stopPropagation(),
+              onKeyDown:e=>{
+                if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();commitInlineEdit();}
+                if(e.key==='Escape'){e.preventDefault();cancelInlineEdit();}
+              },
+              placeholder:'일정 입력 후 Enter',
+              style:{width:'100%',minHeight:48,padding:'4px 6px',border:'2px solid '+cat.accent,borderRadius:5,fontSize:11,fontFamily:'inherit',resize:'vertical',outline:'none',background:'#FFFDF5',boxSizing:'border-box',lineHeight:1.4}
+            }),
+            !editing&&items.length===0&&R('div',{style:{fontSize:9,color:'#D1D5DB',textAlign:'center',padding:'4px 0'}},'+')
           );
         })
       )))
@@ -638,7 +679,7 @@ function PageProdSchedule(){
       R('div',null,
         R('div',{className:'pg-title'},'📅 생산 스케줄'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},fSD(days[0]),' ~ ',fSD(days[6]),' · ',
-          saving==='s'?R('span',{style:{color:'var(--p)'}},'저장 중...'):saving==='d'?R('span',{style:{color:'var(--ok)'}},'✓ 저장됨'):saving==='e'?R('span',{style:{color:'var(--err)'}},'✕ 저장 실패'):'셀 클릭 → 일정 추가, 일정 클릭 → 수정'
+          saving==='s'?R('span',{style:{color:'var(--p)'}},'저장 중...'):saving==='d'?R('span',{style:{color:'var(--ok)'}},'✓ 저장됨'):saving==='e'?R('span',{style:{color:'var(--err)'}},'✕ 저장 실패'):'클릭 → 상세 모달 · 더블클릭 → 빠른 입력 (Enter 저장)'
         )
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
