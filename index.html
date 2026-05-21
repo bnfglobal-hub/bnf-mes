@@ -2508,33 +2508,51 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const[semiPickerSearch,setSemiPickerSearch]=useState('');
   const semiPickerInputRef=useRef(null);
   /* Supabase에서 favorites 복원 (다른 기기에서 설정한 값) */
-  useEffect(()=>{
+  /* Supabase에서 favorites/semiItems/prodSemiMap 동기화 - Supabase가 source of truth */
+  const syncFromSupabase=()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
       .then(({data})=>{
-        if(data&&data.state_data){
-          if(data.state_data.bnf_favorites){
-            const lf=JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]');
-            if(lf.length===0&&data.state_data.bnf_favorites.length>0){
-              setFavorites(data.state_data.bnf_favorites);
-              localStorage.setItem('bnf_fav_mats',JSON.stringify(data.state_data.bnf_favorites));
-            }
-          }
-          if(data.state_data.bnf_semi_items){
-            const ls=JSON.parse(localStorage.getItem('bnf_semi_items')||'[]');
-            if(ls.length===0&&data.state_data.bnf_semi_items.length>0){
-              setSemiItems(data.state_data.bnf_semi_items);
-              localStorage.setItem('bnf_semi_items',JSON.stringify(data.state_data.bnf_semi_items));
-            }
-          }
-          if(data.state_data.bnf_prod_semi_map){
-            const lm=JSON.parse(localStorage.getItem('bnf_prod_semi_map')||'{}');
-            if(Object.keys(lm).length===0&&Object.keys(data.state_data.bnf_prod_semi_map).length>0){
-              setProdSemiMap(data.state_data.bnf_prod_semi_map);
-              localStorage.setItem('bnf_prod_semi_map',JSON.stringify(data.state_data.bnf_prod_semi_map));
-            }
+        if(!data||!data.state_data)return;
+        const sd=data.state_data;
+        /* favorites - Supabase에 데이터 있으면 무조건 적용 (localStorage 길이 체크 제거) */
+        if(Array.isArray(sd.bnf_favorites)){
+          const localStr=localStorage.getItem('bnf_fav_mats')||'[]';
+          const remoteStr=JSON.stringify(sd.bnf_favorites);
+          if(localStr!==remoteStr){
+            setFavorites(sd.bnf_favorites);
+            localStorage.setItem('bnf_fav_mats',remoteStr);
           }
         }
-      }).catch(()=>{});
+        /* semiItems */
+        if(Array.isArray(sd.bnf_semi_items)){
+          const localStr=localStorage.getItem('bnf_semi_items')||'[]';
+          const remoteStr=JSON.stringify(sd.bnf_semi_items);
+          if(localStr!==remoteStr){
+            setSemiItems(sd.bnf_semi_items);
+            localStorage.setItem('bnf_semi_items',remoteStr);
+          }
+        }
+        /* prodSemiMap */
+        if(sd.bnf_prod_semi_map&&typeof sd.bnf_prod_semi_map==='object'){
+          const localStr=localStorage.getItem('bnf_prod_semi_map')||'{}';
+          const remoteStr=JSON.stringify(sd.bnf_prod_semi_map);
+          if(localStr!==remoteStr){
+            setProdSemiMap(sd.bnf_prod_semi_map);
+            localStorage.setItem('bnf_prod_semi_map',remoteStr);
+          }
+        }
+      }).catch(e=>console.warn('[Inv] sync error',e));
+  };
+  useEffect(()=>{
+    /* 진입 시 즉시 동기화 */
+    syncFromSupabase();
+    /* 페이지 보일 때 동기화 (탭 전환, 모바일/PC 간 갱신) */
+    const onVis=()=>{if(!document.hidden)syncFromSupabase();};
+    document.addEventListener('visibilitychange',onVis);
+    window.addEventListener('focus',syncFromSupabase);
+    /* 5초마다 폴링 (다른 기기에서 변경 시 자동 반영) */
+    const poll=setInterval(syncFromSupabase,5000);
+    return()=>{document.removeEventListener('visibilitychange',onVis);window.removeEventListener('focus',syncFromSupabase);clearInterval(poll);};
   },[]);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
@@ -5210,7 +5228,22 @@ function App(){
   const updMat=(id,k,v)=>setMats(p=>p.map(m=>m.id===id?{...m,[k]:v}:m));
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
 
-  /* DB 로드 */
+  /* DB 로드 + 양방향 동기화 (PC↔모바일) */
+  const reloadFromDB=async(silent=false)=>{
+    try{
+      const{data,error}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
+      if(error||!data||!data.state_data)return;
+      const d=data.state_data;
+      /* 변경 사항 있을 때만 setState (불필요한 렌더 방지) */
+      if(d.mats&&JSON.stringify(d.mats)!==JSON.stringify(mats))setMats(d.mats);
+      if(d.prods&&JSON.stringify(d.prods)!==JSON.stringify(prods))setProds(d.prods);
+      if(d.orders&&JSON.stringify(d.orders)!==JSON.stringify(orders))setOrders(d.orders);
+      if(d.hqItems&&JSON.stringify(d.hqItems)!==JSON.stringify(hqItems))setHqItems(d.hqItems);
+      if(d.cats&&JSON.stringify(d.cats)!==JSON.stringify(cats))setCats(d.cats);
+      if(d.quote&&JSON.stringify(d.quote)!==JSON.stringify(quote))setQuote(d.quote);
+      if(d.pqty&&JSON.stringify(d.pqty)!==JSON.stringify(pqty))setPqty(d.pqty);
+    }catch(e){if(!silent)console.warn('reloadFromDB:',e);}
+  };
   useEffect(()=>{
     const saved=localStorage.getItem('bnf_user');
     if(saved){setUser(JSON.parse(saved));}
@@ -5227,15 +5260,31 @@ function App(){
       setLoading(false);setTimeout(()=>setDbReady(true),200);
     })();
   },[]);
+  /* 양방향 동기화: 탭/창 활성화 + 주기적 폴링 */
+  useEffect(()=>{
+    if(!dbReady)return;
+    const onVis=()=>{if(!document.hidden)reloadFromDB(true);};
+    const onFocus=()=>reloadFromDB(true);
+    document.addEventListener('visibilitychange',onVis);
+    window.addEventListener('focus',onFocus);
+    /* 8초마다 가벼운 폴링 (Realtime 대용) */
+    const poll=setInterval(()=>{if(!document.hidden)reloadFromDB(true);},8000);
+    return()=>{document.removeEventListener('visibilitychange',onVis);window.removeEventListener('focus',onFocus);clearInterval(poll);};
+  },[dbReady,mats,prods,orders,hqItems,cats,quote,pqty]);
 
-  /* 자동 저장 */
+  /* 자동 저장 - 기존 state_data 보존하면서 merge (즐겨찾기 등 다른 키 손실 방지) */
   useEffect(()=>{
     if(!dbReady)return;
     setSaveStatus('saving');
     if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
     saveTimerRef.current=setTimeout(async()=>{
       try{
-        await db('app_state').upsert({id:1,state_data:{mats,prods,orders,hqItems,cats,quote,pqty},updated_at:new Date().toISOString()});
+        /* 기존 state_data 먼저 가져와서 merge */
+        const{data:cur}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
+        const existingExtras=cur&&cur.state_data?cur.state_data:{};
+        /* bnf_favorites, bnf_semi_items, bnf_prod_semi_map 등 PageInv가 관리하는 키는 보존 */
+        const merged={...existingExtras,mats,prods,orders,hqItems,cats,quote,pqty};
+        await db('app_state').upsert({id:1,state_data:merged,updated_at:new Date().toISOString()});
         setSaveStatus('saved');setTimeout(()=>setSaveStatus(''),2000);
       }catch(e){setSaveStatus('error');console.warn('자동저장 실패:',e);}
     },500);
