@@ -3103,16 +3103,167 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[search,setSearch]=useState('');const[showD,setShowD]=useState(false);
   const searchRef=useRef(null);
   const ignoreBlur=useRef(false);
+  /* 폴더 시스템 */
+  const[folders,setFolders]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_hq_folders')||'null')||[{id:'_root',name:'기본',color:'#6B7280',order:0}];}catch(e){return[{id:'_root',name:'기본',color:'#6B7280',order:0}];}});
+  const[selectedFolder,setSelectedFolder]=useState('_all'); /* _all | _root | folderId */
+  const[collapsedFolders,setCollapsedFolders]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem('bnf_hq_collapsed')||'[]'));}catch(e){return new Set();}});
+  const[draggedItem,setDraggedItem]=useState(null); /* {type:'item'|'folder', id} */
+  const[dragOverFolder,setDragOverFolder]=useState(null);
+  const[editingFolder,setEditingFolder]=useState(null); /* {id, name} */
+
+  /* Supabase 동기화 - 폴더 정보를 app_state.hq_folders에, 품목별 폴더 매핑은 hqItems.folder 필드 사용 */
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+      .then(({data})=>{
+        if(data&&data.state_data&&Array.isArray(data.state_data.hq_folders)){
+          const localStr=JSON.stringify(folders);
+          const remoteStr=JSON.stringify(data.state_data.hq_folders);
+          if(localStr!==remoteStr){
+            setFolders(data.state_data.hq_folders);
+            localStorage.setItem('bnf_hq_folders',remoteStr);
+          }
+        }
+      }).catch(()=>{});
+  },[]);
+
+  const saveFolders=(next)=>{
+    setFolders(next);
+    localStorage.setItem('bnf_hq_folders',JSON.stringify(next));
+    /* Supabase 백업 */
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+      .then(({data})=>{
+        const existing=data&&data.state_data?data.state_data:{};
+        sbClient.from('app_state').upsert({id:1,state_data:{...existing,hq_folders:next},updated_at:new Date().toISOString()});
+      }).catch(()=>{});
+  };
+
+  const toggleCollapse=(fid)=>{
+    setCollapsedFolders(prev=>{
+      const next=new Set(prev);
+      if(next.has(fid))next.delete(fid);else next.add(fid);
+      try{localStorage.setItem('bnf_hq_collapsed',JSON.stringify([...next]));}catch(e){}
+      return next;
+    });
+  };
+
+  const addFolder=()=>{
+    const name=prompt('새 폴더 이름:','폴더 '+(folders.length+1));
+    if(!name||!name.trim())return;
+    const colors=['#3B82F6','#10B981','#F59E0B','#EC4899','#06B6D4','#7C3AED','#EF4444','#8B5CF6','#14B8A6'];
+    const used=new Set(folders.map(f=>f.color));
+    const color=colors.find(c=>!used.has(c))||colors[folders.length%colors.length];
+    saveFolders([...folders,{id:'f_'+Date.now()+Math.random().toString(36).slice(2,6),name:name.trim(),color,order:folders.length}]);
+  };
+  const renameFolder=(fid)=>{
+    const f=folders.find(x=>x.id===fid);
+    if(!f)return;
+    if(f.id==='_root'){alert('"기본" 폴더는 이름을 변경할 수 없습니다');return;}
+    const name=prompt('폴더 이름:',f.name);
+    if(!name||!name.trim())return;
+    saveFolders(folders.map(x=>x.id===fid?{...x,name:name.trim()}:x));
+  };
+  const deleteFolder=(fid)=>{
+    if(fid==='_root'){alert('"기본" 폴더는 삭제할 수 없습니다');return;}
+    const count=hqItems.filter(h=>h.folder===fid).length;
+    const msg=count>0?'이 폴더에 '+count+'개 품목이 있습니다.\n폴더를 삭제하면 품목들은 "기본" 폴더로 이동합니다.\n계속할까요?':'폴더를 삭제할까요?';
+    if(!confirm(msg))return;
+    /* 폴더에 속한 품목들을 _root로 이동 */
+    hqItems.filter(h=>h.folder===fid).forEach(h=>onUpdHQ(h.id,'folder','_root'));
+    saveFolders(folders.filter(x=>x.id!==fid));
+    if(selectedFolder===fid)setSelectedFolder('_all');
+  };
+  const changeFolderColor=(fid)=>{
+    const colors=['#6B7280','#3B82F6','#10B981','#F59E0B','#EC4899','#06B6D4','#7C3AED','#EF4444','#8B5CF6','#14B8A6'];
+    const cur=folders.find(f=>f.id===fid);
+    if(!cur)return;
+    const curIdx=colors.indexOf(cur.color);
+    const next=colors[(curIdx+1)%colors.length];
+    saveFolders(folders.map(x=>x.id===fid?{...x,color:next}:x));
+  };
+
+  /* 드래그앤드롭 핸들러 */
+  const onItemDragStart=(e,itemId)=>{
+    setDraggedItem({type:'item',id:itemId});
+    e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',itemId);
+  };
+  const onFolderDragOver=(e,fid)=>{
+    e.preventDefault();
+    e.dataTransfer.dropEffect='move';
+    setDragOverFolder(fid);
+  };
+  const onFolderDragLeave=()=>setDragOverFolder(null);
+  const onFolderDrop=(e,fid)=>{
+    e.preventDefault();
+    if(draggedItem&&draggedItem.type==='item'){
+      onUpdHQ(draggedItem.id,'folder',fid);
+    }
+    setDraggedItem(null);
+    setDragOverFolder(null);
+  };
+  const onItemDragEnd=()=>{setDraggedItem(null);setDragOverFolder(null);};
+
+  /* 폴더별 행 그룹핑 */
   const fl=useMemo(()=>{if(!search)return[];const q=search.toLowerCase();return mats.filter(m=>m.n.toLowerCase().includes(q)||m.c.includes(search)).slice(0,12);},[search,mats]);
-  const rows=hqItems.map(h=>{
+  const rowsAll=hqItems.map(h=>{
     const mat=mats.find(m=>m.c===h.matCode)||{};
     const totalStock=(+h.hqStock||0)+(+mat.s||0);
-    return{...h,matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
+    return{...h,folder:h.folder||'_root',matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
   });
-  const shortItems=rows.filter(r=>r.short>0).sort((a,b)=>b.short-a.short);
+  const shortItems=rowsAll.filter(r=>r.short>0).sort((a,b)=>b.short-a.short);
+  const folderCounts=useMemo(()=>{const c={};rowsAll.forEach(r=>{c[r.folder]=(c[r.folder]||0)+1;});return c;},[rowsAll]);
+  /* 표시할 행: 선택된 폴더 또는 전체 */
+  const visibleRows=selectedFolder==='_all'?rowsAll:rowsAll.filter(r=>r.folder===selectedFolder);
+  /* 폴더별 그룹 (전체 보기 모드에서) */
+  const groupedByFolder=useMemo(()=>{
+    const g={};
+    folders.forEach(f=>{g[f.id]=[];});
+    rowsAll.forEach(r=>{if(!g[r.folder])g[r.folder]=[];g[r.folder].push(r);});
+    return g;
+  },[rowsAll,folders]);
+
+  /* 행 렌더링 함수 (재사용) */
+  const renderRow=(row,folderColor)=>R('tr',{key:row.id,className:row.short>0?'dng':'',
+    draggable:true,
+    onDragStart:e=>onItemDragStart(e,row.id),
+    onDragEnd:onItemDragEnd,
+    style:{cursor:'move',background:draggedItem&&draggedItem.id===row.id?'#FEF3C7':undefined,opacity:draggedItem&&draggedItem.id===row.id?0.5:1}
+  },
+    R('td',{style:{width:24,textAlign:'center',color:'#cbd5e1',fontSize:14,cursor:'move'},title:'드래그로 폴더 이동'},'⋮⋮'),
+    R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170,borderLeft:'3px solid '+(folderColor||'#E5E7EB')}},row.matName),
+    R('td',{style:{textAlign:'right'}},R(EC,{rk:row.id+'hq'+rk,initVal:row.hqStock,type:'number',onSave:v=>onUpdHQ(row.id,'hqStock',+v),className:'ci',style:{textAlign:'right',fontWeight:700,color:'#0369a1'}})),
+    R('td',{style:{textAlign:'right',fontSize:12,color:'#64748b'}},row.fSt),
+    R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)',background:'#fff5f0'}},row.totalStock.toFixed(1)),
+    R('td',{style:{textAlign:'right'}},R(EC,{rk:(row.matId||0)+'mu'+rk,initVal:row.mu,type:'number',onSave:v=>row.matId&&onUpdMat(row.matId,'mu',+v),placeholder:'0',className:'ci',style:{textAlign:'right',color:'#7c3aed'}})),
+    R('td',{style:{textAlign:'right',fontWeight:800,color:row.short>0?'#dc2626':'#059669',fontSize:13,background:row.short>0?'#fef2f2':'#f0fdf4'}},row.short>0?'-'+row.short.toFixed(1):'충분'),
+    R('td',{style:{fontSize:11,color:'#94a3b8'}},row.unit),
+    R('td',null,R(EC,{rk:row.id+'nt'+rk,initVal:row.note||'',onSave:v=>onUpdHQ(row.id,'note',v),placeholder:'메모',className:'ci',style:{fontSize:11}})),
+    /* 폴더 선택 셀렉트 */
+    R('td',null,R('select',{value:row.folder,onChange:e=>onUpdHQ(row.id,'folder',e.target.value),onClick:e=>e.stopPropagation(),style:{fontSize:10,border:'1px solid var(--bd)',borderRadius:5,padding:'3px 5px',background:'#fff',maxWidth:80,color:folderColor||'#6B7280',fontWeight:600}},
+      ...folders.map(f=>R('option',{key:f.id,value:f.id},f.name))
+    )),
+    R('td',null,R('button',{onClick:()=>onDelHQ(row.id),style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:13,padding:2}},'✕'))
+  );
+
+  const tableHeader=R('thead',null,
+    R('tr',null,
+      R('th',{style:{width:24}}),
+      R('th',{style:{width:'18%'}},'품목명'),
+      R('th',{style:{width:75,textAlign:'right'}},'본사재고'),
+      R('th',{style:{width:75,textAlign:'right'}},'공장재고'),
+      R('th',{style:{width:80,textAlign:'right',background:'#fff5f0'}},'총재고'),
+      R('th',{style:{width:78,textAlign:'right'}},'월사용량'),
+      R('th',{style:{width:80,textAlign:'right',background:'#fef2f2'}},'부족수량'),
+      R('th',{style:{width:34}},'단위'),
+      R('th',{style:{width:80}},'메모'),
+      R('th',{style:{width:90}},'폴더'),
+      R('th',{style:{width:28}})
+    )
+  );
+
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-title',style:{marginBottom:12}},'🏢 본사재고 관리'),
-    /* 부족재고 실시간 알림 */
+    /* 부족재고 알림 */
     shortItems.length>0&&R('div',{className:'card',style:{background:'linear-gradient(135deg,#fef2f2,#fee2e2)',border:'1px solid #fecaca',marginBottom:12}},
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
         R('span',{style:{fontSize:13,fontWeight:700,color:'#991b1b'}},'⚠ 부족 재고 ',shortItems.length,'건'),
@@ -3129,39 +3280,88 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     R('div',{className:'card',style:{marginBottom:12,position:'relative',zIndex:10}},
       R('input',{value:search,ref:searchRef,onChange:e=>{setSearch(e.target.value);setShowD(true);},onFocus:()=>setShowD(true),onBlur:()=>{if(ignoreBlur.current)return;setTimeout(()=>setShowD(false),200);},placeholder:'🔍 품목 검색해서 추가 (연속 클릭 가능)',style:{width:'100%',padding:'9px 12px',border:'1.5px solid #D94F1E',borderRadius:9,fontSize:13}}),
       showD&&fl.length>0&&R('div',{style:{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:'1px solid var(--bd)',borderRadius:10,boxShadow:'0 4px 20px rgba(0,0,0,.12)',zIndex:50,maxHeight:240,overflowY:'auto',marginTop:3}},
-        fl.map(m=>{const already=hqItems.some(h=>h.matCode===m.c);return R('div',{key:m.c,style:{padding:'9px 13px',cursor:already?'default':'pointer',borderBottom:'1px solid #f0ebe8',display:'flex',gap:8,alignItems:'center',background:already?'#f0fdf4':'#fff',userSelect:'none'},onMouseDown:e=>{e.preventDefault();ignoreBlur.current=true;if(!already)onAddHQ({id:uid(),matCode:m.c,matName:m.n,hqStock:0,note:''});setTimeout(()=>{ignoreBlur.current=false;searchRef.current&&searchRef.current.focus();},0);}},
+        fl.map(m=>{const already=hqItems.some(h=>h.matCode===m.c);return R('div',{key:m.c,style:{padding:'9px 13px',cursor:already?'default':'pointer',borderBottom:'1px solid #f0ebe8',display:'flex',gap:8,alignItems:'center',background:already?'#f0fdf4':'#fff',userSelect:'none'},onMouseDown:e=>{e.preventDefault();ignoreBlur.current=true;if(!already){const targetFolder=selectedFolder==='_all'?'_root':selectedFolder;onAddHQ({id:uid(),matCode:m.c,matName:m.n,hqStock:0,note:'',folder:targetFolder});}setTimeout(()=>{ignoreBlur.current=false;searchRef.current&&searchRef.current.focus();},0);}},
           R(Bdg,{g:m.g,sm:true}),R('div',{style:{flex:1,minWidth:0}},R('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},m.n),R('div',{style:{fontSize:10,color:'#94a3b8'}},m.c,' · 공장재고: ',m.s,m.u)),
           R('span',{style:{background:already?'#059669':'#D94F1E',color:'#fff',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}},already?'✓':'＋'));})
       )
     ),
-    rows.length===0&&R('div',{className:'card',style:{textAlign:'center',padding:'30px',color:'var(--tm)',border:'2px dashed var(--bd)'}},'위에서 품목을 검색해 추가하세요'),
-    rows.length>0&&R('div',{style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:12,overflow:'auto'}},
-      R('table',{style:{minWidth:760}},
-        R('thead',null,
-          R('tr',null,
-            R('th',{style:{width:'20%'}},'품목명'),
-            R('th',{style:{width:75,textAlign:'right'}},'본사재고'),
-            R('th',{style:{width:75,textAlign:'right'}},'공장재고'),
-            R('th',{style:{width:80,textAlign:'right',background:'#fff5f0'}},'총재고'),
-            R('th',{style:{width:78,textAlign:'right'}},'월사용량'),
-            R('th',{style:{width:80,textAlign:'right',background:'#fef2f2'}},'부족수량'),
-            R('th',{style:{width:34}},'단위'),
-            R('th',{style:{width:80}},'메모'),
-            R('th',{style:{width:28}})
-          )
-        ),
-        R('tbody',null,...rows.map(row=>R('tr',{key:row.id,className:row.short>0?'dng':''},
-          R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170}},row.matName),
-          R('td',{style:{textAlign:'right'}},R(EC,{rk:row.id+'hq'+rk,initVal:row.hqStock,type:'number',onSave:v=>onUpdHQ(row.id,'hqStock',+v),className:'ci',style:{textAlign:'right',fontWeight:700,color:'#0369a1'}})),
-          R('td',{style:{textAlign:'right',fontSize:12,color:'#64748b'}},row.fSt),
-          R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)',background:'#fff5f0'}},row.totalStock.toFixed(1)),
-          R('td',{style:{textAlign:'right'}},R(EC,{rk:(row.matId||0)+'mu'+rk,initVal:row.mu,type:'number',onSave:v=>row.matId&&onUpdMat(row.matId,'mu',+v),placeholder:'0',className:'ci',style:{textAlign:'right',color:'#7c3aed'}})),
-          R('td',{style:{textAlign:'right',fontWeight:800,color:row.short>0?'#dc2626':'#059669',fontSize:13,background:row.short>0?'#fef2f2':'#f0fdf4'}},row.short>0?'-'+row.short.toFixed(1):'충분'),
-          R('td',{style:{fontSize:11,color:'#94a3b8'}},row.unit),
-          R('td',null,R(EC,{rk:row.id+'nt'+rk,initVal:row.note||'',onSave:v=>onUpdHQ(row.id,'note',v),placeholder:'메모',className:'ci',style:{fontSize:11}})),
-          R('td',null,R('button',{onClick:()=>onDelHQ(row.id),style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:13,padding:2}},'✕'))
-        )))
+    /* 폴더 탭 */
+    R('div',{className:'card',style:{marginBottom:12,padding:'10px 12px'}},
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
+        R('div',{style:{fontSize:12,fontWeight:700,color:'#374151'}},'📁 폴더'),
+        R('div',{style:{fontSize:10,color:'var(--tm)'}},'· 행 드래그(⋮⋮) → 폴더로 이동 · 폴더 우클릭 → 색 변경'),
+        R('div',{style:{flex:1}}),
+        R('button',{onClick:addFolder,style:{padding:'4px 10px',background:'#fff',border:'1px dashed #7C3AED',color:'#7C3AED',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'+ 새 폴더')
+      ),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        /* 전체 보기 */
+        R('button',{onClick:()=>setSelectedFolder('_all'),
+          onDragOver:e=>e.preventDefault(),
+          style:{padding:'6px 12px',border:'1px solid '+(selectedFolder==='_all'?'#374151':'var(--bd)'),background:selectedFolder==='_all'?'#374151':'#fff',color:selectedFolder==='_all'?'#fff':'#374151',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:600,fontFamily:'inherit'}
+        },'📊 전체 ('+rowsAll.length+')'),
+        /* 폴더 탭들 */
+        ...folders.map(f=>{
+          const cnt=folderCounts[f.id]||0;
+          const isSelected=selectedFolder===f.id;
+          const isDragOver=dragOverFolder===f.id;
+          return R('div',{key:f.id,
+            onDragOver:e=>onFolderDragOver(e,f.id),
+            onDragLeave:onFolderDragLeave,
+            onDrop:e=>onFolderDrop(e,f.id),
+            style:{display:'flex',alignItems:'center',borderRadius:8,overflow:'hidden',border:'1.5px solid '+(isDragOver?'#7C3AED':isSelected?f.color:'var(--bd)'),background:isDragOver?'#F5F3FF':isSelected?f.color+'15':'#fff',transition:'all .1s',transform:isDragOver?'scale(1.05)':'none'}
+          },
+            R('button',{onClick:()=>setSelectedFolder(f.id),
+              onContextMenu:e=>{e.preventDefault();changeFolderColor(f.id);},
+              style:{padding:'6px 10px 6px 8px',background:'transparent',border:'none',color:f.color,cursor:'pointer',fontSize:11,fontWeight:isSelected?700:600,fontFamily:'inherit',display:'flex',alignItems:'center',gap:5}
+            },
+              R('span',{style:{width:9,height:9,borderRadius:'50%',background:f.color,display:'inline-block'}}),
+              f.name,
+              R('span',{style:{fontSize:9,color:'var(--tm)',marginLeft:2,fontWeight:500}},'('+cnt+')')
+            ),
+            R('button',{onClick:e=>{e.stopPropagation();renameFolder(f.id);},title:'이름 변경',style:{background:'transparent',border:'none',padding:'4px 6px',cursor:'pointer',fontSize:10,color:'var(--tm)'}},'✎'),
+            f.id!=='_root'&&R('button',{onClick:e=>{e.stopPropagation();deleteFolder(f.id);},title:'폴더 삭제',style:{background:'transparent',border:'none',padding:'4px 8px 4px 2px',cursor:'pointer',fontSize:11,color:'#FCA5A5'}},'×')
+          );
+        })
       )
+    ),
+    rowsAll.length===0&&R('div',{className:'card',style:{textAlign:'center',padding:'30px',color:'var(--tm)',border:'2px dashed var(--bd)'}},'위에서 품목을 검색해 추가하세요'),
+    /* 테이블 - 전체 보기 모드: 폴더별 그룹핑 / 특정 폴더 모드: 그 폴더만 */
+    rowsAll.length>0&&(selectedFolder==='_all'
+      ? R('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+          ...folders.filter(f=>(groupedByFolder[f.id]||[]).length>0).map(f=>{
+            const rows=groupedByFolder[f.id]||[];
+            const isCollapsed=collapsedFolders.has(f.id);
+            const isDragOver=dragOverFolder===f.id;
+            return R('div',{key:f.id,
+              onDragOver:e=>onFolderDragOver(e,f.id),
+              onDragLeave:onFolderDragLeave,
+              onDrop:e=>onFolderDrop(e,f.id),
+              style:{background:'#fff',border:'2px solid '+(isDragOver?'#7C3AED':f.color+'33'),borderRadius:12,overflow:'hidden',transition:'border .1s',boxShadow:isDragOver?'0 4px 12px rgba(124,58,237,0.2)':'none'}
+            },
+              R('div',{onClick:()=>toggleCollapse(f.id),style:{padding:'8px 14px',background:f.color+'15',display:'flex',alignItems:'center',gap:8,cursor:'pointer',userSelect:'none',borderBottom:isCollapsed?'none':'1px solid '+f.color+'33'}},
+                R('span',{style:{fontSize:11,color:f.color,fontWeight:700}},isCollapsed?'▶':'▼'),
+                R('span',{style:{width:11,height:11,borderRadius:'50%',background:f.color,display:'inline-block'}}),
+                R('span',{style:{fontSize:13,fontWeight:700,color:f.color}},f.name),
+                R('span',{style:{fontSize:10,color:'var(--tm)'}},'('+rows.length+'개)'),
+                rows.filter(r=>r.short>0).length>0&&R('span',{style:{marginLeft:6,fontSize:10,background:'#FEE2E2',color:'#B91C1C',padding:'1px 8px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+rows.filter(r=>r.short>0).length)
+              ),
+              !isCollapsed&&R('div',{style:{overflow:'auto'}},
+                R('table',{style:{minWidth:790,width:'100%'}},
+                  tableHeader,
+                  R('tbody',null,...rows.map(row=>renderRow(row,f.color)))
+                )
+              )
+            );
+          })
+        )
+      : R('div',{style:{background:'#fff',border:'2px solid '+((folders.find(f=>f.id===selectedFolder)||{}).color||'#E5E7EB')+'33',borderRadius:12,overflow:'auto'}},
+          visibleRows.length===0
+            ? R('div',{style:{padding:'30px',textAlign:'center',color:'var(--tm)',fontSize:12}},'이 폴더에 품목이 없습니다. 다른 폴더의 행을 드래그해서 이동하거나 위에서 검색해 추가하세요.')
+            : R('table',{style:{minWidth:790,width:'100%'}},
+                tableHeader,
+                R('tbody',null,...visibleRows.map(row=>renderRow(row,(folders.find(f=>f.id===selectedFolder)||{}).color)))
+              )
+        )
     )
   );
 }
