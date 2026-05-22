@@ -3573,29 +3573,51 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const getFavSection=()=>{try{return favMats.length>0||semiMatsData.length>0?R('div',{style:{marginBottom:14}},
     R('div',{className:'fav-grid'+((semiMatsData.length>0||showSemiSearch)?' two':''),style:{display:'grid',gap:12}},
       /* 완제품 재고 현황 (클릭하면 우측 패널에 연결된 반제품 표시) */
-      favMats.length>0&&R('div',{className:'card',style:{padding:0,overflow:'hidden',display:'flex',flexDirection:'column',maxHeight:440}},
-        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}},
-          R('div',null,
-            R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)'}},'⭐ 완제품 재고 현황'),
-            R('div',{style:{fontSize:9,color:'var(--tm)',fontWeight:500,marginTop:1}},'행 클릭 → 우측에 연결 반제품 표시 · 보라색 [+ 반제품] 으로 연결')
+      favMats.length>0&&(()=>{
+        const shortFavs=favMats.filter(m=>(+m.mu||0)>0&&m.s<(+m.mu||0));
+        return R('div',{className:'card',style:{padding:0,overflow:'hidden',display:'flex',flexDirection:'column',maxHeight:440}},
+        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,gap:8}},
+          R('div',{style:{minWidth:0,flex:1}},
+            R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},'⭐ 완제품 재고 현황',
+              shortFavs.length>0&&R('span',{style:{fontSize:9,background:'#FEE2E2',color:'#B91C1C',padding:'1px 7px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+shortFavs.length)
+            ),
+            R('div',{style:{fontSize:9,color:'var(--tm)',fontWeight:500,marginTop:1}},'행 클릭 → 우측 반제품 표시 · 월사용량 입력 시 부족수량 자동 계산')
           ),
-          R('div',{style:{fontSize:10,color:'var(--tm)'}},favMats.length,'종')
+          R('div',{style:{fontSize:10,color:'var(--tm)',flexShrink:0}},favMats.length,'종')
         ),
         R('div',{style:{flex:1,overflow:'auto',minHeight:0}},
           ...favMats.map(m=>{
             const isSelected=expandedFavId===m.id;
             const linkedIds=prodSemiMap[m.id]||[];
             const linkedCount=linkedIds.filter(sid=>semiItems.find(x=>x.id===sid)&&mats.find(x=>x.id===sid)).length;
-            return R('div',{key:m.id,style:{borderBottom:'1px solid var(--bd)',borderLeft:isSelected?'3px solid var(--p)':'3px solid transparent'}},
+            const mu=+m.mu||0;
+            const short=mu>0?Math.max(0,mu-m.s):0;
+            const isShort=short>0;
+            return R('div',{key:m.id,style:{borderBottom:'1px solid var(--bd)',borderLeft:isSelected?'3px solid var(--p)':isShort?'3px solid #EF4444':'3px solid transparent'}},
               /* 완제품 행 (클릭 → 우측 카드에 반제품 표시) */
-              R('div',{onClick:()=>{setExpandedFavId(isSelected?null:m.id);setSemiPickerFor(null);},style:{padding:'8px 12px',display:'flex',alignItems:'center',gap:6,cursor:'pointer',background:isSelected?'#FFF8F4':'#fff',userSelect:'none'},
-                onMouseEnter:e=>{if(!isSelected)e.currentTarget.style.background='#FFFBF7';},
-                onMouseLeave:e=>{if(!isSelected)e.currentTarget.style.background='#fff';}
+              R('div',{onClick:()=>{setExpandedFavId(isSelected?null:m.id);setSemiPickerFor(null);},style:{padding:'8px 12px',display:'flex',alignItems:'center',gap:8,cursor:'pointer',background:isSelected?'#FFF8F4':isShort?'#FEF8F7':'#fff',userSelect:'none'},
+                onMouseEnter:e=>{if(!isSelected)e.currentTarget.style.background=isShort?'#FEF2F2':'#FFFBF7';},
+                onMouseLeave:e=>{if(!isSelected)e.currentTarget.style.background=isShort?'#FEF8F7':'#fff';}
               },
-                R('div',{style:{flex:1,minWidth:0,fontSize:11,fontWeight:isSelected?700:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSelected?'var(--p)':'inherit'},title:m.n},m.n,
-                  linkedCount>0?R('span',{style:{marginLeft:6,fontSize:9,color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:10}},'반제품 '+linkedCount):null
+                /* 이름 + 칩들 */
+                R('div',{style:{flex:1,minWidth:0,overflow:'hidden'}},
+                  R('div',{style:{fontSize:11,fontWeight:isSelected?700:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSelected?'var(--p)':isShort?'#991B1B':'inherit'},title:m.n},m.n),
+                  R('div',{style:{display:'flex',gap:4,marginTop:2,fontSize:9,color:'var(--tm)',flexWrap:'wrap',alignItems:'center'}},
+                    R('span',{title:'재고'},'재고 ',R('span',{style:{fontWeight:700,color:m.s<=0?'#EF4444':'var(--p)'}},m.s,m.u)),
+                    R('span',{style:{color:'#cbd5e1'}},'·'),
+                    R('span',{title:'월사용량 (제품 BOM의 mu)'},'월 ',R('span',{style:{fontWeight:700,color:mu>0?'#7C3AED':'#cbd5e1'}},mu>0?(mu+m.u):'미설정')),
+                    isShort&&[
+                      R('span',{key:'sep',style:{color:'#cbd5e1'}},'·'),
+                      R('span',{key:'short',style:{background:'#FEE2E2',color:'#B91C1C',padding:'1px 6px',borderRadius:8,fontWeight:700}},'-'+short.toFixed(1)+m.u)
+                    ],
+                    linkedCount>0&&[
+                      R('span',{key:'sep2',style:{color:'#cbd5e1'}},'·'),
+                      R('span',{key:'rp',style:{color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:8}},'반제품 '+linkedCount)
+                    ]
+                  )
                 ),
-                R('div',{style:{fontSize:11,fontWeight:700,color:m.s<=0?'#EF4444':'var(--p)',flexShrink:0}},m.s,' ',m.u),
+                /* 월사용량 인라인 편집 */
+                R('div',{onClick:e=>e.stopPropagation(),style:{flexShrink:0,width:56}},R(EC,{rk:m.id+'mu_fav'+rk,initVal:mu,type:'number',onSave:v=>onUpd(m.id,'mu',+v),placeholder:'월',className:'ci',style:{textAlign:'right',color:'#7C3AED',fontSize:11,fontWeight:700}})),
                 /* + 반제품 버튼 - 클릭하면 선택 + picker 활성화 */
                 R('button',{onClick:e=>{e.stopPropagation();setExpandedFavId(m.id);setSemiPickerFor(m.id);setSemiPickerSearch('');},title:'이 완제품에 반제품 연결',style:{background:'#7C3AED',color:'#fff',border:'none',cursor:'pointer',fontSize:10,padding:'3px 8px',fontWeight:700,borderRadius:5,flexShrink:0,fontFamily:'inherit',lineHeight:1.3}},'+ 반제품'),
                 R('button',{onClick:e=>{e.stopPropagation();toggleFav(m.id);},title:'즐겨찾기 해제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FBB024',flexShrink:0,lineHeight:1}},'⭐')
@@ -3635,7 +3657,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
             );
           })
         )
-      ),
+      );})(),
       /* 반제품 재고 현황 - 선택된 완제품의 반제품만 표시 (없으면 전체 풀) */
       (()=>{
         const selectedFav=expandedFavId?favMats.find(m=>m.id===expandedFavId):null;
