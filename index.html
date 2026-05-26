@@ -1013,8 +1013,7 @@ function PageWorkRequest({user}){
         )
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
-        R('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 검색',style:{padding:'6px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,minWidth:120}}),
-        R('button',{className:'btn bp',onClick:openNew},'+ 새 업무 요청')
+        R('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 검색',style:{padding:'6px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,minWidth:120}})
       )
     ),
     /* 탭 */
@@ -1023,12 +1022,14 @@ function PageWorkRequest({user}){
       R('button',{className:'tab'+(tab==='sent'?' act':''),onClick:()=>setTab('sent')},'📤 보낸 요청 ',counts.sent>0&&R('span',{style:{background:tab==='sent'?'#fff':'#7C3AED',color:tab==='sent'?'#7C3AED':'#fff',borderRadius:10,padding:'1px 7px',fontSize:10,marginLeft:4,fontWeight:700}},counts.sent)),
       isAdmin&&R('button',{className:'tab'+(tab==='all'?' act':''),onClick:()=>setTab('all')},'📊 전체 ('+counts.all+')')
     ),
-    /* 상태 필터 */
+    /* 상태 필터 + 새 요청 버튼 */
     R('div',{style:{display:'flex',gap:6,marginBottom:14,alignItems:'center',flexWrap:'wrap'}},
       R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:700}},'상태:'),
       R('button',{onClick:()=>setStatusF('open'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='open'?'#1D4ED8':'var(--bd)'),background:statusF==='open'?'#DBEAFE':'#fff',color:statusF==='open'?'#1D4ED8':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='open'?700:500,fontFamily:'inherit'}},'진행 중'),
       R('button',{onClick:()=>setStatusF('done'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='done'?'#15803D':'var(--bd)'),background:statusF==='done'?'#D1FAE5':'#fff',color:statusF==='done'?'#15803D':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='done'?700:500,fontFamily:'inherit'}},'완료'),
-      R('button',{onClick:()=>setStatusF('all'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='all'?'#374151':'var(--bd)'),background:statusF==='all'?'#374151':'#fff',color:statusF==='all'?'#fff':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='all'?700:500,fontFamily:'inherit'}},'전체')
+      R('button',{onClick:()=>setStatusF('all'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='all'?'#374151':'var(--bd)'),background:statusF==='all'?'#374151':'#fff',color:statusF==='all'?'#fff':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='all'?700:500,fontFamily:'inherit'}},'전체'),
+      R('div',{style:{flex:1}}),
+      R('button',{onClick:openNew,style:{padding:'6px 14px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit',boxShadow:'0 1px 3px rgba(217,79,30,0.3)'}},'+ 새 업무 요청')
     ),
     loading?R('div',{className:'card',style:{textAlign:'center',padding:30}},'⏳ 로딩 중...'):
     visible.length===0?R('div',{className:'card',style:{textAlign:'center',padding:'40px 20px',color:'var(--tm)',border:'2px dashed var(--bd)'}},
@@ -3711,8 +3712,8 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
             onDragEnd:()=>{setDraggedFavItem(null);setDragOverFavFolder(null);},
             style:{borderBottom:'1px solid var(--bd)',borderLeft:'3px solid '+accent,opacity:isDraggingThis?0.4:1,background:isDraggingThis?'#FEF3C7':undefined}
           },
-            /* 완제품 행 - 한 줄 컴팩트 */
-            R('div',{onClick:()=>{setExpandedFavId(isSelected?null:m.id);setSemiPickerFor(null);},style:{padding:'6px 10px',display:'flex',alignItems:'center',gap:6,cursor:'pointer',background:isSelected?'#FFF8F4':isShort?'#FEF8F7':'#fff',userSelect:'none'},
+            /* 완제품 행 - 한 줄 컴팩트 (강제 nowrap) */
+            R('div',{onClick:()=>{setExpandedFavId(isSelected?null:m.id);setSemiPickerFor(null);},style:{padding:'6px 10px',display:'flex',alignItems:'center',gap:6,cursor:'pointer',background:isSelected?'#FFF8F4':isShort?'#FEF8F7':'#fff',userSelect:'none',flexWrap:'nowrap',overflow:'hidden'},
               onMouseEnter:e=>{if(!isSelected&&!isDraggingThis)e.currentTarget.style.background=isShort?'#FEF2F2':'#FFFBF7';},
               onMouseLeave:e=>{if(!isSelected&&!isDraggingThis)e.currentTarget.style.background=isShort?'#FEF8F7':'#fff';}
             },
@@ -3724,18 +3725,18 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                 linkedCount>0&&R('span',{style:{marginLeft:5,color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:8,fontSize:9}},linkedCount)
               ),
               /* 재고 */
-              R('div',{title:'현재고',style:{flexShrink:0,width:60,textAlign:'right',fontSize:10}},
+              R('div',{title:'현재고',style:{flexShrink:0,width:72,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
                 R('span',{style:{color:'#94a3b8',marginRight:2}},'재고'),
                 R('span',{style:{fontWeight:700,color:m.s<=0?'#EF4444':'#1F2937',fontSize:11}},m.s),
                 R('span',{style:{color:'#94a3b8',marginLeft:1,fontSize:9}},m.u)
               ),
               /* 월사용량 (편집 가능) */
-              R('div',{onClick:e=>e.stopPropagation(),title:'월사용량',style:{flexShrink:0,width:54,textAlign:'right',fontSize:10,display:'flex',alignItems:'center',justifyContent:'flex-end',gap:2}},
+              R('div',{onClick:e=>e.stopPropagation(),title:'월사용량',style:{flexShrink:0,width:62,textAlign:'right',fontSize:10,display:'flex',alignItems:'center',justifyContent:'flex-end',gap:2,whiteSpace:'nowrap'}},
                 R('span',{style:{color:'#94a3b8',fontSize:9}},'월'),
-                R('div',{style:{width:42}},R(EC,{rk:m.id+'mu_fav'+rk,initVal:mu,type:'number',onSave:v=>onUpd(m.id,'mu',+v),placeholder:'-',className:'ci',style:{textAlign:'right',color:'#7C3AED',fontSize:11,fontWeight:700,padding:'1px 3px'}}))
+                R('div',{style:{width:46}},R(EC,{rk:m.id+'mu_fav'+rk,initVal:mu,type:'number',onSave:v=>onUpd(m.id,'mu',+v),placeholder:'-',className:'ci',style:{textAlign:'right',color:'#7C3AED',fontSize:11,fontWeight:700,padding:'1px 3px'}}))
               ),
               /* 부족 수량 */
-              R('div',{title:'부족수량',style:{flexShrink:0,width:64,textAlign:'right',fontSize:11}},
+              R('div',{title:'부족수량',style:{flexShrink:0,width:74,textAlign:'right',fontSize:11,whiteSpace:'nowrap'}},
                 isShort?R('span',{style:{background:'#FEE2E2',color:'#B91C1C',padding:'2px 6px',borderRadius:8,fontWeight:700,fontSize:10,whiteSpace:'nowrap'}},'-'+short.toFixed(0)+m.u)
                 :mu>0?R('span',{style:{color:'#059669',fontWeight:600,fontSize:10}},'✓ 충분')
                 :R('span',{style:{color:'#cbd5e1',fontSize:10}},'-')
@@ -3826,12 +3827,12 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           R('button',{onClick:addFavFolder,style:{padding:'3px 8px',background:'#fff',border:'1px dashed var(--p)',color:'var(--p)',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'+ 폴더')
         ),
         /* 컬럼 헤더 */
-        R('div',{style:{padding:'4px 10px',background:'#FAFAFA',borderBottom:'1px solid var(--bd)',display:'flex',gap:6,alignItems:'center',fontSize:9,color:'#94a3b8',fontWeight:700,flexShrink:0}},
+        R('div',{style:{padding:'4px 10px',background:'#FAFAFA',borderBottom:'1px solid var(--bd)',display:'flex',gap:6,alignItems:'center',fontSize:9,color:'#94a3b8',fontWeight:700,flexShrink:0,flexWrap:'nowrap'}},
           R('span',{style:{width:11,flexShrink:0}}),
           R('span',{style:{flex:1,minWidth:0}},'품목명'),
-          R('span',{style:{width:60,textAlign:'right',flexShrink:0}},'현재고'),
-          R('span',{style:{width:54,textAlign:'right',flexShrink:0}},'월사용량'),
-          R('span',{style:{width:64,textAlign:'right',flexShrink:0}},'부족수량'),
+          R('span',{style:{width:72,textAlign:'right',flexShrink:0}},'현재고'),
+          R('span',{style:{width:62,textAlign:'right',flexShrink:0}},'월사용량'),
+          R('span',{style:{width:74,textAlign:'right',flexShrink:0}},'부족수량'),
           R('span',{style:{width:58,textAlign:'center',flexShrink:0}},'폴더'),
           R('span',{style:{width:60,flexShrink:0}})
         ),
