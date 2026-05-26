@@ -4195,12 +4195,12 @@ function ProdConfirmModal({data,mats,onConfirm,onClose}){
           )
         ),
         R('div',{style:{marginBottom:12,background:'#FAFAFA',borderRadius:8,border:'1px solid #F1F5F9',overflow:'hidden'}},
-          /* 헤더 */
+          /* 헤더 - 부족 우선 정렬 안내 */
           R('div',{style:{padding:'6px 10px',background:'#fff',borderBottom:'1px solid #F1F5F9',display:'flex',gap:6,alignItems:'center',fontSize:9,fontWeight:700,color:'#94a3b8'}},
             R('span',{style:{flex:1,minWidth:0}},'품목'),
-            R('span',{style:{width:74,textAlign:'right',flexShrink:0}},'현재고'),
-            R('span',{style:{width:74,textAlign:'right',flexShrink:0}},'필요량'),
-            R('span',{style:{width:84,textAlign:'right',flexShrink:0}},'부족수량')
+            R('span',{style:{width:74,textAlign:'right',flexShrink:0}},'필요'),
+            R('span',{style:{width:74,textAlign:'right',flexShrink:0}},'재고'),
+            R('span',{style:{width:84,textAlign:'right',flexShrink:0}},'부족')
           ),
           /* 행 리스트 (부족 우선 정렬) */
           ...(()=>{
@@ -4214,8 +4214,8 @@ function ProdConfirmModal({data,mats,onConfirm,onClose}){
               const isShort=row.short>0;
               return R('div',{key:i,style:{display:'flex',gap:6,alignItems:'center',padding:'5px 10px',borderTop:'1px solid '+(isShort?'#FEE2E2':'#F1F5F9'),background:isShort?'#FEF8F7':'#fff',fontSize:11,flexWrap:'nowrap',overflow:'hidden'}},
                 R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:isShort?700:500,color:isShort?'#991B1B':'#1F2937'},title:row.name},row.name),
+                R('span',{style:{width:74,textAlign:'right',flexShrink:0,whiteSpace:'nowrap',color:'#1F2937',fontWeight:600}},row.needed.toFixed(2)+row.unit),
                 R('span',{style:{width:74,textAlign:'right',flexShrink:0,whiteSpace:'nowrap',color:'#64748b'}},(row.stock||0)+row.unit),
-                R('span',{style:{width:74,textAlign:'right',flexShrink:0,whiteSpace:'nowrap',color:'#64748b'}},row.needed.toFixed(2)+row.unit),
                 R('span',{style:{width:84,textAlign:'right',flexShrink:0,whiteSpace:'nowrap'}},
                   isShort
                     ?R('span',{style:{background:'#FEE2E2',color:'#B91C1C',padding:'2px 7px',borderRadius:8,fontWeight:700,fontSize:10}},'-'+row.short.toFixed(2)+row.unit)
