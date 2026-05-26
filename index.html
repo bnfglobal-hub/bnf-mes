@@ -890,8 +890,16 @@ function PageWorkRequest({user}){
   const[search,setSearch]=useState('');
   const[modalItem,setModalItem]=useState(null);
   const[saving,setSaving]=useState('');
+  const[viewMode,setViewMode]=useState(()=>localStorage.getItem('bnf_wr_view')||'table'); /* table | card */
+  const[groupBy,setGroupBy]=useState(()=>localStorage.getItem('bnf_wr_groupBy')||'assignee'); /* none | assignee | requester | status */
+  const[quickAddTitle,setQuickAddTitle]=useState('');
+  const[quickAddAssignee,setQuickAddAssignee]=useState('');
+  const[expandedRowId,setExpandedRowId]=useState(null);
   const st=useRef(null);
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
+
+  useEffect(()=>{localStorage.setItem('bnf_wr_view',viewMode);},[viewMode]);
+  useEffect(()=>{localStorage.setItem('bnf_wr_groupBy',groupBy);},[groupBy]);
 
   useEffect(()=>{
     loadAll();
@@ -963,6 +971,30 @@ function PageWorkRequest({user}){
     saveRequests(requests.map(r=>r.id===id?{...r,status,updatedAt:Date.now()}:r));
     if(modalItem&&modalItem.id===id)setModalItem(p=>p?{...p,status}:p);
   };
+  /* 인라인 빠른 업데이트 */
+  const updField=(id,field,value)=>{
+    saveRequests(requests.map(r=>r.id===id?{...r,[field]:value,updatedAt:Date.now()}:r));
+  };
+  /* 진척도 자동 계산 */
+  const progressByStatus={pending:0,accepted:25,doing:50,done:100,rejected:0,cancelled:0};
+  /* 빠른 추가 */
+  const quickAdd=()=>{
+    const title=(quickAddTitle||'').trim();
+    if(!title){alert('업무명을 입력하세요');return;}
+    if(!quickAddAssignee){alert('담당자를 선택하세요');return;}
+    const emp=emps.find(e=>e.id===quickAddAssignee);
+    const today=new Date().toISOString().slice(0,10);
+    const newReq={
+      id:'wr_'+Date.now()+Math.random().toString(36).slice(2,6),
+      requesterId:user.id,requesterName:user.name||user.email,
+      assigneeId:quickAddAssignee,assigneeName:emp?emp.name:'',
+      title,content:'',startDate:today,dueDate:'',
+      priority:'mid',status:'pending',progress:0,
+      comments:[],createdAt:Date.now(),updatedAt:Date.now()
+    };
+    saveRequests([newReq,...requests]);
+    setQuickAddTitle('');
+  };
   const addComment=(id,text)=>{
     if(!text.trim())return;
     const c={id:'c_'+Date.now(),authorId:user.id,authorName:user.name||user.email,text:text.trim(),at:Date.now()};
@@ -1001,6 +1033,28 @@ function PageWorkRequest({user}){
     receivedPending:requests.filter(r=>r.assigneeId===user.id&&r.status==='pending').length
   }),[requests,user.id]);
 
+  /* 그룹핑 */
+  const grouped=useMemo(()=>{
+    if(groupBy==='none')return[{key:'_all',label:'전체',items:visible}];
+    const groups={};const order=[];
+    visible.forEach(r=>{
+      let key,label;
+      if(groupBy==='assignee'){key=r.assigneeId||'_none';label=r.assigneeName||'미지정';}
+      else if(groupBy==='requester'){key=r.requesterId||'_none';label=r.requesterName||'알수없음';}
+      else if(groupBy==='status'){key=r.status||'pending';label=(getWrStatus(r.status)||{}).label||r.status;}
+      else{key='_all';label='전체';}
+      if(!groups[key]){groups[key]={key,label,items:[]};order.push(key);}
+      groups[key].items.push(r);
+    });
+    return order.map(k=>groups[k]);
+  },[visible,groupBy]);
+
+  /* 인라인 셀 스타일 */
+  const cellStyle={padding:'4px 6px',borderRight:'1px solid #F1F5F9',fontSize:11,verticalAlign:'middle'};
+  const inlineInputStyle={width:'100%',padding:'3px 4px',border:'1px solid transparent',borderRadius:3,fontSize:11,background:'transparent',outline:'none',fontFamily:'inherit'};
+  const onCellEditFocus=e=>{e.target.style.background='#fff';e.target.style.border='1px solid #93C5FD';};
+  const onCellEditBlur=e=>{e.target.style.background='transparent';e.target.style.border='1px solid transparent';};
+
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,
@@ -1022,61 +1076,174 @@ function PageWorkRequest({user}){
       R('button',{className:'tab'+(tab==='sent'?' act':''),onClick:()=>setTab('sent')},'📤 보낸 요청 ',counts.sent>0&&R('span',{style:{background:tab==='sent'?'#fff':'#7C3AED',color:tab==='sent'?'#7C3AED':'#fff',borderRadius:10,padding:'1px 7px',fontSize:10,marginLeft:4,fontWeight:700}},counts.sent)),
       isAdmin&&R('button',{className:'tab'+(tab==='all'?' act':''),onClick:()=>setTab('all')},'📊 전체 ('+counts.all+')')
     ),
-    /* 상태 필터 + 새 요청 버튼 */
-    R('div',{style:{display:'flex',gap:6,marginBottom:14,alignItems:'center',flexWrap:'wrap'}},
+    /* 상태 필터 + 뷰 토글 + 새 요청 버튼 */
+    R('div',{style:{display:'flex',gap:6,marginBottom:10,alignItems:'center',flexWrap:'wrap'}},
       R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:700}},'상태:'),
       R('button',{onClick:()=>setStatusF('open'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='open'?'#1D4ED8':'var(--bd)'),background:statusF==='open'?'#DBEAFE':'#fff',color:statusF==='open'?'#1D4ED8':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='open'?700:500,fontFamily:'inherit'}},'진행 중'),
       R('button',{onClick:()=>setStatusF('done'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='done'?'#15803D':'var(--bd)'),background:statusF==='done'?'#D1FAE5':'#fff',color:statusF==='done'?'#15803D':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='done'?700:500,fontFamily:'inherit'}},'완료'),
       R('button',{onClick:()=>setStatusF('all'),style:{padding:'3px 10px',border:'1px solid '+(statusF==='all'?'#374151':'var(--bd)'),background:statusF==='all'?'#374151':'#fff',color:statusF==='all'?'#fff':'#6B7280',borderRadius:14,cursor:'pointer',fontSize:10,fontWeight:statusF==='all'?700:500,fontFamily:'inherit'}},'전체'),
+      R('div',{style:{width:1,height:18,background:'var(--bd)',margin:'0 4px'}}),
+      R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:700}},'그룹:'),
+      R('select',{value:groupBy,onChange:e=>setGroupBy(e.target.value),style:{padding:'3px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:10,background:'#fff',fontFamily:'inherit'}},
+        R('option',{value:'none'},'없음'),
+        R('option',{value:'assignee'},'담당자'),
+        R('option',{value:'requester'},'요청자'),
+        R('option',{value:'status'},'상태')
+      ),
+      R('div',{style:{width:1,height:18,background:'var(--bd)',margin:'0 4px'}}),
+      R('button',{onClick:()=>setViewMode('table'),style:{padding:'3px 10px',border:'1px solid '+(viewMode==='table'?'#374151':'var(--bd)'),background:viewMode==='table'?'#374151':'#fff',color:viewMode==='table'?'#fff':'#6B7280',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}},'☰ 표'),
+      R('button',{onClick:()=>setViewMode('card'),style:{padding:'3px 10px',border:'1px solid '+(viewMode==='card'?'#374151':'var(--bd)'),background:viewMode==='card'?'#374151':'#fff',color:viewMode==='card'?'#fff':'#6B7280',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}},'▦ 카드'),
       R('div',{style:{flex:1}}),
-      R('button',{onClick:openNew,style:{padding:'6px 14px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit',boxShadow:'0 1px 3px rgba(217,79,30,0.3)'}},'+ 새 업무 요청')
+      R('button',{onClick:openNew,style:{padding:'6px 14px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit',boxShadow:'0 1px 3px rgba(217,79,30,0.3)'}},'+ 상세 추가')
+    ),
+    /* 빠른 추가 바 (표 위) */
+    viewMode==='table'&&R('div',{style:{display:'flex',gap:6,marginBottom:10,padding:'8px 10px',background:'#FFF8F4',border:'1px solid #FCC8B0',borderRadius:8,alignItems:'center',flexWrap:'wrap'}},
+      R('span',{style:{fontSize:10,fontWeight:700,color:'var(--p)'}},'⚡ 빠른 추가'),
+      R('input',{value:quickAddTitle,onChange:e=>setQuickAddTitle(e.target.value),onKeyDown:e=>{if(e.key==='Enter')quickAdd();},placeholder:'업무명 입력 후 Enter',style:{flex:1,minWidth:180,padding:'5px 10px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,fontFamily:'inherit'}}),
+      R('select',{value:quickAddAssignee,onChange:e=>setQuickAddAssignee(e.target.value),style:{padding:'5px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,background:'#fff',minWidth:120,fontFamily:'inherit'}},
+        R('option',{value:''},'담당자 선택'),
+        ...emps.map(em=>R('option',{key:em.id,value:em.id},em.name+(em.depts?.name?' ('+em.depts.name+')':'')))
+      ),
+      R('button',{onClick:quickAdd,style:{padding:'5px 14px',background:'var(--p)',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'+ 추가')
     ),
     loading?R('div',{className:'card',style:{textAlign:'center',padding:30}},'⏳ 로딩 중...'):
     visible.length===0?R('div',{className:'card',style:{textAlign:'center',padding:'40px 20px',color:'var(--tm)',border:'2px dashed var(--bd)'}},
       R('div',{style:{fontSize:30,marginBottom:8}},'📭'),
       R('div',{style:{fontSize:13,fontWeight:600}},tab==='received'?'받은 업무 요청이 없습니다':tab==='sent'?'보낸 업무 요청이 없습니다':'업무 요청이 없습니다'),
-      R('div',{style:{fontSize:11,marginTop:4}},'우측 상단 [+ 새 업무 요청]으로 동료에게 업무를 요청할 수 있어요')
-    ):R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:10}},
-      ...visible.map(r=>{
-        const stt=getWrStatus(r.status);
-        const pri=getWrPrio(r.priority);
-        const isDone=r.status==='done'||r.status==='cancelled'||r.status==='rejected';
-        const isOverdue=r.dueDate&&r.dueDate<new Date().toISOString().slice(0,10)&&!isDone;
-        const isMyTask=r.assigneeId===user.id;
-        const isMyRequest=r.requesterId===user.id;
-        const newCommentCount=(r.comments||[]).length;
-        return R('div',{key:r.id,onClick:()=>openEdit(r),style:{background:'#fff',border:'1px solid '+(isOverdue?'#FCA5A5':'var(--bd)'),borderLeft:'4px solid '+stt.color,borderRadius:10,padding:'10px 12px',cursor:'pointer',opacity:isDone?0.7:1,transition:'all .15s'},
-          onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)',
-          onMouseLeave:e=>e.currentTarget.style.boxShadow='none'
-        },
-          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6,marginBottom:6}},
-            R('div',{style:{display:'flex',alignItems:'center',gap:5,flex:1,minWidth:0,flexWrap:'wrap'}},
-              R('span',{style:{fontSize:10,padding:'2px 7px',background:stt.bg,color:stt.color,borderRadius:8,fontWeight:700}},stt.ic+' '+stt.label),
-              R('span',{style:{fontSize:9,padding:'1px 6px',background:pri.bg,color:pri.color,borderRadius:8,fontWeight:700}},pri.label),
-              isOverdue&&R('span',{style:{fontSize:9,background:'#FEE2E2',color:'#B91C1C',padding:'1px 6px',borderRadius:8,fontWeight:700}},'지연'),
-              tab==='all'&&isMyTask&&R('span',{style:{fontSize:9,background:'#EFF6FF',color:'#1D4ED8',padding:'1px 6px',borderRadius:8,fontWeight:700}},'내가 담당'),
-              tab==='all'&&isMyRequest&&!isMyTask&&R('span',{style:{fontSize:9,background:'#F5F3FF',color:'#7C3AED',padding:'1px 6px',borderRadius:8,fontWeight:700}},'내가 요청')
+      R('div',{style:{fontSize:11,marginTop:4}},viewMode==='table'?'위의 빠른 추가 바에 업무명 입력 후 Enter':'우측 상단 [+ 상세 추가]로 동료에게 업무를 요청할 수 있어요')
+    ):viewMode==='table'?
+    /* ─── 인라인 편집 테이블 뷰 ─── */
+    R('div',{style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:10,overflow:'auto'}},
+      R('table',{style:{width:'100%',minWidth:1100,borderCollapse:'collapse',fontSize:11}},
+        R('thead',null,R('tr',{style:{background:'#F9FAFB',borderBottom:'2px solid var(--bd)'}},
+          R('th',{style:{padding:'8px 8px',textAlign:'left',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',minWidth:250}},'업무명'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:110}},'상태'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:110}},'담당자'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:110}},'시작일'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:110}},'마감일'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:80}},'우선순위'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:120}},'진척도'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:90}},'요청자'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',borderRight:'1px solid var(--bd)',width:90}},'등록일'),
+          R('th',{style:{padding:'8px 8px',fontSize:10,fontWeight:700,color:'#64748B',width:60}},'')
+        )),
+        R('tbody',null,...grouped.map(group=>[
+          groupBy!=='none'&&R('tr',{key:'g_'+group.key},
+            R('td',{colSpan:10,style:{padding:'7px 10px',background:'#F3F4F6',fontSize:11,fontWeight:700,color:'#374151',borderTop:'1px solid var(--bd)'}},
+              R('span',{style:{display:'inline-block',width:7,height:7,borderRadius:'50%',background:'#10B981',marginRight:6,verticalAlign:'middle'}}),
+              group.label,' (',group.items.length,')'
             )
           ),
-          R('div',{style:{fontSize:14,fontWeight:700,color:'#1F2937',marginBottom:4,textDecoration:isDone&&r.status==='done'?'none':r.status==='cancelled'?'line-through':'none',overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}},r.title),
-          r.content&&R('div',{style:{fontSize:11,color:'#6B7280',lineHeight:1.4,marginBottom:6,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}},r.content),
-          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,marginTop:8,paddingTop:8,borderTop:'1px dashed #E5E7EB',flexWrap:'wrap'}},
-            R('div',{style:{display:'flex',gap:8,alignItems:'center',fontSize:10,color:'var(--tm)',flexWrap:'wrap'}},
-              R('span',{title:'요청자'},'👤 ',r.requesterName),
-              R('span',{style:{color:'#cbd5e1'}},'→'),
-              R('span',{title:'담당자',style:{fontWeight:700,color:isMyTask?'var(--p)':'#374151'}},'🎯 ',r.assigneeName||'미지정'),
-              r.dueDate&&R('span',{title:'마감일'},'📅 ',r.dueDate),
-              newCommentCount>0&&R('span',{title:'댓글'},'💬 ',newCommentCount)
-            ),
-            /* 빠른 액션 */
-            isMyTask&&r.status==='pending'&&R('div',{style:{display:'flex',gap:4}},
-              R('button',{onClick:e=>{e.stopPropagation();updStatus(r.id,'accepted');},title:'수락',style:{background:'#F5F3FF',color:'#7C3AED',border:'1px solid #DDD6FE',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'✓ 수락'),
-              R('button',{onClick:e=>{e.stopPropagation();updStatus(r.id,'rejected');},title:'거절',style:{background:'#FEE2E2',color:'#B91C1C',border:'1px solid #FECACA',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'✕ 거절')
-            ),
-            isMyTask&&(r.status==='accepted'||r.status==='doing')&&R('button',{onClick:e=>{e.stopPropagation();updStatus(r.id,'done');},title:'완료',style:{background:'#D1FAE5',color:'#15803D',border:'1px solid #A7F3D0',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'✅ 완료')
-          )
-        );
-      })
+          ...group.items.map(r=>{
+            const stt=getWrStatus(r.status);
+            const pri=getWrPrio(r.priority);
+            const isDone=r.status==='done'||r.status==='cancelled'||r.status==='rejected';
+            const isOverdue=r.dueDate&&r.dueDate<new Date().toISOString().slice(0,10)&&!isDone;
+            const progress=r.progress!==undefined?r.progress:(progressByStatus[r.status]||0);
+            const createdStr=new Date(r.createdAt||Date.now()).toLocaleString('ko-KR',{year:'2-digit',month:'2-digit',day:'2-digit'});
+            return R('tr',{key:r.id,style:{borderTop:'1px solid #F1F5F9',background:isOverdue?'#FEF8F7':'#fff',opacity:isDone?0.7:1,textDecoration:r.status==='cancelled'?'line-through':'none'}},
+              /* 업무명 (인라인 편집) */
+              R('td',{style:cellStyle},
+                R('input',{value:r.title||'',onChange:e=>updField(r.id,'title',e.target.value),onClick:e=>e.stopPropagation(),onFocus:onCellEditFocus,onBlur:onCellEditBlur,style:{...inlineInputStyle,fontWeight:700,color:'#1F2937'}})
+              ),
+              /* 상태 (드롭다운) */
+              R('td',{style:{...cellStyle,textAlign:'center'}},
+                R('select',{value:r.status,onChange:e=>updField(r.id,'status',e.target.value),style:{padding:'3px 6px',border:'none',borderRadius:10,fontSize:10,fontWeight:700,background:stt.bg,color:stt.color,cursor:'pointer',fontFamily:'inherit',width:'100%'}},
+                  ...WR_STATUSES.map(s=>R('option',{key:s.v,value:s.v},s.ic+' '+s.label))
+                )
+              ),
+              /* 담당자 (드롭다운) */
+              R('td',{style:cellStyle},
+                R('select',{value:r.assigneeId||'',onChange:e=>{const id=e.target.value;const emp=emps.find(em=>em.id===id);saveRequests(requests.map(x=>x.id===r.id?{...x,assigneeId:id,assigneeName:emp?emp.name:'',updatedAt:Date.now()}:x));},style:{...inlineInputStyle,cursor:'pointer'}},
+                  R('option',{value:''},'-'),
+                  ...emps.map(em=>R('option',{key:em.id,value:em.id},em.name))
+                )
+              ),
+              /* 시작일 */
+              R('td',{style:cellStyle},
+                R('input',{type:'date',value:r.startDate||'',onChange:e=>updField(r.id,'startDate',e.target.value),style:inlineInputStyle})
+              ),
+              /* 마감일 */
+              R('td',{style:{...cellStyle,background:isOverdue?'#FEE2E2':undefined}},
+                R('input',{type:'date',value:r.dueDate||'',onChange:e=>updField(r.id,'dueDate',e.target.value),style:{...inlineInputStyle,color:isOverdue?'#B91C1C':undefined,fontWeight:isOverdue?700:undefined}})
+              ),
+              /* 우선순위 */
+              R('td',{style:{...cellStyle,textAlign:'center'}},
+                R('select',{value:r.priority||'mid',onChange:e=>updField(r.id,'priority',e.target.value),style:{padding:'2px 6px',border:'none',borderRadius:10,fontSize:10,fontWeight:700,background:pri.bg,color:pri.color,cursor:'pointer',fontFamily:'inherit',width:'100%'}},
+                  ...WR_PRIORITIES.map(p=>R('option',{key:p.v,value:p.v},p.label))
+                )
+              ),
+              /* 진척도 */
+              R('td',{style:cellStyle},
+                R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                  R('div',{style:{flex:1,height:6,background:'#E5E7EB',borderRadius:3,overflow:'hidden'}},
+                    R('div',{style:{width:progress+'%',height:'100%',background:progress===100?'#22C55E':progress>=50?'#3B82F6':'#FBB024',transition:'width .2s'}})
+                  ),
+                  R('input',{type:'number',min:0,max:100,value:progress,onChange:e=>{let v=+e.target.value;if(isNaN(v))v=0;v=Math.max(0,Math.min(100,v));updField(r.id,'progress',v);},style:{width:38,padding:'2px 3px',border:'1px solid transparent',borderRadius:3,fontSize:10,textAlign:'right',background:'transparent',fontFamily:'inherit'},onFocus:onCellEditFocus,onBlur:onCellEditBlur}),
+                  R('span',{style:{fontSize:9,color:'var(--tm)'}},'%')
+                )
+              ),
+              /* 요청자 */
+              R('td',{style:{...cellStyle,color:'#374151',fontSize:10}},r.requesterName),
+              /* 등록일 */
+              R('td',{style:{...cellStyle,color:'#94A3B8',fontSize:10}},createdStr),
+              /* 액션 */
+              R('td',{style:{padding:'4px 6px',textAlign:'center',whiteSpace:'nowrap'}},
+                R('button',{onClick:()=>openEdit(r),title:'상세',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#64748B'}},'✎'),
+                R('button',{onClick:()=>deleteItem(r.id),title:'삭제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'2px 4px',color:'#FCA5A5'}},'✕')
+              )
+            );
+          })
+        ].filter(Boolean)))
+      )
+    )
+    :
+    /* ─── 카드 뷰 (기존) ─── */
+    R('div',null,
+      ...grouped.map(group=>R('div',{key:group.key,style:{marginBottom:14}},
+        groupBy!=='none'&&R('div',{style:{fontSize:12,fontWeight:700,color:'#374151',padding:'6px 4px',marginBottom:6,borderBottom:'2px solid var(--bd)'}},'● '+group.label+' ('+group.items.length+')'),
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:10}},
+          ...group.items.map(r=>{
+            const stt=getWrStatus(r.status);
+            const pri=getWrPrio(r.priority);
+            const isDone=r.status==='done'||r.status==='cancelled'||r.status==='rejected';
+            const isOverdue=r.dueDate&&r.dueDate<new Date().toISOString().slice(0,10)&&!isDone;
+            const isMyTask=r.assigneeId===user.id;
+            const isMyRequest=r.requesterId===user.id;
+            const newCommentCount=(r.comments||[]).length;
+            return R('div',{key:r.id,onClick:()=>openEdit(r),style:{background:'#fff',border:'1px solid '+(isOverdue?'#FCA5A5':'var(--bd)'),borderLeft:'4px solid '+stt.color,borderRadius:10,padding:'10px 12px',cursor:'pointer',opacity:isDone?0.7:1,transition:'all .15s'},
+              onMouseEnter:e=>e.currentTarget.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)',
+              onMouseLeave:e=>e.currentTarget.style.boxShadow='none'
+            },
+              R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6,marginBottom:6}},
+                R('div',{style:{display:'flex',alignItems:'center',gap:5,flex:1,minWidth:0,flexWrap:'wrap'}},
+                  R('span',{style:{fontSize:10,padding:'2px 7px',background:stt.bg,color:stt.color,borderRadius:8,fontWeight:700}},stt.ic+' '+stt.label),
+                  R('span',{style:{fontSize:9,padding:'1px 6px',background:pri.bg,color:pri.color,borderRadius:8,fontWeight:700}},pri.label),
+                  isOverdue&&R('span',{style:{fontSize:9,background:'#FEE2E2',color:'#B91C1C',padding:'1px 6px',borderRadius:8,fontWeight:700}},'지연'),
+                  tab==='all'&&isMyTask&&R('span',{style:{fontSize:9,background:'#EFF6FF',color:'#1D4ED8',padding:'1px 6px',borderRadius:8,fontWeight:700}},'내가 담당'),
+                  tab==='all'&&isMyRequest&&!isMyTask&&R('span',{style:{fontSize:9,background:'#F5F3FF',color:'#7C3AED',padding:'1px 6px',borderRadius:8,fontWeight:700}},'내가 요청')
+                )
+              ),
+              R('div',{style:{fontSize:14,fontWeight:700,color:'#1F2937',marginBottom:4,textDecoration:r.status==='cancelled'?'line-through':'none',overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}},r.title),
+              r.content&&R('div',{style:{fontSize:11,color:'#6B7280',lineHeight:1.4,marginBottom:6,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}},r.content),
+              R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6,marginTop:8,paddingTop:8,borderTop:'1px dashed #E5E7EB',flexWrap:'wrap'}},
+                R('div',{style:{display:'flex',gap:8,alignItems:'center',fontSize:10,color:'var(--tm)',flexWrap:'wrap'}},
+                  R('span',{title:'요청자'},'👤 ',r.requesterName),
+                  R('span',{style:{color:'#cbd5e1'}},'→'),
+                  R('span',{title:'담당자',style:{fontWeight:700,color:isMyTask?'var(--p)':'#374151'}},'🎯 ',r.assigneeName||'미지정'),
+                  r.dueDate&&R('span',{title:'마감일'},'📅 ',r.dueDate),
+                  newCommentCount>0&&R('span',{title:'댓글'},'💬 ',newCommentCount)
+                ),
+                isMyTask&&r.status==='pending'&&R('div',{style:{display:'flex',gap:4}},
+                  R('button',{onClick:e=>{e.stopPropagation();updStatus(r.id,'accepted');},style:{background:'#F5F3FF',color:'#7C3AED',border:'1px solid #DDD6FE',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'✓ 수락'),
+                  R('button',{onClick:e=>{e.stopPropagation();updStatus(r.id,'rejected');},style:{background:'#FEE2E2',color:'#B91C1C',border:'1px solid #FECACA',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'✕ 거절')
+                ),
+                isMyTask&&(r.status==='accepted'||r.status==='doing')&&R('button',{onClick:e=>{e.stopPropagation();updStatus(r.id,'done');},style:{background:'#D1FAE5',color:'#15803D',border:'1px solid #A7F3D0',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'✅ 완료')
+              )
+            );
+          })
+        )
+      ))
     ),
     /* 모달 */
     modalItem&&R(WorkReqModal,{item:modalItem,emps:emps,user:user,onClose:()=>setModalItem(null),onSave:saveItem,onDelete:()=>deleteItem(modalItem.id),onStatus:s=>updStatus(modalItem.id,s),onComment:t=>addComment(modalItem.id,t)})
