@@ -87,7 +87,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .cb.dng{color:var(--err);font-weight:700}.cb.dng.act{background:#fef2f2;border-left-color:var(--err)}
 .cb:hover:not(.act){background:#f8f3f0;color:var(--t)}
 .inv-main{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;padding:10px;min-width:0;min-height:0}
-.inv-tbl{overflow:auto;background:#fff;border:1px solid var(--bd);border-radius:10px;min-height:300px}
+.inv-tbl{overflow:visible;background:#fff;border:1px solid var(--bd);border-radius:10px;min-height:400px;margin-bottom:60px}
 .q-wrap{background:#fff;border-radius:12px;padding:20px;max-width:860px;margin:0 auto}
 .q-title{text-align:center;font-size:22px;font-weight:800;letter-spacing:7px;margin-bottom:16px}
 .q-tbl{width:100%;border-collapse:collapse}.q-tbl th,.q-tbl td{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;text-align:center}
@@ -6477,6 +6477,93 @@ function LoginPage({onLogin}){
 }
 
 /* ═══ MAIN APP ══════════════════════════════════════ */
+/* ─── 엑셀 업로드 미리보기 모달 (컬럼 매핑) ─── */
+function XlPreviewModal({preview,onClose,onConfirm}){
+  const{rows,fileName}=preview;
+  const[headerRow,setHeaderRow]=useState(preview.headerRow);
+  const[codeCol,setCodeCol]=useState(preview.codeCol);
+  const[nameCol,setNameCol]=useState(preview.nameCol);
+  const[qtyCol,setQtyCol]=useState(preview.qtyCol);
+  const maxCols=Math.max(...rows.slice(0,Math.min(10,rows.length)).map(r=>(r||[]).length));
+  const colIdx=Array.from({length:maxCols},(_,i)=>i);
+  const headerCells=(rows[headerRow]||[]).map(c=>String(c||'').trim());
+  const colLabel=(ci)=>headerCells[ci]?(headerCells[ci]+' (열 '+(ci+1)+')'):'열 '+(ci+1);
+  /* 미리보기: 헤더 다음 5행 */
+  const previewRows=rows.slice(headerRow+1,headerRow+6);
+  return R('div',{className:'mbg',onClick:e=>e.stopPropagation(),style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,padding:16}},
+    R('div',{style:{background:'#fff',borderRadius:14,maxWidth:900,width:'100%',maxHeight:'92vh',overflow:'auto'}},
+      R('div',{style:{padding:'14px 18px',borderBottom:'1px solid var(--bd)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('div',null,
+          R('div',{style:{fontSize:15,fontWeight:800}},'📋 ERP 엑셀 컬럼 확인'),
+          R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},fileName+' · 어느 컬럼이 재고 수량인지 확인하세요')
+        ),
+        R('button',{onClick:onClose,style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')
+      ),
+      R('div',{style:{padding:'14px 18px'}},
+        /* 컬럼 매핑 셀렉트 */
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}},
+          R('div',null,
+            R('label',{className:'lbl'},'헤더 행'),
+            R('select',{className:'inp',value:headerRow,onChange:e=>setHeaderRow(+e.target.value)},
+              ...Array.from({length:Math.min(6,rows.length)},(_,i)=>R('option',{key:i,value:i},(i+1)+'행'))
+            )
+          ),
+          R('div',null,
+            R('label',{className:'lbl'},'📌 품목코드'),
+            R('select',{className:'inp',value:codeCol,onChange:e=>setCodeCol(+e.target.value)},
+              ...colIdx.map(ci=>R('option',{key:ci,value:ci},colLabel(ci)))
+            )
+          ),
+          R('div',null,
+            R('label',{className:'lbl'},'📝 품목명'),
+            R('select',{className:'inp',value:nameCol,onChange:e=>setNameCol(+e.target.value)},
+              ...colIdx.map(ci=>R('option',{key:ci,value:ci},colLabel(ci)))
+            )
+          ),
+          R('div',null,
+            R('label',{className:'lbl',style:{color:'var(--p)',fontWeight:700}},'📦 재고 수량 ★'),
+            R('select',{className:'inp',value:qtyCol,onChange:e=>setQtyCol(+e.target.value),style:{borderColor:'var(--p)',background:'#FFF8F4'}},
+              ...colIdx.map(ci=>R('option',{key:ci,value:ci},colLabel(ci)))
+            )
+          )
+        ),
+        /* 미리보기 테이블 */
+        R('div',{style:{fontSize:11,fontWeight:700,color:'#374151',marginBottom:6}},'미리보기 (헤더 다음 5행)'),
+        R('div',{style:{overflow:'auto',border:'1px solid var(--bd)',borderRadius:8,marginBottom:10}},
+          R('table',{style:{minWidth:'100%',fontSize:11,borderCollapse:'collapse'}},
+            R('thead',null,R('tr',{style:{background:'#F9FAFB'}},
+              ...colIdx.map(ci=>{
+                const isCode=ci===codeCol;const isName=ci===nameCol;const isQty=ci===qtyCol;
+                const bg=isQty?'#FFE5DA':isCode?'#DBEAFE':isName?'#E0E7FF':'#F9FAFB';
+                const fg=isQty?'#B83E15':isCode?'#1D4ED8':isName?'#4338CA':'#64748B';
+                return R('th',{key:ci,style:{padding:'6px 8px',textAlign:'left',fontSize:10,fontWeight:700,color:fg,background:bg,borderRight:'1px solid var(--bd)',whiteSpace:'nowrap'}},
+                  isQty?'★ 재고':isCode?'📌 코드':isName?'📝 이름':'',R('br'),
+                  headerCells[ci]||'(빈헤더)'
+                );
+              })
+            )),
+            R('tbody',null,...previewRows.map((row,ri)=>R('tr',{key:ri,style:{borderTop:'1px solid #F1F5F9'}},
+              ...colIdx.map(ci=>{
+                const v=row?row[ci]:'';
+                const isQty=ci===qtyCol;
+                return R('td',{key:ci,style:{padding:'5px 8px',borderRight:'1px solid #F1F5F9',fontSize:11,whiteSpace:'nowrap',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',background:isQty?'#FEF8F4':undefined,fontWeight:isQty?700:400,color:isQty?'#B83E15':'#1F2937'}},String(v||''));
+              })
+            )))
+          )
+        ),
+        R('div',{style:{padding:'10px 12px',background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:8,fontSize:11,color:'#92400E',lineHeight:1.6}},
+          '⚠️ ',R('b',null,'재고 수량'),' 컬럼(주황색)에 실제 재고 숫자가 보이는지 확인하세요.',R('br'),
+          '잘못된 컬럼이라면 위의 ',R('b',null,'📦 재고 수량'),' 셀렉트로 다른 열을 선택하세요.'
+        )
+      ),
+      R('div',{style:{padding:'10px 18px',borderTop:'1px solid var(--bd)',display:'flex',gap:8,justifyContent:'flex-end'}},
+        R('button',{className:'btn bs',onClick:onClose},'취소'),
+        R('button',{className:'btn bp',onClick:()=>onConfirm(headerRow,codeCol,nameCol,qtyCol)},'이 컬럼으로 업로드')
+      )
+    )
+  );
+}
+
 function App(){
   const[user,setUser]=useState(null);
   const[sbOpen,setSbOpen]=useState(false); /* 모바일 사이드바 토글 */
@@ -6617,6 +6704,7 @@ function App(){
   },[dbReady,mats,prods,orders,hqItems,cats,quote,pqty]);
 
   /* ERP 업로드 */
+  const[xlPreview,setXlPreview]=useState(null); /* {rows, headerRow, codeCol, nameCol, qtyCol, fileName} */
   const parseXL=f=>{
     const reader=new FileReader();
     reader.onload=ev=>{
@@ -6625,75 +6713,61 @@ function App(){
         const ws=wb.Sheets[wb.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
         if(rows.length<2){alert('엑셀 데이터가 없습니다');return;}
-        /* ─── 헤더 자동 인식: "재고" 관련 컬럼 찾기 ─── */
-        /* 이카운트 엑셀은 1행 또는 2행에 헤더가 있고, 컬럼 순서가 다양함 */
+        /* 헤더 자동 추정 */
         let headerRow=-1;let codeCol=0;let nameCol=1;let qtyCol=-1;
-        /* 상단 5행 안에서 헤더 찾기 */
         for(let r=0;r<Math.min(5,rows.length);r++){
           const row=rows[r];
           const joined=row.map(c=>String(c||'').trim()).join('|');
           if(joined.includes('재고')||joined.includes('수량')||joined.includes('현재량')||joined.includes('현재고')){
             headerRow=r;
-            /* 각 컬럼명에서 코드/품목명/재고 찾기 */
             row.forEach((cell,ci)=>{
               const v=String(cell||'').trim();
-              if(/품목코드|코드|품번|코드번호/.test(v))codeCol=ci;
-              else if(/품목명|품명|품목|상품명|자재명/.test(v)&&!nameCol)nameCol=ci;
-              else if(/^(현재고|재고량|단위재고|현재량|재고수량|재고)$/.test(v)&&qtyCol<0)qtyCol=ci;
-              else if(/재고/.test(v)&&qtyCol<0&&!/입고|출고|안전|이전|이월/.test(v))qtyCol=ci;
+              if(/^(품목코드|코드|품번|코드번호|자재코드)$/.test(v))codeCol=ci;
+              else if(/^(품목명|품명|품목|상품명|자재명)$/.test(v))nameCol=ci;
+              else if(/^(현재고|단위재고)$/.test(v)&&qtyCol<0)qtyCol=ci;
             });
+            /* 1차 못찾으면 재고 포함 컬럼 (단 입출고 안전 제외) */
+            if(qtyCol<0){
+              row.forEach((cell,ci)=>{
+                const v=String(cell||'').trim();
+                if(/재고/.test(v)&&qtyCol<0&&!/입고|출고|안전|이전|이월|예정/.test(v))qtyCol=ci;
+              });
+            }
             break;
           }
         }
-        /* 자동 인식 실패 시 컬럼 선택 모달 (fallback) */
-        if(qtyCol<0||headerRow<0){
-          /* 헤더 못 찾으면 1행을 헤더로 가정하고 모든 숫자 컬럼 찾기 */
-          headerRow=0;
-          /* 가장 많은 숫자 데이터가 있는 컬럼을 재고로 추정 */
-          const numCounts={};
-          for(let r=headerRow+1;r<Math.min(headerRow+30,rows.length);r++){
-            (rows[r]||[]).forEach((c,ci)=>{
-              const n=parseFloat(c);
-              if(!isNaN(n)&&n>0){numCounts[ci]=(numCounts[ci]||0)+1;}
-            });
-          }
-          /* 코드(0)/이름(1) 제외하고 가장 많이 숫자가 있는 컬럼 */
-          let bestCol=-1,bestCnt=0;
-          Object.entries(numCounts).forEach(([ci,cnt])=>{const c=+ci;if(c>1&&cnt>bestCnt){bestCnt=cnt;bestCol=c;}});
-          qtyCol=bestCol>=0?bestCol:2;
-        }
-        /* 컬럼 정보 콘솔 출력 (디버그) */
-        const headerCells=headerRow>=0?(rows[headerRow]||[]).map(c=>String(c||'').trim()):[];
-        console.log('[ERP 업로드] 헤더 행:',headerRow,'코드 컬럼:',codeCol,'(',headerCells[codeCol]||'-',') 품목명 컬럼:',nameCol,'(',headerCells[nameCol]||'-',') 재고 컬럼:',qtyCol,'(',headerCells[qtyCol]||'-',')');
-
-        let upd=0,add=0,skip=0;const next=[...mats];
-        const SKIP=['공정품','기타','박스스티커','스티커','상품'];
-        const startRow=headerRow+1;
-        const sampleParsed=[];
-        rows.forEach((row,i)=>{
-          if(i<startRow)return;
-          const c=String(row[codeCol]||'').trim();
-          const raw=String(row[nameCol]||'').trim();
-          const rawQty=row[qtyCol];
-          /* 콤마 제거 후 숫자 변환 (1,658 → 1658) */
-          const qty=parseFloat(String(rawQty||'').replace(/,/g,''))||0;
-          if(!c||!raw){skip++;return;}
-          const cm=raw.match(/^\[([^\]]+)\]/);const g=cm?cm[1]:'기타';
-          if(SKIP.includes(g)){skip++;return;}
-          const n=raw.replace(/^\[[^\]]+\]/,'').replace(/\[[a-zA-Z가-힣]+\]\s*$/,'').trim().slice(0,50);
-          let unit='ea';const rl=raw.toLowerCase();
-          if(rl.includes('[kg]'))unit='kg';else if(rl.includes('[l]'))unit='L';else if(rl.includes('[box]'))unit='box';else if(raw.includes('[롤]'))unit='롤';
-          if(sampleParsed.length<3)sampleParsed.push({code:c,name:n.slice(0,30),qty,rawQty});
-          const idx=next.findIndex(m=>m.c===c);
-          if(idx>=0){next[idx]={...next[idx],s:qty};upd++;}else{next.push({id:uid(),c,g,n,u:unit,s:qty,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
-        });
-        console.log('[ERP 업로드] 샘플:',sampleParsed);
-        setMats(next);setRk(r=>r+1);
-        const colInfo=headerCells.length>0?'\n\n📋 인식된 컬럼:\n  • 코드: '+(headerCells[codeCol]||'col '+codeCol)+'\n  • 품목명: '+(headerCells[nameCol]||'col '+nameCol)+'\n  • 재고: '+(headerCells[qtyCol]||'col '+qtyCol):'';
-        alert('업로드 완료!\n업데이트: '+upd+'\n신규: '+add+'\n제외: '+skip+'\n총: '+next.length+'개'+colInfo+'\n\n⚠️ 재고 수치가 잘못된 경우 콘솔(F12) 확인');
+        if(headerRow<0)headerRow=0;
+        if(qtyCol<0)qtyCol=2;
+        /* 미리보기 모달 표시 - 사용자가 직접 컬럼 선택 가능 */
+        setXlPreview({rows,headerRow,codeCol,nameCol,qtyCol,fileName:f.name});
       }catch(e){alert('파일 오류: '+e.message);console.error(e);}
     };
     reader.readAsArrayBuffer(f);
+  };
+  const confirmXlImport=(headerRow,codeCol,nameCol,qtyCol)=>{
+    if(!xlPreview)return;
+    const{rows}=xlPreview;
+    let upd=0,add=0,skip=0;const next=[...mats];
+    const SKIP=['공정품','기타','박스스티커','스티커','상품'];
+    const startRow=headerRow+1;
+    rows.forEach((row,i)=>{
+      if(i<startRow)return;
+      const c=String(row[codeCol]||'').trim();
+      const raw=String(row[nameCol]||'').trim();
+      const rawQty=row[qtyCol];
+      const qty=parseFloat(String(rawQty||'').replace(/,/g,''))||0;
+      if(!c||!raw){skip++;return;}
+      const cm=raw.match(/^\[([^\]]+)\]/);const g=cm?cm[1]:'기타';
+      if(SKIP.includes(g)){skip++;return;}
+      const n=raw.replace(/^\[[^\]]+\]/,'').replace(/\[[a-zA-Z가-힣]+\]\s*$/,'').trim().slice(0,50);
+      let unit='ea';const rl=raw.toLowerCase();
+      if(rl.includes('[kg]'))unit='kg';else if(rl.includes('[l]'))unit='L';else if(rl.includes('[box]'))unit='box';else if(raw.includes('[롤]'))unit='롤';
+      const idx=next.findIndex(m=>m.c===c);
+      if(idx>=0){next[idx]={...next[idx],s:qty};upd++;}else{next.push({id:uid(),c,g,n,u:unit,s:qty,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
+    });
+    setMats(next);setRk(r=>r+1);
+    setXlPreview(null);
+    alert('업로드 완료!\n업데이트: '+upd+'\n신규: '+add+'\n제외: '+skip+'\n총: '+next.length+'개');
   };
 
   const genImg=(prod,qty,rows)=>{
@@ -7067,7 +7141,8 @@ function App(){
       )
     ),
     bomModal&&R(BOMModal,{mats,cats,editProd:null,onSave:p=>setProds(pv=>[...pv,p]),onClose:()=>setBomModal(false)}),
-    imgModal&&R(ImgModal,{data:imgModal,onClose:()=>setImgModal(null),genImg})
+    imgModal&&R(ImgModal,{data:imgModal,onClose:()=>setImgModal(null),genImg}),
+    xlPreview&&R(XlPreviewModal,{preview:xlPreview,onClose:()=>setXlPreview(null),onConfirm:confirmXlImport})
   );
 }
 
