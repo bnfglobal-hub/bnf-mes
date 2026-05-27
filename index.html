@@ -197,7 +197,9 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
     scrollbar-width:none;
   }
   .cat-col::-webkit-scrollbar{display:none;}
-  .inv-main{padding:8px !important;overflow-x:auto;}
+  .inv-main{padding:8px !important;overflow-x:hidden !important;overflow-y:auto !important;padding-bottom:80px !important;}
+  .inv-tbl{overflow-x:auto !important;overflow-y:visible !important;min-height:auto !important;}
+  .inv-tbl table{min-width:680px !important;}
   
   /* 탭 가로 스크롤 */
   .tab-row{
@@ -233,12 +235,9 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .fav-grid.two{grid-template-columns:1fr 1fr}
 @media(max-width:768px){
   .fav-grid,.fav-grid.two{grid-template-columns:1fr !important}
-  .fav-grid .card{max-height:320px !important}
+  .fav-grid .card{max-height:none !important;min-height:200px}
 }
 @media(max-width:768px){
-  .inv-main{overflow-x:auto !important;padding:8px !important;}
-  .inv-tbl{overflow-x:auto !important;width:100% !important;}
-  .inv-tbl table{min-width:720px !important;}
   .inv-tbl table td,.inv-tbl table th{white-space:nowrap !important;padding:6px 8px !important;}
   .inv-tbl table td:nth-child(3){min-width:140px !important;}
   
@@ -6484,6 +6483,7 @@ function XlPreviewModal({preview,onClose,onConfirm}){
   const[codeCol,setCodeCol]=useState(preview.codeCol);
   const[nameCol,setNameCol]=useState(preview.nameCol);
   const[qtyCol,setQtyCol]=useState(preview.qtyCol);
+  const[mode,setMode]=useState('zero-missing'); /* zero-missing | merge | replace */
   const maxCols=Math.max(...rows.slice(0,Math.min(10,rows.length)).map(r=>(r||[]).length));
   const colIdx=Array.from({length:maxCols},(_,i)=>i);
   const headerCells=(rows[headerRow]||[]).map(c=>String(c||'').trim());
@@ -6551,14 +6551,44 @@ function XlPreviewModal({preview,onClose,onConfirm}){
             )))
           )
         ),
-        R('div',{style:{padding:'10px 12px',background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:8,fontSize:11,color:'#92400E',lineHeight:1.6}},
+        R('div',{style:{padding:'10px 12px',background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:8,fontSize:11,color:'#92400E',lineHeight:1.6,marginBottom:12}},
           '⚠️ ',R('b',null,'재고 수량'),' 컬럼(주황색)에 실제 재고 숫자가 보이는지 확인하세요.',R('br'),
           '잘못된 컬럼이라면 위의 ',R('b',null,'📦 재고 수량'),' 셀렉트로 다른 열을 선택하세요.'
+        ),
+        /* 업로드 방식 선택 */
+        R('div',{style:{padding:'12px 14px',background:'#F9FAFB',border:'1px solid var(--bd)',borderRadius:8}},
+          R('div',{style:{fontSize:11,fontWeight:700,color:'#374151',marginBottom:8}},'📥 업로드 방식'),
+          R('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+            R('label',{style:{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',padding:8,borderRadius:6,background:mode==='zero-missing'?'#FFF8F4':'#fff',border:'1px solid '+(mode==='zero-missing'?'var(--p)':'var(--bd)')}},
+              R('input',{type:'radio',checked:mode==='zero-missing',onChange:()=>setMode('zero-missing'),style:{marginTop:2}}),
+              R('div',null,
+                R('div',{style:{fontSize:12,fontWeight:700,color:mode==='zero-missing'?'var(--p)':'#1F2937'}},'🔄 엑셀 기준 갱신 (추천)'),
+                R('div',{style:{fontSize:10,color:'#64748B',marginTop:2}},'• 엑셀에 있는 품목 → 재고 업데이트',R('br'),'• 엑셀에 없는 기존 품목 → 재고 0으로 처리 (실제 재고 없음을 반영)',R('br'),'• BOM, 매입처, 단가 등 다른 정보는 유지됨')
+              )
+            ),
+            R('label',{style:{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',padding:8,borderRadius:6,background:mode==='merge'?'#EFF6FF':'#fff',border:'1px solid '+(mode==='merge'?'#3B82F6':'var(--bd)')}},
+              R('input',{type:'radio',checked:mode==='merge',onChange:()=>setMode('merge'),style:{marginTop:2}}),
+              R('div',null,
+                R('div',{style:{fontSize:12,fontWeight:700,color:mode==='merge'?'#1D4ED8':'#1F2937'}},'➕ 추가 업데이트'),
+                R('div',{style:{fontSize:10,color:'#64748B',marginTop:2}},'• 엑셀에 있는 품목만 업데이트/추가',R('br'),'• 엑셀에 없는 기존 품목은 ',R('b',null,'그대로 유지'),' (재고 변경 안 됨)')
+              )
+            ),
+            R('label',{style:{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',padding:8,borderRadius:6,background:mode==='replace'?'#FEE2E2':'#fff',border:'1px solid '+(mode==='replace'?'#DC2626':'var(--bd)')}},
+              R('input',{type:'radio',checked:mode==='replace',onChange:()=>setMode('replace'),style:{marginTop:2}}),
+              R('div',null,
+                R('div',{style:{fontSize:12,fontWeight:700,color:mode==='replace'?'#B91C1C':'#1F2937'}},'⚠️ 완전 교체 (위험)'),
+                R('div',{style:{fontSize:10,color:'#64748B',marginTop:2}},'• 엑셀에 없는 기존 품목 ',R('b',{style:{color:'#B91C1C'}},'완전 삭제'),R('br'),'• BOM에 사용 중인 품목도 삭제될 수 있으니 주의')
+              )
+            )
+          )
         )
       ),
       R('div',{style:{padding:'10px 18px',borderTop:'1px solid var(--bd)',display:'flex',gap:8,justifyContent:'flex-end'}},
         R('button',{className:'btn bs',onClick:onClose},'취소'),
-        R('button',{className:'btn bp',onClick:()=>onConfirm(headerRow,codeCol,nameCol,qtyCol)},'이 컬럼으로 업로드')
+        R('button',{className:'btn bp',onClick:()=>{
+          if(mode==='replace'&&!confirm('완전 교체 모드: 엑셀에 없는 기존 품목이 삭제됩니다.\n계속하시겠습니까?'))return;
+          onConfirm(headerRow,codeCol,nameCol,qtyCol,mode);
+        }},'이 컬럼으로 업로드')
       )
     )
   );
@@ -6744,12 +6774,15 @@ function App(){
     };
     reader.readAsArrayBuffer(f);
   };
-  const confirmXlImport=(headerRow,codeCol,nameCol,qtyCol)=>{
+  const confirmXlImport=(headerRow,codeCol,nameCol,qtyCol,mode='merge')=>{
     if(!xlPreview)return;
     const{rows}=xlPreview;
-    let upd=0,add=0,skip=0;const next=[...mats];
+    let upd=0,add=0,skip=0,zeroed=0;
     const SKIP=['공정품','기타','박스스티커','스티커','상품'];
     const startRow=headerRow+1;
+    /* 엑셀에 있는 품목 코드 수집 */
+    const xlCodes=new Set();
+    const parsed=[];
     rows.forEach((row,i)=>{
       if(i<startRow)return;
       const c=String(row[codeCol]||'').trim();
@@ -6762,12 +6795,38 @@ function App(){
       const n=raw.replace(/^\[[^\]]+\]/,'').replace(/\[[a-zA-Z가-힣]+\]\s*$/,'').trim().slice(0,50);
       let unit='ea';const rl=raw.toLowerCase();
       if(rl.includes('[kg]'))unit='kg';else if(rl.includes('[l]'))unit='L';else if(rl.includes('[box]'))unit='box';else if(raw.includes('[롤]'))unit='롤';
-      const idx=next.findIndex(m=>m.c===c);
-      if(idx>=0){next[idx]={...next[idx],s:qty};upd++;}else{next.push({id:uid(),c,g,n,u:unit,s:qty,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
+      xlCodes.add(c);
+      parsed.push({c,g,n,u:unit,s:qty});
     });
+    let next;
+    if(mode==='replace'){
+      /* 완전 교체 - 기존 mats 전체 삭제 후 엑셀에 있는 것만 새로 생성 */
+      /* (단 기존 품목의 mu, supplier, price, mat_id 등은 코드로 매칭하여 유지) */
+      next=parsed.map(p=>{
+        const existing=mats.find(m=>m.c===p.c);
+        if(existing){upd++;return{...existing,n:p.n,g:p.g,u:p.u,s:p.s};}
+        else{add++;return{id:uid(),c:p.c,g:p.g,n:p.n,u:p.u,s:p.s,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()};}
+      });
+    }else{
+      /* merge - 기존 mats 유지 + 엑셀에 있는 코드만 재고 업데이트 + 없는 코드 추가 */
+      next=[...mats];
+      parsed.forEach(p=>{
+        const idx=next.findIndex(m=>m.c===p.c);
+        if(idx>=0){next[idx]={...next[idx],s:p.s,n:p.n,g:p.g,u:p.u};upd++;}
+        else{next.push({id:uid(),c:p.c,g:p.g,n:p.n,u:p.u,s:p.s,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
+      });
+      /* zero-missing 모드: 엑셀에 없는 기존 품목의 재고를 0으로 (엑셀이 마지막 시점의 ground truth) */
+      if(mode==='zero-missing'){
+        next=next.map(m=>{
+          if(!xlCodes.has(m.c)){zeroed++;return{...m,s:0};}
+          return m;
+        });
+      }
+    }
     setMats(next);setRk(r=>r+1);
     setXlPreview(null);
-    alert('업로드 완료!\n업데이트: '+upd+'\n신규: '+add+'\n제외: '+skip+'\n총: '+next.length+'개');
+    const modeLabel=mode==='replace'?'완전 교체':mode==='zero-missing'?'엑셀 기준 갱신':'추가 업데이트';
+    alert('✅ 업로드 완료 ('+modeLabel+')\n\n📊 결과:\n• 업데이트: '+upd+'건\n• 신규 추가: '+add+'건\n• 제외(공정품 등): '+skip+'건'+(zeroed>0?'\n• 재고 0 처리: '+zeroed+'건':'')+'\n• 전체: '+next.length+'개');
   };
 
   const genImg=(prod,qty,rows)=>{
