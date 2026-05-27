@@ -2813,73 +2813,20 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
   const[editMode,setEditMode]=useState(false);
-  const[sectionOrder,setSectionOrder]=useState(()=>{try{const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');if(Array.isArray(v)&&v.length>0){if(!v.includes('ai'))v.unshift('ai');return v;}return['ai','wr','news','lt','stats'];}catch(e){return['ai','wr','news','lt','stats'];}});
+  const[sectionOrder,setSectionOrder]=useState(()=>{
+    try{
+      const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');
+      if(Array.isArray(v)&&v.length>0){
+        /* 'ai' 섹션 자동 제거 (제거된 기능) */
+        const cleaned=v.filter(x=>x!=='ai');
+        if(cleaned.length!==v.length){try{localStorage.setItem('bnf_home_order',JSON.stringify(cleaned));}catch(e){}}
+        return cleaned.length>0?cleaned:['wr','news','lt','stats'];
+      }
+      return['wr','news','lt','stats'];
+    }catch(e){return['wr','news','lt','stats'];}
+  });
   const[dragged,setDragged]=useState(null);
   const chartRef=useRef();
-  /* AI 어시스턴트 state */
-  const[aiKey,setAiKey]=useState(()=>localStorage.getItem('bnf_openai_key')||'');
-  const[aiMsgs,setAiMsgs]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_ai_msgs_'+(user.id||user.email||'guest'))||'[]');}catch(e){return[];}});
-  const[aiInput,setAiInput]=useState('');
-  const[aiLoading,setAiLoading]=useState(false);
-  const[aiKeyModal,setAiKeyModal]=useState(false);
-  const[aiKeyDraft,setAiKeyDraft]=useState('');
-  const[aiModel,setAiModel]=useState(()=>localStorage.getItem('bnf_ai_model')||'gpt-4o-mini');
-  const aiMsgsRef=useRef(null);
-  useEffect(()=>{
-    /* 메시지 추가 시 자동 스크롤 */
-    if(aiMsgsRef.current)aiMsgsRef.current.scrollTop=aiMsgsRef.current.scrollHeight;
-    /* 사용자별로 메시지 저장 */
-    try{localStorage.setItem('bnf_ai_msgs_'+(user.id||user.email||'guest'),JSON.stringify(aiMsgs.slice(-50)));}catch(e){}
-  },[aiMsgs]);
-
-  const askAI=async()=>{
-    const q=aiInput.trim();if(!q||aiLoading)return;
-    if(!aiKey){setAiKeyModal(true);return;}
-    const userMsg={role:'user',content:q,at:Date.now()};
-    setAiMsgs(p=>[...p,userMsg]);
-    setAiInput('');setAiLoading(true);
-    try{
-      const recent=[...aiMsgs.slice(-10),userMsg].map(m=>({role:m.role,content:m.content}));
-      const resp=await fetch('https://api.openai.com/v1/chat/completions',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+aiKey},
-        body:JSON.stringify({
-          model:aiModel,
-          messages:[
-            {role:'system',content:'당신은 B&F글로벌 이천공장의 업무 도우미입니다. 한국어로 간결하고 정확하게 답변하세요. 식품 제조, 재고 관리, 생산 스케줄 관련 질문에 도움을 줍니다.'},
-            ...recent
-          ],
-          max_tokens:1000,
-          temperature:0.7
-        })
-      });
-      const data=await resp.json();
-      if(!resp.ok){
-        const errMsg=data.error?.message||'알 수 없는 오류';
-        setAiMsgs(p=>[...p,{role:'assistant',content:'⚠️ 오류: '+errMsg+(resp.status===401?'\n(API 키를 확인해주세요)':''),at:Date.now(),error:true}]);
-      }else{
-        const answer=data.choices?.[0]?.message?.content||'(빈 응답)';
-        setAiMsgs(p=>[...p,{role:'assistant',content:answer,at:Date.now()}]);
-      }
-    }catch(e){
-      setAiMsgs(p=>[...p,{role:'assistant',content:'⚠️ 네트워크 오류: '+e.message,at:Date.now(),error:true}]);
-    }
-    setAiLoading(false);
-  };
-
-  const saveAiKey=()=>{
-    const k=aiKeyDraft.trim();
-    if(!k){alert('API 키를 입력해주세요');return;}
-    if(!k.startsWith('sk-')){if(!confirm('일반적인 OpenAI API 키 형식이 아닙니다(sk-...로 시작). 그래도 저장할까요?'))return;}
-    localStorage.setItem('bnf_openai_key',k);
-    localStorage.setItem('bnf_ai_model',aiModel);
-    setAiKey(k);setAiKeyModal(false);setAiKeyDraft('');
-  };
-  const clearAiHistory=()=>{
-    if(!confirm('대화 기록을 삭제할까요?'))return;
-    setAiMsgs([]);
-    try{localStorage.removeItem('bnf_ai_msgs_'+(user.id||user.email||'guest'));}catch(e){}
-  };
 
   const CUR=[
     {code:'USD',name:'미국 달러',flag:'🇺🇸'},
@@ -3016,77 +2963,6 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const moveSec=(from,to)=>{const arr=[...sectionOrder];const[m]=arr.splice(from,1);arr.splice(to,0,m);setSectionOrder(arr);localStorage.setItem('bnf_home_order',JSON.stringify(arr));};
 
   /* ═ 섹션 빌더 ═ */
-  const buildAI=()=>R('div',{className:'card',style:{padding:0,borderRadius:14,overflow:'hidden',display:'flex',flexDirection:'column',background:'linear-gradient(180deg,#FAFAFA 0%,#fff 60px)'}},
-    /* 헤더 */
-    R('div',{style:{padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid var(--bd)',background:'linear-gradient(135deg,#1F2937,#374151)',color:'#fff'}},
-      R('div',{style:{display:'flex',alignItems:'center',gap:8}},
-        R('span',{style:{fontSize:20}},'🤖'),
-        R('div',null,
-          R('div',{style:{fontSize:13,fontWeight:800}},'AI 어시스턴트'),
-          R('div',{style:{fontSize:9,opacity:0.7}},aiKey?(aiModel+' · 대화 가능'):'API 키 설정 필요')
-        )
-      ),
-      R('div',{style:{display:'flex',gap:6}},
-        aiKey&&aiMsgs.length>0&&R('button',{onClick:clearAiHistory,title:'대화 삭제',style:{background:'rgba(255,255,255,0.1)',color:'#fff',border:'1px solid rgba(255,255,255,0.2)',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}},'🗑'),
-        R('button',{onClick:()=>{setAiKeyDraft(aiKey);setAiKeyModal(true);},title:'API 키 설정',style:{background:aiKey?'rgba(34,197,94,0.2)':'rgba(217,79,30,0.3)',color:'#fff',border:'1px solid '+(aiKey?'rgba(34,197,94,0.5)':'rgba(217,79,30,0.5)'),borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},aiKey?'⚙️ 설정':'🔑 키 입력')
-      )
-    ),
-    /* 메시지 영역 */
-    R('div',{ref:aiMsgsRef,style:{padding:'12px 14px',height:280,overflowY:'auto',background:'#FAFAFA'}},
-      aiMsgs.length===0?R('div',{style:{textAlign:'center',color:'var(--tm)',padding:'40px 16px'}},
-        R('div',{style:{fontSize:32,marginBottom:8}},'💬'),
-        R('div',{style:{fontSize:13,fontWeight:600,color:'#374151',marginBottom:4}},'무엇이든 물어보세요'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:14}},'재고/생산/제조 관련 질문, 업무 도움'),
-        !aiKey&&R('div',{style:{fontSize:11,padding:'10px 14px',background:'#FEF3C7',color:'#92400E',borderRadius:8,maxWidth:420,margin:'0 auto',border:'1px solid #FDE68A',textAlign:'left'}},
-          R('div',{style:{fontWeight:700,marginBottom:4}},'⚠️ 시작하려면 OpenAI API 키가 필요합니다'),
-          R('div',{style:{fontSize:10,lineHeight:1.6}},'우측 상단 [🔑 키 입력] 버튼을 클릭하여 OpenAI API 키를 등록하세요. ',R('a',{href:'https://platform.openai.com/api-keys',target:'_blank',style:{color:'#92400E',fontWeight:700}},'OpenAI에서 발급'),' 받을 수 있습니다.')
-        )
-      ):R('div',{style:{display:'flex',flexDirection:'column',gap:10}},
-        ...aiMsgs.map((m,i)=>R('div',{key:i,style:{display:'flex',gap:8,flexDirection:m.role==='user'?'row-reverse':'row',alignItems:'flex-start'}},
-          R('div',{style:{width:28,height:28,borderRadius:'50%',background:m.role==='user'?'var(--p)':m.error?'#FEE2E2':'#374151',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,fontWeight:700}},m.role==='user'?(user.name||'나')[0]:'🤖'),
-          R('div',{style:{maxWidth:'80%',padding:'8px 12px',borderRadius:m.role==='user'?'12px 4px 12px 12px':'4px 12px 12px 12px',background:m.role==='user'?'var(--p)':m.error?'#FEE2E2':'#fff',color:m.role==='user'?'#fff':m.error?'#991B1B':'#1F2937',fontSize:12,lineHeight:1.6,whiteSpace:'pre-wrap',wordBreak:'break-word',border:m.role==='assistant'&&!m.error?'1px solid var(--bd)':'none'}},m.content)
-        )),
-        aiLoading&&R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
-          R('div',{style:{width:28,height:28,borderRadius:'50%',background:'#374151',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13}},'🤖'),
-          R('div',{style:{padding:'8px 14px',background:'#fff',border:'1px solid var(--bd)',borderRadius:'4px 12px 12px 12px',fontSize:12,color:'var(--tm)'}},'생각 중...')
-        )
-      )
-    ),
-    /* 입력 영역 */
-    R('div',{style:{padding:'10px 12px',borderTop:'1px solid var(--bd)',background:'#fff',display:'flex',gap:8}},
-      R('input',{value:aiInput,onChange:e=>setAiInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askAI();}},placeholder:aiKey?'질문을 입력하고 Enter':'먼저 API 키를 설정해주세요',disabled:aiLoading,style:{flex:1,padding:'9px 12px',border:'1.5px solid '+(aiKey?'var(--bd)':'#FCA5A5'),borderRadius:8,fontSize:12,outline:'none',background:aiKey?'#fff':'#FEE2E2'}}),
-      R('button',{onClick:askAI,disabled:aiLoading||!aiInput.trim(),style:{padding:'9px 16px',background:aiLoading||!aiInput.trim()?'#D1D5DB':'#1F2937',color:'#fff',border:'none',borderRadius:8,cursor:aiLoading||!aiInput.trim()?'default':'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit',whiteSpace:'nowrap'}},aiLoading?'⏳':'전송 ↑')
-    ),
-    /* API 키 모달 */
-    aiKeyModal&&R('div',{className:'mbg',onClick:e=>e.stopPropagation(),style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,padding:16}},
-      R('div',{style:{background:'#fff',borderRadius:14,maxWidth:480,width:'100%',padding:0,overflow:'hidden'}},
-        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid var(--bd)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-          R('div',{style:{fontSize:14,fontWeight:800}},'🔑 OpenAI API 키 설정'),
-          R('button',{onClick:()=>setAiKeyModal(false),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')
-        ),
-        R('div',{style:{padding:'14px 18px'}},
-          R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:10,lineHeight:1.6}},
-            '• OpenAI 계정에서 발급받은 API 키를 입력하세요',R('br'),
-            '• 키는 이 브라우저에만 저장되며 외부로 전송되지 않습니다',R('br'),
-            '• 사용량은 OpenAI 계정에서 과금됩니다 (gpt-4o-mini: ~$0.15/1M tokens)'
-          ),
-          R('label',{style:{fontSize:11,fontWeight:700,color:'#374151',display:'block',marginBottom:4}},'API 키'),
-          R('input',{type:'password',value:aiKeyDraft,onChange:e=>setAiKeyDraft(e.target.value),placeholder:'sk-...',autoFocus:true,style:{width:'100%',padding:'10px 12px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'monospace',marginBottom:10}}),
-          R('label',{style:{fontSize:11,fontWeight:700,color:'#374151',display:'block',marginBottom:4}},'모델'),
-          R('select',{value:aiModel,onChange:e=>setAiModel(e.target.value),style:{width:'100%',padding:'10px 12px',border:'1.5px solid var(--bd)',borderRadius:8,fontSize:12,marginBottom:14,background:'#fff'}},
-            R('option',{value:'gpt-4o-mini'},'GPT-4o-mini (저렴, 빠름) - 추천'),
-            R('option',{value:'gpt-4o'},'GPT-4o (똑똑, 비용↑)'),
-            R('option',{value:'gpt-3.5-turbo'},'GPT-3.5-turbo (가장 저렴)')
-          ),
-          R('div',{style:{display:'flex',gap:8}},
-            R('a',{href:'https://platform.openai.com/api-keys',target:'_blank',style:{flex:1,padding:'9px 14px',background:'#F3F4F6',color:'#374151',border:'1px solid var(--bd)',borderRadius:8,textDecoration:'none',fontSize:11,fontWeight:600,textAlign:'center'}},'키 발급 받기 ↗'),
-            R('button',{onClick:saveAiKey,style:{flex:2,padding:'9px 14px',background:'#1F2937',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit'}},'저장 및 시작')
-          )
-        )
-      )
-    )
-  );
-
   const buildWR=()=>R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
     /* 날씨 카드 */
     R('div',{className:'card',style:{padding:0,overflow:'hidden',borderRadius:14,display:'flex',flexDirection:'column'}},
@@ -3257,7 +3133,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     )
   );
 
-  const builders={ai:buildAI,wr:buildWR,news:buildNews,lt:buildLT,stats:buildStats};
+  const builders={wr:buildWR,news:buildNews,lt:buildLT,stats:buildStats};
 
   const renderSection=(id,idx)=>{
     const builder=builders[id];if(!builder)return null;
@@ -6748,23 +6624,74 @@ function App(){
         const wb=XLSX.read(ev.target.result,{type:'array'});
         const ws=wb.Sheets[wb.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-        let upd=0,add=0;const next=[...mats];
+        if(rows.length<2){alert('엑셀 데이터가 없습니다');return;}
+        /* ─── 헤더 자동 인식: "재고" 관련 컬럼 찾기 ─── */
+        /* 이카운트 엑셀은 1행 또는 2행에 헤더가 있고, 컬럼 순서가 다양함 */
+        let headerRow=-1;let codeCol=0;let nameCol=1;let qtyCol=-1;
+        /* 상단 5행 안에서 헤더 찾기 */
+        for(let r=0;r<Math.min(5,rows.length);r++){
+          const row=rows[r];
+          const joined=row.map(c=>String(c||'').trim()).join('|');
+          if(joined.includes('재고')||joined.includes('수량')||joined.includes('현재량')||joined.includes('현재고')){
+            headerRow=r;
+            /* 각 컬럼명에서 코드/품목명/재고 찾기 */
+            row.forEach((cell,ci)=>{
+              const v=String(cell||'').trim();
+              if(/품목코드|코드|품번|코드번호/.test(v))codeCol=ci;
+              else if(/품목명|품명|품목|상품명|자재명/.test(v)&&!nameCol)nameCol=ci;
+              else if(/^(현재고|재고량|단위재고|현재량|재고수량|재고)$/.test(v)&&qtyCol<0)qtyCol=ci;
+              else if(/재고/.test(v)&&qtyCol<0&&!/입고|출고|안전|이전|이월/.test(v))qtyCol=ci;
+            });
+            break;
+          }
+        }
+        /* 자동 인식 실패 시 컬럼 선택 모달 (fallback) */
+        if(qtyCol<0||headerRow<0){
+          /* 헤더 못 찾으면 1행을 헤더로 가정하고 모든 숫자 컬럼 찾기 */
+          headerRow=0;
+          /* 가장 많은 숫자 데이터가 있는 컬럼을 재고로 추정 */
+          const numCounts={};
+          for(let r=headerRow+1;r<Math.min(headerRow+30,rows.length);r++){
+            (rows[r]||[]).forEach((c,ci)=>{
+              const n=parseFloat(c);
+              if(!isNaN(n)&&n>0){numCounts[ci]=(numCounts[ci]||0)+1;}
+            });
+          }
+          /* 코드(0)/이름(1) 제외하고 가장 많이 숫자가 있는 컬럼 */
+          let bestCol=-1,bestCnt=0;
+          Object.entries(numCounts).forEach(([ci,cnt])=>{const c=+ci;if(c>1&&cnt>bestCnt){bestCnt=cnt;bestCol=c;}});
+          qtyCol=bestCol>=0?bestCol:2;
+        }
+        /* 컬럼 정보 콘솔 출력 (디버그) */
+        const headerCells=headerRow>=0?(rows[headerRow]||[]).map(c=>String(c||'').trim()):[];
+        console.log('[ERP 업로드] 헤더 행:',headerRow,'코드 컬럼:',codeCol,'(',headerCells[codeCol]||'-',') 품목명 컬럼:',nameCol,'(',headerCells[nameCol]||'-',') 재고 컬럼:',qtyCol,'(',headerCells[qtyCol]||'-',')');
+
+        let upd=0,add=0,skip=0;const next=[...mats];
         const SKIP=['공정품','기타','박스스티커','스티커','상품'];
+        const startRow=headerRow+1;
+        const sampleParsed=[];
         rows.forEach((row,i)=>{
-          if(i<2)return;
-          const c=String(row[0]||'').trim();const raw=String(row[1]||'').trim();const qty=parseFloat(row[2])||0;
-          if(!c||!raw)return;
+          if(i<startRow)return;
+          const c=String(row[codeCol]||'').trim();
+          const raw=String(row[nameCol]||'').trim();
+          const rawQty=row[qtyCol];
+          /* 콤마 제거 후 숫자 변환 (1,658 → 1658) */
+          const qty=parseFloat(String(rawQty||'').replace(/,/g,''))||0;
+          if(!c||!raw){skip++;return;}
           const cm=raw.match(/^\[([^\]]+)\]/);const g=cm?cm[1]:'기타';
-          if(SKIP.includes(g))return;
+          if(SKIP.includes(g)){skip++;return;}
           const n=raw.replace(/^\[[^\]]+\]/,'').replace(/\[[a-zA-Z가-힣]+\]\s*$/,'').trim().slice(0,50);
           let unit='ea';const rl=raw.toLowerCase();
           if(rl.includes('[kg]'))unit='kg';else if(rl.includes('[l]'))unit='L';else if(rl.includes('[box]'))unit='box';else if(raw.includes('[롤]'))unit='롤';
+          if(sampleParsed.length<3)sampleParsed.push({code:c,name:n.slice(0,30),qty,rawQty});
           const idx=next.findIndex(m=>m.c===c);
           if(idx>=0){next[idx]={...next[idx],s:qty};upd++;}else{next.push({id:uid(),c,g,n,u:unit,s:qty,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()});add++;}
         });
+        console.log('[ERP 업로드] 샘플:',sampleParsed);
         setMats(next);setRk(r=>r+1);
-        alert('업로드 완료!\n업데이트: '+upd+'\n신규: '+add+'\n총: '+next.length+'개');
-      }catch(e){alert('파일 오류: '+e.message);}
+        const colInfo=headerCells.length>0?'\n\n📋 인식된 컬럼:\n  • 코드: '+(headerCells[codeCol]||'col '+codeCol)+'\n  • 품목명: '+(headerCells[nameCol]||'col '+nameCol)+'\n  • 재고: '+(headerCells[qtyCol]||'col '+qtyCol):'';
+        alert('업로드 완료!\n업데이트: '+upd+'\n신규: '+add+'\n제외: '+skip+'\n총: '+next.length+'개'+colInfo+'\n\n⚠️ 재고 수치가 잘못된 경우 콘솔(F12) 확인');
+      }catch(e){alert('파일 오류: '+e.message);console.error(e);}
     };
     reader.readAsArrayBuffer(f);
   };
