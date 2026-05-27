@@ -903,11 +903,21 @@ function PageWorkRequest({user}){
 
   useEffect(()=>{
     loadAll();
+    let channel=null;
+    try{
+      channel=sbClient.channel('wr_sync_'+Date.now())
+        .on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.1'},()=>loadAll(true))
+        .subscribe();
+    }catch(e){}
     const onVis=()=>{if(!document.hidden)loadAll(true);};
     document.addEventListener('visibilitychange',onVis);
     window.addEventListener('focus',()=>loadAll(true));
-    const poll=setInterval(()=>{if(!document.hidden)loadAll(true);},5000);
-    return()=>{document.removeEventListener('visibilitychange',onVis);clearInterval(poll);};
+    const poll=setInterval(()=>{if(!document.hidden)loadAll(true);},3000);
+    return()=>{
+      if(channel)try{sbClient.removeChannel(channel);}catch(e){}
+      document.removeEventListener('visibilitychange',onVis);
+      clearInterval(poll);
+    };
   },[]);
 
   const loadAll=async(silent=false)=>{
@@ -1373,12 +1383,22 @@ function PageMyTasks({user}){
 
   /* Supabase에서 동기화 - 사용자별 user_state row 사용 */
   useEffect(()=>{loadFromSupabase();
-    /* 페이지 활성화 시 + 5초마다 폴링 (PC↔모바일 동기화) */
+    let channel=null;
+    try{
+      channel=sbClient.channel('mytasks_sync_'+Date.now())
+        .on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.1'},()=>loadFromSupabase())
+        .subscribe();
+    }catch(e){}
     const onVis=()=>{if(!document.hidden)loadFromSupabase();};
     document.addEventListener('visibilitychange',onVis);
     window.addEventListener('focus',loadFromSupabase);
-    const poll=setInterval(()=>{if(!document.hidden)loadFromSupabase();},6000);
-    return()=>{document.removeEventListener('visibilitychange',onVis);window.removeEventListener('focus',loadFromSupabase);clearInterval(poll);};
+    const poll=setInterval(()=>{if(!document.hidden)loadFromSupabase();},3000);
+    return()=>{
+      if(channel)try{sbClient.removeChannel(channel);}catch(e){}
+      document.removeEventListener('visibilitychange',onVis);
+      window.removeEventListener('focus',loadFromSupabase);
+      clearInterval(poll);
+    };
   },[]);
 
   const loadFromSupabase=async()=>{
@@ -3630,12 +3650,14 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   /* 완제품별 반제품 연결 검색 UI */
   const[semiPickerFor,setSemiPickerFor]=useState(null); /* 어느 완제품을 위한 picker인지 */
   const[semiPickerSearch,setSemiPickerSearch]=useState('');
+  const[lastSyncAt,setLastSyncAt]=useState(0);
   const semiPickerInputRef=useRef(null);
   /* Supabase에서 favorites 복원 (다른 기기에서 설정한 값) */
   /* Supabase에서 favorites/semiItems/prodSemiMap 동기화 - Supabase가 source of truth */
   const syncFromSupabase=()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
       .then(({data})=>{
+        setLastSyncAt(Date.now());
         if(!data||!data.state_data)return;
         const sd=data.state_data;
         /* favorites - Supabase에 데이터 있으면 무조건 적용 (localStorage 길이 체크 제거) */
@@ -3686,15 +3708,32 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       }).catch(e=>console.warn('[Inv] sync error',e));
   };
   useEffect(()=>{
-    /* 진입 시 즉시 동기화 */
+    /* 진입 시 즉시 강제 동기화 (localStorage 캐시보다 Supabase 우선) */
     syncFromSupabase();
-    /* 페이지 보일 때 동기화 (탭 전환, 모바일/PC 간 갱신) */
+    /* 1. Realtime 구독 - app_state 테이블 변경 즉시 push */
+    let channel=null;
+    try{
+      channel=sbClient.channel('inv_sync_'+Date.now())
+        .on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.1'},(payload)=>{
+          console.log('[Inv Realtime] 변경 감지',payload.eventType);
+          syncFromSupabase();
+        })
+        .subscribe((status)=>{
+          if(status==='SUBSCRIBED')console.log('[Inv Realtime] 구독 성공');
+        });
+    }catch(e){console.warn('[Inv Realtime] 초기화 실패',e);}
+    /* 2. 페이지 보일 때 동기화 */
     const onVis=()=>{if(!document.hidden)syncFromSupabase();};
     document.addEventListener('visibilitychange',onVis);
     window.addEventListener('focus',syncFromSupabase);
-    /* 5초마다 폴링 (다른 기기에서 변경 시 자동 반영) */
-    const poll=setInterval(syncFromSupabase,5000);
-    return()=>{document.removeEventListener('visibilitychange',onVis);window.removeEventListener('focus',syncFromSupabase);clearInterval(poll);};
+    /* 3. 백업 폴링 - 3초마다 */
+    const poll=setInterval(()=>{if(!document.hidden)syncFromSupabase();},3000);
+    return()=>{
+      if(channel)try{sbClient.removeChannel(channel);}catch(e){}
+      document.removeEventListener('visibilitychange',onVis);
+      window.removeEventListener('focus',syncFromSupabase);
+      clearInterval(poll);
+    };
   },[]);
   const[semiSearch,setSemiSearch]=useState('');
   const[showSemiSearch,setShowSemiSearch]=useState(false);
@@ -4082,7 +4121,16 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   ):null;}catch(e){console.warn('FavSection error:',e);return null;}};
 
 
-  return R('div',{className:'inv-wrap'},
+  return R('div',null,
+    /* 동기화 상태 바 */
+    R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 12px',background:lastSyncAt&&(Date.now()-lastSyncAt<10000)?'#ECFDF5':'#FFFBEB',borderBottom:'1px solid '+(lastSyncAt&&(Date.now()-lastSyncAt<10000)?'#A7F3D0':'#FDE68A'),fontSize:10,color:lastSyncAt?'#15803D':'#92400E',fontWeight:600}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+        R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:'50%',background:lastSyncAt&&(Date.now()-lastSyncAt<10000)?'#22C55E':'#F59E0B',animation:'pulse 2s ease-in-out infinite'}}),
+        lastSyncAt?R('span',null,'☁ Supabase 자동 동기화 중 · 마지막 ',Math.max(0,Math.floor((Date.now()-lastSyncAt)/1000)),'초 전'):'☁ 동기화 대기 중...'
+      ),
+      R('button',{onClick:()=>{syncFromSupabase();},title:'다른 기기 변경사항 즉시 가져오기',style:{padding:'3px 10px',background:'#fff',border:'1px solid var(--bd)',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600,color:'#374151',fontFamily:'inherit'}},'🔄 새로고침')
+    ),
+    R('div',{className:'inv-wrap'},
     R('div',{className:'cat-col'},
       ...[
         {v:'전체',l:'전체 '+mats.length},
@@ -4144,6 +4192,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           )
         )
       )
+    )
     )
   );
 }
@@ -6616,14 +6665,14 @@ function App(){
       const{data,error}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
       if(error||!data||!data.state_data)return;
       const d=data.state_data;
-      /* 변경 사항 있을 때만 setState (불필요한 렌더 방지) */
-      if(d.mats&&JSON.stringify(d.mats)!==JSON.stringify(mats))setMats(d.mats);
-      if(d.prods&&JSON.stringify(d.prods)!==JSON.stringify(prods))setProds(d.prods);
-      if(d.orders&&JSON.stringify(d.orders)!==JSON.stringify(orders))setOrders(d.orders);
-      if(d.hqItems&&JSON.stringify(d.hqItems)!==JSON.stringify(hqItems))setHqItems(d.hqItems);
-      if(d.cats&&JSON.stringify(d.cats)!==JSON.stringify(cats))setCats(d.cats);
-      if(d.quote&&JSON.stringify(d.quote)!==JSON.stringify(quote))setQuote(d.quote);
-      if(d.pqty&&JSON.stringify(d.pqty)!==JSON.stringify(pqty))setPqty(d.pqty);
+      /* setState 콜백 내부에서 비교하여 closure 문제 회피 (의존성 배열 최소화) */
+      if(d.mats)setMats(prev=>JSON.stringify(prev)!==JSON.stringify(d.mats)?d.mats:prev);
+      if(d.prods)setProds(prev=>JSON.stringify(prev)!==JSON.stringify(d.prods)?d.prods:prev);
+      if(d.orders)setOrders(prev=>JSON.stringify(prev)!==JSON.stringify(d.orders)?d.orders:prev);
+      if(d.hqItems)setHqItems(prev=>JSON.stringify(prev)!==JSON.stringify(d.hqItems)?d.hqItems:prev);
+      if(d.cats)setCats(prev=>JSON.stringify(prev)!==JSON.stringify(d.cats)?d.cats:prev);
+      if(d.quote)setQuote(prev=>JSON.stringify(prev)!==JSON.stringify(d.quote)?d.quote:prev);
+      if(d.pqty)setPqty(prev=>JSON.stringify(prev)!==JSON.stringify(d.pqty)?d.pqty:prev);
     }catch(e){if(!silent)console.warn('reloadFromDB:',e);}
   };
   useEffect(()=>{
@@ -6642,17 +6691,36 @@ function App(){
       setLoading(false);setTimeout(()=>setDbReady(true),200);
     })();
   },[]);
-  /* 양방향 동기화: 탭/창 활성화 + 주기적 폴링 */
+  /* 양방향 동기화: Supabase Realtime + 백업 폴링 + 활성화 감지 */
   useEffect(()=>{
     if(!dbReady)return;
+    /* 1. Realtime 구독 - app_state 테이블 변경 시 즉시 push */
+    let channel=null;
+    try{
+      channel=sbClient.channel('app_state_sync_'+Date.now())
+        .on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.1'},(payload)=>{
+          console.log('[Realtime] app_state 변경 감지',payload.eventType);
+          reloadFromDB(true);
+        })
+        .subscribe((status)=>{
+          if(status==='SUBSCRIBED')console.log('[Realtime] 구독 성공 - 다른 기기 변경사항 즉시 반영');
+          else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')console.warn('[Realtime] 구독 실패, 폴링으로 fallback');
+        });
+    }catch(e){console.warn('[Realtime] 초기화 실패',e);}
+    /* 2. 페이지 활성화 이벤트 - 즉시 동기화 */
     const onVis=()=>{if(!document.hidden)reloadFromDB(true);};
     const onFocus=()=>reloadFromDB(true);
     document.addEventListener('visibilitychange',onVis);
     window.addEventListener('focus',onFocus);
-    /* 8초마다 가벼운 폴링 (Realtime 대용) */
-    const poll=setInterval(()=>{if(!document.hidden)reloadFromDB(true);},8000);
-    return()=>{document.removeEventListener('visibilitychange',onVis);window.removeEventListener('focus',onFocus);clearInterval(poll);};
-  },[dbReady,mats,prods,orders,hqItems,cats,quote,pqty]);
+    /* 3. 백업 폴링 (Realtime이 실패해도 동기화 보장) - 3초마다 */
+    const poll=setInterval(()=>{if(!document.hidden)reloadFromDB(true);},3000);
+    return()=>{
+      if(channel)try{sbClient.removeChannel(channel);}catch(e){}
+      document.removeEventListener('visibilitychange',onVis);
+      window.removeEventListener('focus',onFocus);
+      clearInterval(poll);
+    };
+  },[dbReady]); /* 의존성 최소화 - state 변경 시 effect 재실행 방지 */
 
   /* 자동 저장 - 기존 state_data 보존하면서 merge (즐겨찾기 등 다른 키 손실 방지) */
   useEffect(()=>{
