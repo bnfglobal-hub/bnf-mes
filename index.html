@@ -4166,7 +4166,15 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
             R('div',{style:{display:'flex',alignItems:'center',gap:7,padding:'8px 10px',cursor:'pointer'},onClick:()=>setEditIdx(editIdx===bi?null:bi)},
               R(Bdg,{g:b.g,sm:true}),
               R('input',{value:b.name,onChange:e=>{e.stopPropagation();setBom(p=>p.map((x,i)=>i===bi?{...x,name:e.target.value}:x));},onClick:e=>e.stopPropagation(),style:{flex:1,border:'none',background:'transparent',fontSize:12,fontWeight:500,padding:0,minWidth:0}}),
-              R('input',{type:'number',min:'0',step:'0.001',value:amts[b.c]||'',onChange:e=>setAmts(p=>({...p,[b.c]:e.target.value})),onClick:e=>e.stopPropagation(),placeholder:'수량',style:{width:60,border:'1px solid #e2e8f0',borderRadius:6,padding:'3px 5px',fontSize:12,textAlign:'center'}}),
+              R('input',{type:'number',min:'0',step:'0.001',value:amts[b.c]||'','data-bom-amt-idx':bi,onChange:e=>setAmts(p=>({...p,[b.c]:e.target.value})),onClick:e=>e.stopPropagation(),onKeyDown:e=>{
+                if(e.key==='Enter'){
+                  e.preventDefault();
+                  /* 다음 행의 수량 input으로 포커스 이동, 마지막이면 저장 */
+                  const next=document.querySelector('[data-bom-amt-idx="'+(bi+1)+'"]');
+                  if(next){next.focus();next.select();}
+                  else save();
+                }
+              },placeholder:'수량',style:{width:60,border:'1px solid #e2e8f0',borderRadius:6,padding:'3px 5px',fontSize:12,textAlign:'center'}}),
               R('span',{style:{fontSize:11,color:'#94a3b8'}},b.unit),
               R('span',{style:{fontSize:10,color:'#94a3b8',margin:'0 4px'}},editIdx===bi?'▲':'▼'),
               R('button',{onClick:e=>{e.stopPropagation();setBom(p=>p.filter((_,i)=>i!==bi));},style:{background:'none',border:'none',cursor:'pointer',color:'#dc2626',fontSize:17,padding:'0 2px'}},'×')
@@ -6653,10 +6661,15 @@ function App(){
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
 
   /* DB 로드 + 양방향 동기화 (PC↔모바일) */
+  const isSavingRef=useRef(false);
   const reloadFromDB=async(silent=false)=>{
+    /* 자동저장 진행 중이면 reloadFromDB 차단 (race condition 방지) */
+    if(isSavingRef.current){console.log('[Sync] 저장 중 - reload 스킵');return;}
     try{
       const{data,error}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
       if(error||!data||!data.state_data)return;
+      /* 저장 중 상태가 다시 켜졌으면 그 사이의 변경사항이 더 최신일 수 있으므로 스킵 */
+      if(isSavingRef.current){console.log('[Sync] 저장 진행 중 - 결과 적용 스킵');return;}
       const d=data.state_data;
       /* setState 콜백 내부에서 비교하여 closure 문제 회피 (의존성 배열 최소화) */
       if(d.mats)setMats(prev=>JSON.stringify(prev)!==JSON.stringify(d.mats)?d.mats:prev);
@@ -6719,6 +6732,7 @@ function App(){
   useEffect(()=>{
     if(!dbReady)return;
     setSaveStatus('saving');
+    isSavingRef.current=true; /* race condition 방지 - reloadFromDB 차단 */
     if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
     saveTimerRef.current=setTimeout(async()=>{
       try{
@@ -6730,6 +6744,8 @@ function App(){
         await db('app_state').upsert({id:1,state_data:merged,updated_at:new Date().toISOString()});
         setSaveStatus('saved');setTimeout(()=>setSaveStatus(''),2000);
       }catch(e){setSaveStatus('error');console.warn('자동저장 실패:',e);}
+      /* 저장 후 Realtime echo가 돌아오는 시간 고려해 1.5초 더 차단 유지 */
+      setTimeout(()=>{isSavingRef.current=false;},1500);
     },500);
   },[dbReady,mats,prods,orders,hqItems,cats,quote,pqty]);
 
