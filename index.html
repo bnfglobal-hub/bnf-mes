@@ -7543,16 +7543,50 @@ function App(){
     const saved=localStorage.getItem('bnf_user');
     if(saved){setUser(JSON.parse(saved));}
     (async()=>{
+      let loadOK=false;
       try{
-        const{data,error}=await db('app_state').select('state_data').eq('id',1).single();
-        if(!error&&data?.state_data?.mats?.length>0){
+        const{data,error}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
+        if(!error&&data&&data.state_data){
           const d=data.state_data;
+          /* 데이터가 하나라도 있으면 로딩 성공으로 간주 */
           if(d.mats)setMats(d.mats);if(d.prods)setProds(d.prods);
           if(d.orders)setOrders(d.orders);if(d.hqItems)setHqItems(d.hqItems);
           if(d.cats)setCats(d.cats);if(d.quote)setQuote(d.quote);if(d.pqty)setPqty(d.pqty);
+          loadOK=true;
+        }else if(!error&&data&&!data.state_data){
+          /* 행은 있는데 state_data가 비어있음 = 정상적인 신규 상태 */
+          loadOK=true;
         }
-      }catch(e){console.warn('DB 로드 실패');}
-      setLoading(false);setTimeout(()=>setDbReady(true),200);
+      }catch(e){console.warn('DB 로드 실패 - 자동저장 비활성화로 데이터 보호');}
+      setLoading(false);
+      /* ★ 핵심 안전장치: 로딩이 성공했을 때만 자동저장 활성화 ★
+         로딩 실패(네트워크 끊김 등) 시 dbReady를 켜지 않아 빈 데이터 덮어쓰기 방지 */
+      if(loadOK){
+        /* 일일 자동 백업: 하루 1회, 현재 데이터를 날짜별 백업 슬롯에 저장 (최대 7일 보관) */
+        try{
+          const today=new Date().toISOString().slice(0,10);
+          const lastBk=localStorage.getItem('bnf_last_backup');
+          if(lastBk!==today){
+            const{data:cur}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
+            if(cur&&cur.state_data&&(cur.state_data.mats||[]).length>0){
+              const sd=cur.state_data;
+              const backups=sd._backups||{};
+              backups[today]=JSON.stringify({mats:sd.mats,prods:sd.prods,orders:sd.orders,hqItems:sd.hqItems,cats:sd.cats,bnf_favorites:sd.bnf_favorites,bnf_semi_items:sd.bnf_semi_items,bnf_fav_folders:sd.bnf_fav_folders,bnf_fav_item_folder:sd.bnf_fav_item_folder,hq_folders:sd.hq_folders});
+              /* 7일 넘은 백업 삭제 */
+              const dates=Object.keys(backups).sort();
+              while(dates.length>7){delete backups[dates.shift()];}
+              await db('app_state').upsert({id:1,state_data:{...sd,_backups:backups},updated_at:new Date().toISOString()});
+              localStorage.setItem('bnf_last_backup',today);
+              console.log('[백업] '+today+' 자동 백업 완료 (보관:'+Object.keys(backups).length+'일)');
+            }
+          }
+        }catch(e){console.warn('백업 실패(무시):',e);}
+        setTimeout(()=>setDbReady(true),300);
+      }else{
+        console.warn('⚠ 데이터 로딩 실패 - 자동저장이 비활성화되었습니다. 새로고침(Ctrl+Shift+R) 해주세요.');
+        /* 5초 후 재시도 */
+        setTimeout(()=>window.location.reload(),5000);
+      }
     })();
   },[]);
   /* 양방향 동기화: Supabase Realtime + 백업 폴링 + 활성화 감지 */
@@ -7586,7 +7620,7 @@ function App(){
     };
   },[dbReady]); /* 의존성 최소화 - state 변경 시 effect 재실행 방지 */
 
-  /* 자동 저장 - 기존 state_data 보존하면서 merge (즐겨찾기 등 다른 키 손실 방지) */
+  /* 자동 저장 - 기존 state_data 보존 + 데이터 급감 방어 */
   useEffect(()=>{
     if(!dbReady)return;
     setSaveStatus('saving');
@@ -7597,7 +7631,18 @@ function App(){
         /* 기존 state_data 먼저 가져와서 merge */
         const{data:cur}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
         const existingExtras=cur&&cur.state_data?cur.state_data:{};
-        /* bnf_favorites, bnf_semi_items, bnf_prod_semi_map 등 PageInv가 관리하는 키는 보존 */
+        /* ★ 안전장치: 기존 DB 데이터보다 현재 데이터가 급격히 줄었으면 저장 차단 ★
+           (충돌/버그로 메모리가 비었을 때 DB를 빈 값으로 덮어쓰는 것 방지) */
+        const exMats=(existingExtras.mats||[]).length;
+        const exHq=(existingExtras.hqItems||[]).length;
+        const dangerousDrop=(exMats>10&&mats.length===0)||(exHq>5&&hqItems.length===0);
+        if(dangerousDrop){
+          console.error('⚠ 데이터 급감 감지! 저장 차단 (기존 mats:'+exMats+'→'+mats.length+', hqItems:'+exHq+'→'+hqItems.length+'). 새로고침 권장.');
+          setSaveStatus('error');
+          isSavingRef.current=false;
+          return;
+        }
+        /* 모든 키 보존하며 merge (bnf_favorites, bnf_semi_items, hq_folders, work_requests 등 전부 유지) */
         const merged={...existingExtras,mats,prods,orders,hqItems,cats,quote,pqty};
         await db('app_state').upsert({id:1,state_data:merged,updated_at:new Date().toISOString()});
         setSaveStatus('saved');setTimeout(()=>setSaveStatus(''),2000);
