@@ -3322,7 +3322,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const rowsAll=hqItems.map(h=>{
     const mat=mats.find(m=>m.c===h.matCode)||{};
     const totalStock=(+h.hqStock||0)+(+mat.s||0);
-    return{...h,folder:h.folder||'_root',matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
+    /* 폴더가 없거나, 현재 존재하지 않는 폴더 ID를 가리키면 _root(기본)로 정규화 */
+    const validFolder=(h.folder&&folders.some(f=>f.id===h.folder))?h.folder:'_root';
+    return{...h,folder:validFolder,matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
   });
   const shortItems=rowsAll.filter(r=>r.short>0).sort((a,b)=>b.short-a.short);
   const folderCounts=useMemo(()=>{const c={};rowsAll.forEach(r=>{c[r.folder]=(c[r.folder]||0)+1;});return c;},[rowsAll]);
@@ -3674,6 +3676,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const sorted=useMemo(()=>{
     let b=[...mats];
     if(catF==='부족')b=b.filter(m=>m.mu>0&&m.s<m.mu);
+    else if(catF==='즐겨찾기')b=b.filter(m=>favorites.includes(m.id));
     else if(catF!=='전체')b=b.filter(m=>m.g===catF);
     if(search){const q=search.toLowerCase();b=b.filter(m=>m.n.toLowerCase().includes(q)||m.c.includes(search));}
     if(sortBy==='name_asc')b.sort((a,x)=>a.n.localeCompare(x.n,'ko'));
@@ -3682,7 +3685,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     else if(sortBy==='stock_asc')b.sort((a,x)=>a.s-x.s);
     else b.sort((a,x)=>a.g.localeCompare(x.g,'ko')||a.n.localeCompare(x.n,'ko'));
     return b;
-  },[mats,catF,search,sortBy]);
+  },[mats,catF,search,sortBy,favorites]);
   /* ── 즐겨찾기/반제품 관리 (모든 탭 공통) ── */
   const toggleFav=(id)=>{
     setFavorites(prev=>{
@@ -4061,8 +4064,9 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       ...[
         {v:'전체',l:'전체 '+mats.length},
         {v:'부족',l:'⚠ 부족 '+shortCnt,d:true},
+        {v:'즐겨찾기',l:'★ 즐겨찾기 '+favorites.length,f:true},
         ...cats.map(c=>({v:c,l:c+' '+(catCounts[c]||0)}))
-      ].map(item=>R('button',{key:item.v,className:'cb'+(catF===item.v?' act':'')+(item.d?' dng':''),onClick:()=>{setCatF(item.v);scrollToTable();}},item.l))
+      ].map(item=>R('button',{key:item.v,className:'cb'+(catF===item.v?' act':'')+(item.d?' dng':''),style:item.f?{color:catF===item.v?undefined:'#D97706'}:undefined,onClick:()=>{setCatF(item.v);scrollToTable();}},item.l))
     ),
     R('div',{className:'inv-main',ref:invMainRef},
       getFavSection(),
