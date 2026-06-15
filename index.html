@@ -12,7 +12,7 @@
 <title>B&F Global 통합 시스템</title>
 <style>
 :root{--p:#D94F1E;--pd:#B83E15;--pl:#F07040;--pb:#FFF5F0;
---sb:#2D0040;--sbt:#B89AC9;--sba:rgba(217,79,30,.15);
+--sb:#3A1A0E;--sbt:#D9A88C;--sba:rgba(217,79,30,.22);
 --bg:#F4F4F4;--card:#fff;--bd:#E5E5E5;--t:#1A1A1A;--tm:#6B6B6B;
 --ok:#22C55E;--warn:#F59E0B;--err:#EF4444;--info:#3B82F6;}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -41,7 +41,7 @@ kbd{font-family:inherit;font-size:.9em}
 .sb-lbl{font-size:9px;font-weight:700;color:var(--sbt);padding:7px 11px 3px;letter-spacing:1.5px;text-transform:uppercase}
 .ni{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;cursor:pointer;color:var(--sbt);font-size:12px;transition:all .1s;margin-bottom:1px}
 .ni:hover{background:rgba(255,255,255,.07);color:#fff}
-.ni.act{background:var(--sba);color:var(--pl);font-weight:600}
+.ni.act{background:var(--sba);color:#FFB088;font-weight:700}
 .ni .ic{font-size:14px;width:18px;text-align:center;flex-shrink:0}
 .ni .nbdg{background:var(--p);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;font-weight:700;margin-left:auto}
 .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -4313,45 +4313,123 @@ function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal}){
   const[prodSearch,setProdSearch]=useState('');
   const[expId,setExpId]=useState(null);
   const[editMod,setEditMod]=useState(null);
+  /* ── 폴더 (생산계획과 동일 키 공유: prod_folders / prod_item_folder) ── */
+  const[bomFolders,setBomFolders]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_folders')||'null')||[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}catch(e){return[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}});
+  const[bomItemFolder,setBomItemFolder]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_item_folder')||'{}');}catch(e){return{};}});
+  const[collapsedBF,setCollapsedBF]=useState({});
+  const FOLDER_COLORS=['#D94F1E','#3B82F6','#22C55E','#A855F7','#EC4899','#06B6D4','#F59E0B','#64748B'];
+  const saveBomFolders=(next)=>{
+    setBomFolders(next);
+    localStorage.setItem('bnf_prod_folders',JSON.stringify(next));
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const ex=data&&data.state_data?data.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...ex,prod_folders:next},updated_at:new Date().toISOString()});
+    });
+  };
+  const saveBomItemFolder=(next)=>{
+    setBomItemFolder(next);
+    localStorage.setItem('bnf_prod_item_folder',JSON.stringify(next));
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const ex=data&&data.state_data?data.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...ex,prod_item_folder:next},updated_at:new Date().toISOString()});
+    });
+  };
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const sd=data&&data.state_data?data.state_data:{};
+      if(Array.isArray(sd.prod_folders)&&sd.prod_folders.filter(f=>f.id!=='_root').length>0){
+        const rs=JSON.stringify(sd.prod_folders);
+        if(JSON.stringify(bomFolders)!==rs){setBomFolders(sd.prod_folders);localStorage.setItem('bnf_prod_folders',rs);}
+      }
+      if(sd.prod_item_folder&&typeof sd.prod_item_folder==='object'){
+        const rs=JSON.stringify(sd.prod_item_folder);
+        if(JSON.stringify(bomItemFolder)!==rs){setBomItemFolder(sd.prod_item_folder);localStorage.setItem('bnf_prod_item_folder',rs);}
+      }
+    }).catch(()=>{});
+  },[]);
+  const addBomFolder=()=>{
+    const name=prompt('새 폴더 이름:','폴더 '+(bomFolders.length));if(!name)return;
+    const used=new Set(bomFolders.map(f=>f.color));
+    const color=FOLDER_COLORS.find(c=>!used.has(c))||FOLDER_COLORS[bomFolders.length%FOLDER_COLORS.length];
+    saveBomFolders([...bomFolders,{id:'pf_'+Date.now(),name,color,order:bomFolders.length}]);
+  };
+  const renameBomFolder=(fid)=>{const f=bomFolders.find(x=>x.id===fid);if(!f)return;const name=prompt('폴더 이름 변경:',f.name);if(!name)return;saveBomFolders(bomFolders.map(x=>x.id===fid?{...x,name}:x));};
+  const cycleBomFolderColor=(fid)=>{const f=bomFolders.find(x=>x.id===fid);if(!f)return;const idx=FOLDER_COLORS.indexOf(f.color);saveBomFolders(bomFolders.map(x=>x.id===fid?{...x,color:FOLDER_COLORS[(idx+1)%FOLDER_COLORS.length]}:x));};
+  const delBomFolder=(fid)=>{if(fid==='_root'){alert('기본 폴더는 삭제할 수 없습니다');return;}if(!confirm('이 폴더를 삭제할까요? 안의 제품은 기본 폴더로 이동합니다.'))return;const nm={...bomItemFolder};Object.keys(nm).forEach(pid=>{if(nm[pid]===fid)delete nm[pid];});saveBomItemFolder(nm);saveBomFolders(bomFolders.filter(f=>f.id!==fid));};
+  const moveBomToFolder=(pid,fid)=>{const nm={...bomItemFolder};if(fid==='_root')delete nm[pid];else nm[pid]=fid;saveBomItemFolder(nm);};
+  const getBomFolder=(pid)=>{const fid=bomItemFolder[pid];if(fid&&bomFolders.some(f=>f.id===fid))return fid;return '_root';};
+
   const filtered=useMemo(()=>{
     if(!prodSearch)return prods;
     const q=prodSearch.toLowerCase();
-    return prods.filter(p=>p.name.toLowerCase().includes(q)||p.cat.includes(q));
+    return prods.filter(p=>(p.name||"").toLowerCase().includes(q)||p.cat.includes(q));
   },[prods,prodSearch]);
+  /* 폴더별 그룹핑 (검색 결과 기준) */
+  const bomByFolder=useMemo(()=>{
+    const g={};bomFolders.forEach(f=>{g[f.id]=[];});
+    filtered.forEach(p=>{const fid=getBomFolder(p.id);if(!g[fid])g[fid]=[];g[fid].push(p);});
+    return g;
+  },[filtered,bomFolders,bomItemFolder]);
+
+  /* 제품 카드 렌더 함수 */
+  const renderCard=(p)=>R('div',{key:p.id,className:'card',style:{marginBottom:8,padding:0,overflow:'hidden'}},
+    R('div',{style:{padding:'12px 16px',display:'flex',alignItems:'center',gap:10}},
+      R('div',{style:{flex:1,minWidth:120}},
+        R('input',{value:p.name,onChange:e=>onSetProds(pp=>pp.map(x=>x.id===p.id?{...x,name:e.target.value}:x)),readOnly:!isAdmin,style:{border:'none',background:'transparent',fontWeight:700,fontSize:14,padding:0,width:'100%',cursor:isAdmin?'text':'default'}}),
+        R('div',{style:{fontSize:11,color:'#64748b'}},p.cat,' · BOM ',p.bom.length,'종')
+      ),
+      isAdmin&&R('select',{value:getBomFolder(p.id),onChange:e=>moveBomToFolder(p.id,e.target.value),title:'폴더 이동',style:{padding:'5px 6px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:10,background:'#fff',cursor:'pointer',maxWidth:90}},
+        ...bomFolders.map(f=>R('option',{key:f.id,value:f.id},f.name))
+      ),
+      isAdmin&&R('button',{className:'btn bw',style:{padding:'4px 10px',fontSize:11},onClick:()=>{setEditMod(p);setExpId(p.id);}},'수정'),
+      isAdmin&&R('button',{className:'btn bd',style:{padding:'4px 10px',fontSize:11},onClick:()=>onSetProds(pp=>pp.filter(x=>x.id!==p.id))},'삭제'),
+      R('button',{className:'btn bs',style:{padding:'4px 10px',fontSize:11},onClick:()=>{setExpId(expId===p.id?null:p.id);if(editMod&&editMod.id===p.id)setEditMod(null);}},expId===p.id?'▲':'▼')
+    ),
+    expId===p.id&&!editMod&&R('div',{style:{borderTop:'1px solid #f1f5f9',padding:'12px 16px',background:'#f8fafc',display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(170px,1fr))',gap:6}},
+      p.bom.map(b=>{
+        const mat=mats.find(m=>m.c===b.c);
+        return R('div',{key:b.c,style:{padding:'7px 10px',background:'#fff',borderRadius:8,border:'1px solid #e2e8f0'}},
+          R('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},b.name),
+          R('div',{style:{fontSize:11,color:'#64748b'}},b.amt,b.unit,'/개 · 현재: ',(mat?mat.s:0),b.unit)
+        );
+      })
+    ),
+    editMod&&editMod.id===p.id&&R(BOMModal,{mats,cats,editProd:p,
+      onSave:updated=>onSetProds(pp=>pp.map(x=>x.id===updated.id?updated:x)),
+      onClose:()=>{setEditMod(null);setExpId(null);}
+    })
+  );
+
   return R('div',{className:'pg fa'},
     R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:14,flexWrap:'wrap'}},
       R('input',{value:prodSearch,onChange:e=>setProdSearch(e.target.value),placeholder:'🔍 제품명 검색',style:{flex:1,minWidth:140,padding:'7px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13}}),
       R('span',{style:{fontSize:11,color:'#94a3b8'}},filtered.length+'종'),
+      isAdmin&&R('button',{onClick:addBomFolder,style:{padding:'7px 12px',border:'1px dashed var(--p)',background:'#FFF8F4',color:'var(--p)',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'+ 새 폴더'),
       isAdmin&&R('button',{className:'btn bp',onClick:()=>onOpenModal(null)},'+ 제품 + BOM 등록')
     ),
     !prods.length&&R('div',{className:'card',style:{textAlign:'center',padding:'32px',border:'2px dashed #e2e8f0',color:'#94a3b8'}},
       '등록된 제품 없음',
       isAdmin&&R('div',{style:{marginTop:10}},R('button',{className:'btn bp',onClick:()=>onOpenModal(null)},'등록하기'))
     ),
-    filtered.map(p=>R('div',{key:p.id,className:'card',style:{marginBottom:10,padding:0,overflow:'hidden'}},
-      R('div',{style:{padding:'12px 16px',display:'flex',alignItems:'center',gap:10}},
-        R('div',{style:{flex:1}},
-          R('input',{value:p.name,onChange:e=>onSetProds(pp=>pp.map(x=>x.id===p.id?{...x,name:e.target.value}:x)),readOnly:!isAdmin,style:{border:'none',background:'transparent',fontWeight:700,fontSize:14,padding:0,width:'100%',cursor:isAdmin?'text':'default'}}),
-          R('div',{style:{fontSize:11,color:'#64748b'}},p.cat,' · BOM ',p.bom.length,'종')
+    /* 폴더별 그룹 */
+    ...bomFolders.map(folder=>{
+      const fProds=bomByFolder[folder.id]||[];
+      if(folder.id==='_root'&&fProds.length===0&&bomFolders.length>1)return null;
+      if(prods.length===0)return null;
+      const isCol=collapsedBF[folder.id];
+      return R('div',{key:folder.id,style:{marginBottom:12}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'7px 12px',background:folder.color+'12',borderLeft:'4px solid '+folder.color,borderRadius:8,marginBottom:8}},
+          R('button',{onClick:()=>setCollapsedBF(p=>({...p,[folder.id]:!p[folder.id]})),style:{background:'none',border:'none',cursor:'pointer',fontSize:11,color:folder.color,fontWeight:700,padding:0}},isCol?'▶':'▼'),
+          R('span',{onClick:()=>isAdmin&&renameBomFolder(folder.id),style:{fontWeight:700,fontSize:13,color:folder.color,cursor:isAdmin?'pointer':'default'},title:isAdmin?'클릭하여 이름 변경':''},folder.name),
+          R('span',{style:{fontSize:11,color:'#94a3b8'}},'('+fProds.length+')'),
+          R('div',{style:{flex:1}}),
+          isAdmin&&R('button',{onClick:()=>cycleBomFolderColor(folder.id),title:'색 변경',style:{width:18,height:18,borderRadius:'50%',background:folder.color,border:'none',cursor:'pointer'}}),
+          isAdmin&&folder.id!=='_root'&&R('button',{onClick:()=>delBomFolder(folder.id),title:'폴더 삭제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#fca5a5',padding:'0 4px'}},'✕')
         ),
-        isAdmin&&R('button',{className:'btn bw',style:{padding:'4px 10px',fontSize:11},onClick:()=>{setEditMod(p);setExpId(p.id);}},'수정'),
-        isAdmin&&R('button',{className:'btn bd',style:{padding:'4px 10px',fontSize:11},onClick:()=>onSetProds(pp=>pp.filter(x=>x.id!==p.id))},'삭제'),
-        R('button',{className:'btn bs',style:{padding:'4px 10px',fontSize:11},onClick:()=>{setExpId(expId===p.id?null:p.id);if(editMod&&editMod.id===p.id)setEditMod(null);}},expId===p.id?'▲':'▼')
-      ),
-      expId===p.id&&!editMod&&R('div',{style:{borderTop:'1px solid #f1f5f9',padding:'12px 16px',background:'#f8fafc',display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(170px,1fr))',gap:6}},
-        p.bom.map(b=>{
-          const mat=mats.find(m=>m.c===b.c);
-          return R('div',{key:b.c,style:{padding:'7px 10px',background:'#fff',borderRadius:8,border:'1px solid #e2e8f0'}},
-            R('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},b.name),
-            R('div',{style:{fontSize:11,color:'#64748b'}},b.amt,b.unit,'/개 · 현재: ',(mat?mat.s:0),b.unit)
-          );
-        })
-      ),
-      editMod&&editMod.id===p.id&&R(BOMModal,{mats,cats,editProd:p,
-        onSave:updated=>onSetProds(pp=>pp.map(x=>x.id===updated.id?updated:x)),
-        onClose:()=>{setEditMod(null);setExpId(null);}
-      })
-    ))
+        !isCol&&fProds.length===0&&R('div',{style:{padding:'12px',textAlign:'center',color:'#cbd5e1',fontSize:11,border:'1px dashed #e2e8f0',borderRadius:8,marginBottom:8}},'제품을 이 폴더로 옮기려면 제품의 폴더 드롭다운에서 "'+folder.name+'" 선택'),
+        !isCol&&fProds.map(p=>renderCard(p))
+      );
+    })
   );
 }
 
