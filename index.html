@@ -4515,6 +4515,82 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   const[confirmData,setConfirmData]=useState(null);
   const[showAllFor,setShowAllFor]=useState({}); /* {prodId: true} - 충분한 원재료도 모두 보기 */
   const[showAllCombined,setShowAllCombined]=useState(false);
+  /* ── 제품 폴더 (생산계획 정리용) ── */
+  const[prodFolders,setProdFolders]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_folders')||'null')||[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}catch(e){return[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}});
+  const[prodItemFolder,setProdItemFolder]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_item_folder')||'{}');}catch(e){return{};}});
+  const[collapsedPF,setCollapsedPF]=useState({});
+  const[dragPF,setDragPF]=useState(null);
+  const FOLDER_COLORS=['#D94F1E','#3B82F6','#22C55E','#A855F7','#EC4899','#06B6D4','#F59E0B','#64748B'];
+
+  const saveProdFolders=(next)=>{
+    setProdFolders(next);
+    localStorage.setItem('bnf_prod_folders',JSON.stringify(next));
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const existing=data&&data.state_data?data.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...existing,prod_folders:next},updated_at:new Date().toISOString()});
+    });
+  };
+  const saveProdItemFolder=(next)=>{
+    setProdItemFolder(next);
+    localStorage.setItem('bnf_prod_item_folder',JSON.stringify(next));
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const existing=data&&data.state_data?data.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...existing,prod_item_folder:next},updated_at:new Date().toISOString()});
+    });
+  };
+  /* Supabase 동기화 */
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const sd=data&&data.state_data?data.state_data:{};
+      const localReal=prodFolders.filter(f=>f.id!=='_root').length>0;
+      if(Array.isArray(sd.prod_folders)&&sd.prod_folders.filter(f=>f.id!=='_root').length>0){
+        const rs=JSON.stringify(sd.prod_folders);
+        if(JSON.stringify(prodFolders)!==rs){setProdFolders(sd.prod_folders);localStorage.setItem('bnf_prod_folders',rs);}
+      }else if(localReal){
+        sbClient.from('app_state').upsert({id:1,state_data:{...sd,prod_folders:prodFolders},updated_at:new Date().toISOString()});
+      }
+      if(sd.prod_item_folder&&typeof sd.prod_item_folder==='object'){
+        const rs=JSON.stringify(sd.prod_item_folder);
+        if(JSON.stringify(prodItemFolder)!==rs){setProdItemFolder(sd.prod_item_folder);localStorage.setItem('bnf_prod_item_folder',rs);}
+      }
+    }).catch(()=>{});
+  },[]);
+  const addProdFolder=()=>{
+    const name=prompt('새 폴더 이름:','폴더 '+(prodFolders.length));
+    if(!name)return;
+    const used=new Set(prodFolders.map(f=>f.color));
+    const color=FOLDER_COLORS.find(c=>!used.has(c))||FOLDER_COLORS[prodFolders.length%FOLDER_COLORS.length];
+    saveProdFolders([...prodFolders,{id:'pf_'+Date.now(),name,color,order:prodFolders.length}]);
+  };
+  const renameProdFolder=(fid)=>{
+    const f=prodFolders.find(x=>x.id===fid);if(!f)return;
+    const name=prompt('폴더 이름 변경:',f.name);if(!name)return;
+    saveProdFolders(prodFolders.map(x=>x.id===fid?{...x,name}:x));
+  };
+  const cycleProdFolderColor=(fid)=>{
+    const f=prodFolders.find(x=>x.id===fid);if(!f)return;
+    const idx=FOLDER_COLORS.indexOf(f.color);
+    const next=FOLDER_COLORS[(idx+1)%FOLDER_COLORS.length];
+    saveProdFolders(prodFolders.map(x=>x.id===fid?{...x,color:next}:x));
+  };
+  const delProdFolder=(fid)=>{
+    if(fid==='_root'){alert('기본 폴더는 삭제할 수 없습니다');return;}
+    if(!confirm('이 폴더를 삭제할까요? 안의 제품은 기본 폴더로 이동합니다.'))return;
+    const nm={...prodItemFolder};
+    Object.keys(nm).forEach(pid=>{if(nm[pid]===fid)delete nm[pid];});
+    saveProdItemFolder(nm);
+    saveProdFolders(prodFolders.filter(f=>f.id!==fid));
+  };
+  const moveProdToFolder=(pid,fid)=>{
+    const nm={...prodItemFolder};
+    if(fid==='_root')delete nm[pid];else nm[pid]=fid;
+    saveProdItemFolder(nm);
+  };
+  const getProdFolder=(pid)=>{
+    const fid=prodItemFolder[pid];
+    if(fid&&prodFolders.some(f=>f.id===fid))return fid;
+    return '_root';
+  };
 
   /* ── 여러 제품 동시 생산 시 원재료 통합 합산 ── */
   const combined=useMemo(()=>{
@@ -4539,6 +4615,18 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     rows.sort((a,b)=>(b.short>0?1:0)-(a.short>0?1:0)||b.short-a.short||a.name.localeCompare(b.name,'ko'));
     return{rows,prodCount:activeProds.length,prodNames:activeProds.map(p=>p.name),shortCount:rows.filter(r=>r.short>0).length};
   },[prods,pqty,mats]);
+
+  /* 폴더별 제품 그룹핑 */
+  const prodsByFolder=useMemo(()=>{
+    const g={};
+    prodFolders.forEach(f=>{g[f.id]=[];});
+    prods.forEach(p=>{
+      const fid=getProdFolder(p.id);
+      if(!g[fid])g[fid]=[];
+      g[fid].push(p);
+    });
+    return g;
+  },[prods,prodFolders,prodItemFolder]);
 
   return R('div',{className:'pg fa'},
     !prods.length&&R('div',{className:'card',style:{textAlign:'center',padding:'28px',border:'2px dashed #e2e8f0',color:'#94a3b8',marginBottom:14}},
@@ -4583,7 +4671,30 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
         )
       )
     ),
-    prods.map(p=>{
+    /* ── 폴더 바 ── */
+    prods.length>0&&R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:10,padding:'8px 4px'}},
+      R('span',{style:{fontSize:11,color:'#94a3b8',fontWeight:600}},'📁 폴더'),
+      R('span',{style:{fontSize:10,color:'#cbd5e1'}},'· 제품 우측 드롭다운으로 폴더 이동'),
+      R('div',{style:{flex:1}}),
+      R('button',{onClick:addProdFolder,style:{padding:'4px 12px',border:'1px dashed var(--p)',background:'#FFF8F4',color:'var(--p)',borderRadius:14,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'+ 새 폴더')
+    ),
+    /* ── 폴더별 제품 그룹 ── */
+    ...prodFolders.map(folder=>{
+      const folderProds=prodsByFolder[folder.id]||[];
+      if(folder.id==='_root'&&folderProds.length===0&&prodFolders.length>1)return null;
+      const isCollapsed=collapsedPF[folder.id];
+      return R('div',{key:folder.id,style:{marginBottom:12}},
+        /* 폴더 헤더 */
+        R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'7px 12px',background:folder.color+'12',borderLeft:'4px solid '+folder.color,borderRadius:8,marginBottom:8}},
+          R('button',{onClick:()=>setCollapsedPF(p=>({...p,[folder.id]:!p[folder.id]})),style:{background:'none',border:'none',cursor:'pointer',fontSize:11,color:folder.color,fontWeight:700,padding:0}},isCollapsed?'▶':'▼'),
+          R('span',{onClick:()=>renameProdFolder(folder.id),style:{fontWeight:700,fontSize:13,color:folder.color,cursor:'pointer'},title:'클릭하여 이름 변경'},folder.name),
+          R('span',{style:{fontSize:11,color:'#94a3b8'}},'('+folderProds.length+')'),
+          R('div',{style:{flex:1}}),
+          R('button',{onClick:()=>cycleProdFolderColor(folder.id),title:'색 변경',style:{width:18,height:18,borderRadius:'50%',background:folder.color,border:'none',cursor:'pointer'}}),
+          folder.id!=='_root'&&R('button',{onClick:()=>delProdFolder(folder.id),title:'폴더 삭제',style:{background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#fca5a5',padding:'0 4px'}},'✕')
+        ),
+        !isCollapsed&&folderProds.length===0&&R('div',{style:{padding:'12px',textAlign:'center',color:'#cbd5e1',fontSize:11,border:'1px dashed #e2e8f0',borderRadius:8,marginBottom:8}},'제품을 이 폴더로 옮기려면 제품 우측의 폴더 드롭다운에서 "'+folder.name+'" 선택'),
+        !isCollapsed&&folderProds.map(p=>{
       const qty=parseFloat(pqty[p.id])||0;
       const needs=(p.bom||[]).map(b=>{
         const mat=mats.find(m=>m.c===b.c);
@@ -4617,7 +4728,10 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('span',{style:{fontSize:11,color:'#64748b'}},'개'),
             R('button',{className:'btn',style:{background:'#475569',color:'#fff',padding:'7px 10px',fontSize:11},disabled:!qty,onClick:()=>qty&&setConfirmData({prod:p,qty,rows})},'📝 지시'),
             R('button',{className:'btn bp',style:{fontSize:11,padding:'7px 10px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,rows})},'📋 이미지'),
-            qty>0&&R('button',{onClick:()=>setPqty(pv=>({...pv,[p.id]:''})),title:'초기화',style:{padding:'6px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕')
+            qty>0&&R('button',{onClick:()=>setPqty(pv=>({...pv,[p.id]:''})),title:'초기화',style:{padding:'6px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕'),
+            R('select',{value:getProdFolder(p.id),onChange:e=>moveProdToFolder(p.id,e.target.value),title:'폴더 이동',style:{padding:'6px 6px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:10,background:'#fff',cursor:'pointer',maxWidth:90}},
+              ...prodFolders.map(f=>R('option',{key:f.id,value:f.id},f.name))
+            )
           )
         ),
         /* 원재료 컴팩트 테이블 */
@@ -4657,6 +4771,8 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
           onConfirm:(newOrders,note)=>{onConfirmOrder(newOrders);setConfirmData(null);},
           onClose:()=>setConfirmData(null)
         })
+      );
+    })
       );
     }),
     isAdmin&&R('button',{className:'btn bp',style:{width:'100%',padding:12,marginTop:4,fontSize:14},onClick:onOpenBOM},'+ 제품 + BOM 등록')
