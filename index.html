@@ -136,9 +136,10 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .main{min-height:0 !important;overflow:hidden !important}
 .body{min-height:0 !important}
 .g3{grid-template-columns:1fr 1fr !important}
-.inv-wrap{flex-direction:column !important;height:auto !important;overflow:visible !important}
-.cat-col{flex-direction:row !important;overflow-x:auto;gap:6px;padding:8px;border-right:none !important;border-bottom:1px solid var(--bd);min-width:unset !important;width:100% !important;max-height:56px;white-space:nowrap;position:static !important;align-self:auto !important}
-.inv-main{padding:8px !important;overflow:visible !important;height:auto !important;flex:none !important}
+.inv-wrap{display:block !important;flex-direction:column !important;height:auto !important;min-height:0 !important;overflow:visible !important}
+.cat-col{flex-direction:row !important;overflow-x:auto !important;overflow-y:hidden !important;gap:6px;padding:8px;border-right:none !important;border-bottom:1px solid var(--bd);min-width:unset !important;width:100% !important;max-height:56px;white-space:nowrap;position:static !important;align-self:auto !important;-webkit-overflow-scrolling:touch}
+.inv-main{display:block !important;padding:8px !important;overflow:visible !important;height:auto !important;min-height:0 !important;flex:none !important}
+.inv-tbl{overflow-x:auto !important;overflow-y:visible !important;height:auto !important;min-height:0 !important;-webkit-overflow-scrolling:touch}
 .tab-row{overflow-x:auto;flex-wrap:nowrap !important;-webkit-overflow-scrolling:touch}
 .tab{white-space:nowrap !important}
 .card{border-radius:12px !important}
@@ -174,7 +175,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .inv-tbl table td .name-cell .name-star{flex-shrink:0}
 
 @media(max-width:768px){.g2,.g3,.g4{grid-template-columns:1fr}.fg{grid-template-columns:1fr}
-.inv-wrap{flex-direction:column}
+.inv-wrap{display:block;flex-direction:column;height:auto;overflow:visible}
 .cat-col{width:100%!important;height:auto;max-height:50px;flex-direction:row!important;overflow-x:auto;overflow-y:hidden;border-right:none!important;border-bottom:1px solid var(--bd);padding:3px!important}
 .cb{flex-shrink:0;padding:5px 9px!important;border-left:none!important;border-bottom:2px solid transparent;white-space:nowrap}
 .cb.act{border-bottom-color:var(--p)!important;border-left:none!important}
@@ -7832,6 +7833,34 @@ function VendorForm({vendor,onClose,onSave}){
 function App(){
   const[user,setUser]=useState(null);
   const[sbOpen,setSbOpen]=useState(false); /* 모바일 사이드바 토글 */
+  /* ── 모바일 스와이프 제스처: 왼쪽 가장자리→오른쪽 = 메뉴 열기, 메뉴 열림 상태 왼쪽 스와이프 = 닫기 ── */
+  useEffect(()=>{
+    if(window.innerWidth>768)return; /* 모바일에서만 */
+    let startX=0,startY=0,startT=0,tracking=false;
+    const onStart=(e)=>{
+      const t=e.touches[0];
+      startX=t.clientX;startY=t.clientY;startT=Date.now();
+      /* 메뉴 닫힘: 화면 왼쪽 30px 안에서 시작한 터치만 추적 (열기 제스처)
+         메뉴 열림: 어디서든 추적 (닫기 제스처) */
+      tracking = sbOpen || startX<=30;
+    };
+    const onEnd=(e)=>{
+      if(!tracking)return;tracking=false;
+      const t=e.changedTouches[0];
+      const dx=t.clientX-startX, dy=t.clientY-startY, dt=Date.now()-startT;
+      /* 가로 이동이 세로보다 충분히 크고, 빠르거나 충분히 멀면 동작 */
+      if(Math.abs(dx)<60||Math.abs(dy)>Math.abs(dx)*0.8)return;
+      if(dt>600)return;
+      if(dx>60&&!sbOpen){setSbOpen(true);}       /* 오른쪽 스와이프 → 열기 */
+      else if(dx<-60&&sbOpen){setSbOpen(false);} /* 왼쪽 스와이프 → 닫기 */
+    };
+    document.addEventListener('touchstart',onStart,{passive:true});
+    document.addEventListener('touchend',onEnd,{passive:true});
+    return ()=>{
+      document.removeEventListener('touchstart',onStart);
+      document.removeEventListener('touchend',onEnd);
+    };
+  },[sbOpen]);
   const[navSections,setNavSections]=useState(()=>loadNavSections());
   const[navEditMode,setNavEditMode]=useState(false);
   const[draggedItem,setDraggedItem]=useState(null);
