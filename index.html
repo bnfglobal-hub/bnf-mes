@@ -6800,6 +6800,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'prodResult',l:'생산실적',ic:'📈'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'orders',l:'발주현황',ic:'🚚'},
+    {id:'shipsort',l:'출고 계획',ic:'📦'},
     {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
@@ -6849,7 +6850,8 @@ function loadNavSections(){
             /* 식품제조 신규 메뉴 자동 삽입 */
             if(s.type==='factory'){
               const newMenus=[
-                {after:'prod',item:{id:'prodResult',l:'생산실적',ic:'📈'}}
+                {after:'prod',item:{id:'prodResult',l:'생산실적',ic:'📈'}},
+                {after:'orders',item:{id:'shipsort',l:'출고 계획',ic:'📦'}}
               ];
               newMenus.forEach(({after,item})=>{
                 if(!newItems.find(it=>it.id===item.id)){
@@ -7830,6 +7832,187 @@ function VendorForm({vendor,onClose,onSave}){
   );
 }
 
+/* ═══ 출고 계획 (센터별 박스/팔레트 집계) ═══════════════ */
+function PageShipSort(){
+  const[raw,setRaw]=useState('');
+  const[parsed,setParsed]=useState(null);
+  const[palletCfg,setPalletCfg]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_pallet_cfg')||'{}');}catch(e){return{};}});
+  const fileRef=useRef(null);
+
+  /* Supabase에서 팔레트 설정 불러오기 */
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const sd=data&&data.state_data?data.state_data:{};
+      if(sd.pallet_cfg&&typeof sd.pallet_cfg==='object'){
+        setPalletCfg(sd.pallet_cfg);
+        localStorage.setItem('bnf_pallet_cfg',JSON.stringify(sd.pallet_cfg));
+      }
+    }).catch(()=>{});
+  },[]);
+  const savePalletCfg=(next)=>{
+    setPalletCfg(next);
+    localStorage.setItem('bnf_pallet_cfg',JSON.stringify(next));
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const ex=data&&data.state_data?data.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...ex,pallet_cfg:next},updated_at:new Date().toISOString()});
+    });
+  };
+
+  /* 행 배열 → 센터별 파싱. 컬럼 자동 인식: 입고지/센터, 상품명/제품명, 박스/수량, 낱개수량 */
+  const parseRows=(rows)=>{
+    if(!rows||rows.length<2){alert('데이터가 부족합니다');return;}
+    /* 헤더 찾기 */
+    let headerIdx=-1,cols={};
+    for(let i=0;i<Math.min(5,rows.length);i++){
+      const r=rows[i].map(c=>String(c||'').replace(/\s/g,''));
+      const find=(kws)=>r.findIndex(c=>kws.some(k=>c.includes(k)));
+      const ci={center:find(['입고지','센터','출고센터','입고처']),name:find(['상품명','제품명','품명']),box:find(['수량','박스']),ea:find(['낱개','낱개수량','제품수량'])};
+      if(ci.center>=0&&ci.name>=0){headerIdx=i;cols=ci;break;}
+    }
+    if(headerIdx<0){alert('헤더(입고지/상품명)를 찾을 수 없습니다. 표 형식을 확인하세요.');return;}
+    /* 수량/낱개 컬럼 보정: 수량과 낱개수량이 한 셀에 줄바꿈으로 들어있는 경우 처리 */
+    const data=[];
+    let lastCenter='';
+    for(let i=headerIdx+1;i<rows.length;i++){
+      const r=rows[i];
+      if(!r||r.every(c=>String(c||'').trim()===''))continue;
+      const center=String(r[cols.center]||'').trim()||lastCenter;
+      if(center)lastCenter=center;
+      const name=String(r[cols.name]||'').trim();
+      if(!name)continue;
+      /* 수량/낱개: 셀에 줄바꿈으로 "7\n105" 형태일 수 있음 */
+      let box=0,ea=0;
+      const boxCell=String(r[cols.box]||'');
+      if(cols.ea>=0&&cols.ea!==cols.box){
+        box=parseFloat(boxCell.replace(/[^0-9.]/g,''))||0;
+        ea=parseFloat(String(r[cols.ea]||'').replace(/[^0-9.]/g,''))||0;
+      }else{
+        /* 한 셀에 박스/낱개가 줄바꿈으로 */
+        const parts=boxCell.split(/[\n\r]+/).map(x=>parseFloat(x.replace(/[^0-9.]/g,''))||0);
+        box=parts[0]||0;ea=parts[1]||0;
+      }
+      data.push({center,name:name.replace(/\s+/g,' '),box,ea});
+    }
+    /* 센터별 그룹핑 */
+    const byCenter={};
+    data.forEach(d=>{
+      if(!byCenter[d.center])byCenter[d.center]={items:[],totalBox:0,totalEa:0};
+      /* 같은 제품 합산 */
+      const ex=byCenter[d.center].items.find(x=>x.name===d.name);
+      if(ex){ex.box+=d.box;ex.ea+=d.ea;}
+      else byCenter[d.center].items.push({name:d.name,box:d.box,ea:d.ea});
+      byCenter[d.center].totalBox+=d.box;
+      byCenter[d.center].totalEa+=d.ea;
+    });
+    /* 제품 전체 합계 (센터 무관) */
+    const prodTotal={};
+    data.forEach(d=>{prodTotal[d.name]=(prodTotal[d.name]||0)+d.ea;});
+    setParsed({byCenter,prodTotal});
+  };
+
+  const handlePaste=()=>{
+    if(!raw.trim()){alert('데이터를 붙여넣으세요');return;}
+    /* 탭 또는 여러 공백으로 분리된 표 */
+    const rows=raw.split(/\n/).map(line=>line.split(/\t/));
+    parseRows(rows);
+  };
+  const handleFile=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try{
+        const wb=XLSX.read(ev.target.result,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+        parseRows(rows);
+      }catch(err){alert('엑셀 읽기 실패: '+err.message);}
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value='';
+  };
+
+  /* 팔레트당 박스 수 (제품별, 없으면 기본 30) */
+  const getPPB=(name)=>palletCfg[name]||30;
+  const setPPB=(name,val)=>{const n={...palletCfg};if(val)n[name]=+val;else delete n[name];savePalletCfg(n);};
+
+  /* 센터별 팔레트 계산: 제품별 박스÷팔레트당박스 합산 */
+  const centerPallet=(items)=>items.reduce((s,it)=>s+(it.box/getPPB(it.name)),0);
+
+  const exportResult=()=>{
+    if(!parsed)return;
+    const rows=[['출고센터','제품명','박스수량','제품수량(낱개)','소비기한']];
+    Object.entries(parsed.byCenter).forEach(([center,d])=>{
+      d.items.forEach((it,i)=>rows.push([i===0?center:'',it.name,it.box,it.ea,'']));
+      rows.push(['','합계',d.totalBox,d.totalEa,'']);
+      rows.push(['','팔레트수',centerPallet(d.items).toFixed(3),'','']);
+      rows.push(['','','','','']);
+    });
+    rows.push(['','','','','']);
+    rows.push(['제품 총수량','','','','']);
+    Object.entries(parsed.prodTotal).forEach(([name,ea])=>rows.push([name,ea,'ea','','']));
+    exportXL(rows,'출고정리_'+new Date().toISOString().slice(0,10),'출고정리');
+  };
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📦 출고 계획'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'발주 데이터를 붙여넣으면 센터별 박스·팔레트로 자동 정리')),
+      parsed&&R('button',{className:'btn bp',onClick:exportResult},'엑셀 내보내기')
+    ),
+    /* 입력 영역 */
+    R('div',{className:'card',style:{marginBottom:14}},
+      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'1. 발주 데이터 입력'),
+      R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8}},'엑셀에서 표를 복사해 아래에 붙여넣거나, 엑셀 파일을 업로드하세요. (입고지·상품명·수량·낱개수량 컬럼 자동 인식)'),
+      R('textarea',{value:raw,onChange:e=>setRaw(e.target.value),placeholder:'엑셀에서 복사한 표를 여기에 붙여넣기 (Ctrl+V)',style:{width:'100%',minHeight:100,padding:10,border:'1px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'monospace',resize:'vertical'}}),
+      R('div',{style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}},
+        R('button',{className:'btn bp',onClick:handlePaste},'붙여넣은 데이터 정리'),
+        R('button',{className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click()},'📁 엑셀 파일 업로드'),
+        R('input',{ref:fileRef,type:'file',accept:'.xlsx,.xls,.csv',onChange:handleFile,style:{display:'none'}}),
+        raw&&R('button',{className:'btn bs',onClick:()=>{setRaw('');setParsed(null);}},'초기화')
+      )
+    ),
+    /* 결과 */
+    parsed&&R('div',null,
+      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:10}},'2. 센터별 정리 결과'),
+      ...Object.entries(parsed.byCenter).map(([center,d])=>R('div',{key:center,className:'card',style:{marginBottom:12,padding:0,overflow:'hidden'}},
+        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,var(--p),var(--pd))',color:'#fff',fontWeight:800,fontSize:14}},center),
+        R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
+          R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+            R('th',{style:{padding:'6px 12px',textAlign:'left',fontSize:10,color:'#64748b'}},'제품명'),
+            R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:70}},'박스'),
+            R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:90}},'제품수량'),
+            R('th',{style:{padding:'6px 8px',textAlign:'center',fontSize:10,color:'#64748b',width:90}},'박스/팔레트')
+          )),
+          R('tbody',null,
+            ...d.items.map((it,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9'}},
+              R('td',{style:{padding:'6px 12px',fontWeight:600}},it.name),
+              R('td',{style:{padding:'6px 8px',textAlign:'right',fontWeight:700}},it.box),
+              R('td',{style:{padding:'6px 8px',textAlign:'right',color:'#64748b'}},fN(it.ea)),
+              R('td',{style:{padding:'6px 8px',textAlign:'center'}},
+                R('input',{type:'number',value:getPPB(it.name),onChange:e=>setPPB(it.name,e.target.value),title:'1팔레트당 박스 수',style:{width:50,padding:'2px 4px',border:'1px solid #e2e8f0',borderRadius:6,fontSize:11,textAlign:'center'}})
+              )
+            )),
+            R('tr',{style:{borderTop:'2px solid var(--bd)',background:'#FFF8F4'}},
+              R('td',{style:{padding:'7px 12px',fontWeight:800}},'합계'),
+              R('td',{style:{padding:'7px 8px',textAlign:'right',fontWeight:800,color:'var(--p)'}},d.totalBox,'박스'),
+              R('td',{style:{padding:'7px 8px',textAlign:'right',fontWeight:700}},fN(d.totalEa)),
+              R('td',{style:{padding:'7px 8px',textAlign:'center',fontWeight:800,color:'var(--p)'}},'팔레트 ',centerPallet(d.items).toFixed(2))
+            )
+          )
+        )
+      )),
+      /* 제품 총수량 */
+      R('div',{className:'card',style:{marginTop:4}},
+        R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'제품 총수량 (전 센터 합계)'),
+        ...Object.entries(parsed.prodTotal).map(([name,ea])=>R('div',{key:name,style:{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid #F1F5F9',fontSize:12}},
+          R('span',{style:{fontWeight:600}},name),
+          R('span',{style:{fontWeight:700,color:'var(--p)'}},fN(ea),' ea')
+        ))
+      ),
+      R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8,padding:'0 4px'}},'※ 박스/팔레트 칸의 숫자(1팔레트당 박스 수)는 제품마다 수정 가능하며 자동 저장됩니다. 소비기한은 엑셀 내보내기 후 직접 입력하세요.')
+    )
+  );
+}
+
 function App(){
   const[user,setUser]=useState(null);
   const[sbOpen,setSbOpen]=useState(false); /* 모바일 사이드바 토글 */
@@ -8211,6 +8394,7 @@ function App(){
     if(page==='sales_data'||page==='adm_sales'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageSalesAnalysis,{user,variant:'adm'});}
     if(page==='purchase_data'||page==='adm_purchase'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PagePurchaseAnalysis,{mats,variant:'adm'});}
     if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
+    if(page==='shipsort')return R(PageShipSort);
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
