@@ -134,9 +134,9 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .pg{padding:12px !important;padding-bottom:76px !important}
 .pg.fa{padding:12px !important;padding-bottom:76px !important}
 .g3{grid-template-columns:1fr 1fr !important}
-.inv-wrap{flex-direction:column !important}
-.cat-col{flex-direction:row !important;overflow-x:auto;gap:6px;padding:8px;border-right:none !important;border-bottom:1px solid var(--bd);min-width:unset !important;width:100% !important;max-height:56px;white-space:nowrap}
-.inv-main{padding:8px !important}
+.inv-wrap{flex-direction:column !important;height:auto !important;overflow:visible !important}
+.cat-col{flex-direction:row !important;overflow-x:auto;gap:6px;padding:8px;border-right:none !important;border-bottom:1px solid var(--bd);min-width:unset !important;width:100% !important;max-height:56px;white-space:nowrap;position:static !important;align-self:auto !important}
+.inv-main{padding:8px !important;overflow:visible !important;height:auto !important;flex:none !important}
 .tab-row{overflow-x:auto;flex-wrap:nowrap !important;-webkit-overflow-scrolling:touch}
 .tab{white-space:nowrap !important}
 .card{border-radius:12px !important}
@@ -208,7 +208,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
     scrollbar-width:none;
   }
   .cat-col::-webkit-scrollbar{display:none;}
-  .inv-main{padding:8px !important;overflow-x:hidden !important;overflow-y:auto !important;padding-bottom:80px !important;}
+  .inv-main{padding:8px !important;overflow:visible !important;height:auto !important;flex:none !important;padding-bottom:80px !important;}
   .inv-tbl{overflow-x:auto !important;overflow-y:visible !important;min-height:auto !important;}
   .inv-tbl table{min-width:680px !important;}
   
@@ -1133,7 +1133,7 @@ function PageWorkRequest({user}){
       R('button',{onClick:openNew,style:{padding:'6px 14px',background:'var(--p)',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'inherit',boxShadow:'0 1px 3px rgba(217,79,30,0.3)'}},'+ 상세 추가')
     ),
     /* 빠른 추가 바 (표 위) */
-    viewMode==='table'&&R('div',{style:{display:'flex',gap:6,marginBottom:10,padding:'8px 10px',background:'#FFF8F4',border:'1px solid #D9B3E8',borderRadius:8,alignItems:'center',flexWrap:'wrap'}},
+    viewMode==='table'&&R('div',{style:{display:'flex',gap:6,marginBottom:10,padding:'8px 10px',background:'#FFF8F4',border:'1px solid #FCC8B0',borderRadius:8,alignItems:'center',flexWrap:'wrap'}},
       R('span',{style:{fontSize:10,fontWeight:700,color:'var(--p)'}},'⚡ 빠른 추가'),
       R('input',{value:quickAddTitle,onChange:e=>setQuickAddTitle(e.target.value),onKeyDown:e=>{if(e.key==='Enter')quickAdd();},placeholder:'업무명 입력 후 Enter',style:{flex:1,minWidth:180,padding:'5px 10px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,fontFamily:'inherit'}}),
       R('select',{value:quickAddAssignee,onChange:e=>setQuickAddAssignee(e.target.value),style:{padding:'5px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,background:'#fff',minWidth:120,fontFamily:'inherit'}},
@@ -2096,6 +2096,25 @@ function PageFixedCosts({user,variant='adm'}){
 
 
 /* ═══ 공장 가동률 ════════════════════════════════════ */
+/* 연도별 법정공휴일 (주말과 중복돼도 무방, Set으로 처리) */
+const HOLIDAYS={
+  2026:['2026-01-01','2026-02-16','2026-02-17','2026-02-18','2026-03-02','2026-05-01','2026-05-05','2026-05-25','2026-06-03','2026-07-17','2026-08-17','2026-09-24','2026-09-25','2026-10-05','2026-10-09','2026-12-25']
+};
+/* 해당 연/월의 실제 근무 평일 수 (주말+공휴일 제외) */
+function calcWorkingDays(year,month){
+  const hset=new Set(HOLIDAYS[year]||[]);
+  let count=0;
+  const days=new Date(year,month,0).getDate();
+  for(let d=1;d<=days;d++){
+    const date=new Date(year,month-1,d);
+    const dow=date.getDay();
+    if(dow===0||dow===6)continue;
+    const ds=year+'-'+String(month).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    if(hset.has(ds))continue;
+    count++;
+  }
+  return count;
+}
 function PagePlant({user}){
   const[ops,setOps]=useState([]);
   const[fixedCosts,setFixedCosts]=useState([]);
@@ -2147,7 +2166,7 @@ function PagePlant({user}){
       if(existing){
         result=await sbClient.from('plant_operations').update({[field]:numVal,updated_at:new Date().toISOString()}).eq('id',existing.id).select();
       }else{
-        const newRow={year,month,working_days:22,actual_days:0,target_rate:targetRate,memo:''};
+        const newRow={year,month,working_days:calcWorkingDays(year,month),actual_days:0,target_rate:targetRate,memo:''};
         newRow[field]=numVal;
         result=await sbClient.from('plant_operations').insert(newRow).select();
       }
@@ -2190,11 +2209,13 @@ function PagePlant({user}){
 
   const monthData=months.map(m=>{
     const d=ops.find(o=>+o.month===m);
-    const wd=localEdit[m+'_working_days']!==undefined?+localEdit[m+'_working_days']:(d?+d.working_days:22);
+    /* 가동가능일수: 입력값 있으면 사용, 없으면 해당 연/월 실제 평일 자동계산 */
+    const autoWd=calcWorkingDays(year,m);
+    const wd=localEdit[m+'_working_days']!==undefined?+localEdit[m+'_working_days']:(d&&+d.working_days>0?+d.working_days:autoWd);
     const ad=localEdit[m+'_actual_days']!==undefined?+localEdit[m+'_actual_days']:(d?+d.actual_days:0);
     const memo=localEdit[m+'_memo']!==undefined?localEdit[m+'_memo']:(d?d.memo||'':'');
     const fc=monthlyFC[m]||0;
-    return{month:m,wd,ad,rate:wd>0?(ad/wd*100):0,memo,fc};
+    return{month:m,wd,ad,rate:wd>0?(ad/wd*100):0,memo,fc,autoWd};
   });
 
   const totalWd=monthData.reduce((s,m)=>s+m.wd,0);
@@ -2205,6 +2226,20 @@ function PagePlant({user}){
   const enteredAd=enteredMonths.reduce((s,m)=>s+m.ad,0);
   const yearRate=enteredWd>0?(enteredAd/enteredWd*100):0;
   const activeCount=enteredMonths.length;
+
+  /* ── 오늘까지 기준 실제 가동률 (현재 연도일 때만 의미) ── */
+  const today=new Date();
+  const isCurYear=year===today.getFullYear();
+  const curMonth=today.getMonth()+1; /* 1-12 */
+  /* 오늘까지 경과한 월들만 (현재 월 포함). 미래 월·미입력 월 제외 */
+  const ytdMonths=monthData.filter(m=>{
+    if(isCurYear&&m.month>curMonth)return false; /* 미래 월 제외 */
+    return m.ad>0; /* 실적 입력된 월만 */
+  });
+  const ytdWd=ytdMonths.reduce((s,m)=>s+m.wd,0);
+  const ytdAd=ytdMonths.reduce((s,m)=>s+m.ad,0);
+  const ytdRate=ytdWd>0?(ytdAd/ytdWd*100):0;
+  const ytdCount=ytdMonths.length;
 
   /* BEP 계산 */
   const totalYearFC=Object.values(monthlyFC).reduce((a,b)=>a+b,0);
@@ -2251,8 +2286,24 @@ function PagePlant({user}){
       )
     ),
 
+    /* ── 오늘까지 실제 가동률 평균 (핵심 지표) ── */
+    R('div',{className:'card',style:{marginBottom:14,background:'linear-gradient(135deg,var(--p),var(--pd))',color:'#fff',border:'none'}},
+      R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:14}},
+        R('div',null,
+          R('div',{style:{fontSize:13,fontWeight:700,opacity:0.95}},'🏭 '+(isCurYear?'올해 ':year+'년 ')+'실제 가동률 평균'),
+          R('div',{style:{fontSize:10,opacity:0.8,marginTop:2}},isCurYear?('1월 ~ '+curMonth+'월 중 실적 입력된 '+ytdCount+'개월 기준'):(ytdCount+'개월 실적 기준'))
+        ),
+        R('div',{style:{textAlign:'right'}},
+          R('div',{style:{fontSize:38,fontWeight:900,lineHeight:1}},ytdCount>0?ytdRate.toFixed(1)+'%':'-'),
+          ytdCount>0&&R('div',{style:{fontSize:11,opacity:0.85,marginTop:2}},'가동 '+ytdAd+'일 / 가능 '+ytdWd+'일',
+            R('span',{style:{marginLeft:8,padding:'1px 8px',borderRadius:10,background:'rgba(255,255,255,0.25)',fontWeight:700}},ytdRate>=targetRate?'목표 달성':'목표 '+(targetRate-ytdRate).toFixed(1)+'%p 미달')
+          )
+        )
+      )
+    ),
+
     /* 목표 가동률 슬라이더 */
-    R('div',{className:'card',style:{marginBottom:14,background:'linear-gradient(135deg,#FFF8F4,#EDD9F5)',border:'1px solid #D9B3E8'}},
+    R('div',{className:'card',style:{marginBottom:14,background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',border:'1px solid #FCC8B0'}},
       R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:14}},
         R('div',null,R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)'}},'🎯 목표 가동률'),R('div',{style:{fontSize:10,color:'var(--tm)'}},'슬라이더 조작 시 자동 저장')),
         R('div',{style:{display:'flex',alignItems:'center',gap:12}},
@@ -3960,7 +4011,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           );
         };
         return R('div',{className:'card',style:{padding:0,overflow:'hidden',display:'flex',flexDirection:'column',maxHeight:540}},
-        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#EDD9F5)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,gap:8}},
+        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,gap:8}},
           R('div',{style:{minWidth:0,flex:1}},
             R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},'⭐ 완제품 재고 현황',
               shortFavs.length>0&&R('span',{style:{fontSize:9,background:'#FEE2E2',color:'#B91C1C',padding:'1px 7px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+shortFavs.length)
@@ -5478,7 +5529,7 @@ function PageOperation({user}){
       R('button',{className:'btn bp',onClick:()=>{setEditRec(null);setForm({year:now.getFullYear(),month:now.getMonth()+1,total_days:22,actual_days:0,target_rate:80,notes:''});setShowForm(true);}},'+ 월별 입력')
     ),
     R('div',{className:'g3',style:{marginBottom:14}},
-      R('div',{className:'card',style:{background:'linear-gradient(135deg,#FFF5F0,#EDD9F5)',border:'1px solid #D9B3E8'}},
+      R('div',{className:'card',style:{background:'linear-gradient(135deg,#FFF5F0,#FFE5DA)',border:'1px solid #FCC8B0'}},
         R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:4}},'이번 달 가동률'),
         R('div',{style:{fontSize:30,fontWeight:900,color:thisRate>=thisTarget?'#22C55E':thisRate>=thisTarget*0.8?'#F59E0B':'#EF4444'}},thisRate.toFixed(1)+'%'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:4}},thisMonth?(thisMonth.actual_days+'일 / '+thisMonth.total_days+'일'):'데이터 없음')
@@ -5808,7 +5859,7 @@ function PageAutoOrder({user,mats,onCreateOrder}){
   
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},R('div',null,R('div',{className:'pg-title'},'🤖 자동 발주 제안'),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},'안전재고 기준 자동 추천'))),
-    R('div',{className:'card',style:{background:'linear-gradient(135deg,#fff,#FFF5F0)',border:'1px solid #D9B3E8',marginBottom:14}},
+    R('div',{className:'card',style:{background:'linear-gradient(135deg,#fff,#FFF5F0)',border:'1px solid #FCC8B0',marginBottom:14}},
       R('div',{style:{display:'flex',gap:14,alignItems:'center'}},
         R('div',{style:{fontSize:32}},'🤖'),
         R('div',null,R('div',{style:{fontSize:13,fontWeight:700,marginBottom:4}},'AI 발주 제안 시스템'),R('div',{style:{fontSize:11,color:'var(--tm)',lineHeight:1.6}},'• 재발주점 = 월사용량 × 0.7',R('br'),'• 안전재고 = 월사용량 × 0.5',R('br'),'• 추천 주문량 = 월사용량 × 1.5 - 현재고'))
@@ -6716,7 +6767,7 @@ function PageData({mats,prods,orders,hqItems,cats,quote,pqty,onImport}){
       R('input',{ref:impRef,type:'file',accept:'.json',style:{display:'none'},onChange:onFile}),
       R('button',{className:'btn bw',style:{width:'100%',padding:12,fontSize:14},onClick:()=>impRef.current.click()},'📂 데이터 파일 불러오기')
     ),
-    R('div',{className:'card',style:{background:'#FFF5F0',border:'1px solid #D9B3E8'}},
+    R('div',{className:'card',style:{background:'#FFF5F0',border:'1px solid #FCC8B0'}},
       R('div',{style:{fontSize:13,fontWeight:700,color:'#D94F1E',marginBottom:8}},'📱 핸드폰 연동 방법'),
       ...[
         '① PC에서 "데이터 파일 저장" 클릭',
@@ -6946,7 +6997,7 @@ function XlPreviewModal({preview,onClose,onConfirm}){
                 R('thead',null,R('tr',{style:{background:'#F9FAFB'}},
                   ...colIdx.map(ci=>{
                     const isCode=ci===codeCol;const isName=ci===nameCol;const isQty=ci===qtyCol;
-                    const bg=isQty?(isSuspicious?'#FEE2E2':'#EDD9F5'):isCode?'#DBEAFE':isName?'#E0E7FF':'#F9FAFB';
+                    const bg=isQty?(isSuspicious?'#FEE2E2':'#FFE5DA'):isCode?'#DBEAFE':isName?'#E0E7FF':'#F9FAFB';
                     const fg=isQty?(isSuspicious?'#B91C1C':'#B83E15'):isCode?'#1D4ED8':isName?'#4338CA':'#64748B';
                     return R('th',{key:ci,style:{padding:'6px 8px',textAlign:'left',fontSize:10,fontWeight:700,color:fg,background:bg,borderRight:'1px solid var(--bd)',whiteSpace:'nowrap'}},
                       isQty?(isSuspicious?'⚠️ 재고?':'★ 재고'):isCode?'📌 코드':isName?'📝 이름':'',R('br'),
@@ -8074,7 +8125,7 @@ function App(){
     const cv=document.createElement('canvas');cv.width=900;cv.height=Math.max(280,130+rows.length*28+50);
     const ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
     ctx.fillStyle='#B83E15';ctx.fillRect(0,0,cv.width,84);ctx.fillStyle='#fff';ctx.font='bold 20px sans-serif';ctx.fillText('B&F Global  생산지시서',22,36);
-    ctx.font='11px sans-serif';ctx.fillStyle='#D9B3E8';ctx.fillText(new Date().toLocaleString('ko-KR'),22,58);
+    ctx.font='11px sans-serif';ctx.fillStyle='#FCC8B0';ctx.fillText(new Date().toLocaleString('ko-KR'),22,58);
     ctx.fillStyle='#1A1A1A';ctx.font='bold 15px sans-serif';ctx.fillText('제품: '+prod.name+' | 수량: '+qty+'개',22,110);
     const xs=[20,170,255,340,425,555,682];const hdrs=['원재료명','필요수량','현재고','부족수량','매입처','담당자','리드타임'];
     ctx.fillStyle='#f8f4f1';ctx.fillRect(0,122,cv.width,22);ctx.fillStyle='#64748b';ctx.font='bold 10px sans-serif';hdrs.forEach((h,i)=>ctx.fillText(h,xs[i],137));
