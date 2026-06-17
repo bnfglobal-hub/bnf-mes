@@ -7666,26 +7666,33 @@ function PageShipSort(){
       shipDate&&R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',marginBottom:12}},shipDate+' 출고 예정 상품'),
       ...Object.entries(parsed.byCenter).map(([center,d])=>{
         const pallet=d.totalBox/30;
+        /* 센터별 색상 (헤더 배경/합계 배경) */
+        const colorMap={
+          '김포(삼우)':{hdr:'#16A34A',hdrD:'#15803D',sum:'#F0FDF4',sumT:'#16A34A'},
+          '평택컬리':{hdr:'#2563EB',hdrD:'#1D4ED8',sum:'#EFF6FF',sumT:'#2563EB'},
+          '창원물류대행':{hdr:'#D94F1E',hdrD:'#B83E15',sum:'#FFF8F4',sumT:'#D94F1E'}
+        };
+        const c=colorMap[center]||{hdr:'#64748B',hdrD:'#475569',sum:'#F8FAFC',sumT:'#475569'};
         return R('div',{key:center,className:'card',style:{marginBottom:12,padding:0,overflow:'hidden'}},
-          R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,var(--p),var(--pd))',color:'#fff',fontWeight:800,fontSize:14}},center),
-          R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
+          R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,'+c.hdr+','+c.hdrD+')',color:'#fff',fontWeight:800,fontSize:14}},center),
+          R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse',tableLayout:'auto'}},
             R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
-              R('th',{style:{padding:'6px 12px',textAlign:'left',fontSize:10,color:'#64748b'}},'제품명'),
-              R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:60}},'박스'),
-              R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:80}},'제품수량'),
-              R('th',{style:{padding:'6px 10px',textAlign:'center',fontSize:10,color:'#64748b',width:90}},'소비기한')
+              R('th',{style:{padding:'5px 10px',textAlign:'left',fontSize:10,color:'#64748b',fontWeight:600}},'제품명'),
+              R('th',{style:{padding:'5px 6px',textAlign:'left',fontSize:10,color:'#64748b',fontWeight:600,width:50,whiteSpace:'nowrap'}},'박스'),
+              R('th',{style:{padding:'5px 6px',textAlign:'left',fontSize:10,color:'#64748b',fontWeight:600,width:70,whiteSpace:'nowrap'}},'제품수량'),
+              R('th',{style:{padding:'5px 6px',textAlign:'left',fontSize:10,color:'#64748b',fontWeight:600,width:85,whiteSpace:'nowrap'}},'소비기한')
             )),
             R('tbody',null,
               ...Object.entries(d.items).map(([name,v],i)=>R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9'}},
-                R('td',{style:{padding:'6px 12px',fontWeight:600}},name),
-                R('td',{style:{padding:'6px 8px',textAlign:'right',fontWeight:700}},v.box),
-                R('td',{style:{padding:'6px 8px',textAlign:'right',color:'#64748b'}},fN(v.total)),
-                R('td',{style:{padding:'6px 10px',textAlign:'center',color:'#DC2626',fontWeight:600}},v.exp||'-')
+                R('td',{style:{padding:'5px 10px',fontWeight:600,whiteSpace:'nowrap'}},name),
+                R('td',{style:{padding:'5px 6px',textAlign:'left',fontWeight:700,whiteSpace:'nowrap'}},v.box),
+                R('td',{style:{padding:'5px 6px',textAlign:'left',color:'#64748b',whiteSpace:'nowrap'}},fN(v.total)),
+                R('td',{style:{padding:'5px 6px',textAlign:'left',color:'#DC2626',fontWeight:600,whiteSpace:'nowrap'}},v.exp||'-')
               )),
-              R('tr',{style:{borderTop:'2px solid var(--bd)',background:'#FFF8F4'}},
-                R('td',{style:{padding:'7px 12px',fontWeight:800}},'합계'),
-                R('td',{style:{padding:'7px 8px',textAlign:'right',fontWeight:800,color:'var(--p)'}},d.totalBox),
-                R('td',{colSpan:2,style:{padding:'7px 10px',textAlign:'right',fontWeight:700,color:'var(--p)'}},'박스 30 · 팔레트 ',pallet.toFixed(2))
+              R('tr',{style:{borderTop:'2px solid '+c.hdr,background:c.sum}},
+                R('td',{style:{padding:'6px 10px',fontWeight:800,color:c.sumT}},'합계'),
+                R('td',{style:{padding:'6px 6px',textAlign:'left',fontWeight:800,color:c.sumT,whiteSpace:'nowrap'}},d.totalBox),
+                R('td',{colSpan:2,style:{padding:'6px 6px',textAlign:'left',fontWeight:700,color:c.sumT,whiteSpace:'nowrap'}},'박스 30 · 팔레트 ',pallet.toFixed(2))
               )
             )
           )
