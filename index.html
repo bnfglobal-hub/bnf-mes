@@ -6485,11 +6485,9 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'hq',l:'본사재고',ic:'🏢'},
     {id:'bom',l:'제품/BOM',ic:'⊕'},
     {id:'prod',l:'생산계획',ic:'⚙'},
-    {id:'prodResult',l:'생산실적',ic:'📈'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'orders',l:'발주현황',ic:'🚚'},
     {id:'shipsort',l:'출고 계획',ic:'📦'},
-    {id:'autoOrder',l:'자동발주제안',ic:'🤖'},
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
     {id:'approval',l:'전자결재',ic:'📋'},
@@ -6511,7 +6509,7 @@ function loadNavSections(){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
         /* 본사(hq) 섹션 + 관리자 섹션에서 제거된 항목들 자동 정리 */
-        const REMOVED_IDS=new Set(['adm_sales','adm_purchase','fixed_costs','adm_dash','hq_dash','hq_sales','hq_purchase','hq_fixed_costs','expiry','shipment','hygiene','vendors','quote']);
+        const REMOVED_IDS=new Set(['adm_sales','adm_purchase','fixed_costs','adm_dash','hq_dash','hq_sales','hq_purchase','hq_fixed_costs','expiry','shipment','hygiene','vendors','quote','prodResult','autoOrder']);
         let changed=false;
         const filtered=p.filter(s=>{if(s&&s.type==='hq'){changed=true;return false;}return true;}).map(s=>{
           if(s&&Array.isArray(s.items)){
@@ -6538,7 +6536,6 @@ function loadNavSections(){
             /* 식품제조 신규 메뉴 자동 삽입 */
             if(s.type==='factory'){
               const newMenus=[
-                {after:'prod',item:{id:'prodResult',l:'생산실적',ic:'📈'}},
                 {after:'orders',item:{id:'shipsort',l:'출고 계획',ic:'📦'}}
               ];
               newMenus.forEach(({after,item})=>{
@@ -7526,7 +7523,28 @@ function PageShipSort(){
   const[loading,setLoading]=useState(false);
   const[progress,setProgress]=useState('');
   const[shipDate,setShipDate]=useState('');
+  const[loadedFromDB,setLoadedFromDB]=useState(false);
   const fileRef=useRef(null);
+
+  /* 저장된 출고계획 불러오기 (페이지 열 때) */
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const sd=data&&data.state_data?data.state_data:{};
+      if(sd.shipsort_data&&sd.shipsort_data.byCenter){
+        setParsed(sd.shipsort_data);
+        if(sd.shipsort_date)setShipDate(sd.shipsort_date);
+      }
+      setLoadedFromDB(true);
+    }).catch(()=>setLoadedFromDB(true));
+  },[]);
+
+  /* parsed 변경 시 Supabase에 자동 저장 (불러온 직후 제외) */
+  const saveShipsort=(data,date)=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:r})=>{
+      const ex=r&&r.state_data?r.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...ex,shipsort_data:data,shipsort_date:date||''},updated_at:new Date().toISOString()});
+    });
+  };
 
   /* 센터명 정규화: 거래명세서 표기 → 표시용 짧은 이름 */
   const normCenter=(raw)=>{
@@ -7602,12 +7620,12 @@ function PageShipSort(){
     }
     if(allOrders.length===0){setLoading(false);setProgress('');alert('발주 정보를 추출하지 못했습니다. PDF 형식을 확인하세요.');return;}
     if(foundDate)setShipDate(foundDate);
-    aggregate(allOrders);
+    aggregate(allOrders,foundDate);
     setLoading(false);setProgress('');
   };
 
   /* 센터별 집계 */
-  const aggregate=(orders)=>{
+  const aggregate=(orders,dateStr)=>{
     const byCenter={};
     orders.forEach(o=>{
       if(!byCenter[o.center])byCenter[o.center]={items:{},totalBox:0};
@@ -7624,7 +7642,9 @@ function PageShipSort(){
     /* 제품 총수량 */
     const prodTotal={};
     orders.forEach(o=>o.items.forEach(it=>{prodTotal[it.name]=(prodTotal[it.name]||0)+it.total;}));
-    setParsed({byCenter,prodTotal});
+    const result={byCenter,prodTotal};
+    setParsed(result);
+    saveShipsort(result,dateStr||shipDate); /* 새로고침해도 남도록 저장 */
   };
 
   const exportResult=()=>{
@@ -7649,7 +7669,13 @@ function PageShipSort(){
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📦 출고 계획'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'컬리 거래명세서 PDF를 올리면 센터별로 자동 정리')),
-      parsed&&R('button',{className:'btn bp',onClick:exportResult},'엑셀 내보내기')
+      R('div',{style:{display:'flex',gap:6}},
+        parsed&&R('button',{className:'btn bp',onClick:exportResult},'엑셀 내보내기'),
+        parsed&&R('button',{className:'btn bs',onClick:()=>{
+          if(!confirm('저장된 출고 계획을 지울까요?'))return;
+          setParsed(null);setShipDate('');saveShipsort(null,'');
+        }},'초기화')
+      )
     ),
     /* 업로드 영역 */
     R('div',{className:'card',style:{marginBottom:14}},
