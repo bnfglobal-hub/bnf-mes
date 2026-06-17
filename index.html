@@ -297,6 +297,7 @@ window._isStandalone=window.matchMedia('(display-mode: standalone)').matches||wi
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 const {useState,useRef,useEffect,useMemo}=React;
 const R=React.createElement;
@@ -415,415 +416,102 @@ const fSD=ds=>{const d=new Date(ds);return (d.getMonth()+1)+'/'+d.getDate();};
 const isToday=ds=>ds===new Date().toISOString().slice(0,10);
 
 function PageProdSchedule(){
-  const[startMonday,setStartMonday]=useState(getMonday(today2()));
-  const[weekData,setWeekData]=useState({}); /* {date: [{...일정}]} */
-  const[saving,setSaving]=useState('');
-  const[modalItem,setModalItem]=useState(null); /* 편집/생성 중인 일정 */
-  const[filterAssignee,setFilterAssignee]=useState('');
-  const[filterFloor,setFilterFloor]=useState('all'); /* all|prod1|prod2|rd */
-  const[filterStatus,setFilterStatus]=useState('all');
-  const[cellEdit,setCellEdit]=useState(null); /* {date, cat, value} - 인라인 빠른 입력 */
-  const[lastSaved,setLastSaved]=useState('');
-  const cellEditRef=useRef(null);
-  const st=useRef(null);
-  const captureRef=useRef(null);
-  const days=Array.from({length:7},(_,i)=>addDD(startMonday,i));
-  const dayL=['월','화','수','목','금','토','일'];
+  /* 주간 생산 스케줄 - 엑셀 캡처 이미지를 주차별로 올려서 보는 전용 뷰어 */
+  const[weekStart,setWeekStart]=useState(getMonday(today2()));
+  const[img,setImg]=useState(null);      /* 현재 주차 이미지 (dataURL) */
+  const[loading,setLoading]=useState(true);
+  const[uploading,setUploading]=useState(false);
+  const fileRef=useRef(null);
+  const days=Array.from({length:7},(_,i)=>addDD(weekStart,i));
+  const isAdmin=(()=>{try{const u=JSON.parse(localStorage.getItem('bnf_user')||'{}');return ['superadmin','admin','manager'].includes(u.role);}catch(e){return false;}})();
 
-  useEffect(()=>{loadWeek();},[startMonday]);
-  useEffect(()=>{if(cellEdit&&cellEditRef.current){cellEditRef.current.focus();cellEditRef.current.select();}},[cellEdit]);
-
-  const startInlineEdit=(date,cat,e)=>{
-    if(e){e.stopPropagation();e.preventDefault();}
-    setCellEdit({date,cat,value:''});
-  };
-  const commitInlineEdit=()=>{
-    if(!cellEdit)return;
-    const txt=(cellEdit.value||'').trim();
-    if(txt){
-      const newItem={id:'i_'+Date.now()+Math.random().toString(36).slice(2,6),cat:cellEdit.cat,name:txt,workType:'',qty:'',unit:'ea',startTime:'',endTime:'',assignee:'',customer:'',memo:'',status:'예정',date:cellEdit.date};
-      upsertItem(newItem);
-    }
-    setCellEdit(null);
-  };
-  const cancelInlineEdit=()=>setCellEdit(null);
-
-  const loadWeek=async()=>{
-    let sd=null;
-    /* 1차: Supabase에서 로드 */
+  const loadImg=async()=>{
+    setLoading(true);setImg(null);
     try{
-      const{data,error}=await sbClient.from('prod_schedule').select('schedule_data').eq('week_start',startMonday).maybeSingle();
-      if(error)console.error('[Sched] load error:',error);
-      if(data&&data.schedule_data)sd=data.schedule_data;
-      console.log('[Sched] loaded from Supabase, week='+startMonday,sd?'(has data)':'(empty)');
-    }catch(e){console.error('[Sched] load exception:',e);}
-    /* 2차: Supabase 비어있으면 localStorage 백업에서 복원 */
-    if(!sd||Object.keys(sd).length===0){
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const sd=data&&data.state_data?data.state_data:{};
+      const imgs=sd.sched_images||{};
+      setImg(imgs[weekStart]||null);
+    }catch(e){console.warn('스케줄 이미지 로드 실패',e);}
+    setLoading(false);
+  };
+  useEffect(()=>{loadImg();},[weekStart]);
+
+  const handleFile=(e)=>{
+    const file=e.target.files[0];if(!file){return;}
+    if(!file.type.startsWith('image/')){alert('이미지 파일만 업로드 가능합니다');return;}
+    if(file.size>5*1024*1024){alert('이미지가 너무 큽니다 (5MB 이하로 줄여주세요). 캡처를 다시 하거나 화질을 낮춰보세요.');return;}
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=async(ev)=>{
+      const dataUrl=ev.target.result;
       try{
-        const local=localStorage.getItem('bnf_sched_'+startMonday);
-        if(local){sd=JSON.parse(local);console.log('[Sched] restored from localStorage');}
-      }catch(e){}
-    }
-    sd=sd||{};
-    /* 기존 형식 (rowKey: {0_di: text}) 자동 마이그레이션 */
-    if(sd&&!Array.isArray(Object.values(sd)[0])&&Object.values(sd).some(v=>v&&typeof v==='object'&&Object.keys(v).some(k=>k.includes('_')))){
-      const migrated={};
-      Object.entries(sd).forEach(([rk,cellMap])=>{
-        if(cellMap&&typeof cellMap==='object'){
-          Object.entries(cellMap).forEach(([cellKey,text])=>{
-            if(!text||!String(text).trim())return;
-            const m=cellKey.match(/_(\d)$/);
-            if(!m)return;
-            const di=+m[1];
-            const date=days[di]||addDD(startMonday,di);
-            if(!migrated[date])migrated[date]=[];
-            migrated[date].push({id:'mig_'+rk+'_'+di+'_'+Date.now()+Math.random().toString(36).slice(2,6),cat:rk,name:String(text).trim(),workType:'',qty:'',unit:'ea',startTime:'',endTime:'',assignee:'',customer:'',memo:'',status:'예정'});
-          });
-        }
-      });
-      sd=migrated;
-    }
-    /* 일정이 비어있는 날짜는 빈 배열 보장 */
-    const norm={};
-    days.forEach(d=>{norm[d]=Array.isArray(sd[d])?sd[d]:[];});
-    setWeekData(norm);
+        const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+        const sd=data&&data.state_data?data.state_data:{};
+        const imgs=sd.sched_images||{};
+        imgs[weekStart]=dataUrl;
+        await sbClient.from('app_state').upsert({id:1,state_data:{...sd,sched_images:imgs},updated_at:new Date().toISOString()});
+        setImg(dataUrl);
+      }catch(err){alert('업로드 실패: '+err.message);}
+      setUploading(false);
+    };
+    reader.onerror=()=>{alert('파일 읽기 실패');setUploading(false);};
+    reader.readAsDataURL(file);
+    e.target.value='';
   };
 
-  const saveWeek=(nd)=>{
-    setSaving('s');
-    const ws=startMonday;
-    /* 1차: localStorage 즉시 백업 (Supabase 실패 시 안전망) */
-    try{localStorage.setItem('bnf_sched_'+ws,JSON.stringify(nd));}catch(e){console.error('[Sched] localStorage save fail',e);}
-    /* 2차: Supabase 거의 즉시 저장 (100ms debounce) */
-    if(st.current)clearTimeout(st.current);
-    st.current=setTimeout(async()=>{
-      try{
-        const{error}=await sbClient.from('prod_schedule').upsert({week_start:ws,schedule_data:nd,updated_at:now2()});
-        if(error){
-          console.error('[Sched] save error:',error);
-          setSaving('e');
-          alert('Supabase 저장 실패 (로컬에는 안전 백업됨):\n'+(error.message||error.code||JSON.stringify(error)));
-        }else{
-          setSaving('d');
-          const now=new Date();
-          setLastSaved(String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0'));
-          console.log('[Sched] saved OK',ws);
-        }
-      }catch(e){
-        console.error('[Sched] save exception:',e);
-        setSaving('e');
-        alert('저장 오류 (로컬에는 백업됨): '+e.message);
-      }
-      setTimeout(()=>setSaving(''),1800);
-    },100);
-  };
-
-  const upsertItem=(item)=>{
-    setWeekData(prev=>{
-      const next={...prev};
-      const date=item.date;
-      const list=[...(next[date]||[])];
-      const idx=list.findIndex(x=>x.id===item.id);
-      const{date:_d,...payload}=item;
-      if(idx>=0)list[idx]=payload;else list.push(payload);
-      next[date]=list;
-      /* 일정이 날짜를 옮긴 경우 - 옛 날짜에서 제거 */
-      Object.keys(next).forEach(d=>{if(d!==date){next[d]=(next[d]||[]).filter(x=>x.id!==payload.id);}});
-      saveWeek(next);
-      return next;
-    });
-  };
-  const deleteItem=(date,id)=>{
-    setWeekData(prev=>{
-      const next={...prev};
-      next[date]=(next[date]||[]).filter(x=>x.id!==id);
-      saveWeek(next);
-      return next;
-    });
-  };
-  const moveToNextDay=(date,id)=>{
-    setWeekData(prev=>{
-      const next={...prev};
-      const item=(next[date]||[]).find(x=>x.id===id);
-      if(!item)return prev;
-      const tomorrow=addDD(date,1);
-      next[date]=(next[date]||[]).filter(x=>x.id!==id);
-      const moved={...item,status:'다음날 이월'};
-      next[tomorrow]=[...(next[tomorrow]||[]),moved];
-      saveWeek(next);
-      return next;
-    });
-  };
-  const duplicateItem=(date,id)=>{
-    setWeekData(prev=>{
-      const next={...prev};
-      const item=(next[date]||[]).find(x=>x.id===id);
-      if(!item)return prev;
-      const cp={...item,id:'i_'+Date.now()+Math.random().toString(36).slice(2,6)};
-      next[date]=[...(next[date]||[]),cp];
-      saveWeek(next);
-      return next;
-    });
-  };
-  const updateStatus=(date,id,status)=>{
-    setWeekData(prev=>{
-      const next={...prev};
-      next[date]=(next[date]||[]).map(x=>x.id===id?{...x,status}:x);
-      saveWeek(next);
-      return next;
-    });
-  };
-
-  /* 필터링 */
-  const matchFilter=(it,date)=>{
-    if(filterAssignee&&!(it.assignee||'').includes(filterAssignee))return false;
-    if(filterStatus!=='all'&&it.status!==filterStatus)return false;
-    if(filterFloor!=='all'&&it.cat!==filterFloor)return false;
-    return true;
-  };
-  /* 담당자 목록 자동 추출 */
-  const assignees=useMemo(()=>{
-    const s=new Set();
-    Object.values(weekData).forEach(arr=>(arr||[]).forEach(it=>{if(it.assignee)s.add(it.assignee);}));
-    return [...s].sort();
-  },[weekData]);
-
-  const openNew=(date,cat)=>{
-    setModalItem({_isNew:true,date,id:'i_'+Date.now()+Math.random().toString(36).slice(2,6),cat:cat||'work',name:'',workType:'',qty:'',unit:'ea',startTime:'',endTime:'',assignee:'',customer:'',memo:'',status:'예정'});
-  };
-  const openEdit=(date,item)=>{setModalItem({...item,date,_isNew:false});};
-
-  /* 엑셀 다운로드 */
-  const downloadExcel=()=>{
-    if(!window.XLSX){alert('엑셀 라이브러리 미로드');return;}
-    const rows=[['날짜','요일','카테고리','제품명/일정명','작업유형','수량','단위','시작','종료','담당자','거래처','상태','비고']];
-    days.forEach((d,di)=>{
-      const list=(weekData[d]||[]).filter(it=>matchFilter(it,d));
-      list.forEach(it=>{
-        rows.push([d,dayL[di],getCat(it.cat).label,it.name,it.workType,it.qty,it.unit,it.startTime,it.endTime,it.assignee,it.customer,it.status,it.memo]);
-      });
-    });
-    const ws=XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols']=[{wch:11},{wch:5},{wch:11},{wch:28},{wch:9},{wch:7},{wch:5},{wch:7},{wch:7},{wch:10},{wch:12},{wch:9},{wch:24}];
-    const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,'생산스케줄_'+startMonday);
-    XLSX.writeFile(wb,'생산스케줄_'+startMonday+'_~_'+days[6]+'.xlsx');
-  };
-
-  /* 카드 인라인 편집 상태 */
-  const[chipEdit,setChipEdit]=useState(null); /* {date, id, value} */
-  const chipEditRef=useRef(null);
-  useEffect(()=>{if(chipEdit&&chipEditRef.current){chipEditRef.current.focus();chipEditRef.current.select();}},[chipEdit]);
-  const commitChipEdit=()=>{
-    if(!chipEdit)return;
-    const txt=(chipEdit.value||'').trim();
-    const item=(weekData[chipEdit.date]||[]).find(x=>x.id===chipEdit.id);
-    if(item&&txt&&txt!==item.name){
-      upsertItem({...item,name:txt,date:chipEdit.date});
-    }
-    setChipEdit(null);
-  };
-
-  /* 일정 작은 카드 (셀 안에 표시) - 더블클릭으로 텍스트 인라인 편집 */
-  const ItemChip=({item,date})=>{
-    const cat=getCat(item.cat);
-    const stt=getStatus(item.status);
-    const isDelayed=item.status==='지연';
-    const isDone=item.status==='완료';
-    const isCancel=item.status==='취소';
-    const isEditing=chipEdit&&chipEdit.id===item.id&&chipEdit.date===date;
-    if(isEditing){
-      return R('div',{style:{padding:'2px',marginBottom:3,borderRadius:5,borderLeft:'3px solid '+cat.accent,background:'#FFFDF5'}},
-        R('textarea',{
-          ref:chipEditRef,
-          value:chipEdit.value,
-          onChange:e=>setChipEdit(p=>p?{...p,value:e.target.value}:p),
-          onBlur:commitChipEdit,
-          onClick:e=>e.stopPropagation(),
-          onKeyDown:e=>{
-            e.stopPropagation();
-            if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();commitChipEdit();}
-            if(e.key==='Escape'){e.preventDefault();setChipEdit(null);}
-          },
-          style:{width:'100%',minHeight:30,padding:'3px 5px',border:'2px solid '+cat.accent,borderRadius:4,fontSize:11,fontFamily:'inherit',resize:'vertical',outline:'none',boxSizing:'border-box',background:'#FFFDF5',lineHeight:1.4}
-        })
-      );
-    }
-    return R('div',{
-      onClick:e=>{e.stopPropagation();openEdit(date,item);},
-      onDoubleClick:e=>{e.stopPropagation();e.preventDefault();setChipEdit({date,id:item.id,value:item.name||''});},
-      title:'클릭: 상세 모달 / 더블클릭: 텍스트 빠른 편집',
-      style:{
-        padding:'4px 6px',marginBottom:3,borderRadius:5,background:'#fff',borderLeft:'3px solid '+cat.accent,
-        boxShadow:'0 1px 2px rgba(0,0,0,0.06)',cursor:'pointer',fontSize:11,
-        opacity:isDone?0.55:isCancel?0.5:1,
-        textDecoration:isCancel?'line-through':'none',
-        border:isDelayed?'1.5px solid #DC2626':'1px solid '+cat.accent+'33'
-      }
-    },
-      R('div',{style:{display:'flex',gap:4,alignItems:'center',justifyContent:'space-between',gap:4}},
-        R('div',{style:{fontWeight:700,fontSize:11,color:'#1F2937',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:item.name},item.name||R('span',{style:{color:'#cbd5e1',fontStyle:'italic'}},'(이름 없음)')),
-        R('span',{style:{fontSize:8,padding:'1px 4px',background:stt.bg,color:stt.color,borderRadius:9,fontWeight:700,flexShrink:0,whiteSpace:'nowrap'}},stt.v==='다음날 이월'?'이월':stt.v)
-      ),
-      (item.startTime||item.endTime||item.qty)&&R('div',{style:{fontSize:9,color:'var(--tm)',marginTop:2,display:'flex',gap:6,flexWrap:'wrap'}},
-        (item.startTime||item.endTime)&&R('span',null,'🕐 ',item.startTime||'-','~',item.endTime||'-'),
-        item.qty&&R('span',null,item.qty,' ',item.unit||'')
-      ),
-      (item.assignee||item.customer)&&R('div',{style:{fontSize:9,color:'#64748B',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
-        item.assignee&&R('span',null,'👤 ',item.assignee,' '),
-        item.customer&&R('span',null,'🏢 ',item.customer)
-      )
-    );
-  };
-
-  /* 캡쳐 */
-  const captureSchedule=async()=>{
-    if(!window.html2canvas){alert('캡쳐 라이브러리 미로드');return;}
-    if(!captureRef.current){return;}
+  const delImg=async()=>{
+    if(!confirm('이 주차의 스케줄 이미지를 삭제할까요?'))return;
     try{
-      const canvas=await html2canvas(captureRef.current,{backgroundColor:'#fff',scale:2,useCORS:true});
-      canvas.toBlob(blob=>{
-        const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='생산스케줄_'+startMonday+'.png';a.click();
-        setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-      },'image/png');
-    }catch(e){alert('캡쳐 실패: '+e.message);}
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const sd=data&&data.state_data?data.state_data:{};
+      const imgs=sd.sched_images||{};
+      delete imgs[weekStart];
+      await sbClient.from('app_state').upsert({id:1,state_data:{...sd,sched_images:imgs},updated_at:new Date().toISOString()});
+      setImg(null);
+    }catch(err){alert('삭제 실패: '+err.message);}
   };
 
-  /* PC 주간 그리드 */
-  const renderGrid=()=>R('div',{className:'sched-pc-only',style:{overflowX:'auto',borderRadius:10,border:'1px solid var(--bd)',background:'#fff'}},
-    R('table',{className:'sched-grid',style:{width:'100%',borderCollapse:'collapse',minWidth:900,fontSize:11}},
-      R('colgroup',null,
-        R('col',{style:{width:96}}),
-        ...days.map((_,i)=>R('col',{key:i,style:{minWidth:120}}))
-      ),
-      R('thead',null,R('tr',null,
-        R('th',{style:{padding:'10px 6px',background:'#1F2937',color:'#fff',fontWeight:700,textAlign:'center',fontSize:11,position:'sticky',left:0,zIndex:2}},'카테고리'),
-        ...days.map((d,i)=>{
-          const wd=new Date(d).getDay();
-          const isSat=wd===6;const isSun=wd===0;const isW=isSat||isSun;
-          const tday=isToday(d);
-          const bg=tday?'#FFF5F0':isSun?'#FEF2F2':isSat?'#EFF6FF':'#1F2937';
-          const fg=tday?'var(--p)':isSun?'#DC2626':isSat?'#2563EB':'#fff';
-          return R('th',{key:i,style:{padding:'8px 4px',background:bg,color:fg,borderLeft:'1px solid #374151',textAlign:'center',fontSize:11}},
-            R('div',{style:{fontWeight:800,fontSize:13}},fSD(d)),
-            R('div',{style:{opacity:tday?1:isW?1:0.7,fontSize:10,fontWeight:tday||isW?700:500}},dayL[i],tday?' · 오늘':'')
-          );
-        })
-      )),
-      R('tbody',null,...SCHED_CATS.map(cat=>R('tr',{key:cat.key},
-        R('td',{style:{background:cat.bg,padding:'6px 8px',borderTop:'1px solid var(--bd)',fontWeight:700,fontSize:11,color:'#1F2937',textAlign:'center',borderLeft:'4px solid '+cat.accent,position:'sticky',left:0,zIndex:1}},cat.label),
-        ...days.map((d,di)=>{
-          const items=(weekData[d]||[]).filter(it=>it.cat===cat.key&&matchFilter(it,d));
-          const tday=isToday(d);
-          const editing=cellEdit&&cellEdit.date===d&&cellEdit.cat===cat.key;
-          return R('td',{key:di,
-            onClick:()=>{if(!editing)openNew(d,cat.key);},
-            onDoubleClick:e=>startInlineEdit(d,cat.key,e),
-            title:'클릭: 상세 모달 / 더블클릭: 빠른 입력',
-            style:{padding:5,verticalAlign:'top',minHeight:48,borderTop:'1px solid var(--bd)',borderLeft:'1px solid var(--bd)',cursor:'pointer',background:tday?'rgba(217,79,30,0.03)':'#fff',transition:'background .1s'},
-            onMouseEnter:e=>{if(!editing)e.currentTarget.style.background=tday?'rgba(217,79,30,0.08)':'#FAFAFA';},
-            onMouseLeave:e=>{if(!editing)e.currentTarget.style.background=tday?'rgba(217,79,30,0.03)':'#fff';}
-          },
-            items.map(it=>R(ItemChip,{key:it.id,item:it,date:d})),
-            editing&&R('textarea',{
-              ref:cellEditRef,
-              value:cellEdit.value,
-              onChange:e=>setCellEdit(p=>p?{...p,value:e.target.value}:p),
-              onBlur:commitInlineEdit,
-              onClick:e=>e.stopPropagation(),
-              onKeyDown:e=>{
-                if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();commitInlineEdit();}
-                if(e.key==='Escape'){e.preventDefault();cancelInlineEdit();}
-              },
-              placeholder:'일정 입력 후 Enter',
-              style:{width:'100%',minHeight:48,padding:'4px 6px',border:'2px solid '+cat.accent,borderRadius:5,fontSize:11,fontFamily:'inherit',resize:'vertical',outline:'none',background:'#FFFDF5',boxSizing:'border-box',lineHeight:1.4}
-            }),
-            !editing&&items.length===0&&R('div',{style:{fontSize:9,color:'#D1D5DB',textAlign:'center',padding:'4px 0'}},'+')
-          );
-        })
-      )))
-    )
-  );
-
-  /* 모바일 카드 리스트 (날짜별) */
-  const renderMobileCards=()=>R('div',{className:'sched-mobile-only',style:{display:'none'}},
-    ...days.map(d=>{
-      const items=(weekData[d]||[]).filter(it=>matchFilter(it,d));
-      const tday=isToday(d);
-      const wd=new Date(d).getDay();
-      const isW=wd===0||wd===6;
-      return R('div',{key:d,style:{marginBottom:12,background:'#fff',borderRadius:10,overflow:'hidden',border:tday?'2px solid var(--p)':'1px solid var(--bd)'}},
-        R('div',{style:{padding:'8px 12px',background:tday?'#FFF5F0':isW?'#FEF3C7':'#F9FAFB',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-          R('div',{style:{display:'flex',alignItems:'center',gap:8}},
-            R('span',{style:{fontSize:14,fontWeight:800,color:tday?'var(--p)':wd===0?'#DC2626':wd===6?'#2563EB':'#1F2937'}},fSD(d)),
-            R('span',{style:{fontSize:11,color:'var(--tm)'}},'('+dayL[(new Date(d).getDay()+6)%7]+')'),
-            tday&&R('span',{style:{fontSize:9,background:'var(--p)',color:'#fff',padding:'2px 6px',borderRadius:10,fontWeight:700}},'오늘')
-          ),
-          R('button',{onClick:()=>openNew(d,'work'),style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'+ 추가')
-        ),
-        items.length>0?R('div',{style:{padding:'8px 10px'}},
-          ...items.map(it=>R(ItemChip,{key:it.id,item:it,date:d}))
-        ):R('div',{style:{padding:'14px',textAlign:'center',color:'#cbd5e1',fontSize:11}},'일정 없음')
-      );
-    })
-  );
+  const fmtRange=()=>{
+    const s=days[0], e=days[6];
+    const f=(d)=>{const p=d.split('-');return p[1]+'/'+p[2];};
+    return f(s)+' ~ '+f(e);
+  };
 
   return R('div',{className:'pg fa'},
-    /* CSS 인라인 - PC/모바일 전환 */
-    R('style',null,'@media(max-width:768px){.sched-pc-only{display:none !important}.sched-mobile-only{display:block !important}}@media print{.sched-noprint{display:none !important}.sched-pc-only{display:block !important}.sched-mobile-only{display:none !important}body{background:#fff !important}}'),
-    R('div',{className:'pg-hdr sched-noprint'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
       R('div',null,
         R('div',{className:'pg-title'},'📅 생산 스케줄'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},fSD(days[0]),' ~ ',fSD(days[6]),' · ',
-          saving==='s'?R('span',{style:{color:'var(--p)',fontWeight:700}},'● 저장 중...'):saving==='d'?R('span',{style:{color:'var(--ok)',fontWeight:700}},'✓ 저장됨'+(lastSaved?' ('+lastSaved+')':'')):saving==='e'?R('span',{style:{color:'var(--err)',fontWeight:700}},'✕ 저장 실패'):lastSaved?R('span',{style:{color:'var(--tm)'}},'마지막 저장 '+lastSaved+' · 셀 더블클릭 → 빠른 입력, 카드 더블클릭 → 텍스트 편집'):'셀 더블클릭 → 빠른 입력 · 카드 더블클릭 → 텍스트 편집 · 클릭 → 상세 모달'
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'주간 생산 계획표')
+      ),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+        R('button',{className:'btn bs',onClick:()=>setWeekStart(addDD(weekStart,-7)),style:{padding:'6px 12px'}},'◀ 지난주'),
+        R('button',{className:'btn bs',onClick:()=>setWeekStart(getMonday(today2())),style:{padding:'6px 10px'}},'이번주'),
+        R('button',{className:'btn bs',onClick:()=>setWeekStart(addDD(weekStart,7)),style:{padding:'6px 12px'}},'다음주 ▶')
+      )
+    ),
+    R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',padding:'8px',background:'#FFF8F4',borderRadius:10,marginBottom:14}},fmtRange()),
+
+    loading?R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'):
+    img?
+      R('div',null,
+        R('div',{style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:10,overflow:'auto',padding:8}},
+          R('img',{src:img,alt:'생산 스케줄',style:{width:'100%',display:'block',borderRadius:6}})
+        ),
+        isAdmin&&R('div',{style:{display:'flex',gap:8,marginTop:10,justifyContent:'center'}},
+          R('button',{className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click()},uploading?'업로드 중...':'🔄 이미지 교체'),
+          R('button',{className:'btn bd',onClick:delImg},'삭제')
         )
-      ),
-      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
-        R('button',{className:'btn bs btn-sm',onClick:()=>setStartMonday(addDD(startMonday,-7))},'◀ 이전'),
-        R('button',{className:'btn bp btn-sm',onClick:()=>setStartMonday(getMonday(today2()))},'오늘'),
-        R('button',{className:'btn bs btn-sm',onClick:()=>setStartMonday(addDD(startMonday,7))},'다음 ▶'),
-        R('button',{className:'btn bs btn-sm',onClick:downloadExcel,title:'이 주간 일정을 엑셀로 다운로드'},'📊 엑셀'),
-        R('button',{className:'btn bs btn-sm',onClick:()=>window.print(),title:'인쇄용 화면'},'🖨️ 인쇄'),
-        R('button',{className:'btn bw btn-sm',onClick:captureSchedule,title:'PNG 캡쳐'},'📸')
       )
-    ),
-    /* 필터 바 */
-    R('div',{className:'sched-noprint',style:{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center',padding:'8px 10px',background:'#F9FAFB',borderRadius:8,border:'1px solid var(--bd)'}},
-      R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:700}},'🔍 필터'),
-      R('select',{value:filterFloor,onChange:e=>setFilterFloor(e.target.value),style:{padding:'4px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,background:'#fff'}},
-        R('option',{value:'all'},'전체 층'),
-        R('option',{value:'prod1'},'1층 생산'),
-        R('option',{value:'prod2'},'2층 생산'),
-        R('option',{value:'rd'},'R&D')
+    :
+      R('div',{className:'card',style:{textAlign:'center',padding:'48px 20px',border:'2px dashed var(--bd)'}},
+        R('div',{style:{fontSize:40,marginBottom:10}},'📅'),
+        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},'이 주차의 스케줄이 없습니다'),
+        R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:16}},isAdmin?'엑셀 생산 스케줄을 캡처해서 이미지로 올려주세요':'관리자가 스케줄을 등록하면 여기에 표시됩니다'),
+        isAdmin&&R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),style:{padding:'10px 24px'}},uploading?'업로드 중...':'📷 스케줄 이미지 올리기')
       ),
-      R('select',{value:filterStatus,onChange:e=>setFilterStatus(e.target.value),style:{padding:'4px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,background:'#fff'}},
-        R('option',{value:'all'},'모든 상태'),
-        ...STATUSES.map(s=>R('option',{key:s.v,value:s.v},s.v))
-      ),
-      R('select',{value:filterAssignee,onChange:e=>setFilterAssignee(e.target.value),style:{padding:'4px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:11,background:'#fff',minWidth:110}},
-        R('option',{value:''},'모든 담당자'),
-        ...assignees.map(a=>R('option',{key:a,value:a},a))
-      ),
-      (filterFloor!=='all'||filterStatus!=='all'||filterAssignee)&&R('button',{onClick:()=>{setFilterFloor('all');setFilterStatus('all');setFilterAssignee('');},style:{padding:'4px 10px',background:'#FEE2E2',color:'#B91C1C',border:'none',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:600,fontFamily:'inherit'}},'필터 초기화'),
-      R('div',{style:{marginLeft:'auto',display:'flex',gap:6,fontSize:10,color:'var(--tm)',flexWrap:'wrap'}},
-        R('span',{style:{display:'inline-flex',alignItems:'center',gap:3}},R('span',{style:{width:10,height:10,background:'#DBEAFE',borderLeft:'3px solid #2563EB',display:'inline-block'}}),'2층'),
-        R('span',{style:{display:'inline-flex',alignItems:'center',gap:3}},R('span',{style:{width:10,height:10,background:'#D1FAE5',borderLeft:'3px solid #059669',display:'inline-block'}}),'1층'),
-        R('span',{style:{display:'inline-flex',alignItems:'center',gap:3}},R('span',{style:{width:10,height:10,background:'#FFE4E6',borderLeft:'3px solid #E11D48',display:'inline-block'}}),'R&D'),
-        R('span',{style:{display:'inline-flex',alignItems:'center',gap:3}},R('span',{style:{width:10,height:10,background:'#EDE9FE',borderLeft:'3px solid #7C3AED',display:'inline-block'}}),'출고')
-      )
-    ),
-    R('div',{ref:captureRef},
-      renderGrid(),
-      renderMobileCards()
-    ),
-    /* 일정 모달 */
-    modalItem&&R(SchedItemModal,{item:modalItem,onClose:()=>setModalItem(null),
-      onSave:it=>{upsertItem(it);setModalItem(null);},
-      onDelete:()=>{if(confirm('이 일정을 삭제할까요?')){deleteItem(modalItem.date,modalItem.id);setModalItem(null);}},
-      onDuplicate:()=>{duplicateItem(modalItem.date,modalItem.id);setModalItem(null);},
-      onMoveNext:()=>{moveToNextDay(modalItem.date,modalItem.id);setModalItem(null);},
-      onStatus:s=>{updateStatus(modalItem.date,modalItem.id,s);setModalItem(prev=>prev?{...prev,status:s}:prev);}
-    })
+    R('input',{ref:fileRef,type:'file',accept:'image/*',onChange:handleFile,style:{display:'none'}}),
+    R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:12,textAlign:'center'}},'※ 엑셀 스케줄표를 캡처(또는 화면 전체 캡처)해서 올리면 모든 직원이 동일하게 볼 수 있습니다. 주차별로 따로 저장됩니다.')
   );
 }
 
@@ -7834,181 +7522,184 @@ function VendorForm({vendor,onClose,onSave}){
 
 /* ═══ 출고 계획 (센터별 박스/팔레트 집계) ═══════════════ */
 function PageShipSort(){
-  const[raw,setRaw]=useState('');
   const[parsed,setParsed]=useState(null);
-  const[palletCfg,setPalletCfg]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_pallet_cfg')||'{}');}catch(e){return{};}});
+  const[loading,setLoading]=useState(false);
+  const[progress,setProgress]=useState('');
+  const[shipDate,setShipDate]=useState('');
   const fileRef=useRef(null);
 
-  /* Supabase에서 팔레트 설정 불러오기 */
-  useEffect(()=>{
-    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
-      const sd=data&&data.state_data?data.state_data:{};
-      if(sd.pallet_cfg&&typeof sd.pallet_cfg==='object'){
-        setPalletCfg(sd.pallet_cfg);
-        localStorage.setItem('bnf_pallet_cfg',JSON.stringify(sd.pallet_cfg));
-      }
-    }).catch(()=>{});
-  },[]);
-  const savePalletCfg=(next)=>{
-    setPalletCfg(next);
-    localStorage.setItem('bnf_pallet_cfg',JSON.stringify(next));
-    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
-      const ex=data&&data.state_data?data.state_data:{};
-      sbClient.from('app_state').upsert({id:1,state_data:{...ex,pallet_cfg:next},updated_at:new Date().toISOString()});
-    });
+  /* 센터명 정규화: 거래명세서 표기 → 표시용 짧은 이름 */
+  const normCenter=(raw)=>{
+    const s=(raw||'').replace(/\s/g,'');
+    if(s.includes('김포'))return '김포(삼우)';
+    if(s.includes('평택'))return '평택컬리';
+    if(s.includes('창원'))return '창원물류대행';
+    return raw||'기타';
   };
 
-  /* 행 배열 → 센터별 파싱. 컬럼 자동 인식: 입고지/센터, 상품명/제품명, 박스/수량, 낱개수량 */
-  const parseRows=(rows)=>{
-    if(!rows||rows.length<2){alert('데이터가 부족합니다');return;}
-    /* 헤더 찾기 */
-    let headerIdx=-1,cols={};
-    for(let i=0;i<Math.min(5,rows.length);i++){
-      const r=rows[i].map(c=>String(c||'').replace(/\s/g,''));
-      const find=(kws)=>r.findIndex(c=>kws.some(k=>c.includes(k)));
-      const ci={center:find(['입고지','센터','출고센터','입고처']),name:find(['상품명','제품명','품명']),box:find(['수량','박스']),ea:find(['낱개','낱개수량','제품수량'])};
-      if(ci.center>=0&&ci.name>=0){headerIdx=i;cols=ci;break;}
-    }
-    if(headerIdx<0){alert('헤더(입고지/상품명)를 찾을 수 없습니다. 표 형식을 확인하세요.');return;}
-    /* 수량/낱개 컬럼 보정: 수량과 낱개수량이 한 셀에 줄바꿈으로 들어있는 경우 처리 */
-    const data=[];
-    let lastCenter='';
-    for(let i=headerIdx+1;i<rows.length;i++){
-      const r=rows[i];
-      if(!r||r.every(c=>String(c||'').trim()===''))continue;
-      const center=String(r[cols.center]||'').trim()||lastCenter;
-      if(center)lastCenter=center;
-      const name=String(r[cols.name]||'').trim();
-      if(!name)continue;
-      /* 수량/낱개: 셀에 줄바꿈으로 "7\n105" 형태일 수 있음 */
-      let box=0,ea=0;
-      const boxCell=String(r[cols.box]||'');
-      if(cols.ea>=0&&cols.ea!==cols.box){
-        box=parseFloat(boxCell.replace(/[^0-9.]/g,''))||0;
-        ea=parseFloat(String(r[cols.ea]||'').replace(/[^0-9.]/g,''))||0;
-      }else{
-        /* 한 셀에 박스/낱개가 줄바꿈으로 */
-        const parts=boxCell.split(/[\n\r]+/).map(x=>parseFloat(x.replace(/[^0-9.]/g,''))||0);
-        box=parts[0]||0;ea=parts[1]||0;
+  /* PDF 텍스트에서 발주 정보 추출 */
+  const parsePdfText=(text)=>{
+    text=text.replace(/\x00/g,' ').replace(/\n/g,' ');
+    /* 센터 */
+    let center='기타';
+    const cm=text.match(/(김포냉동|평택냉동|창원냉동)/);
+    if(cm)center=normCenter(cm[1]);
+    /* 입고일 */
+    let date='';
+    const dm=text.match(/입고[일차()]*[:\s]*(\d{4}-\d{2}-\d{2})/)||text.match(/(\d{4}-\d{2}-\d{2})/);
+    if(dm)date=dm[1];
+    /* 품목: 마스터코드 + 바코드 + (품명) + 총수량 (소)소비기한 박스 입수 규격g
+       품명이 줄바꿈으로 흩어지므로 마스터코드 매핑 우선, 없으면 본문 품명 사용 */
+    const NAME_MAP={
+      'M00000041872':'[외할머니댁] 일산 털레기 수제비',
+      'M00000672121':'[엄마밥상] 김치청국장',
+      'MK0000048746':'[엄마밥상] 청국장',
+      'MK0000131921':'[엄마밥상] 맑은곰탕'
+    };
+    const items=[];
+    const re=/(M[K]?\d{8,})\s+(8\d{12})(.*?)(\d[\d,]*)\s*\(소\)\s*(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)\s+\d+g/g;
+    let m;
+    while((m=re.exec(text))!==null){
+      const mcode=m[1];
+      const total=parseInt(m[4].replace(/,/g,''));
+      const exp=m[5];
+      const box=parseInt(m[6]);
+      let name=NAME_MAP[mcode]||'';
+      if(!name){
+        const nm=m[3].match(/(\[[^\]]+\][^0-9]+)/);
+        name=nm?nm[1].replace(/\s+/g,' ').trim():mcode;
       }
-      data.push({center,name:name.replace(/\s+/g,' '),box,ea});
+      if(name&&total>0)items.push({name,total,exp,box});
     }
-    /* 센터별 그룹핑 */
+    return{center,date,items};
+  };
+
+  /* 여러 PDF 파일 처리 */
+  const handleFiles=async(fileList)=>{
+    const files=Array.from(fileList).filter(f=>f.name.toLowerCase().endsWith('.pdf'));
+    if(files.length===0){alert('PDF 파일을 선택하세요');return;}
+    if(typeof pdfjsLib==='undefined'&&typeof window.pdfjsLib==='undefined'){alert('PDF 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.');return;}
+    const lib=window.pdfjsLib||pdfjsLib;
+    lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    setLoading(true);setProgress('PDF 분석 중...');
+    const allOrders=[];
+    let foundDate='';
+    for(let fi=0;fi<files.length;fi++){
+      setProgress('PDF 분석 중... ('+(fi+1)+'/'+files.length+')');
+      try{
+        const buf=await files[fi].arrayBuffer();
+        const pdf=await lib.getDocument({data:buf}).promise;
+        let fullText='';
+        for(let p=1;p<=pdf.numPages;p++){
+          const page=await pdf.getPage(p);
+          const tc=await page.getTextContent();
+          fullText+=' '+tc.items.map(it=>it.str).join(' ');
+        }
+        const order=parsePdfText(fullText);
+        if(order.date&&!foundDate)foundDate=order.date;
+        if(order.items.length>0)allOrders.push(order);
+      }catch(e){console.error('PDF 파싱 실패:',files[fi].name,e);}
+    }
+    if(allOrders.length===0){setLoading(false);setProgress('');alert('발주 정보를 추출하지 못했습니다. PDF 형식을 확인하세요.');return;}
+    if(foundDate)setShipDate(foundDate);
+    aggregate(allOrders);
+    setLoading(false);setProgress('');
+  };
+
+  /* 센터별 집계 */
+  const aggregate=(orders)=>{
     const byCenter={};
-    data.forEach(d=>{
-      if(!byCenter[d.center])byCenter[d.center]={items:[],totalBox:0,totalEa:0};
-      /* 같은 제품 합산 */
-      const ex=byCenter[d.center].items.find(x=>x.name===d.name);
-      if(ex){ex.box+=d.box;ex.ea+=d.ea;}
-      else byCenter[d.center].items.push({name:d.name,box:d.box,ea:d.ea});
-      byCenter[d.center].totalBox+=d.box;
-      byCenter[d.center].totalEa+=d.ea;
+    orders.forEach(o=>{
+      if(!byCenter[o.center])byCenter[o.center]={items:{},totalBox:0};
+      o.items.forEach(it=>{
+        if(!byCenter[o.center].items[it.name]){
+          byCenter[o.center].items[it.name]={box:0,total:0,exp:it.exp};
+        }
+        byCenter[o.center].items[it.name].box+=it.box;
+        byCenter[o.center].items[it.name].total+=it.total;
+        if(it.exp)byCenter[o.center].items[it.name].exp=it.exp;
+        byCenter[o.center].totalBox+=it.box;
+      });
     });
-    /* 제품 전체 합계 (센터 무관) */
+    /* 제품 총수량 */
     const prodTotal={};
-    data.forEach(d=>{prodTotal[d.name]=(prodTotal[d.name]||0)+d.ea;});
+    orders.forEach(o=>o.items.forEach(it=>{prodTotal[it.name]=(prodTotal[it.name]||0)+it.total;}));
     setParsed({byCenter,prodTotal});
   };
 
-  const handlePaste=()=>{
-    if(!raw.trim()){alert('데이터를 붙여넣으세요');return;}
-    /* 탭 또는 여러 공백으로 분리된 표 */
-    const rows=raw.split(/\n/).map(line=>line.split(/\t/));
-    parseRows(rows);
-  };
-  const handleFile=(e)=>{
-    const file=e.target.files[0];if(!file)return;
-    const reader=new FileReader();
-    reader.onload=(ev)=>{
-      try{
-        const wb=XLSX.read(ev.target.result,{type:'array'});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-        parseRows(rows);
-      }catch(err){alert('엑셀 읽기 실패: '+err.message);}
-    };
-    reader.readAsArrayBuffer(file);
-    e.target.value='';
-  };
-
-  /* 팔레트당 박스 수 (제품별, 없으면 기본 30) */
-  const getPPB=(name)=>palletCfg[name]||30;
-  const setPPB=(name,val)=>{const n={...palletCfg};if(val)n[name]=+val;else delete n[name];savePalletCfg(n);};
-
-  /* 센터별 팔레트 계산: 제품별 박스÷팔레트당박스 합산 */
-  const centerPallet=(items)=>items.reduce((s,it)=>s+(it.box/getPPB(it.name)),0);
-
   const exportResult=()=>{
     if(!parsed)return;
-    const rows=[['출고센터','제품명','박스수량','제품수량(낱개)','소비기한']];
+    const rows=[[ (shipDate||'') +' 출고 예정 상품','','','','']];
+    rows.push(['출고센터','제품명','박스수량','제품수량','소비기한']);
     Object.entries(parsed.byCenter).forEach(([center,d])=>{
-      d.items.forEach((it,i)=>rows.push([i===0?center:'',it.name,it.box,it.ea,'']));
-      rows.push(['','합계',d.totalBox,d.totalEa,'']);
-      rows.push(['','팔레트수',centerPallet(d.items).toFixed(3),'','']);
+      const its=Object.entries(d.items);
+      its.forEach(([name,v],i)=>rows.push([i===0?center:'',name,v.box,v.total,v.exp]));
+      rows.push(['','합계',d.totalBox,'','']);
+      rows.push(['','박스',30,'','']);
+      rows.push(['','팔레트 수',(d.totalBox/30).toFixed(6),'','']);
       rows.push(['','','','','']);
     });
     rows.push(['','','','','']);
-    rows.push(['제품 총수량','','','','']);
-    Object.entries(parsed.prodTotal).forEach(([name,ea])=>rows.push([name,ea,'ea','','']));
-    exportXL(rows,'출고정리_'+new Date().toISOString().slice(0,10),'출고정리');
+    Object.entries(parsed.prodTotal).forEach(([name,t])=>rows.push([name,t,'ea','','']));
+    exportXL(rows,'출고계획_'+(shipDate||new Date().toISOString().slice(0,10)),'출고계획');
   };
+
+  const onDrop=(e)=>{e.preventDefault();if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);};
 
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
-      R('div',null,R('div',{className:'pg-title'},'📦 출고 계획'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'발주 데이터를 붙여넣으면 센터별 박스·팔레트로 자동 정리')),
+      R('div',null,R('div',{className:'pg-title'},'📦 출고 계획'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'컬리 거래명세서 PDF를 올리면 센터별로 자동 정리')),
       parsed&&R('button',{className:'btn bp',onClick:exportResult},'엑셀 내보내기')
     ),
-    /* 입력 영역 */
+    /* 업로드 영역 */
     R('div',{className:'card',style:{marginBottom:14}},
-      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'1. 발주 데이터 입력'),
-      R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8}},'엑셀에서 표를 복사해 아래에 붙여넣거나, 엑셀 파일을 업로드하세요. (입고지·상품명·수량·낱개수량 컬럼 자동 인식)'),
-      R('textarea',{value:raw,onChange:e=>setRaw(e.target.value),placeholder:'엑셀에서 복사한 표를 여기에 붙여넣기 (Ctrl+V)',style:{width:'100%',minHeight:100,padding:10,border:'1px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'monospace',resize:'vertical'}}),
-      R('div',{style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}},
-        R('button',{className:'btn bp',onClick:handlePaste},'붙여넣은 데이터 정리'),
-        R('button',{className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click()},'📁 엑셀 파일 업로드'),
-        R('input',{ref:fileRef,type:'file',accept:'.xlsx,.xls,.csv',onChange:handleFile,style:{display:'none'}}),
-        raw&&R('button',{className:'btn bs',onClick:()=>{setRaw('');setParsed(null);}},'초기화')
-      )
+      R('div',{onDragOver:e=>e.preventDefault(),onDrop:onDrop,onClick:()=>fileRef.current&&fileRef.current.click(),
+        style:{border:'2px dashed var(--p)',borderRadius:12,padding:'28px 16px',textAlign:'center',cursor:'pointer',background:'#FFF8F4'}},
+        R('div',{style:{fontSize:36,marginBottom:8}},'📄'),
+        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:4}},loading?progress:'거래명세서 PDF 올리기'),
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'여러 센터 PDF를 한 번에 선택하거나 드래그하세요')
+      ),
+      R('input',{ref:fileRef,type:'file',accept:'.pdf',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}})
     ),
     /* 결과 */
     parsed&&R('div',null,
-      R('div',{style:{fontSize:12,fontWeight:700,marginBottom:10}},'2. 센터별 정리 결과'),
-      ...Object.entries(parsed.byCenter).map(([center,d])=>R('div',{key:center,className:'card',style:{marginBottom:12,padding:0,overflow:'hidden'}},
-        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,var(--p),var(--pd))',color:'#fff',fontWeight:800,fontSize:14}},center),
-        R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
-          R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
-            R('th',{style:{padding:'6px 12px',textAlign:'left',fontSize:10,color:'#64748b'}},'제품명'),
-            R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:70}},'박스'),
-            R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:90}},'제품수량'),
-            R('th',{style:{padding:'6px 8px',textAlign:'center',fontSize:10,color:'#64748b',width:90}},'박스/팔레트')
-          )),
-          R('tbody',null,
-            ...d.items.map((it,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9'}},
-              R('td',{style:{padding:'6px 12px',fontWeight:600}},it.name),
-              R('td',{style:{padding:'6px 8px',textAlign:'right',fontWeight:700}},it.box),
-              R('td',{style:{padding:'6px 8px',textAlign:'right',color:'#64748b'}},fN(it.ea)),
-              R('td',{style:{padding:'6px 8px',textAlign:'center'}},
-                R('input',{type:'number',value:getPPB(it.name),onChange:e=>setPPB(it.name,e.target.value),title:'1팔레트당 박스 수',style:{width:50,padding:'2px 4px',border:'1px solid #e2e8f0',borderRadius:6,fontSize:11,textAlign:'center'}})
-              )
+      shipDate&&R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',marginBottom:12}},shipDate+' 출고 예정 상품'),
+      ...Object.entries(parsed.byCenter).map(([center,d])=>{
+        const pallet=d.totalBox/30;
+        return R('div',{key:center,className:'card',style:{marginBottom:12,padding:0,overflow:'hidden'}},
+          R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,var(--p),var(--pd))',color:'#fff',fontWeight:800,fontSize:14}},center),
+          R('table',{style:{width:'100%',fontSize:12,borderCollapse:'collapse'}},
+            R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+              R('th',{style:{padding:'6px 12px',textAlign:'left',fontSize:10,color:'#64748b'}},'제품명'),
+              R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:60}},'박스'),
+              R('th',{style:{padding:'6px 8px',textAlign:'right',fontSize:10,color:'#64748b',width:80}},'제품수량'),
+              R('th',{style:{padding:'6px 10px',textAlign:'center',fontSize:10,color:'#64748b',width:90}},'소비기한')
             )),
-            R('tr',{style:{borderTop:'2px solid var(--bd)',background:'#FFF8F4'}},
-              R('td',{style:{padding:'7px 12px',fontWeight:800}},'합계'),
-              R('td',{style:{padding:'7px 8px',textAlign:'right',fontWeight:800,color:'var(--p)'}},d.totalBox,'박스'),
-              R('td',{style:{padding:'7px 8px',textAlign:'right',fontWeight:700}},fN(d.totalEa)),
-              R('td',{style:{padding:'7px 8px',textAlign:'center',fontWeight:800,color:'var(--p)'}},'팔레트 ',centerPallet(d.items).toFixed(2))
+            R('tbody',null,
+              ...Object.entries(d.items).map(([name,v],i)=>R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9'}},
+                R('td',{style:{padding:'6px 12px',fontWeight:600}},name),
+                R('td',{style:{padding:'6px 8px',textAlign:'right',fontWeight:700}},v.box),
+                R('td',{style:{padding:'6px 8px',textAlign:'right',color:'#64748b'}},fN(v.total)),
+                R('td',{style:{padding:'6px 10px',textAlign:'center',color:'#DC2626',fontWeight:600}},v.exp||'-')
+              )),
+              R('tr',{style:{borderTop:'2px solid var(--bd)',background:'#FFF8F4'}},
+                R('td',{style:{padding:'7px 12px',fontWeight:800}},'합계'),
+                R('td',{style:{padding:'7px 8px',textAlign:'right',fontWeight:800,color:'var(--p)'}},d.totalBox),
+                R('td',{colSpan:2,style:{padding:'7px 10px',textAlign:'right',fontWeight:700,color:'var(--p)'}},'박스 30 · 팔레트 ',pallet.toFixed(2))
+              )
             )
           )
-        )
-      )),
+        );
+      }),
       /* 제품 총수량 */
       R('div',{className:'card',style:{marginTop:4}},
         R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'제품 총수량 (전 센터 합계)'),
-        ...Object.entries(parsed.prodTotal).map(([name,ea])=>R('div',{key:name,style:{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid #F1F5F9',fontSize:12}},
+        ...Object.entries(parsed.prodTotal).map(([name,t])=>R('div',{key:name,style:{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid #F1F5F9',fontSize:12}},
           R('span',{style:{fontWeight:600}},name),
-          R('span',{style:{fontWeight:700,color:'var(--p)'}},fN(ea),' ea')
+          R('span',{style:{fontWeight:700,color:'var(--p)'}},fN(t),' ea')
         ))
       ),
-      R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8,padding:'0 4px'}},'※ 박스/팔레트 칸의 숫자(1팔레트당 박스 수)는 제품마다 수정 가능하며 자동 저장됩니다. 소비기한은 엑셀 내보내기 후 직접 입력하세요.')
+      R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8,padding:'0 4px'}},'※ PDF에서 자동 추출한 결과입니다. 팔레트는 30박스=1팔레트 기준입니다. 숫자가 틀리면 PDF 원본을 확인하세요.')
     )
   );
 }
