@@ -2585,6 +2585,160 @@ function EC({initVal,onSave,type,style,placeholder,className,rk}){
 }
 
 /* ────── PAGE: 홈 ────── */
+/* ═══ 홈 최상단: 진행 중인 업무 (work_requests 재사용, 인라인 진척/상태/상황 편집) ═══ */
+function OngoingWork({user,onGoPage}){
+  const[reqs,setReqs]=useState([]);
+  const[loaded,setLoaded]=useState(false);
+  const[openId,setOpenId]=useState(null);
+  const[draft,setDraft]=useState(null); /* {progress,status,progressNote} */
+  const[saving,setSaving]=useState(false);
+  const tRef=useRef(null);
+
+  const load=()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const sd=data&&data.state_data?data.state_data:{};
+      if(Array.isArray(sd.work_requests))setReqs(sd.work_requests);
+      setLoaded(true);
+    }).catch(()=>setLoaded(true));
+  };
+  useEffect(()=>{
+    load();
+    const onF=()=>{if(!document.hidden)load();};
+    window.addEventListener('focus',onF);
+    document.addEventListener('visibilitychange',onF);
+    return()=>{window.removeEventListener('focus',onF);document.removeEventListener('visibilitychange',onF);};
+  },[]);
+
+  /* 저장: 다른 키 보존(merge) */
+  const saveReqs=(next)=>{
+    setReqs(next);setSaving(true);
+    if(tRef.current)clearTimeout(tRef.current);
+    tRef.current=setTimeout(()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
+        const ex=cur&&cur.state_data?cur.state_data:{};
+        return sbClient.from('app_state').upsert({id:1,state_data:{...ex,work_requests:next},updated_at:new Date().toISOString()});
+      }).then(()=>setSaving(false)).catch(()=>setSaving(false));
+    },250);
+  };
+
+  const STM={
+    pending:{l:'대기',c:'#6B7280',bg:'#F3F4F6'},
+    accepted:{l:'접수',c:'#3B82F6',bg:'#EFF6FF'},
+    doing:{l:'진행중',c:'#D94F1E',bg:'#FFF5F0'},
+    done:{l:'완료',c:'#22C55E',bg:'#F0FDF4'},
+    rejected:{l:'반려',c:'#EF4444',bg:'#FEF2F2'},
+    cancelled:{l:'취소',c:'#9CA3AF',bg:'#F3F4F6'}
+  };
+  const pmap={pending:0,accepted:25,doing:50,done:100,rejected:0,cancelled:0};
+  const prog=(r)=>r.progress!=null?(+r.progress||0):(pmap[r.status]||0);
+  const today=new Date().toISOString().slice(0,10);
+  const isOverdue=(r)=>r.dueDate&&r.dueDate<today&&r.status!=='done';
+
+  const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
+  const ongoingAll=reqs.filter(r=>['pending','accepted','doing'].includes(r.status));
+  const mine=isAdmin?ongoingAll:ongoingAll.filter(r=>r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id));
+  const sorted=mine.slice().sort((a,b)=>{
+    const ao=isOverdue(a)?0:1,bo=isOverdue(b)?0:1;
+    if(ao!==bo)return ao-bo;
+    const ad=a.dueDate||'9999-99',bd=b.dueDate||'9999-99';
+    if(ad!==bd)return ad<bd?-1:1;
+    return (b.updatedAt||0)-(a.updatedAt||0);
+  });
+  const show=sorted.slice(0,8);
+  const overdueCnt=mine.filter(isOverdue).length;
+  const doingCnt=mine.filter(r=>r.status==='doing').length;
+  const waitCnt=mine.filter(r=>['pending','accepted'].includes(r.status)).length;
+
+  const openEdit=(r)=>{
+    if(openId===r.id){setOpenId(null);setDraft(null);return;}
+    setOpenId(r.id);
+    setDraft({progress:prog(r),status:r.status,progressNote:r.progressNote||''});
+  };
+  const commitEdit=(r)=>{
+    const d=draft||{};
+    const next=reqs.map(x=>x.id===r.id?{...x,progress:+d.progress||0,status:d.status||x.status,progressNote:d.progressNote||'',updatedAt:Date.now()}:x);
+    saveReqs(next);setOpenId(null);setDraft(null);
+  };
+
+  const pill=(label,val,color,bg)=>R('div',{style:{flex:1,minWidth:0,background:bg,borderRadius:12,padding:'10px 14px'}},
+    R('div',{style:{fontSize:10,fontWeight:700,color:color,opacity:0.9}},label),
+    R('div',{style:{fontSize:22,fontWeight:800,color:color,lineHeight:1.1,marginTop:2}},val)
+  );
+
+  return R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:14}},
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        R('span',{style:{fontSize:15,fontWeight:800,color:'var(--t)'}},'🔥 진행 중인 업무'),
+        mine.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'var(--pb)',padding:'2px 9px',borderRadius:999}},mine.length)
+      ),
+      R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}},'전체 보기 →')
+    ),
+    R('div',{style:{display:'flex',gap:8,marginBottom:14}},
+      pill('진행중',doingCnt,'var(--p)','var(--pb)'),
+      pill('대기·접수',waitCnt,'#2563EB','#EFF6FF'),
+      pill('지연',overdueCnt,overdueCnt>0?'#DC2626':'#9CA3AF',overdueCnt>0?'#FEF2F2':'#F8FAFC')
+    ),
+    !loaded?R('div',{style:{padding:'18px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
+    :show.length===0?R('div',{style:{padding:'22px 0',textAlign:'center'}},
+        R('div',{style:{fontSize:13,color:'var(--tm)',marginBottom:10}},'진행 중인 업무가 없습니다'),
+        R('button',{onClick:()=>onGoPage('workreq'),style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:9,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'+ 업무 추가')
+      )
+    :R('div',null,
+      ...show.map(r=>{
+        const sm=STM[r.status]||STM.pending;const p=prog(r);const od=isOverdue(r);const open=openId===r.id;
+        return R('div',{key:r.id,style:{borderRadius:12,border:'1px solid '+(open?'var(--p)':'#F1F5F9'),marginBottom:8,overflow:'hidden',transition:'border-color .15s'}},
+          R('div',{onClick:()=>openEdit(r),style:{display:'grid',gridTemplateColumns:'auto 1fr auto',gap:12,alignItems:'center',padding:'11px 14px',cursor:'pointer',background:open?'var(--pb)':'#fff'},
+            onMouseEnter:e=>{if(!open)e.currentTarget.style.background='#FAFAFA';},
+            onMouseLeave:e=>{if(!open)e.currentTarget.style.background='#fff';}},
+            R('span',{style:{fontSize:10,fontWeight:700,color:sm.c,background:sm.bg,padding:'3px 9px',borderRadius:999,whiteSpace:'nowrap'}},sm.l),
+            R('div',{style:{minWidth:0}},
+              R('div',{style:{fontSize:13,fontWeight:700,color:'var(--t)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title||'(제목 없음)'),
+              R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}},
+                r.assigneeName&&R('span',null,'담당 ',r.assigneeName),
+                r.dueDate&&R('span',{style:{color:od?'#DC2626':'var(--tm)',fontWeight:od?700:400}},(od?'⚠ 지연 ':'마감 ')+r.dueDate),
+                r.progressNote&&R('span',{style:{color:'#94A3B8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:180}},'· '+r.progressNote)
+              )
+            ),
+            R('div',{style:{textAlign:'right',width:104}},
+              R('div',{style:{fontSize:12,fontWeight:800,color:'var(--p)'}},p,'%'),
+              R('div',{style:{height:6,background:'#F1F5F9',borderRadius:99,marginTop:4,overflow:'hidden'}},
+                R('div',{style:{height:'100%',width:Math.max(0,Math.min(100,p))+'%',background:'linear-gradient(90deg,var(--pl),var(--p))',borderRadius:99,transition:'width .25s'}})
+              )
+            )
+          ),
+          open&&draft&&R('div',{style:{padding:'12px 14px 14px',borderTop:'1px solid #FCE7DC',background:'#fff'}},
+            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:6}},'현재 진행 상황'),
+            R('textarea',{value:draft.progressNote,onChange:e=>setDraft({...draft,progressNote:e.target.value}),placeholder:'예: 1차 검토 완료, 공급사 회신 대기 중',
+              style:{width:'100%',boxSizing:'border-box',minHeight:54,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:12,fontFamily:'inherit',resize:'vertical'}}),
+            R('div',{style:{display:'flex',gap:16,flexWrap:'wrap',alignItems:'center',marginTop:10}},
+              R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+                R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'진척도'),
+                ...[0,25,50,75,100].map(v=>R('button',{key:v,onClick:()=>setDraft({...draft,progress:v}),
+                  style:{border:'1px solid '+(draft.progress===v?'var(--p)':'var(--bd)'),background:draft.progress===v?'var(--p)':'#fff',color:draft.progress===v?'#fff':'var(--tm)',borderRadius:7,padding:'4px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},v))
+              ),
+              R('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'상태'),
+                R('select',{value:draft.status,onChange:e=>setDraft({...draft,status:e.target.value}),
+                  style:{border:'1px solid var(--bd)',borderRadius:7,padding:'5px 8px',fontSize:11,fontFamily:'inherit',cursor:'pointer'}},
+                  ...['pending','accepted','doing','done'].map(s=>R('option',{key:s,value:s},STM[s].l)))
+              )
+            ),
+            R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12}},
+              R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,color:'var(--tm)',background:'none',border:'none',cursor:'pointer',fontWeight:600,fontFamily:'inherit'}},'상세·댓글 보기 →'),
+              R('div',{style:{display:'flex',gap:8}},
+                R('button',{onClick:()=>{setOpenId(null);setDraft(null);},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
+                R('button',{onClick:()=>commitEdit(r),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'6px 16px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
+              )
+            )
+          )
+        );
+      }),
+      sorted.length>show.length&&R('button',{onClick:()=>onGoPage('workreq'),style:{width:'100%',marginTop:4,padding:'8px',background:'#FAFAFA',border:'1px dashed var(--bd)',borderRadius:10,fontSize:11,fontWeight:700,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit'}},'+ '+(sorted.length-show.length)+'개 더 보기')
+    ),
+    saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
+  );
+}
+
 function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const totalMats=mats.length;
   const goodMats=mats.filter(m=>!m.mu||m.s>=m.mu).length;
@@ -2971,6 +3125,8 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       ),
       R('button',{onClick:()=>setEditMode(!editMode),style:{background:editMode?'#D94F1E':'#fff',color:editMode?'#fff':'#374151',border:'1px solid '+(editMode?'#D94F1E':'#E5E7EB'),borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}},editMode?'✓ 완료':'⠿ 편집')
     ),
+    /* ── 진행 중인 업무 (최상단) ── */
+    R(OngoingWork,{user,onGoPage}),
     editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:8,marginBottom:14,fontSize:11,color:'#92400E',fontWeight:600}},'💡 박스를 드래그하여 위치를 변경하세요. 완료 버튼을 누르면 저장됩니다.'),
     /* 퀵메뉴 - 항상 최상단 고정 (마켓컬리 스타일) */
     R('div',{style:{marginBottom:14}},buildQuick()),
@@ -7542,16 +7698,33 @@ function PageShipSort({mats,hqItems}){
   const[progress,setProgress]=useState('');
   const[shipDate,setShipDate]=useState('');
   const[loadedFromDB,setLoadedFromDB]=useState(false);
+  const[nameMap,setNameMap]=useState({}); /* {정규화제품명: matCode} 수동 연결 매핑 */
+  const[linkTarget,setLinkTarget]=useState(null); /* 연결 모달에서 매핑할 출고 제품명 */
+  const[linkSearch,setLinkSearch]=useState('');
   const fileRef=useRef(null);
   const captureRef=useRef(null);
+
+  /* 제품명 정규화 (매칭 키 + 매핑 키 공용) */
+  const normName=(s)=>String(s||'').replace(/\s/g,'').replace(/[\[\]()]/g,'').toLowerCase();
 
   /* 제품명으로 본사재고/원재료에서 재고 찾기 (정확도 우선) */
   const findStock=(prodName)=>{
     if(!prodName)return null;
-    const norm=(s)=>String(s||'').replace(/\s/g,'').replace(/[\[\]()]/g,'').toLowerCase();
+    const norm=normName;
     const target=norm(prodName);
     /* 핵심 단어: 대괄호 부분 제거한 본 이름 */
     const core=norm(String(prodName).replace(/\[[^\]]*\]/g,''));
+    /* 0) 수동 연결 매핑 우선 (matCode 기준) */
+    const mapped=nameMap[target];
+    if(mapped){
+      const h=(hqItems||[]).find(x=>x.matCode===mapped);
+      if(h){
+        const mt=(mats||[]).find(m=>m.c===h.matCode)||{};
+        return{stock:(+h.hqStock||0)+(+mt.s||0),unit:mt.u||h.unit||'ea',source:'본사(수동)',matchedName:h.matName||mt.n||mapped};
+      }
+      const m=(mats||[]).find(x=>x.c===mapped);
+      if(m)return{stock:+(m.s||0),unit:m.u||'ea',source:'재고(수동)',matchedName:m.n||mapped};
+    }
     /* 유사도 점수: 정확 일치(100) > 끝일치+같은단어(80) > 한쪽이 다른쪽 끝에 포함(60) > 어떤 포함(40) */
     const score=(candidate)=>{
       const cn=norm(candidate);
@@ -7570,14 +7743,19 @@ function PageShipSort({mats,hqItems}){
       }
       return 0;
     };
-    /* 1) 본사재고에서 최고 점수 찾기 (60점 이상만 유효) */
+    /* 1) 본사재고에서 최고 점수 찾기 (60점 이상만 유효)
+       ※ 본사재고 항목 필드: matName(이름), matCode(코드), hqStock(본사보유)
+          실제 가용재고 = hqStock + 원재료(mats)의 현재고 s (PageHQ totalStock과 동일) */
     const allHq=(hqItems||[]);
     let best=null,bestScore=0;
     allHq.forEach(h=>{
-      const s=score(h.name||h.n||'');
+      const s=score(h.matName||h.name||h.n||'');
       if(s>bestScore){bestScore=s;best=h;}
     });
-    if(best&&bestScore>=60)return{stock:+(best.qty||best.s||0),unit:best.unit||best.u||'ea',source:'본사'};
+    if(best&&bestScore>=60){
+      const mt=(mats||[]).find(m=>m.c===best.matCode)||{};
+      return{stock:(+best.hqStock||0)+(+mt.s||0),unit:mt.u||best.unit||'ea',source:'본사',matchedName:best.matName||mt.n||''};
+    }
     /* 2) 원재료/완제품 mats에서 */
     const allMats=(mats||[]);
     best=null;bestScore=0;
@@ -7585,8 +7763,34 @@ function PageShipSort({mats,hqItems}){
       const s=score(m.n||'');
       if(s>bestScore){bestScore=s;best=m;}
     });
-    if(best&&bestScore>=60)return{stock:+(best.s||0),unit:best.u||'ea',source:'재고'};
+    if(best&&bestScore>=60)return{stock:+(best.s||0),unit:best.u||'ea',source:'재고',matchedName:best.n||''};
     return null;
+  };
+
+  /* 연결 후보 목록: 본사재고 + 원재료 (matCode 기준 합치고 본사 우선) */
+  const linkCandidates=()=>{
+    const map={};
+    (hqItems||[]).forEach(h=>{
+      const mt=(mats||[]).find(m=>m.c===h.matCode)||{};
+      map[h.matCode]={code:h.matCode,name:h.matName||mt.n||h.matCode,stock:(+h.hqStock||0)+(+mt.s||0),unit:mt.u||h.unit||'ea',src:'본사'};
+    });
+    (mats||[]).forEach(m=>{
+      if(!map[m.c])map[m.c]={code:m.c,name:m.n||m.c,stock:+(m.s||0),unit:m.u||'ea',src:'재고'};
+    });
+    return Object.values(map);
+  };
+  /* 수동 매핑 저장 (Supabase merge) */
+  const saveNameMap=(nm)=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:r})=>{
+      const ex=r&&r.state_data?r.state_data:{};
+      sbClient.from('app_state').upsert({id:1,state_data:{...ex,shipsort_namemap:nm},updated_at:new Date().toISOString()});
+    });
+  };
+  const setLink=(prodName,code)=>{
+    const nm={...nameMap};
+    if(code)nm[normName(prodName)]=code; else delete nm[normName(prodName)];
+    setNameMap(nm);saveNameMap(nm);
+    setLinkTarget(null);setLinkSearch('');
   };
 
   /* 결과 영역을 이미지로 캡처 */
@@ -7623,6 +7827,7 @@ function PageShipSort({mats,hqItems}){
         setParsed(sd.shipsort_data);
         if(sd.shipsort_date)setShipDate(sd.shipsort_date);
       }
+      if(sd.shipsort_namemap&&typeof sd.shipsort_namemap==='object')setNameMap(sd.shipsort_namemap);
       setLoadedFromDB(true);
     }).catch(()=>setLoadedFromDB(true));
   },[]);
@@ -7834,19 +8039,64 @@ function PageShipSort({mats,hqItems}){
         ...Object.entries(parsed.prodTotal).map(([name,t])=>{
           const st=findStock(name);
           const enough=st?st.stock>=t:null;
-          return R('div',{key:name,style:{display:'grid',gridTemplateColumns:'minmax(180px,260px) 100px 1fr',columnGap:'14px',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #F1F5F9',fontSize:12}},
-            R('span',{style:{fontWeight:600}},name),
+          const isManual=st&&/수동/.test(st.source);
+          return R('div',{key:name,style:{display:'grid',gridTemplateColumns:'minmax(160px,240px) 92px 1fr auto',columnGap:'12px',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #F1F5F9',fontSize:12}},
+            R('span',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:st&&st.matchedName?('연결: '+st.matchedName+(isManual?' (수동)':'')):''},name),
             R('span',{style:{fontWeight:700,color:'var(--p)'}},fN(t),' ea 필요'),
             st
               ? R('span',{style:{fontSize:11}},
                   R('span',{style:{color:'#64748b'}},'재고 ',fN(st.stock),st.unit),
+                  isManual&&R('span',{style:{marginLeft:4,fontSize:9,color:'#9333EA',fontWeight:700}},'🔗'),
                   R('span',{style:{marginLeft:6,padding:'2px 8px',borderRadius:10,background:enough?'#DCFCE7':'#FEE2E2',color:enough?'#15803D':'#B91C1C',fontWeight:700,fontSize:10}},enough?'✓ 충분':'⚠ 부족 '+fN(t-st.stock))
                 )
-              : R('span',{style:{fontSize:10,color:'#94A3B8'}},'재고정보없음')
+              : R('span',{style:{fontSize:10,color:'#94A3B8'}},'재고정보없음'),
+            R('button',{onClick:()=>{setLinkSearch(String(name).replace(/\[[^\]]*\]/g,'').trim());setLinkTarget(name);},
+              style:{border:'1px solid #E5E7EB',background:st?'#fff':'#FFF7ED',color:st?'#94A3B8':'var(--p)',borderRadius:8,padding:'2px 8px',fontSize:10,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'},
+              title:'재고 항목 직접 연결'},st?'재연결':'🔗 연결')
           );
         })
       ),
-      R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8,padding:'0 4px'}},'※ PDF에서 자동 추출한 결과입니다. 팔레트는 30박스=1팔레트 기준입니다. 숫자가 틀리면 PDF 원본을 확인하세요.')
+      R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8,padding:'0 4px'}},'※ PDF에서 자동 추출한 결과입니다. 팔레트는 30박스=1팔레트 기준입니다. "재고정보없음"이면 [🔗 연결]로 본사재고 항목을 직접 지정하세요(다음부터 자동 적용).')
+    ),
+    /* ── 재고 항목 수동 연결 모달 ── */
+    linkTarget&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setLinkTarget(null);setLinkSearch('');}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'8vh 16px 16px'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',maxHeight:'78vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25)',overflow:'hidden'}},
+        R('div',{style:{padding:'14px 16px',borderBottom:'1px solid #F1F5F9'}},
+          R('div',{style:{fontSize:13,fontWeight:800,marginBottom:2}},'재고 항목 연결'),
+          R('div',{style:{fontSize:11,color:'var(--tm)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},'출고 제품: ',R('b',{style:{color:'var(--p)'}},linkTarget))
+        ),
+        R('div',{style:{padding:'10px 16px 0'}},
+          R('input',{autoFocus:true,value:linkSearch,onChange:e=>setLinkSearch(e.target.value),placeholder:'본사재고/원재료 이름 검색',
+            style:{width:'100%',boxSizing:'border-box',padding:'9px 12px',border:'1px solid var(--bd)',borderRadius:9,fontSize:13}}),
+          nameMap[normName(linkTarget)]&&R('button',{onClick:()=>setLink(linkTarget,null),
+            style:{marginTop:8,border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer'}},'✕ 수동 연결 해제(자동 매칭으로)')
+        ),
+        R('div',{style:{flex:1,overflowY:'auto',padding:'8px 8px 12px'}},
+          (()=>{
+            const q=normName(linkSearch);
+            const list=linkCandidates().filter(c=>!q||normName(c.name).includes(q)||normName(c.code).includes(q))
+              .sort((a,b)=>(a.src===b.src?0:(a.src==='본사'?-1:1))).slice(0,80);
+            if(list.length===0)return R('div',{style:{padding:'24px 12px',textAlign:'center',color:'#94A3B8',fontSize:12}},'일치하는 재고 항목이 없습니다');
+            const curCode=nameMap[normName(linkTarget)];
+            return list.map(c=>R('div',{key:c.code,onClick:()=>setLink(linkTarget,c.code),
+              style:{display:'flex',alignItems:'center',gap:8,padding:'9px 10px',borderRadius:9,cursor:'pointer',background:curCode===c.code?'#FFF7ED':'transparent'},
+              onMouseEnter:e=>e.currentTarget.style.background='#F8FAFC',
+              onMouseLeave:e=>e.currentTarget.style.background=curCode===c.code?'#FFF7ED':'transparent'},
+              R('span',{style:{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:6,flexShrink:0,background:c.src==='본사'?'#EFF6FF':'#F1F5F9',color:c.src==='본사'?'#2563EB':'#64748b'}},c.src),
+              R('div',{style:{flex:1,minWidth:0}},
+                R('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},c.name),
+                R('div',{style:{fontSize:10,color:'#94A3B8'}},c.code)
+              ),
+              R('span',{style:{fontSize:11,fontWeight:700,color:'#0369a1',flexShrink:0}},fN(c.stock),c.unit)
+            ));
+          })()
+        ),
+        R('div',{style:{padding:'10px 16px',borderTop:'1px solid #F1F5F9',textAlign:'right'}},
+          R('button',{onClick:()=>{setLinkTarget(null);setLinkSearch('');},
+            style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer'}},'닫기')
+        )
+      )
     )
   );
 }
