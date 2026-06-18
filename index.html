@@ -2652,6 +2652,27 @@ function EC({initVal,onSave,type,style,placeholder,className,rk}){
 
 /* ────── PAGE: 홈 ────── */
 /* ═══ 홈 최상단: 진행 중인 업무 (work_requests 재사용, 인라인 진척/상태/상황 편집) ═══ */
+/* 업무 분류 기본값 + 색상 팔레트 (사용자가 추가/수정 가능, work_categories로 저장) */
+const DEFAULT_WCATS=[
+  {v:'factory',l:'공장 업무',c:'#2563EB',bg:'#EFF6FF',bd:'#BFDBFE'},
+  {v:'newproduct',l:'신제품 업무',c:'#9333EA',bg:'#F5F3FF',bd:'#DDD6FE'},
+  {v:'branding',l:'브랜딩 업무',c:'#DB2777',bg:'#FDF2F8',bd:'#FBCFE8'},
+  {v:'sample',l:'샘플 작업',c:'#0D9488',bg:'#F0FDFA',bd:'#99F6E4'},
+  {v:'etc',l:'기타 업무',c:'#64748B',bg:'#F1F5F9',bd:'#E2E8F0'}
+];
+const WCAT_PALETTE=[
+  {c:'#2563EB',bg:'#EFF6FF',bd:'#BFDBFE'},
+  {c:'#9333EA',bg:'#F5F3FF',bd:'#DDD6FE'},
+  {c:'#DB2777',bg:'#FDF2F8',bd:'#FBCFE8'},
+  {c:'#0D9488',bg:'#F0FDFA',bd:'#99F6E4'},
+  {c:'#EA580C',bg:'#FFF7ED',bd:'#FED7AA'},
+  {c:'#16A34A',bg:'#F0FDF4',bd:'#BBF7D0'},
+  {c:'#0891B2',bg:'#ECFEFF',bd:'#A5F3FC'},
+  {c:'#CA8A04',bg:'#FEFCE8',bd:'#FEF08A'},
+  {c:'#E11D48',bg:'#FFF1F2',bd:'#FECDD3'},
+  {c:'#64748B',bg:'#F1F5F9',bd:'#E2E8F0'}
+];
+
 function OngoingWork({user,onGoPage}){
   const[reqs,setReqs]=useState([]);
   const[loaded,setLoaded]=useState(false);
@@ -2661,21 +2682,19 @@ function OngoingWork({user,onGoPage}){
   const[newTitle,setNewTitle]=useState('');
   const[catF,setCatF]=useState('all'); /* 카테고리 필터 */
   const[newCat,setNewCat]=useState('factory'); /* 새 업무 분류 */
+  const[wcats,setWcats]=useState(DEFAULT_WCATS); /* 분류 목록 (편집 가능) */
+  const[catMgr,setCatMgr]=useState(false); /* 분류 관리 모달 */
+  const[mgrName,setMgrName]=useState(''); /* 분류 추가 입력 */
   const tRef=useRef(null);
 
-  const CATS=[
-    {v:'factory',l:'공장 업무',c:'#2563EB',bg:'#EFF6FF',bd:'#BFDBFE'},
-    {v:'newproduct',l:'신제품 업무',c:'#9333EA',bg:'#F5F3FF',bd:'#DDD6FE'},
-    {v:'branding',l:'브랜딩 업무',c:'#DB2777',bg:'#FDF2F8',bd:'#FBCFE8'},
-    {v:'sample',l:'샘플 작업',c:'#0D9488',bg:'#F0FDFA',bd:'#99F6E4'},
-    {v:'etc',l:'기타 업무',c:'#64748B',bg:'#F1F5F9',bd:'#E2E8F0'}
-  ];
-  const catMeta=(v)=>CATS.find(c=>c.v===v)||CATS.find(c=>c.v==='etc')||CATS[CATS.length-1];
+  const CATS=wcats;
+  const catMeta=(v)=>wcats.find(c=>c.v===v)||{v:'etc',l:'기타 업무',c:'#64748B',bg:'#F1F5F9',bd:'#E2E8F0'};
 
   const load=()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
       const sd=data&&data.state_data?data.state_data:{};
       if(Array.isArray(sd.work_requests))setReqs(sd.work_requests);
+      if(Array.isArray(sd.work_categories)&&sd.work_categories.length)setWcats(sd.work_categories);
       setLoaded(true);
     }).catch(()=>setLoaded(true));
   };
@@ -2697,6 +2716,40 @@ function OngoingWork({user,onGoPage}){
         return sbClient.from('app_state').upsert({id:1,state_data:{...ex,work_requests:next},updated_at:new Date().toISOString()});
       }).then(()=>setSaving(false)).catch(()=>setSaving(false));
     },250);
+  };
+
+  /* 분류 목록 저장 (merge) */
+  const persistWcats=(next)=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
+      const ex=cur&&cur.state_data?cur.state_data:{};
+      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,work_categories:next},updated_at:new Date().toISOString()});
+    }).catch(()=>{});
+  };
+  const addCat=()=>{
+    const l=(mgrName||'').trim();if(!l)return;
+    if(wcats.some(c=>c.l===l)){alert('같은 이름의 분류가 있습니다');return;}
+    const col=WCAT_PALETTE[wcats.length%WCAT_PALETTE.length];
+    const v='cat_'+Date.now().toString(36);
+    setWcats([...wcats,{v,l,...col}]);setMgrName('');
+  };
+  const renameCat=(v,l)=>setWcats(wcats.map(c=>c.v===v?{...c,l}:c));
+  const cycleColor=(v)=>setWcats(wcats.map(c=>{
+    if(c.v!==v)return c;
+    const i=WCAT_PALETTE.findIndex(p=>p.c===c.c);
+    const np=WCAT_PALETTE[(i+1)%WCAT_PALETTE.length];
+    return{...c,...np};
+  }));
+  const deleteCat=(v)=>{
+    if(wcats.length<=1){alert('분류는 최소 1개는 있어야 합니다');return;}
+    const c=wcats.find(x=>x.v===v);
+    if(!confirm('"'+(c&&c.l)+'" 분류를 삭제할까요?\n(이 분류의 업무는 삭제되지 않고 "기타 업무"로 표시됩니다)'))return;
+    setWcats(wcats.filter(x=>x.v!==v));
+  };
+  const closeCatMgr=()=>{
+    /* 빈 이름 정리 후 저장 */
+    const cleaned=wcats.map(c=>({...c,l:(c.l||'').trim()||'(이름없음)'}));
+    setWcats(cleaned);persistWcats(cleaned);
+    setCatMgr(false);setMgrName('');
   };
 
   const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
@@ -2775,15 +2828,42 @@ function OngoingWork({user,onGoPage}){
   const closeEdit=()=>{setOpenId(null);setDraft(null);};
   const editTask=openId?reqs.find(r=>r.id===openId):null;
 
+  /* 분류별로 묶기 (전체 보기에서 사용) - 빈 분류 제외, 삭제된 분류는 기타로 */
+  const groupByCat=(list)=>{
+    const known=new Set(wcats.map(c=>c.v));
+    const groups=wcats.map(c=>({cat:c,items:list.filter(r=>catOf(r)===c.v)}));
+    const orphans=list.filter(r=>!known.has(catOf(r)));
+    if(orphans.length)groups.push({cat:{v:'__other',l:'기타 업무',c:'#64748B',bg:'#F1F5F9',bd:'#E2E8F0'},items:orphans});
+    return groups.filter(g=>g.items.length>0);
+  };
+  /* 섹션 본문: 전체 보기면 분류별 그룹, 특정 분류면 그냥 그리드 */
+  const sectionBody=(full,shown,moreCount)=>{
+    if(catF==='all'){
+      return R('div',null,...groupByCat(full).map(g=>R('div',{key:g.cat.v,style:{marginBottom:14}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:7,marginBottom:8}},
+          R('span',{style:{fontSize:11,fontWeight:800,color:g.cat.c,background:g.cat.bg,border:'1px solid '+g.cat.bd,padding:'3px 10px',borderRadius:999}},g.cat.l),
+          R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},g.items.length)
+        ),
+        taskGrid(g.items)
+      )));
+    }
+    return R('div',null,
+      taskGrid(shown),
+      moreCount>0&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+moreCount+'개 더 보기')
+    );
+  };
+
   return R('div',{style:{marginBottom:14}},
     /* ── 카테고리 필터 탭 ── */
-    R('div',{className:'tab-row',style:{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}},
+    R('div',{className:'tab-row',style:{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap',alignItems:'center'}},
       ...[{v:'all',l:'전체'}].concat(CATS).map(c=>{
         const act=catF===c.v;const cnt=openCntByCat(c.v);
         return R('button',{key:c.v,onClick:()=>{setCatF(c.v);if(c.v!=='all')setNewCat(c.v);},
           style:{flexShrink:0,border:'1px solid '+(act?'var(--p)':'var(--bd)'),background:act?'var(--p)':'#fff',color:act?'#fff':'var(--tm)',borderRadius:999,padding:'6px 13px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
           c.l,cnt>0&&R('span',{style:{marginLeft:5,opacity:0.85,fontWeight:800}},cnt));
-      })
+      }),
+      R('button',{onClick:()=>setCatMgr(true),title:'분류 추가·수정',
+        style:{flexShrink:0,border:'1px dashed var(--bd)',background:'#fff',color:'var(--tm)',borderRadius:999,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},'⚙ 분류 관리')
     ),
     /* ── 진행 중인 업무 (전체 폭) ── */
     R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:12}},
@@ -2804,11 +2884,8 @@ function OngoingWork({user,onGoPage}){
         R('button',{onClick:addTask,style:{flexShrink:0,border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'9px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'추가')
       ),
       !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
-      :ongoingShow.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},catF==='all'?'위에 업무를 입력하면 바로 추가됩니다':'이 분류의 진행 업무가 없습니다')
-      :R('div',null,
-        taskGrid(ongoingShow),
-        ongoing.length>ongoingShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(ongoing.length-ongoingShow.length)+'개 더 보기')
-      )
+      :ongoing.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},catF==='all'?'위에 업무를 입력하면 바로 추가됩니다':'이 분류의 진행 업무가 없습니다')
+      :sectionBody(ongoing,ongoingShow,ongoing.length-ongoingShow.length)
     ),
     /* ── 완료된 업무 (전체 폭) ── */
     R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px'}},
@@ -2817,11 +2894,8 @@ function OngoingWork({user,onGoPage}){
         completed.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D',background:'#F0FDF4',padding:'2px 9px',borderRadius:999}},completed.length)
       ),
       !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
-      :completedShow.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'완료한 업무가 여기에 쌓입니다')
-      :R('div',null,
-        taskGrid(completedShow),
-        completed.length>completedShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(completed.length-completedShow.length)+'개 더 보기')
-      ),
+      :completed.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'완료한 업무가 여기에 쌓입니다')
+      :sectionBody(completed,completedShow,completed.length-completedShow.length),
       saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
     ),
     /* ── 업무 수정 모달 (카드 클릭) ── */
@@ -2857,6 +2931,33 @@ function OngoingWork({user,onGoPage}){
               R('button',{onClick:()=>commitEdit(editTask),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
             )
           )
+        )
+      )
+    ),
+    /* ── 분류 관리 모달 ── */
+    catMgr&&R('div',{onClick:e=>{if(e.target===e.currentTarget)closeCatMgr();},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:440,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
+        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'⚙ 분류 관리'),
+          R('button',{onClick:closeCatMgr,style:{border:'none',background:'none',fontSize:17,color:'var(--tm)',cursor:'pointer',lineHeight:1,fontFamily:'inherit'}},'✕')
+        ),
+        R('div',{style:{padding:'14px 18px',maxHeight:'60vh',overflowY:'auto'}},
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:10}},'색 동그라미를 누르면 색이 바뀝니다. 이름을 눌러 바로 수정할 수 있어요.'),
+          ...wcats.map(c=>R('div',{key:c.v,style:{display:'flex',alignItems:'center',gap:10,marginBottom:8}},
+            R('button',{onClick:()=>cycleColor(c.v),title:'색 변경',style:{flexShrink:0,width:22,height:22,borderRadius:'50%',background:c.c,border:'2px solid '+c.bd,cursor:'pointer'}}),
+            R('input',{value:c.l,onChange:e=>renameCat(c.v,e.target.value),
+              style:{flex:1,minWidth:0,border:'1px solid var(--bd)',borderRadius:8,padding:'7px 10px',fontSize:13,fontWeight:600,fontFamily:'inherit'}}),
+            R('button',{onClick:()=>deleteCat(c.v),title:'삭제',style:{flexShrink:0,border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'7px 11px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
+          )),
+          R('div',{style:{display:'flex',gap:8,alignItems:'center',marginTop:12,paddingTop:12,borderTop:'1px solid #F1F5F9'}},
+            R('input',{value:mgrName,onChange:e=>setMgrName(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addCat();},placeholder:'새 분류 이름',
+              style:{flex:1,minWidth:0,border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:13,fontFamily:'inherit'}}),
+            R('button',{onClick:addCat,style:{flexShrink:0,border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'8px 16px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'+ 추가')
+          )
+        ),
+        R('div',{style:{padding:'12px 18px',borderTop:'1px solid #F1F5F9',textAlign:'right'}},
+          R('button',{onClick:closeCatMgr,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'완료')
         )
       )
     )
