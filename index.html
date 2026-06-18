@@ -2689,11 +2689,13 @@ function OngoingWork({user,onGoPage}){
   };
 
   const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
-  /* 진행 중(미완료)만 표시 - 상태 라벨은 화면에 노출하지 않음 */
-  const ongoingAll=reqs.filter(r=>r.status!=='done'&&r.status!=='cancelled'&&r.status!=='rejected');
-  const mine=isAdmin?ongoingAll:ongoingAll.filter(r=>r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id));
-  const sorted=mine.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  const show=sorted.slice(0,12);
+  const isDone=(r)=>r.status==='done';
+  const mineFilter=(r)=>isAdmin||r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id);
+  /* 좌: 진행 중(미완료) / 우: 완료 */
+  const ongoing=reqs.filter(r=>r.status!=='done'&&r.status!=='cancelled'&&r.status!=='rejected').filter(mineFilter).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const completed=reqs.filter(isDone).filter(mineFilter).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  const ongoingShow=ongoing.slice(0,12);
+  const completedShow=completed.slice(0,12);
 
   /* 제목만으로 즉시 추가 (담당자 지정 없이) */
   const addTask=()=>{
@@ -2733,62 +2735,87 @@ function OngoingWork({user,onGoPage}){
     saveReqs(reqs.filter(x=>x.id!==r.id));
     setOpenId(null);setDraft(null);
   };
+  const restore=(r)=>{
+    saveReqs(reqs.map(x=>x.id===r.id?{...x,status:'doing',progress:0,updatedAt:Date.now()}:x));
+    setOpenId(null);setDraft(null);
+  };
   const preview=(s)=>String(s||'').replace(/\s+/g,' ').trim();
 
-  return R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:14}},
-    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
-      R('div',{style:{display:'flex',alignItems:'center',gap:8}},
-        R('span',{style:{fontSize:15,fontWeight:800,color:'var(--t)'}},'🔥 진행 중인 업무'),
-        mine.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'var(--pb)',padding:'2px 9px',borderRadius:999}},mine.length)
+  /* 업무 카드 1개 (진행/완료 공용) */
+  const taskCard=(r)=>{
+    const open=openId===r.id;const pv=preview(r.content);const done=isDone(r);
+    return R('div',{key:r.id,style:{borderRadius:12,border:'1px solid '+(open?'var(--p)':'#F1F5F9'),marginBottom:8,overflow:'hidden',transition:'border-color .15s'}},
+      R('div',{onClick:()=>openEdit(r),style:{padding:'11px 14px',cursor:'pointer',background:open?'var(--pb)':'#fff'},
+        onMouseEnter:e=>{if(!open)e.currentTarget.style.background='#FAFAFA';},
+        onMouseLeave:e=>{if(!open)e.currentTarget.style.background='#fff';}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          R('div',{style:{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:done?'var(--tm)':'var(--t)',textDecoration:done?'line-through':'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title||'(제목 없음)'),
+          R('span',{style:{flexShrink:0,fontSize:11,color:'#C4C9D0'}},open?'▲':'▼')
+        ),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},pv||(done?'내용 없음':'내용 없음 · 눌러서 작성'))
       ),
-      R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}},'전체 보기 →')
-    ),
-    /* 빠른 추가: 업무 제목 입력 후 Enter */
-    R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:12}},
-      R('span',{style:{fontSize:13,fontWeight:800,color:'var(--p)',flexShrink:0}},'업무:'),
-      R('input',{value:newTitle,onChange:e=>setNewTitle(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addTask();},
-        placeholder:'할 일을 입력하고 Enter',
-        style:{flex:1,minWidth:0,boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'9px 12px',fontSize:13,fontFamily:'inherit'}}),
-      R('button',{onClick:addTask,style:{flexShrink:0,border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'9px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'추가')
-    ),
-    !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
-    :show.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'위에 업무를 입력하면 바로 추가됩니다')
-    :R('div',null,
-      ...show.map(r=>{
-        const open=openId===r.id;const pv=preview(r.content);
-        return R('div',{key:r.id,style:{borderRadius:12,border:'1px solid '+(open?'var(--p)':'#F1F5F9'),marginBottom:8,overflow:'hidden',transition:'border-color .15s'}},
-          R('div',{onClick:()=>openEdit(r),style:{padding:'11px 14px',cursor:'pointer',background:open?'var(--pb)':'#fff'},
-            onMouseEnter:e=>{if(!open)e.currentTarget.style.background='#FAFAFA';},
-            onMouseLeave:e=>{if(!open)e.currentTarget.style.background='#fff';}},
-            R('div',{style:{display:'flex',alignItems:'center',gap:8}},
-              R('div',{style:{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:'var(--t)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title||'(제목 없음)'),
-              R('span',{style:{flexShrink:0,fontSize:11,color:'#C4C9D0'}},open?'▲':'▼')
-            ),
-            R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},pv||'내용 없음 · 눌러서 작성')
+      open&&draft&&R('div',{style:{padding:'12px 14px 14px',borderTop:'1px solid #FCE7DC',background:'#fff'}},
+        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'제목'),
+        R('input',{value:draft.title,onChange:e=>setDraft({...draft,title:e.target.value}),
+          style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontWeight:700,fontFamily:'inherit',marginBottom:10}}),
+        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'내용'),
+        R('textarea',{value:draft.content,onChange:e=>setDraft({...draft,content:e.target.value}),placeholder:'업무 내용을 작성하세요',
+          style:{width:'100%',boxSizing:'border-box',minHeight:90,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.5}}),
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,flexWrap:'wrap',gap:8}},
+          R('div',{style:{display:'flex',gap:8}},
+            done
+              ?R('button',{onClick:()=>restore(r),style:{border:'1px solid #FED7AA',background:'#FFF7ED',color:'#C2410C',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'↩ 진행중으로')
+              :R('button',{onClick:()=>markDone(r),style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 완료'),
+            R('button',{onClick:()=>removeTask(r),style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
           ),
-          open&&draft&&R('div',{style:{padding:'12px 14px 14px',borderTop:'1px solid #FCE7DC',background:'#fff'}},
-            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'제목'),
-            R('input',{value:draft.title,onChange:e=>setDraft({...draft,title:e.target.value}),
-              style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontWeight:700,fontFamily:'inherit',marginBottom:10}}),
-            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'내용'),
-            R('textarea',{value:draft.content,onChange:e=>setDraft({...draft,content:e.target.value}),placeholder:'업무 내용을 작성하세요',
-              style:{width:'100%',boxSizing:'border-box',minHeight:90,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.5}}),
-            R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,flexWrap:'wrap',gap:8}},
-              R('div',{style:{display:'flex',gap:8}},
-                R('button',{onClick:()=>markDone(r),style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 완료'),
-                R('button',{onClick:()=>removeTask(r),style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
-              ),
-              R('div',{style:{display:'flex',gap:8}},
-                R('button',{onClick:()=>{setOpenId(null);setDraft(null);},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
-                R('button',{onClick:()=>commitEdit(r),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'6px 16px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
-              )
-            )
+          R('div',{style:{display:'flex',gap:8}},
+            R('button',{onClick:()=>{setOpenId(null);setDraft(null);},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
+            R('button',{onClick:()=>commitEdit(r),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'6px 16px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
           )
-        );
-      }),
-      sorted.length>show.length&&R('button',{onClick:()=>onGoPage('workreq'),style:{width:'100%',marginTop:4,padding:'8px',background:'#FAFAFA',border:'1px dashed var(--bd)',borderRadius:10,fontSize:11,fontWeight:700,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit'}},'+ '+(sorted.length-show.length)+'개 더 보기')
+        )
+      )
+    );
+  };
+  const moreBtn={width:'100%',marginTop:4,padding:'8px',background:'#FAFAFA',border:'1px dashed var(--bd)',borderRadius:10,fontSize:11,fontWeight:700,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit'};
+
+  return R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14,alignItems:'start'}},
+    /* ── 좌: 진행 중인 업무 ── */
+    R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'🔥 진행 중인 업무'),
+          ongoing.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'var(--pb)',padding:'2px 9px',borderRadius:999}},ongoing.length)
+        ),
+        R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}},'전체 →')
+      ),
+      /* 빠른 추가: 제목 입력 후 Enter */
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:12}},
+        R('span',{style:{fontSize:13,fontWeight:800,color:'var(--p)',flexShrink:0}},'업무:'),
+        R('input',{value:newTitle,onChange:e=>setNewTitle(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addTask();},placeholder:'입력 후 Enter',
+          style:{flex:1,minWidth:0,boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'9px 12px',fontSize:13,fontFamily:'inherit'}}),
+        R('button',{onClick:addTask,style:{flexShrink:0,border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'9px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'추가')
+      ),
+      !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
+      :ongoingShow.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'위에 업무를 입력하면 바로 추가됩니다')
+      :R('div',null,
+        ...ongoingShow.map(taskCard),
+        ongoing.length>ongoingShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(ongoing.length-ongoingShow.length)+'개 더')
+      )
     ),
-    saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
+    /* ── 우: 완료된 업무 ── */
+    R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px'}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
+        R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'✅ 완료된 업무'),
+        completed.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D',background:'#F0FDF4',padding:'2px 9px',borderRadius:999}},completed.length)
+      ),
+      !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
+      :completedShow.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'완료한 업무가 여기에 쌓입니다')
+      :R('div',null,
+        ...completedShow.map(taskCard),
+        completed.length>completedShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(completed.length-completedShow.length)+'개 더')
+      ),
+      saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
+    )
   );
 }
 
