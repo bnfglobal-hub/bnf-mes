@@ -2656,8 +2656,9 @@ function OngoingWork({user,onGoPage}){
   const[reqs,setReqs]=useState([]);
   const[loaded,setLoaded]=useState(false);
   const[openId,setOpenId]=useState(null);
-  const[draft,setDraft]=useState(null); /* {progress,status,progressNote} */
+  const[draft,setDraft]=useState(null); /* {title,content} */
   const[saving,setSaving]=useState(false);
+  const[newTitle,setNewTitle]=useState('');
   const tRef=useRef(null);
 
   const load=()=>{
@@ -2687,49 +2688,52 @@ function OngoingWork({user,onGoPage}){
     },250);
   };
 
-  const STM={
-    pending:{l:'대기',c:'#6B7280',bg:'#F3F4F6'},
-    accepted:{l:'접수',c:'#3B82F6',bg:'#EFF6FF'},
-    doing:{l:'진행중',c:'#D94F1E',bg:'#FFF5F0'},
-    done:{l:'완료',c:'#22C55E',bg:'#F0FDF4'},
-    rejected:{l:'반려',c:'#EF4444',bg:'#FEF2F2'},
-    cancelled:{l:'취소',c:'#9CA3AF',bg:'#F3F4F6'}
-  };
-  const pmap={pending:0,accepted:25,doing:50,done:100,rejected:0,cancelled:0};
-  const prog=(r)=>r.progress!=null?(+r.progress||0):(pmap[r.status]||0);
-  const today=new Date().toISOString().slice(0,10);
-  const isOverdue=(r)=>r.dueDate&&r.dueDate<today&&r.status!=='done';
-
   const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
-  const ongoingAll=reqs.filter(r=>['pending','accepted','doing'].includes(r.status));
+  /* 진행 중(미완료)만 표시 - 상태 라벨은 화면에 노출하지 않음 */
+  const ongoingAll=reqs.filter(r=>r.status!=='done'&&r.status!=='cancelled'&&r.status!=='rejected');
   const mine=isAdmin?ongoingAll:ongoingAll.filter(r=>r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id));
-  const sorted=mine.slice().sort((a,b)=>{
-    const ao=isOverdue(a)?0:1,bo=isOverdue(b)?0:1;
-    if(ao!==bo)return ao-bo;
-    const ad=a.dueDate||'9999-99',bd=b.dueDate||'9999-99';
-    if(ad!==bd)return ad<bd?-1:1;
-    return (b.updatedAt||0)-(a.updatedAt||0);
-  });
-  const show=sorted.slice(0,8);
-  const overdueCnt=mine.filter(isOverdue).length;
-  const doingCnt=mine.filter(r=>r.status==='doing').length;
-  const waitCnt=mine.filter(r=>['pending','accepted'].includes(r.status)).length;
+  const sorted=mine.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const show=sorted.slice(0,12);
+
+  /* 제목만으로 즉시 추가 (담당자 지정 없이) */
+  const addTask=()=>{
+    const t=(newTitle||'').trim();
+    if(!t)return;
+    const now=Date.now();
+    const item={
+      id:'wr_'+now+Math.random().toString(36).slice(2,6),
+      requesterId:user&&user.id,requesterName:(user&&(user.name||user.email))||'',
+      assigneeId:'',assigneeName:'',
+      title:t,content:'',
+      priority:'mid',status:'doing',progress:0,
+      comments:[],createdAt:now,updatedAt:now
+    };
+    saveReqs([item,...reqs]);
+    setNewTitle('');
+  };
 
   const openEdit=(r)=>{
     if(openId===r.id){setOpenId(null);setDraft(null);return;}
     setOpenId(r.id);
-    setDraft({progress:prog(r),status:r.status,progressNote:r.progressNote||''});
+    setDraft({title:r.title||'',content:r.content||''});
   };
   const commitEdit=(r)=>{
     const d=draft||{};
-    const next=reqs.map(x=>x.id===r.id?{...x,progress:+d.progress||0,status:d.status||x.status,progressNote:d.progressNote||'',updatedAt:Date.now()}:x);
+    const t=(d.title||'').trim();
+    if(!t){alert('제목을 입력하세요');return;}
+    const next=reqs.map(x=>x.id===r.id?{...x,title:t,content:d.content||'',updatedAt:Date.now()}:x);
     saveReqs(next);setOpenId(null);setDraft(null);
   };
-
-  const pill=(label,val,color,bg)=>R('div',{style:{flex:1,minWidth:0,background:bg,borderRadius:12,padding:'10px 14px'}},
-    R('div',{style:{fontSize:10,fontWeight:700,color:color,opacity:0.9}},label),
-    R('div',{style:{fontSize:22,fontWeight:800,color:color,lineHeight:1.1,marginTop:2}},val)
-  );
+  const markDone=(r)=>{
+    saveReqs(reqs.map(x=>x.id===r.id?{...x,status:'done',progress:100,updatedAt:Date.now()}:x));
+    setOpenId(null);setDraft(null);
+  };
+  const removeTask=(r)=>{
+    if(!confirm('이 업무를 삭제할까요?'))return;
+    saveReqs(reqs.filter(x=>x.id!==r.id));
+    setOpenId(null);setDraft(null);
+  };
+  const preview=(s)=>String(s||'').replace(/\s+/g,' ').trim();
 
   return R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:14}},
     R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
@@ -2739,58 +2743,41 @@ function OngoingWork({user,onGoPage}){
       ),
       R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}},'전체 보기 →')
     ),
-    R('div',{style:{display:'flex',gap:8,marginBottom:14}},
-      pill('진행중',doingCnt,'var(--p)','var(--pb)'),
-      pill('대기·접수',waitCnt,'#2563EB','#EFF6FF'),
-      pill('지연',overdueCnt,overdueCnt>0?'#DC2626':'#9CA3AF',overdueCnt>0?'#FEF2F2':'#F8FAFC')
+    /* 빠른 추가: 업무 제목 입력 후 Enter */
+    R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:12}},
+      R('span',{style:{fontSize:13,fontWeight:800,color:'var(--p)',flexShrink:0}},'업무:'),
+      R('input',{value:newTitle,onChange:e=>setNewTitle(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addTask();},
+        placeholder:'할 일을 입력하고 Enter',
+        style:{flex:1,minWidth:0,boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'9px 12px',fontSize:13,fontFamily:'inherit'}}),
+      R('button',{onClick:addTask,style:{flexShrink:0,border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'9px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'추가')
     ),
-    !loaded?R('div',{style:{padding:'18px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
-    :show.length===0?R('div',{style:{padding:'22px 0',textAlign:'center'}},
-        R('div',{style:{fontSize:13,color:'var(--tm)',marginBottom:10}},'진행 중인 업무가 없습니다'),
-        R('button',{onClick:()=>onGoPage('workreq'),style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:9,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'+ 업무 추가')
-      )
+    !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
+    :show.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'위에 업무를 입력하면 바로 추가됩니다')
     :R('div',null,
       ...show.map(r=>{
-        const sm=STM[r.status]||STM.pending;const p=prog(r);const od=isOverdue(r);const open=openId===r.id;
+        const open=openId===r.id;const pv=preview(r.content);
         return R('div',{key:r.id,style:{borderRadius:12,border:'1px solid '+(open?'var(--p)':'#F1F5F9'),marginBottom:8,overflow:'hidden',transition:'border-color .15s'}},
-          R('div',{onClick:()=>openEdit(r),style:{display:'grid',gridTemplateColumns:'auto 1fr auto',gap:12,alignItems:'center',padding:'11px 14px',cursor:'pointer',background:open?'var(--pb)':'#fff'},
+          R('div',{onClick:()=>openEdit(r),style:{padding:'11px 14px',cursor:'pointer',background:open?'var(--pb)':'#fff'},
             onMouseEnter:e=>{if(!open)e.currentTarget.style.background='#FAFAFA';},
             onMouseLeave:e=>{if(!open)e.currentTarget.style.background='#fff';}},
-            R('span',{style:{fontSize:10,fontWeight:700,color:sm.c,background:sm.bg,padding:'3px 9px',borderRadius:999,whiteSpace:'nowrap'}},sm.l),
-            R('div',{style:{minWidth:0}},
-              R('div',{style:{fontSize:13,fontWeight:700,color:'var(--t)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title||'(제목 없음)'),
-              R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}},
-                r.assigneeName&&R('span',null,'담당 ',r.assigneeName),
-                r.dueDate&&R('span',{style:{color:od?'#DC2626':'var(--tm)',fontWeight:od?700:400}},(od?'⚠ 지연 ':'마감 ')+r.dueDate),
-                r.progressNote&&R('span',{style:{color:'#94A3B8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:180}},'· '+r.progressNote)
-              )
+            R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+              R('div',{style:{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:'var(--t)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title||'(제목 없음)'),
+              R('span',{style:{flexShrink:0,fontSize:11,color:'#C4C9D0'}},open?'▲':'▼')
             ),
-            R('div',{style:{textAlign:'right',width:104}},
-              R('div',{style:{fontSize:12,fontWeight:800,color:'var(--p)'}},p,'%'),
-              R('div',{style:{height:6,background:'#F1F5F9',borderRadius:99,marginTop:4,overflow:'hidden'}},
-                R('div',{style:{height:'100%',width:Math.max(0,Math.min(100,p))+'%',background:'linear-gradient(90deg,var(--pl),var(--p))',borderRadius:99,transition:'width .25s'}})
-              )
-            )
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},pv||'내용 없음 · 눌러서 작성')
           ),
           open&&draft&&R('div',{style:{padding:'12px 14px 14px',borderTop:'1px solid #FCE7DC',background:'#fff'}},
-            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:6}},'현재 진행 상황'),
-            R('textarea',{value:draft.progressNote,onChange:e=>setDraft({...draft,progressNote:e.target.value}),placeholder:'예: 1차 검토 완료, 공급사 회신 대기 중',
-              style:{width:'100%',boxSizing:'border-box',minHeight:54,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:12,fontFamily:'inherit',resize:'vertical'}}),
-            R('div',{style:{display:'flex',gap:16,flexWrap:'wrap',alignItems:'center',marginTop:10}},
-              R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
-                R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'진척도'),
-                ...[0,25,50,75,100].map(v=>R('button',{key:v,onClick:()=>setDraft({...draft,progress:v}),
-                  style:{border:'1px solid '+(draft.progress===v?'var(--p)':'var(--bd)'),background:draft.progress===v?'var(--p)':'#fff',color:draft.progress===v?'#fff':'var(--tm)',borderRadius:7,padding:'4px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},v))
+            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'제목'),
+            R('input',{value:draft.title,onChange:e=>setDraft({...draft,title:e.target.value}),
+              style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontWeight:700,fontFamily:'inherit',marginBottom:10}}),
+            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'내용'),
+            R('textarea',{value:draft.content,onChange:e=>setDraft({...draft,content:e.target.value}),placeholder:'업무 내용을 작성하세요',
+              style:{width:'100%',boxSizing:'border-box',minHeight:90,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.5}}),
+            R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,flexWrap:'wrap',gap:8}},
+              R('div',{style:{display:'flex',gap:8}},
+                R('button',{onClick:()=>markDone(r),style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 완료'),
+                R('button',{onClick:()=>removeTask(r),style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
               ),
-              R('div',{style:{display:'flex',alignItems:'center',gap:6}},
-                R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'상태'),
-                R('select',{value:draft.status,onChange:e=>setDraft({...draft,status:e.target.value}),
-                  style:{border:'1px solid var(--bd)',borderRadius:7,padding:'5px 8px',fontSize:11,fontFamily:'inherit',cursor:'pointer'}},
-                  ...['pending','accepted','doing','done'].map(s=>R('option',{key:s,value:s},STM[s].l)))
-              )
-            ),
-            R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12}},
-              R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,color:'var(--tm)',background:'none',border:'none',cursor:'pointer',fontWeight:600,fontFamily:'inherit'}},'상세·댓글 보기 →'),
               R('div',{style:{display:'flex',gap:8}},
                 R('button',{onClick:()=>{setOpenId(null);setDraft(null);},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
                 R('button',{onClick:()=>commitEdit(r),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'6px 16px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
