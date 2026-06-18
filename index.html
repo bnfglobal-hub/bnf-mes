@@ -2667,9 +2667,10 @@ function OngoingWork({user,onGoPage}){
     {v:'factory',l:'공장 업무',c:'#2563EB',bg:'#EFF6FF',bd:'#BFDBFE'},
     {v:'newproduct',l:'신제품 업무',c:'#9333EA',bg:'#F5F3FF',bd:'#DDD6FE'},
     {v:'branding',l:'브랜딩 업무',c:'#DB2777',bg:'#FDF2F8',bd:'#FBCFE8'},
+    {v:'sample',l:'샘플 작업',c:'#0D9488',bg:'#F0FDFA',bd:'#99F6E4'},
     {v:'etc',l:'기타 업무',c:'#64748B',bg:'#F1F5F9',bd:'#E2E8F0'}
   ];
-  const catMeta=(v)=>CATS.find(c=>c.v===v)||CATS[3];
+  const catMeta=(v)=>CATS.find(c=>c.v===v)||CATS.find(c=>c.v==='etc')||CATS[CATS.length-1];
 
   const load=()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
