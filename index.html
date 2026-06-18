@@ -2709,8 +2709,8 @@ function OngoingWork({user,onGoPage}){
   /* 좌: 진행 중(미완료) / 우: 완료 (선택한 분류로 필터) */
   const ongoing=mineAll.filter(isOpen).filter(catMatch).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const completed=mineAll.filter(isDone).filter(catMatch).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
-  const ongoingShow=ongoing.slice(0,12);
-  const completedShow=completed.slice(0,12);
+  const ongoingShow=ongoing.slice(0,30);
+  const completedShow=completed.slice(0,20);
   const openCntByCat=(v)=>mineAll.filter(isOpen).filter(r=>v==='all'||catOf(r)===v).length;
 
   /* 제목만으로 즉시 추가 (담당자 지정 없이) */
@@ -2760,47 +2760,20 @@ function OngoingWork({user,onGoPage}){
 
   /* 업무 카드 1개 (진행/완료 공용) */
   const taskCard=(r)=>{
-    const open=openId===r.id;const pv=preview(r.content);const done=isDone(r);const cm=catMeta(catOf(r));
-    return R('div',{key:r.id,style:{borderRadius:12,border:'1px solid '+(open?'var(--p)':'#F1F5F9'),marginBottom:8,overflow:'hidden',transition:'border-color .15s'}},
-      R('div',{onClick:()=>openEdit(r),style:{padding:'11px 14px',cursor:'pointer',background:open?'var(--pb)':'#fff'},
-        onMouseEnter:e=>{if(!open)e.currentTarget.style.background='#FAFAFA';},
-        onMouseLeave:e=>{if(!open)e.currentTarget.style.background='#fff';}},
-        R('div',{style:{display:'flex',alignItems:'center',gap:7}},
-          R('span',{style:{flexShrink:0,fontSize:9,fontWeight:700,color:cm.c,background:cm.bg,border:'1px solid '+cm.bd,padding:'2px 7px',borderRadius:999,whiteSpace:'nowrap',opacity:done?0.6:1}},cm.l),
-          R('div',{style:{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:done?'var(--tm)':'var(--t)',textDecoration:done?'line-through':'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title||'(제목 없음)'),
-          R('span',{style:{flexShrink:0,fontSize:11,color:'#C4C9D0'}},open?'▲':'▼')
-        ),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},pv||(done?'내용 없음':'내용 없음 · 눌러서 작성'))
-      ),
-      open&&draft&&R('div',{style:{padding:'12px 14px 14px',borderTop:'1px solid #FCE7DC',background:'#fff'}},
-        R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:10,flexWrap:'wrap'}},
-          R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'분류'),
-          R('select',{value:draft.category||catOf(r),onChange:e=>setDraft({...draft,category:e.target.value}),
-            style:{border:'1px solid var(--bd)',borderRadius:8,padding:'5px 8px',fontSize:12,fontFamily:'inherit',cursor:'pointer',background:'#fff'}},
-            ...CATS.map(c=>R('option',{key:c.v,value:c.v},c.l)))
-        ),
-        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'제목'),
-        R('input',{value:draft.title,onChange:e=>setDraft({...draft,title:e.target.value}),
-          style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontWeight:700,fontFamily:'inherit',marginBottom:10}}),
-        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'내용'),
-        R('textarea',{value:draft.content,onChange:e=>setDraft({...draft,content:e.target.value}),placeholder:'업무 내용을 작성하세요',
-          style:{width:'100%',boxSizing:'border-box',minHeight:90,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 10px',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.5}}),
-        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,flexWrap:'wrap',gap:8}},
-          R('div',{style:{display:'flex',gap:8}},
-            done
-              ?R('button',{onClick:()=>restore(r),style:{border:'1px solid #FED7AA',background:'#FFF7ED',color:'#C2410C',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'↩ 진행중으로')
-              :R('button',{onClick:()=>markDone(r),style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 완료'),
-            R('button',{onClick:()=>removeTask(r),style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
-          ),
-          R('div',{style:{display:'flex',gap:8}},
-            R('button',{onClick:()=>{setOpenId(null);setDraft(null);},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
-            R('button',{onClick:()=>commitEdit(r),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'6px 16px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
-          )
-        )
-      )
+    const pv=preview(r.content);const done=isDone(r);const cm=catMeta(catOf(r));const sel=openId===r.id;
+    return R('div',{key:r.id,onClick:()=>openEdit(r),
+      style:{display:'flex',flexDirection:'column',gap:5,padding:'10px 11px',borderRadius:12,border:'1px solid '+(sel?'var(--p)':'#EEF1F5'),background:sel?'var(--pb)':'#fff',cursor:'pointer',minHeight:72,transition:'border-color .15s,background .15s'},
+      onMouseEnter:e=>{if(!sel)e.currentTarget.style.background='#FAFAFA';},
+      onMouseLeave:e=>{if(!sel)e.currentTarget.style.background='#fff';}},
+      R('span',{style:{alignSelf:'flex-start',fontSize:9,fontWeight:700,color:cm.c,background:cm.bg,border:'1px solid '+cm.bd,padding:'2px 7px',borderRadius:999,whiteSpace:'nowrap',opacity:done?0.6:1}},cm.l),
+      R('div',{style:{fontSize:12,fontWeight:700,color:done?'var(--tm)':'var(--t)',textDecoration:done?'line-through':'none',lineHeight:1.3,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}},r.title||'(제목 없음)'),
+      R('div',{style:{fontSize:11,color:'var(--tm)',lineHeight:1.35,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}},pv||(done?'내용 없음':'눌러서 작성'))
     );
   };
-  const moreBtn={width:'100%',marginTop:4,padding:'8px',background:'#FAFAFA',border:'1px dashed var(--bd)',borderRadius:10,fontSize:11,fontWeight:700,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit'};
+  const taskGrid=(list)=>R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8}},...list.map(taskCard));
+  const moreBtn={width:'100%',marginTop:8,padding:'8px',background:'#FAFAFA',border:'1px dashed var(--bd)',borderRadius:10,fontSize:11,fontWeight:700,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit'};
+  const closeEdit=()=>{setOpenId(null);setDraft(null);};
+  const editTask=openId?reqs.find(r=>r.id===openId):null;
 
   return R('div',{style:{marginBottom:14}},
     /* ── 카테고리 필터 탭 ── */
@@ -2812,9 +2785,8 @@ function OngoingWork({user,onGoPage}){
           c.l,cnt>0&&R('span',{style:{marginLeft:5,opacity:0.85,fontWeight:800}},cnt));
       })
     ),
-    R('div',{className:'home-row',style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}},
-    /* ── 좌: 진행 중인 업무 ── */
-    R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px'}},
+    /* ── 진행 중인 업무 (전체 폭) ── */
+    R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:12}},
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
         R('div',{style:{display:'flex',alignItems:'center',gap:8}},
           R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'🔥 진행 중인 업무'),
@@ -2834,11 +2806,11 @@ function OngoingWork({user,onGoPage}){
       !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
       :ongoingShow.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},catF==='all'?'위에 업무를 입력하면 바로 추가됩니다':'이 분류의 진행 업무가 없습니다')
       :R('div',null,
-        ...ongoingShow.map(taskCard),
-        ongoing.length>ongoingShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(ongoing.length-ongoingShow.length)+'개 더')
+        taskGrid(ongoingShow),
+        ongoing.length>ongoingShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(ongoing.length-ongoingShow.length)+'개 더 보기')
       )
     ),
-    /* ── 우: 완료된 업무 ── */
+    /* ── 완료된 업무 (전체 폭) ── */
     R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px'}},
       R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
         R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'✅ 완료된 업무'),
@@ -2847,11 +2819,46 @@ function OngoingWork({user,onGoPage}){
       !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
       :completedShow.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'완료한 업무가 여기에 쌓입니다')
       :R('div',null,
-        ...completedShow.map(taskCard),
-        completed.length>completedShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(completed.length-completedShow.length)+'개 더')
+        taskGrid(completedShow),
+        completed.length>completedShow.length&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+(completed.length-completedShow.length)+'개 더 보기')
       ),
       saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
-    )
+    ),
+    /* ── 업무 수정 모달 (카드 클릭) ── */
+    editTask&&draft&&R('div',{onClick:e=>{if(e.target===e.currentTarget)closeEdit();},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
+        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},isDone(editTask)?'✅ 완료된 업무':'업무 수정'),
+          R('button',{onClick:closeEdit,style:{border:'none',background:'none',fontSize:17,color:'var(--tm)',cursor:'pointer',lineHeight:1,fontFamily:'inherit'}},'✕')
+        ),
+        R('div',{style:{padding:'16px 18px'}},
+          R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:12}},
+            R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'분류'),
+            R('select',{value:draft.category||'etc',onChange:e=>setDraft({...draft,category:e.target.value}),
+              style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit',cursor:'pointer',background:'#fff'}},
+              ...CATS.map(c=>R('option',{key:c.v,value:c.v},c.l)))
+          ),
+          R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'제목'),
+          R('input',{value:draft.title,onChange:e=>setDraft({...draft,title:e.target.value}),autoFocus:true,
+            style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'9px 11px',fontSize:14,fontWeight:700,fontFamily:'inherit',marginBottom:12}}),
+          R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'내용'),
+          R('textarea',{value:draft.content,onChange:e=>setDraft({...draft,content:e.target.value}),placeholder:'업무 내용을 작성하세요',
+            style:{width:'100%',boxSizing:'border-box',minHeight:140,border:'1px solid var(--bd)',borderRadius:9,padding:'10px 11px',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.6}}),
+          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:14,flexWrap:'wrap',gap:8}},
+            R('div',{style:{display:'flex',gap:8}},
+              isDone(editTask)
+                ?R('button',{onClick:()=>restore(editTask),style:{border:'1px solid #FED7AA',background:'#FFF7ED',color:'#C2410C',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'↩ 진행중으로')
+                :R('button',{onClick:()=>markDone(editTask),style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 완료'),
+              R('button',{onClick:()=>removeTask(editTask),style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
+            ),
+            R('div',{style:{display:'flex',gap:8}},
+              R('button',{onClick:closeEdit,style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
+              R('button',{onClick:()=>commitEdit(editTask),style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'저장')
+            )
+          )
+        )
+      )
     )
   );
 }
