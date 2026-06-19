@@ -8156,21 +8156,39 @@ function PageShipSort({mats,hqItems}){
     Object.values(byCenter).forEach(d=>Object.entries(d.items).forEach(([name,v])=>{pt[name]=(pt[name]||0)+v.total;}));
     return pt;
   };
-  /* 특정 센터 빼기 */
+  /* 파일(발주) 내용 시그니처 - 같은 내용이면 중복으로 판단 */
+  const orderSig=(o)=>{
+    const items=(o.items||[]).map(it=>it.name+':'+it.box+':'+it.total).sort().join('|');
+    return (o.center||'')+'#'+(o.date||'')+'#'+items;
+  };
+  /* 특정 센터 빼기 (그 센터 시그니처도 제거 → 다시 올릴 수 있음) */
   const removeCenter=(center)=>{
     if(!parsed||!parsed.byCenter)return;
     if(!confirm('"'+center+'" 센터를 출고계획에서 뺄까요?'))return;
     const byCenter={...parsed.byCenter};
     delete byCenter[center];
-    const result={byCenter,prodTotal:recomputeProdTotal(byCenter)};
+    const sources=(Array.isArray(parsed.sources)?parsed.sources:[]).filter(s=>!s.startsWith(center+'#'));
+    const result={byCenter,prodTotal:recomputeProdTotal(byCenter),sources};
     setParsed(result);saveShipsort(result,shipDate);
   };
 
-  /* 센터별 집계 - 기존 데이터에 누적 합산 */
+  /* 센터별 집계 - 기존 데이터에 누적, 중복 파일은 자동 제외 */
   const aggregate=(orders,dateStr)=>{
     const hasExisting=parsed&&parsed.byCenter;
-    const byCenter=hasExisting?JSON.parse(JSON.stringify(parsed.byCenter)):{};
+    const prevSources=(hasExisting&&Array.isArray(parsed.sources))?parsed.sources:[];
+    const seen=new Set(prevSources);
+    const fresh=[];let dup=0;
     orders.forEach(o=>{
+      const sig=orderSig(o);
+      if(seen.has(sig)){dup++;return;}
+      seen.add(sig);fresh.push({o,sig});
+    });
+    if(fresh.length===0){
+      alert('이미 추가된 파일입니다 (중복 '+dup+'건 건너뜀). 데이터는 그대로 유지됩니다.');
+      return;
+    }
+    const byCenter=hasExisting?JSON.parse(JSON.stringify(parsed.byCenter)):{};
+    fresh.forEach(({o})=>{
       if(!byCenter[o.center])byCenter[o.center]={items:{},totalBox:0};
       o.items.forEach(it=>{
         if(!byCenter[o.center].items[it.name]){
@@ -8183,11 +8201,13 @@ function PageShipSort({mats,hqItems}){
       });
     });
     const prodTotal=recomputeProdTotal(byCenter);
+    const sources=[...prevSources,...fresh.map(f=>f.sig)];
     const newDate=(hasExisting&&shipDate)?shipDate:(dateStr||shipDate);
-    const result={byCenter,prodTotal};
+    const result={byCenter,prodTotal,sources};
     setParsed(result);
     setShipDate(newDate);
     saveShipsort(result,newDate); /* 새로고침해도 남도록 저장 */
+    if(dup>0)alert(fresh.length+'건 추가됨 · 중복 '+dup+'건은 자동 제외했습니다.');
   };
 
   const exportResult=()=>{
