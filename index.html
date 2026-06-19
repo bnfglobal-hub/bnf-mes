@@ -12,8 +12,8 @@
 <title>B&F Global 통합 시스템</title>
 <style>
 :root{--p:#D94F1E;--pd:#B83E15;--pl:#F07040;--pb:#FFF5F0;
---sb:#3A1A0E;--sbt:#D9A88C;--sba:rgba(217,79,30,.22);
---bg:#F4F4F4;--card:#fff;--bd:#E5E5E5;--t:#1A1A1A;--tm:#6B6B6B;
+--sb:#ffffff;--sbt:#7A7A7A;--sba:rgba(217,79,30,.10);
+--bg:#fcfaff;--card:#fff;--bd:#E5E5E5;--t:#1A1A1A;--tm:#6B6B6B;
 --ok:#22C55E;--warn:#F59E0B;--err:#EF4444;--info:#3B82F6;}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body,#root{width:100%;height:100%;height:100dvh;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Noto Sans KR',sans-serif}
@@ -30,18 +30,18 @@ kbd{font-family:inherit;font-size:.9em}
 .hdr-search-btn:hover{border-color:var(--p) !important;color:var(--p) !important;box-shadow:0 1px 3px rgba(217,79,30,0.1)}
 .fa{animation:fa .18s ease}
 .app{display:flex;flex-direction:column;height:100vh;height:100dvh;width:100vw;overflow:hidden;background:var(--bg)}
-.hdr{height:54px;flex-shrink:0;background:linear-gradient(135deg,#D94F1E,#B83E15);display:flex;align-items:center;padding:0 16px;gap:10px;z-index:20;box-shadow:0 2px 8px rgba(217,79,30,.2)}
-.hdr .hdr-name{color:rgba(255,255,255,0.85) !important}
-.hdr-search-btn{background:rgba(255,255,255,0.15) !important;border:1px solid rgba(255,255,255,0.25) !important;color:#fff !important}
-.hdr-search-btn span{color:#fff !important}
-.hdr-search-btn:hover{background:rgba(255,255,255,0.25) !important;border-color:rgba(255,255,255,0.4) !important;color:#fff !important;box-shadow:none}
+.hdr{height:54px;flex-shrink:0;background:#fcfaff;display:flex;align-items:center;padding:0 16px;gap:10px;z-index:20;border-bottom:1px solid #ECE6EE;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.hdr .hdr-name{color:#6B6B6B !important}
+.hdr-search-btn{background:#F2EEF6 !important;border:1px solid #E5DEEC !important;color:#6B6B6B !important}
+.hdr-search-btn span{color:#6B6B6B !important}
+.hdr-search-btn:hover{background:#EAE3F0 !important;border-color:var(--p) !important;color:var(--p) !important;box-shadow:none}
 .body{flex:1;display:flex;overflow:hidden}
-.sb{width:210px;flex-shrink:0;background:var(--sb);display:flex;flex-direction:column;overflow-y:auto;user-select:none}
+.sb{width:210px;flex-shrink:0;background:var(--sb);border-right:1px solid #ECE6EE;display:flex;flex-direction:column;overflow-y:auto;user-select:none}
 .sb-sec{padding:3px 7px;margin-top:2px}
 .sb-lbl{font-size:9px;font-weight:700;color:var(--sbt);padding:7px 11px 3px;letter-spacing:1.5px;text-transform:uppercase}
-.ni{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;cursor:pointer;color:var(--sbt);font-size:12px;transition:all .1s;margin-bottom:1px}
-.ni:hover{background:rgba(255,255,255,.07);color:#fff}
-.ni.act{background:var(--sba);color:#FFB088;font-weight:700}
+.ni{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;cursor:pointer;color:#4A4A4A;font-size:12px;transition:all .1s;margin-bottom:1px}
+.ni:hover{background:#F4F1F7;color:#1A1A1A}
+.ni.act{background:var(--pb);color:var(--p);font-weight:700}
 .ni .ic{font-size:14px;width:18px;text-align:center;flex-shrink:0}
 .ni .nbdg{background:var(--p);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;font-weight:700;margin-left:auto}
 .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -6996,10 +6996,6 @@ function LoginPage({onLogin}){
           R('span',null,'아이디/비밀번호 저장')
         ),
         R('button',{onClick:login,disabled:loading,style:{width:'100%',padding:13,background:loading?'#ccc':'#D94F1E',color:'#fff',border:'none',borderRadius:9,cursor:loading?'default':'pointer',fontWeight:700,fontSize:15,fontFamily:'inherit'}},loading?'로그인 중...':'로그인')
-      ),
-      R('div',{style:{background:'#f9f5f2',borderRadius:9,padding:'10px 14px',fontSize:12,color:'#6B6B6B'}},
-        R('div',{style:{fontWeight:700,color:'#1A1A1A',marginBottom:4}},'🔑 기본 관리자 계정'),
-        R('div',null,'이메일: admin@bnfglobal.co.kr'),R('div',null,'비밀번호: admin1234')
       )
     )
   );
@@ -8785,14 +8781,14 @@ function App(){
         style:{
           display:'none',
           background:'none',border:'none',cursor:'pointer',
-          padding:'6px 8px',color:'#fff',
+          padding:'6px 8px',color:'#4A4A4A',
           borderRadius:8,lineHeight:0,marginRight:2
         },
         title:'메뉴'
       },R(NavIcon,{name:'menu'})),
       R('div',{style:{display:'flex',alignItems:'center',gap:8}},
-        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:34,objectFit:'contain',maxWidth:160,cursor:'pointer',filter:'brightness(0) invert(1)'},onClick:()=>setPage('home')}),
-        R('span',{style:{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:4,letterSpacing:0.5}},'MES')
+        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:34,objectFit:'contain',maxWidth:160,cursor:'pointer'},onClick:()=>setPage('home')}),
+        R('span',{style:{background:'var(--pb)',color:'var(--p)',fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:4,letterSpacing:0.5}},'MES')
       ),
       R('div',{style:{flex:1}}),
       /* 우측 정보 - 1열로 나란히 (모바일에서도 한 줄, 줄바꿈 금지) */
@@ -8804,15 +8800,15 @@ function App(){
           R('span',{style:{display:'inline-flex',alignItems:'center',gap:2,padding:'1px 5px',background:'#F3F4F6',borderRadius:4,fontSize:9,fontWeight:600,color:'#94a3b8',marginLeft:2}},'⌘K')
         ),
         /* 🔔 알림 */
-        R('button',{onClick:()=>setNotifPanel(true),title:'알림',style:{position:'relative',width:32,height:32,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.25)',borderRadius:'50%',cursor:'pointer',fontSize:14,flexShrink:0,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}},'🔔',
-          shortCnt>0&&R('span',{style:{position:'absolute',top:-2,right:-2,minWidth:16,height:16,padding:'0 4px',background:'linear-gradient(135deg,#EF4444,#DC2626)',color:'#fff',borderRadius:8,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',border:'2px solid #D94F1E',boxShadow:'0 1px 4px rgba(220,38,38,0.4)'}},shortCnt>99?'99+':shortCnt)
+        R('button',{onClick:()=>setNotifPanel(true),title:'알림',style:{position:'relative',width:32,height:32,background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:'50%',cursor:'pointer',fontSize:14,flexShrink:0,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}},'🔔',
+          shortCnt>0&&R('span',{style:{position:'absolute',top:-2,right:-2,minWidth:16,height:16,padding:'0 4px',background:'linear-gradient(135deg,#EF4444,#DC2626)',color:'#fff',borderRadius:8,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',border:'2px solid #fcfaff',boxShadow:'0 1px 4px rgba(220,38,38,0.4)'}},shortCnt>99?'99+':shortCnt)
         ),
-        saveStatus==='saving'&&R('span',{style:{fontSize:10,color:'#fff',background:'rgba(255,255,255,0.2)',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,display:'inline-flex',alignItems:'center',gap:4},title:'서버 자동 저장 중'},R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:'50%',background:'#fff',animation:'pulse 1s ease infinite'}}),'저장중'),
-        saveStatus==='saved'&&R('span',{style:{fontSize:10,color:'#fff',background:'rgba(34,197,94,0.4)',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0},title:'서버에 저장 완료'},'✓ 저장됨'),
-        saveStatus==='error'&&R('span',{style:{fontSize:10,color:'#fff',background:'rgba(239,68,68,0.5)',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,cursor:'help'},title:'저장 실패 - 네트워크 확인'},'✕ 저장실패'),
+        saveStatus==='saving'&&R('span',{style:{fontSize:10,color:'var(--p)',background:'var(--pb)',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,display:'inline-flex',alignItems:'center',gap:4},title:'서버 자동 저장 중'},R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:'50%',background:'var(--p)',animation:'pulse 1s ease infinite'}}),'저장중'),
+        saveStatus==='saved'&&R('span',{style:{fontSize:10,color:'#15803D',background:'#F0FDF4',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0},title:'서버에 저장 완료'},'✓ 저장됨'),
+        saveStatus==='error'&&R('span',{style:{fontSize:10,color:'#B91C1C',background:'#FEF2F2',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,cursor:'help'},title:'저장 실패 - 네트워크 확인'},'✕ 저장실패'),
         R('div',{className:'hdr-name',style:{fontSize:12,flexShrink:0}},(user.name||'사용자')+' · '+(user.position||'')),
-        (!isInstalled&&R('button',{onClick:installApp,style:{padding:'4px 10px',background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.3)',borderRadius:6,color:'#fff',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'📱 앱설치')),
-        R('button',{onClick:()=>{localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,color:'#fff',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
+        (!isInstalled&&R('button',{onClick:installApp,style:{padding:'4px 10px',background:'var(--pb)',border:'1px solid #F3D6C7',borderRadius:6,color:'var(--p)',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'📱 앱설치')),
+        R('button',{onClick:()=>{localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:6,color:'#6B6B6B',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
       )
     ),
     /* 바디 */
@@ -8822,10 +8818,10 @@ function App(){
       /* 사이드바 */
       R('div',{className:'sb'+(sbOpen?' sb-open':'')},
         /* 편집 모드 토글 */
-        isAdmin&&R('div',{style:{padding:'8px 12px',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',gap:6,alignItems:'center'}},
+        isAdmin&&R('div',{style:{padding:'8px 12px',borderBottom:'1px solid #EEE8F0',display:'flex',gap:6,alignItems:'center'}},
           R('button',{
             onClick:()=>setNavEditMode(!navEditMode),
-            style:{flex:1,padding:'5px 8px',background:navEditMode?'#D94F1E':'rgba(255,255,255,0.08)',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600}
+            style:{flex:1,padding:'5px 8px',background:navEditMode?'var(--p)':'#F2EEF6',color:navEditMode?'#fff':'#6B6B6B',border:'none',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600}
           },navEditMode?'✓ 편집 완료':'✎ 메뉴 편집'),
           navEditMode&&R('button',{
             onClick:()=>{
@@ -8849,7 +8845,7 @@ function App(){
               }
             },
             title:'초기화',
-            style:{padding:'5px 8px',background:'rgba(255,255,255,0.08)',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:10}
+            style:{padding:'5px 8px',background:'#F2EEF6',color:'#6B6B6B',border:'none',borderRadius:6,cursor:'pointer',fontSize:10}
           },'↻')
         ),
         navSections.filter(s=>!s.adminOnly||isAdmin).map((sec,secIdx)=>{
@@ -8886,7 +8882,7 @@ function App(){
           },
             R('div',{
               onClick:()=>!navEditMode&&setExpandedFolders(p=>Object.assign({},p,{[folderKey]:!isOpen})),
-              style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',cursor:navEditMode?'grab':'pointer',background:isActiveSection?'rgba(217,79,30,0.12)':navEditMode?'rgba(255,255,255,0.04)':'transparent',color:isActiveSection?'#F0784A':'#FFF',fontSize:12,fontWeight:700,borderRadius:8,margin:'2px 8px',userSelect:'none'}
+              style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',cursor:navEditMode?'grab':'pointer',background:isActiveSection?'var(--pb)':navEditMode?'#F6F3F9':'transparent',color:isActiveSection?'var(--p)':'#3A3A3A',fontSize:12,fontWeight:700,borderRadius:8,margin:'2px 8px',userSelect:'none'}
             },
               navEditMode&&R('span',{style:{fontSize:11,opacity:.5,cursor:'grab'}},'⋮⋮'),
               !navEditMode&&R('span',{style:{fontSize:9,opacity:.7,transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)',display:'inline-block',width:10}},'▶'),
@@ -9003,9 +8999,9 @@ function App(){
             )
           );
         }),
-        R('div',{style:{padding:'10px 12px',borderTop:'1px solid rgba(255,255,255,.07)',fontSize:10,color:'rgba(255,255,255,.2)',marginTop:'auto',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        R('div',{style:{padding:'10px 12px',borderTop:'1px solid #EEE8F0',fontSize:10,color:'#9A9A9A',marginTop:'auto',display:'flex',justifyContent:'space-between',alignItems:'center'}},
           R('span',null,mats.length+'개 품목 · B&F Global'),
-          R('button',{onClick:()=>setSbOpen(false),style:{background:'rgba(255,255,255,0.1)',border:'none',color:'rgba(255,255,255,0.5)',padding:'4px 8px',borderRadius:6,cursor:'pointer',fontSize:11}},'✕ 닫기')
+          R('button',{onClick:()=>setSbOpen(false),style:{background:'#F2EEF6',border:'none',color:'#8A8A8A',padding:'4px 8px',borderRadius:6,cursor:'pointer',fontSize:11}},'✕ 닫기')
         )
       ),
       /* 메인 */
