@@ -2719,7 +2719,7 @@ function npRenderPipeline(p,onStage){
   );
 }
 
-function PageNewProduct({user}){
+function PageNewProduct({user,mats=[],mode}){
   const[items,setItems]=useState([]);
   const[loaded,setLoaded]=useState(false);
   const[selId,setSelId]=useState(null);
@@ -2730,7 +2730,8 @@ function PageNewProduct({user}){
   const tRef=useRef(null);
   const nf=(n)=>(+n||0).toLocaleString();
   const isAdmin=['superadmin','admin'].includes(user&&user.role);
-  const lock=!isAdmin; /* 기획(원가·견적)은 관리자만 입력 */
+  const labMode=mode==='lab';
+  const lock=labMode?false:!isAdmin; /* 기획(원가·견적)은 관리자만 / 연구소는 자유 입력 */
 
   useEffect(()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
@@ -2805,7 +2806,7 @@ function PageNewProduct({user}){
   if(!sel){
     return R('div',{className:'pg fa'},
       R('div',{className:'pg-hdr'},
-        R('div',null,R('div',{className:'pg-title'},'🆕 신제품 현황'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'신제품 개발 단계를 한눈에 · 항목을 누르면 세부내용',
+        R('div',null,R('div',{className:'pg-title'},labMode?'🔬 연구소':'🆕 신제품 현황'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},labMode?'연구개발 시트 · 원가 산정 (기획)':'신제품 개발 단계를 한눈에 · 항목을 누르면 세부내용',
           saving&&R('span',{style:{marginLeft:8,color:'var(--ok)',fontWeight:700}},'· 저장 중…'))),
       ),
       R('div',{className:'card',style:{display:'flex',gap:8,alignItems:'center',marginBottom:12,flexWrap:'wrap'}},
@@ -2836,6 +2837,8 @@ function PageNewProduct({user}){
   const wage=+labor.wage||0;
   const totLabor=totPpl*wage;
   const setSpec=(rows)=>patchStage(sel.id,'plan',{spec:rows});
+  const matNames=[...new Set(mats.map(m=>m&&m.n).filter(Boolean))];
+  const onSpecCat=(i,value)=>{const m=mats.find(x=>x.n===value);setSpec(spec.map((x,j)=>{if(j!==i)return x;const nx={...x,cat:value};if(m){nx.code=m.c;if((x.buyPrice==null||x.buyPrice==='')&&m.price)nx.buyPrice=String(m.price);}else{nx.code='';}return nx;}));};
   const setLabor=(pa)=>patchStage(sel.id,'plan',{labor:{...labor,...pa}});
   const togglePkg=(pk)=>{const arr=plan.packaging||[];patchStage(sel.id,'plan',{packaging:arr.includes(pk)?arr.filter(x=>x!==pk):[...arr,pk]});};
   const pkgCustom=plan.pkgCustom||[];
@@ -2984,11 +2987,12 @@ function PageNewProduct({user}){
         /* 제품 스펙 */
         R('div',{style:{marginBottom:16}},
           R('div',{style:{...lbl,marginBottom:7}},'제품 스펙'),
+          R('datalist',{id:'np-mats'},...matNames.map(n=>R('option',{key:n,value:n}))),
           R('div',{style:{overflowX:'auto'}},R('div',{style:{minWidth:620}},
             R('div',{style:{display:'grid',gridTemplateColumns:specCols,gap:8,fontSize:10,fontWeight:700,color:'#94A3B8',padding:'0 2px 5px'}},
               R('div',null,'구분'),R('div',null,'중량(g)'),R('div',null,'수량(ea)'),R('div',null,'매입단가'),R('div',null,'적용단가'),R('div',null,'비고'),R('div',null,'')),
             ...spec.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:specCols,gap:8,alignItems:'center',marginBottom:6}},
-              R('input',{id:'npsp-'+i+'-cat',value:r.cat||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,cat:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'cat'),placeholder:'원재료명',style:inp}),
+              R('input',{id:'npsp-'+i+'-cat',list:'np-mats',value:r.cat||'',onChange:e=>onSpecCat(i,e.target.value),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'cat'),placeholder:'원재료명(검색/직접입력)',style:inp}),
               R('input',{id:'npsp-'+i+'-weight',type:'number',value:r.weight||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,weight:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'weight'),placeholder:'g',style:inp}),
               R('input',{id:'npsp-'+i+'-qty',type:'number',value:r.qty||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,qty:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'qty'),placeholder:'ea',style:inp}),
               R('input',{id:'npsp-'+i+'-buyPrice',type:'number',value:r.buyPrice||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,buyPrice:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'buyPrice'),style:inp}),
@@ -3062,9 +3066,9 @@ function PageNewProduct({user}){
       ),'plan'
     ),
     /* 2. 견적 */
-    section('2','견적',statusBtns(sel,'quote',['조정중','견적 픽스']),null,'quote'),
+    !labMode&&section('2','견적',statusBtns(sel,'quote',['조정중','견적 픽스']),null,'quote'),
     /* 견적서 자동 생성 (견적 단계 아래) - 관리자 전용 */
-    isAdmin&&R('div',{id:'npsec-quotedoc',className:'card',style:{marginBottom:12,padding:'14px 16px',borderColor:'var(--p)'}},
+    !labMode&&isAdmin&&R('div',{id:'npsec-quotedoc',className:'card',style:{marginBottom:12,padding:'14px 16px',borderColor:'var(--p)'}},
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}},
         R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📄 견적서 (자동 생성)'),
         R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
@@ -3091,18 +3095,18 @@ function PageNewProduct({user}){
         R('div',{style:{fontSize:11,lineHeight:1.9,color:'var(--tm)',background:'#FAFAFA',border:'1px solid var(--bd)',borderRadius:9,padding:'12px 14px',whiteSpace:'pre-line'}},noteFixed))
     ),
     /* 3. 출시 확정 */
-    section('3','출시 확정',statusBtns(sel,'launch',['진행중','진행완료']),null,'launch'),
+    !labMode&&section('3','출시 확정',statusBtns(sel,'launch',['진행중','진행완료']),null,'launch'),
     /* 4. 영양정보 */
-    section('4','영양정보',statusBtns(sel,'nutrition',['진행중','진행완료']),fileEl(sel,'nutrition'),'nutrition'),
+    !labMode&&section('4','영양정보',statusBtns(sel,'nutrition',['진행중','진행완료']),fileEl(sel,'nutrition'),'nutrition'),
     /* 5. 한글표기사항 */
-    section('5','한글표기사항',statusBtns(sel,'label',['진행중','진행완료']),fileEl(sel,'label'),'label'),
+    !labMode&&section('5','한글표기사항',statusBtns(sel,'label',['진행중','진행완료']),fileEl(sel,'label'),'label'),
     /* 6. 패키지 */
-    section('6','패키지',statusBtns(sel,'pkg',['디자인 중','디자인 완료','발주 완료']),null,'pkg'),
+    !labMode&&section('6','패키지',statusBtns(sel,'pkg',['디자인 중','디자인 완료','발주 완료']),null,'pkg'),
     /* 7. 생산 */
-    section('7','생산',null,R('div',{style:{display:'flex',alignItems:'center',gap:8}},R('span',{style:lbl},'생산 일정'),
+    !labMode&&section('7','생산',null,R('div',{style:{display:'flex',alignItems:'center',gap:8}},R('span',{style:lbl},'생산 일정'),
       R('input',{type:'date',value:(sel.production&&sel.production.schedule)||'',onChange:e=>patchStage(sel.id,'production',{schedule:e.target.value}),style:inp})),'production'),
     /* 8. 출고 */
-    section('8','출고',null,R('div',{style:{display:'flex',alignItems:'center',gap:8}},R('span',{style:lbl},'출고 일정'),
+    !labMode&&section('8','출고',null,R('div',{style:{display:'flex',alignItems:'center',gap:8}},R('span',{style:lbl},'출고 일정'),
       R('input',{type:'date',value:(sel.shipping&&sel.shipping.schedule)||'',onChange:e=>patchStage(sel.id,'shipping',{schedule:e.target.value}),style:inp})),'shipping')
     )
   );
@@ -7625,6 +7629,7 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'home',l:'홈',ic:'⊞'},
     {id:'newprod',l:'신제품 현황',ic:'🆕'},
+    {id:'lab',l:'연구소',ic:'🔬'},
     {id:'workreq',l:'업무 현황',ic:'📋'},
     {id:'mytasks',l:'나의 업무',ic:'📌'},
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -7682,7 +7687,8 @@ function loadNavSections(){
             if(s.type==='factory'){
               const newMenus=[
                 {after:'sched',item:{id:'shipsort',l:'출고 계획',ic:'📦'}},
-                {after:'home',item:{id:'newprod',l:'신제품 현황',ic:'🆕'}}
+                {after:'home',item:{id:'newprod',l:'신제품 현황',ic:'🆕'}},
+                {after:'newprod',item:{id:'lab',l:'연구소',ic:'🔬'}}
               ];
               newMenus.forEach(({after,item})=>{
                 if(!newItems.find(it=>it.id===item.id)){
@@ -9476,7 +9482,8 @@ function App(){
     const p={user,mats,cats,isAdmin,rk};
     if(page==='home')return R(PageHome,{mats,prods,orders,pqty,shortCnt,onGoPage:setPage,user});
     if(page==='workreq')return R('div',{className:'pg fa'},R(OngoingWork,{user,onGoPage:setPage}));
-    if(page==='newprod')return R(PageNewProduct,{user});
+    if(page==='newprod')return R(PageNewProduct,{key:'np',user,mats});
+    if(page==='lab')return R(PageNewProduct,{key:'lab',user,mats,mode:'lab'});
     if(page==='mytasks')return R(PageMyTasks,{user});
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
