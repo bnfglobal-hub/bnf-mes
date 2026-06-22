@@ -2727,6 +2727,8 @@ function PageNewProduct({user}){
   const[pkgInput,setPkgInput]=useState('');
   const tRef=useRef(null);
   const nf=(n)=>(+n||0).toLocaleString();
+  const isAdmin=['superadmin','admin'].includes(user&&user.role);
+  const lock=!isAdmin; /* 기획(원가·견적)은 관리자만 입력 */
 
   useEffect(()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
@@ -2830,9 +2832,9 @@ function PageNewProduct({user}){
   const setLabor=(pa)=>patchStage(sel.id,'plan',{labor:{...labor,...pa}});
   const togglePkg=(pk)=>{const arr=plan.packaging||[];patchStage(sel.id,'plan',{packaging:arr.includes(pk)?arr.filter(x=>x!==pk):[...arr,pk]});};
   const specCols='minmax(110px,1fr) 70px 86px 90px minmax(110px,1fr) 30px';
-  const numField=(label,key,unit)=>R('div',null,R('div',{style:lbl},label),
+  const numField=(label,key,unit,dis)=>R('div',null,R('div',{style:lbl},label),
     R('div',{style:{display:'flex',alignItems:'center',gap:6}},
-      R('input',{type:'number',value:plan[key]||'',onChange:e=>patchStage(sel.id,'plan',{[key]:e.target.value}),style:{...inp,flex:1,width:'100%'}}),
+      R('input',{type:'number',value:plan[key]||'',disabled:dis,onChange:e=>patchStage(sel.id,'plan',{[key]:e.target.value}),style:{...inp,flex:1,width:'100%',background:dis?'#F4F4F4':'#fff',color:dis?'var(--tm)':'var(--t)'}}),
       unit&&R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},unit)));
   const patchProd=(k,v)=>save(items.map(p=>p.id===sel.id?{...p,[k]:v,updatedAt:Date.now()}:p));
   const clientOpts=[...new Set(items.map(x=>x&&x.client).filter(Boolean))];
@@ -2914,6 +2916,27 @@ function PageNewProduct({user}){
     if(!w){alert('팝업이 차단되었습니다. 팝업을 허용해 주세요.');return;}
     w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){}},400);
   };
+  const sendQuote=()=>{
+    const to=(sel.clientEmail||'').trim();
+    if(!to){alert('거래처 이메일을 먼저 입력하세요.');return;}
+    const subject='[B&F글로벌] '+(sel.name||'')+' 견적서';
+    const body=['안녕하세요, ㈜비엔에프글로벌입니다.','',(sel.client||'')+' 귀하','',
+      '['+(sel.name||'')+'] 견적 내용입니다.','',
+      '· 규격 : '+(qd.specText||'-'),
+      '· 총중량 : '+nf(totW)+'g',
+      '· 최종 견적가 : '+nf(Math.round(finalQuote))+'원 (개당)',
+      '· MOQ : '+nf(moq)+'개',
+      '· 박스 입수량 : '+nf(boxQ)+'개',
+      '· 박스 규격 : '+(plan.boxSpec||'-'),'',
+      '* 본 견적은 최종 포장되는 패키지를 제외한 견적서 입니다.',
+      '* 결제조건 : 선결제',
+      '* 생산리드타임 : 영업일로부터 14일 +@',
+      '* 견적 유효기간 : 견적일로부터 14일',
+      '* 파레트 규격 : AJ파레트 12A형 (1,200mm*1,000mm*150mm)',
+      '* 보관방법 : -18℃이하 냉동보관','',
+      '정식 견적서 양식은 인쇄(PDF)본을 함께 보내드립니다.','','감사합니다.'].join('\n');
+    window.location.href='mailto:'+encodeURIComponent(to)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  };
 
   return R('div',{className:'pg fa'},
     R('div',{style:{maxWidth:760}},
@@ -2925,7 +2948,8 @@ function PageNewProduct({user}){
     ),
     R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:14,flexWrap:'wrap'}},
       R('span',{style:{fontSize:13,fontWeight:800,color:'var(--p)',flexShrink:0}},'거래처 :'),
-      R('input',{list:'np-clients',value:sel.client||'',onChange:e=>patchProd('client',e.target.value),placeholder:'거래처 선택 또는 직접 입력',style:{...inp,minWidth:200,maxWidth:320}}),
+      R('input',{list:'np-clients',value:sel.client||'',onChange:e=>patchProd('client',e.target.value),placeholder:'거래처 선택 또는 직접 입력',style:{...inp,minWidth:160,maxWidth:240}}),
+      R('input',{type:'email',value:sel.clientEmail||'',onChange:e=>patchProd('clientEmail',e.target.value),placeholder:'거래처 이메일',style:{...inp,minWidth:180,maxWidth:280}}),
       R('datalist',{id:'np-clients'},...clientOpts.map(c=>R('option',{key:c,value:c})))
     ),
     /* 1. 기획 */
@@ -2974,31 +2998,32 @@ function PageNewProduct({user}){
             R('div',{style:{display:'grid',gridTemplateColumns:'1fr 90px 32px',gap:8,fontSize:10,fontWeight:700,color:'#94A3B8',padding:'0 2px 5px'}},
               R('div',null,'구분'),R('div',null,'인원'),R('div',null,'')),
             ...lrows.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:'1fr 90px 32px',gap:8,alignItems:'center',marginBottom:6}},
-              R('input',{id:'nplb-'+i+'-name',value:r.name||'',onChange:e=>setLabor({rows:lrows.map((x,j)=>j===i?{...x,name:e.target.value}:x)}),onKeyDown:moveDown(lrows,setLrows,{name:'',count:''},'nplb-',i,'name'),placeholder:'공정/항목',style:inp}),
-              R('input',{id:'nplb-'+i+'-count',type:'number',value:r.count||'',onChange:e=>setLabor({rows:lrows.map((x,j)=>j===i?{...x,count:e.target.value}:x)}),onKeyDown:moveDown(lrows,setLrows,{name:'',count:''},'nplb-',i,'count'),style:inp}),
-              R('button',{onClick:()=>setLabor({rows:lrows.filter((_,j)=>j!==i)}),style:{border:'none',background:'#FEF2F2',color:'#B91C1C',borderRadius:6,padding:'5px 0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'✕')
+              R('input',{id:'nplb-'+i+'-name',value:r.name||'',disabled:lock,onChange:e=>setLabor({rows:lrows.map((x,j)=>j===i?{...x,name:e.target.value}:x)}),onKeyDown:moveDown(lrows,setLrows,{name:'',count:''},'nplb-',i,'name'),placeholder:'공정/항목',style:{...inp,background:lock?'#F4F4F4':'#fff'}}),
+              R('input',{id:'nplb-'+i+'-count',type:'number',value:r.count||'',disabled:lock,onChange:e=>setLabor({rows:lrows.map((x,j)=>j===i?{...x,count:e.target.value}:x)}),onKeyDown:moveDown(lrows,setLrows,{name:'',count:''},'nplb-',i,'count'),style:{...inp,background:lock?'#F4F4F4':'#fff'}}),
+              lock?R('span',null):R('button',{onClick:()=>setLabor({rows:lrows.filter((_,j)=>j!==i)}),style:{border:'none',background:'#FEF2F2',color:'#B91C1C',borderRadius:6,padding:'5px 0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'✕')
             )),
             R('div',{style:{display:'grid',gridTemplateColumns:'1fr 90px 32px',gap:8,alignItems:'center',padding:'8px 2px 0',borderTop:'1px solid var(--bd)',marginTop:4,fontWeight:800,fontSize:12}},
               R('div',null,'총 인원'),R('div',{style:{color:'var(--p)'}},nf(totPpl)+'명'),R('div',null,''))
           )),
-          R('button',{onClick:()=>setLabor({rows:[...lrows,{name:'',count:''}]}),style:{marginTop:8,border:'1px dashed var(--bd)',background:'#FAFAFA',color:'var(--tm)',borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:'inherit'}},'+ 항목 추가'),
+          lock?R('span',null):R('button',{onClick:()=>setLabor({rows:[...lrows,{name:'',count:''}]}),style:{marginTop:8,border:'1px dashed var(--bd)',background:'#FAFAFA',color:'var(--tm)',borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:'inherit'}},'+ 항목 추가'),
           R('div',{style:{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}},
             R('div',{style:{display:'flex',alignItems:'center',gap:6}},R('span',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},'인건비(1인)'),
-              R('input',{type:'number',value:labor.wage||'',onChange:e=>setLabor({wage:e.target.value}),placeholder:'원',style:{...inp,width:120}})),
+              R('input',{type:'number',value:labor.wage||'',disabled:lock,onChange:e=>setLabor({wage:e.target.value}),placeholder:'원',style:{...inp,width:120,background:lock?'#F4F4F4':'#fff'}})),
             R('div',{style:{fontSize:13,fontWeight:800}},'총인건비 = ',nf(totPpl),'명 × ',nf(wage),'원 = ',R('span',{style:{color:'var(--p)'}},nf(totLabor)+'원')))
         ),
-        /* 입력값 */
+        /* 입력값 (원가·견적은 관리자만) */
+        !isAdmin&&R('div',{style:{fontSize:11,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:8,padding:'8px 12px',marginBottom:10}},'🔒 원가·견적 항목은 관리자(기획)만 입력할 수 있습니다. 개발자는 위의 제품 스펙/원재료값을 작성하세요.'),
         R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:10,marginBottom:14}},
-          numField('MOQ','moq','개'),
-          numField('고정비','fixedCost','원'),
-          numField('박스 입수량','boxQty','개'),
-          numField('박스 매입단가','boxPrice','원'),
-          numField('물류비(총)','logisticsCost','원'),
-          numField('마진(개당)','margin','원')
+          numField('MOQ','moq','개',lock),
+          numField('고정비','fixedCost','원',lock),
+          numField('박스 입수량','boxQty','개',lock),
+          numField('박스 매입단가','boxPrice','원',lock),
+          numField('물류비(총)','logisticsCost','원',lock),
+          numField('마진(개당)','margin','원',lock)
         ),
         R('div',{style:{marginBottom:14}},
           R('div',{style:lbl},'박스 규격'),
-          R('input',{list:'np-boxes',value:plan.boxSpec||'',onChange:e=>patchStage(sel.id,'plan',{boxSpec:e.target.value}),placeholder:'박스 규격 선택 또는 입력',style:{...inp,width:'100%',maxWidth:420}}),
+          R('input',{list:'np-boxes',value:plan.boxSpec||'',disabled:lock,onChange:e=>patchStage(sel.id,'plan',{boxSpec:e.target.value}),placeholder:'박스 규격 선택 또는 입력',style:{...inp,width:'100%',maxWidth:420,background:lock?'#F4F4F4':'#fff'}}),
           R('datalist',{id:'np-boxes'},...boxOpts.map(b=>R('option',{key:b,value:b})))
         ),
         /* 원가 산정 */
@@ -3024,11 +3049,14 @@ function PageNewProduct({user}){
     ),
     /* 2. 견적 */
     section('2','견적',statusBtns(sel,'quote',['조정중','견적 픽스']),null,'quote'),
-    /* 견적서 자동 생성 (견적 단계 아래) */
-    R('div',{id:'npsec-quotedoc',className:'card',style:{marginBottom:12,padding:'14px 16px',borderColor:'var(--p)'}},
+    /* 견적서 자동 생성 (견적 단계 아래) - 관리자 전용 */
+    isAdmin&&R('div',{id:'npsec-quotedoc',className:'card',style:{marginBottom:12,padding:'14px 16px',borderColor:'var(--p)'}},
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}},
         R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📄 견적서 (자동 생성)'),
-        R('button',{onClick:printQuote,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'8px 16px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'🖨 견적서 인쇄 / PDF')
+        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          R('button',{onClick:printQuote,style:{border:'1px solid var(--p)',background:'#fff',color:'var(--p)',borderRadius:9,padding:'8px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'🖨 인쇄 / PDF'),
+          R('button',{onClick:sendQuote,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'8px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'📧 견적서 전송')
+        )
       ),
       R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:12}},
         R('div',null,R('div',{style:lbl},'견적일자'),R('input',{type:'date',value:qDate,onChange:e=>setQuote('date',e.target.value),style:{...inp,width:'100%'}})),
