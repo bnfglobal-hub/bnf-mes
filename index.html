@@ -3991,6 +3991,13 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[editingFolder,setEditingFolder]=useState(null); /* {id, name} */
   const[invPhoto,setInvPhoto]=useState(null); /* 창고 재고 사진(참고용, 세션) */
   const photoRef=useRef(null);
+  /* AI 이미지 자동입력 */
+  const[aiOpen,setAiOpen]=useState(false);
+  const[aiImg,setAiImg]=useState(null);
+  const[aiLoading,setAiLoading]=useState(false);
+  const[aiErr,setAiErr]=useState('');
+  const[aiRows,setAiRows]=useState(null);
+  const[aiKey,setAiKey]=useState(()=>{try{return localStorage.getItem('bnf_ai_key')||'';}catch(e){return'';}});
   const printStockForm=()=>{
     const items=hqItems.map(h=>{const m=mats.find(x=>x.c===h.matCode)||{};return {n:m.n||h.matName||'',u:m.u||''};}).filter(x=>x.n);
     let rows='';items.forEach((it,i)=>{rows+='<tr><td style="text-align:center">'+(i+1)+'</td><td>'+String(it.n).replace(/</g,'&lt;')+'</td><td></td></tr>';});
@@ -4004,6 +4011,49 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){}},350);
   };
   const onPhotoPick=(e)=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>setInvPhoto(r.result);r.readAsDataURL(f);};
+  /* ===== AI 이미지 자동입력 ===== */
+  const saveAiKey=(v)=>{setAiKey(v);try{localStorage.setItem('bnf_ai_key',v);}catch(e){}};
+  const parseUnits=(name)=>{const m=String(name||'').match(/\*\s*(\d+)\s*\]?\s*$/);return m?+m[1]:0;};
+  const loadScaled=(dataUrl,cb)=>{const img=new Image();img.onload=()=>{const max=1600;let w=img.width,h=img.height;if(w>max||h>max){const s=max/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);try{cb(c.toDataURL('image/jpeg',0.9));}catch(e){cb(dataUrl);}};img.onerror=()=>cb(dataUrl);img.src=dataUrl;};
+  const setImgFrom=(file)=>{const r=new FileReader();r.onload=()=>loadScaled(r.result,(d)=>{setAiImg(d);setAiRows(null);setAiErr('');});r.readAsDataURL(file);};
+  const onAiPaste=(e)=>{const it=(e.clipboardData&&e.clipboardData.items)||[];for(let i=0;i<it.length;i++){if(it[i].type&&it[i].type.indexOf('image')===0){const f=it[i].getAsFile();if(f){setImgFrom(f);e.preventDefault();return;}}}};
+  const onAiPick=(e)=>{const f=e.target.files&&e.target.files[0];if(f)setImgFrom(f);};
+  const runAi=async()=>{
+    if(!aiImg){setAiErr('먼저 이미지를 붙여넣기(Ctrl+V) 하거나 선택하세요.');return;}
+    const key=(aiKey||'').trim();
+    if(!key){setAiErr('Anthropic API 키를 먼저 입력하세요.');return;}
+    const names=hqItems.map(h=>{const m=mats.find(x=>x.c===h.matCode)||{};return m.n||h.matName;}).filter(Boolean);
+    if(!names.length){setAiErr('인트라넷에 등록된 본사재고 품목이 없습니다.');return;}
+    setAiLoading(true);setAiErr('');setAiRows(null);
+    try{
+      const parts=aiImg.split(',');const meta=parts[0]||'';const b64=parts[1]||'';
+      const mt=(meta.match(/data:(.*?);/)||[])[1]||'image/jpeg';
+      const prompt='다음은 손글씨로 작성된 본사 재고장 사진입니다.\n우리 인트라넷에 등록된 품목 목록:\n'+names.map((n,i)=>(i+1)+'. '+n).join('\n')+'\n\n사진의 "본사재고" 칸 값을 읽어, 위 목록에 일치하는 품목만 매칭하세요. 목록에 없는 품목은 전부 무시합니다. 본사재고는 보통 "92Box","31박스"처럼 박스 수로 적혀 있습니다. 박스 수(정수)만 추출하세요(예: "92Box×3개"→boxes 92). 읽을 수 없으면 제외합니다.\n반드시 JSON 배열만 출력하세요(다른 텍스트·마크다운·설명 금지). 형식: [{"name":"<목록과 정확히 같은 품목명>","boxes":<정수>}]';
+      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mt,data:b64}},{type:'text',text:prompt}]}]})});
+      if(!res.ok){const t=await res.text();throw new Error('API '+res.status+' : '+t.slice(0,180));}
+      const data=await res.json();
+      const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').replace(/```json|```/g,'').trim();
+      let arr;try{arr=JSON.parse(txt);}catch(e){throw new Error('응답 파싱 실패:\n'+txt.slice(0,160));}
+      if(!Array.isArray(arr))throw new Error('형식 오류');
+      const rows=arr.map(o=>{
+        const hi=hqItems.find(h=>{const m=mats.find(x=>x.c===h.matCode)||{};return (m.n||h.matName)===o.name;});
+        if(!hi)return null;
+        const m=mats.find(x=>x.c===hi.matCode)||{};
+        const units=parseUnits(m.n||hi.matName)||(+hi.upb||0)||1;
+        const boxes=+o.boxes||0;
+        return{id:hi.id,name:m.n||hi.matName,boxes,units,stock:boxes*units,apply:true};
+      }).filter(Boolean);
+      if(!rows.length)setAiErr('일치하는 품목을 찾지 못했습니다. 사진을 다시 확인하세요.');
+      setAiRows(rows);
+    }catch(e){setAiErr(String((e&&e.message)||e));}
+    setAiLoading(false);
+  };
+  const applyAi=()=>{
+    const list=(aiRows||[]).filter(r=>r.apply);
+    list.forEach(r=>{onUpdHQ(r.id,'upb',r.units);onUpdHQ(r.id,'boxes',r.boxes);onUpdHQ(r.id,'hqStock',r.stock);});
+    setAiOpen(false);setAiImg(null);setAiRows(null);
+    alert('✅ '+list.length+'개 품목 본사재고 입력 완료');
+  };
 
   /* Supabase 동기화 - 폴더 정보를 app_state.hq_folders에, 품목별 폴더 매핑은 hqItems.folder 필드 사용 */
   useEffect(()=>{
@@ -4171,6 +4221,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
         R('button',{onClick:printStockForm,style:{padding:'6px 12px',background:'#fff',color:'#374151',border:'1px solid var(--bd)',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'🖨 재고조사 양식 인쇄'),
         R('button',{onClick:()=>{if(invPhoto)setInvPhoto(null);else photoRef.current&&photoRef.current.click();},style:{padding:'6px 12px',background:invPhoto?'#FEF2F2':'#fff',color:invPhoto?'#B91C1C':'#374151',border:'1px solid '+(invPhoto?'#FECACA':'var(--bd)'),borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},invPhoto?'✕ 사진 닫기':'📷 재고 사진'),
         R('input',{ref:photoRef,type:'file',accept:'image/*',onChange:onPhotoPick,style:{display:'none'}}),
+        R('button',{onClick:()=>setAiOpen(true),style:{padding:'6px 12px',background:'#EEF2FF',color:'#4338CA',border:'1px solid #C7D2FE',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:800,fontFamily:'inherit'}},'🤖 이미지로 자동입력'),
         R('button',{onClick:async()=>{
           if(!confirm('이 기기의 폴더 구성을 서버에 올립니다.\n다른 기기들도 이 구성을 보게 됩니다. 진행할까요?'))return;
           try{
@@ -4296,6 +4347,45 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
                 R('tbody',null,...visibleRows.map(row=>renderRow(row,(folders.find(f=>f.id===selectedFolder)||{}).color)))
               )
         )
+    ),
+    aiOpen&&R('div',{onClick:()=>!aiLoading&&setAiOpen(false),style:{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:1000,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'18px',overflowY:'auto'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,maxWidth:560,width:'100%',padding:'18px',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          R('div',{style:{fontSize:15,fontWeight:800}},'🤖 재고장 이미지로 자동입력'),
+          R('button',{onClick:()=>!aiLoading&&setAiOpen(false),style:{border:'none',background:'none',fontSize:18,cursor:'pointer',color:'#94a3b8'}},'✕')
+        ),
+        R('div',{style:{marginBottom:12}},
+          R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:4}},'Anthropic API 키 (이 브라우저에만 저장 · 서버/깃허브 미저장)'),
+          R('input',{type:'password',value:aiKey,onChange:e=>saveAiKey(e.target.value),placeholder:'sk-ant-...',style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12,fontFamily:'inherit'}})
+        ),
+        !aiImg&&R('div',{tabIndex:0,onPaste:onAiPaste,style:{border:'2px dashed #C7D2FE',borderRadius:10,padding:'26px 14px',textAlign:'center',color:'#6366F1',fontSize:13,fontWeight:700,cursor:'text',outline:'none',marginBottom:10}},'여기를 클릭한 뒤 Ctrl+V 로 재고장 이미지 붙여넣기',
+          R('div',{style:{marginTop:8}},R('label',{style:{fontSize:11,color:'#6366F1',textDecoration:'underline',cursor:'pointer'}},'또는 파일 선택',R('input',{type:'file',accept:'image/*',onChange:onAiPick,style:{display:'none'}})))
+        ),
+        aiImg&&R('div',{style:{marginBottom:10}},
+          R('img',{src:aiImg,style:{maxWidth:'100%',borderRadius:8,display:'block',border:'1px solid var(--bd)'}}),
+          R('button',{onClick:()=>{setAiImg(null);setAiRows(null);setAiErr('');},style:{marginTop:6,border:'1px solid var(--bd)',background:'#fff',borderRadius:7,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'다른 이미지')
+        ),
+        aiErr&&R('div',{style:{background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',borderRadius:8,padding:'9px 12px',fontSize:12,marginBottom:10,whiteSpace:'pre-wrap'}},aiErr),
+        !aiRows&&R('button',{onClick:runAi,disabled:aiLoading,style:{width:'100%',border:'none',background:aiLoading?'#A5B4FC':'#4F46E5',color:'#fff',borderRadius:9,padding:'11px',fontSize:14,fontWeight:800,cursor:aiLoading?'default':'pointer',fontFamily:'inherit'}},aiLoading?'분석 중… (10~30초)':'🔍 분석하기'),
+        aiRows&&R('div',null,
+          R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'매칭 결과 '+aiRows.length+'건 · 박스/입수량 확인 후 적용'),
+          R('div',{style:{maxHeight:300,overflowY:'auto',border:'1px solid var(--bd)',borderRadius:8}},
+            R('div',{style:{display:'grid',gridTemplateColumns:'26px 1fr 50px 50px 64px',gap:6,padding:'7px 9px',background:'#F8FAFC',fontSize:10,fontWeight:700,color:'#64748b',position:'sticky',top:0}},R('div',null,''),R('div',null,'품목명'),R('div',{style:{textAlign:'right'}},'박스'),R('div',{style:{textAlign:'right'}},'입수량'),R('div',{style:{textAlign:'right'}},'본사재고')),
+            ...aiRows.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:'26px 1fr 50px 50px 64px',gap:6,padding:'6px 9px',borderTop:'1px solid #F1F5F9',alignItems:'center',fontSize:12,opacity:r.apply?1:.4}},
+              R('input',{type:'checkbox',checked:r.apply,onChange:e=>setAiRows(aiRows.map((x,j)=>j===i?{...x,apply:e.target.checked}:x))}),
+              R('div',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.name),
+              R('input',{type:'number',value:r.boxes,onChange:e=>{const b=+e.target.value||0;setAiRows(aiRows.map((x,j)=>j===i?{...x,boxes:b,stock:b*x.units}:x));},style:{width:'100%',boxSizing:'border-box',textAlign:'right',border:'1px solid var(--bd)',borderRadius:5,padding:'3px 4px',fontSize:11,fontWeight:700,color:'#b45309'}}),
+              R('input',{type:'number',value:r.units,onChange:e=>{const u=+e.target.value||0;setAiRows(aiRows.map((x,j)=>j===i?{...x,units:u,stock:x.boxes*u}:x));},style:{width:'100%',boxSizing:'border-box',textAlign:'right',border:'1px solid var(--bd)',borderRadius:5,padding:'3px 4px',fontSize:11,color:'#64748b'}}),
+              R('div',{style:{textAlign:'right',fontWeight:800,color:'#0369a1'}},r.stock)
+            ))
+          ),
+          R('div',{style:{display:'flex',gap:8,marginTop:12}},
+            R('button',{onClick:()=>{setAiRows(null);setAiErr('');},style:{flex:1,border:'1px solid var(--bd)',background:'#fff',borderRadius:9,padding:'10px',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'다시 분석'),
+            R('button',{onClick:applyAi,style:{flex:2,border:'none',background:'#16A34A',color:'#fff',borderRadius:9,padding:'10px',fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'✅ 본사재고에 적용')
+          )
+        ),
+        R('div',{style:{fontSize:10,color:'#94a3b8',marginTop:12,lineHeight:1.7,whiteSpace:'pre-line'}},'· 인트라넷에 등록된 본사재고 품목만 매칭합니다(다른 품목 무시).\n· 입수량은 품목명의 [규격*N]에서 자동 추출됩니다.\n· 손글씨 인식은 100% 정확하지 않으니 적용 전 박스 수를 꼭 확인하세요.')
+      )
     )
   );
 }
