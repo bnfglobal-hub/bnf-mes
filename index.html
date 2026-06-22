@@ -2810,6 +2810,7 @@ function PageNewProduct({user}){
       unit&&R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},unit)));
 
   return R('div',{className:'pg fa'},
+    R('div',{style:{maxWidth:760}},
     R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}},
       R('button',{onClick:()=>setSelId(null),style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:9,padding:'7px 13px',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',color:'var(--tm)'}},'← 목록'),
       R('input',{value:sel.name,onChange:e=>renameSel(sel.id,e.target.value),style:{...inp,fontSize:17,fontWeight:800,flex:1,minWidth:140,border:'none',background:'transparent',padding:'4px 0'}}),
@@ -2895,6 +2896,7 @@ function PageNewProduct({user}){
     /* 8. 출고 */
     section('8','출고',null,R('div',{style:{display:'flex',alignItems:'center',gap:8}},R('span',{style:lbl},'출고 일정'),
       R('input',{type:'date',value:(sel.shipping&&sel.shipping.schedule)||'',onChange:e=>patchStage(sel.id,'shipping',{schedule:e.target.value}),style:inp})))
+    )
   );
 }
 
@@ -3742,10 +3744,10 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       ),
       R('button',{onClick:()=>setEditMode(!editMode),style:{background:editMode?'#D94F1E':'#fff',color:editMode?'#fff':'#374151',border:'1px solid '+(editMode?'#D94F1E':'#E5E7EB'),borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}},editMode?'✓ 완료':'⠿ 편집')
     ),
-    /* ── 진행 중인 업무 (최상단) ── */
-    R(OngoingWork,{user,onGoPage}),
-    /* ── 신제품 현황 요약 ── */
+    /* ── 신제품 현황 (최상단) ── */
     R(NewProductHome,{onGoPage}),
+    /* ── 진행 중인 업무 ── */
+    R(OngoingWork,{user,onGoPage}),
     editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:8,marginBottom:14,fontSize:11,color:'#92400E',fontWeight:600}},'💡 박스를 드래그하여 위치를 변경하세요. 완료 버튼을 누르면 저장됩니다.'),
     /* 퀵메뉴 - 항상 최상단 고정 (마켓컬리 스타일) */
     R('div',{style:{marginBottom:14}},buildQuick()),
