@@ -9314,7 +9314,7 @@ function App(){
   const renderPage=()=>{
     const p={user,mats,cats,isAdmin,rk};
     if(page==='home')return R(PageHome,{mats,prods,orders,pqty,shortCnt,onGoPage:setPage,user});
-    if(page==='workreq')return R(PageWorkRequest,{user});
+    if(page==='workreq')return R('div',{className:'pg fa'},R(OngoingWork,{user,onGoPage:setPage}));
     if(page==='newprod')return R(PageNewProduct,{user});
     if(page==='mytasks')return R(PageMyTasks,{user});
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
