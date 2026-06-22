@@ -2854,29 +2854,28 @@ function PageNewProduct({user}){
   const qDate=qd.date||new Date().toISOString().slice(0,10);
   const validDate=(()=>{const d=new Date(qDate);if(isNaN(d))return '';d.setDate(d.getDate()+14);return d.toISOString().slice(0,10);})();
   const setQuote=(k,v)=>patchProd('quoteDoc',{...qd,[k]:v});
+  const noteFixed='*본 견적은 최종 포장되는 패키지를 제외한 견적서 입니다.\n결제조건 : 선결제\n생산리드타임 : 영업일로부터 14일 +@\n박스 규격 : '+(plan.boxSpec||'-')+'\n파레트 규격 : AJ파레트 12A형 (1,200mm*1,000mm*150mm)\n보관방법 : -18℃이하 냉동보관';
   const costRow=(label,val,sub)=>R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #F4F1F7'}},
     R('div',null,R('span',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},label),sub&&R('span',{style:{fontSize:10,color:'#B8B8B8',marginLeft:6}},'('+sub+')')),
     R('span',{style:{fontSize:13,fontWeight:700}},nf(Math.round(val))+'원'));
   const printQuote=()=>{
     const kDate=(()=>{const d=new Date(qDate);if(isNaN(d))return qDate;return d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일';})();
-    const noteTxt=(qd.note!==undefined?qd.note:'*생산리드타임 : 영업일로부터 14일 +@\n\n*제품 규격\n');
     const esc=(s)=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const total=Math.round(finalQuote)*moq;
     const dataRow='<tr><td>'+esc(qDate)+'</td><td>'+esc(sel.name||'')+'</td><td style="text-align:left;padding-left:10px">'+esc(qd.specText||'')+'</td><td>'+nf(totW)+'g</td><td style="text-align:right;padding-right:10px">'+nf(Math.round(finalQuote))+'</td><td>별도</td><td>'+nf(moq)+'ea</td></tr>';
     let empties='';for(let i=0;i<11;i++)empties+='<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
     const html='<html><head><meta charset="utf-8"><title>견적서_'+esc(sel.name||'')+'</title>'
       +'<style>'
       +'*{box-sizing:border-box}body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;margin:0;padding:22px}'
       +'.wrap{max-width:940px;margin:auto;border:2px solid #2b2b2b}'
-      +'.top{display:flex;align-items:center;padding:12px 16px;border-bottom:2px solid #2b2b2b}'
-      +'.logo{display:flex;align-items:center;gap:9px;flex:0 0 250px}'
+      +'.top{position:relative;text-align:center;padding:16px;border-bottom:2px solid #2b2b2b}'
+      +'.logo{position:absolute;left:16px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:9px}'
       +'.logo .mk{background:#D94F1E;color:#fff;font-weight:800;font-size:20px;padding:3px 8px;border-radius:5px}'
       +'.logo b{font-size:19px;letter-spacing:.5px}'
-      +'.ttl{flex:1;text-align:center;font-size:33px;font-weight:800;letter-spacing:16px;padding:0 0 6px}'
-      +'.ttl span{border-bottom:3px solid #1a1a1a;padding:0 16px 6px}'
+      +'.ttl{display:inline-block;font-size:33px;font-weight:800;letter-spacing:16px;border-bottom:3px solid #1a1a1a;padding:2px 14px 7px}'
       +'.head{display:flex;border-bottom:2px solid #2b2b2b}'
       +'.hl{flex:1;padding:16px 18px}'
-      +'.hl .d1{font-size:14px;margin-bottom:26px}'
+      +'.hl .d1{font-size:14px;margin-bottom:7px}'
+      +'.hl .d2{font-size:12px;color:#555;margin-bottom:22px}'
       +'.hl .rc{font-size:15px;border-bottom:1px solid #888;padding:0 6px 5px;display:inline-block;min-width:300px;margin-bottom:16px}'
       +'.hl .cf{font-size:13px;color:#333}'
       +'.sup{flex:0 0 430px;border-left:2px solid #2b2b2b}'
@@ -2890,12 +2889,13 @@ function PageNewProduct({user}){
       +'table.it th{background:#f3f1f6}'
       +'.nrow{display:flex;border-top:2px solid #2b2b2b}'
       +'.nl{flex:0 0 64px;display:flex;align-items:center;justify-content:center;font-weight:700;border-right:1px solid #888;font-size:13px}'
-      +'.nc{flex:1;padding:14px 16px;font-size:13px;line-height:1.85;white-space:pre-wrap;min-height:96px}'
+      +'.nc{flex:1;padding:14px 16px;font-size:13px;line-height:1.85;white-space:pre-wrap;min-height:110px}'
       +'@media print{body{padding:0}.wrap{border:2px solid #000}}'
       +'</style></head><body><div class="wrap">'
-      +'<div class="top"><div class="logo"><span class="mk">B&amp;F</span><b>B&amp;F GLOBAL</b></div><div class="ttl"><span>견 적 서</span></div></div>'
+      +'<div class="top"><div class="logo"><span class="mk">B&amp;F</span><b>B&amp;F GLOBAL</b></div><span class="ttl">견 적 서</span></div>'
       +'<div class="head"><div class="hl">'
       +'<div class="d1">견 적 일 자 : &nbsp;&nbsp;'+esc(kDate)+'</div>'
+      +'<div class="d2">견적 유효 기간 : 견적일로부터 14일</div>'
       +'<div><span class="rc">'+esc(sel.client||'')+' &nbsp;&nbsp;&nbsp; 귀하</span></div>'
       +'<div class="cf">연락처 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 팩스</div>'
       +'</div><div class="sup"><table>'
@@ -2905,10 +2905,10 @@ function PageNewProduct({user}){
       +'<tr><td class="lb">업태</td><td>제조업</td><td class="lb">업종</td><td>식품제조및가공</td></tr>'
       +'<tr><td class="lb">전화번호</td><td>031-794-5071</td><td class="lb">팩스</td><td>031-794-5009</td></tr>'
       +'</table></div></div>'
-      +'<div class="sumb"><span>합 계 금 액 (공급가액+세액)</span><span>원정 ( ₩ '+nf(total)+' )</span></div>'
+      +'<div class="sumb"><span>합 계 금 액 (공급가액+세액)</span><span>원정 ( ₩ 0 )</span></div>'
       +'<table class="it"><tr><th style="width:96px">일자</th><th>품명</th><th>규격</th><th style="width:66px">중량</th><th style="width:92px">공급가액</th><th style="width:54px">세액</th><th style="width:80px">moq</th></tr>'
       +dataRow+empties+'</table>'
-      +'<div class="nrow"><div class="nl">비고</div><div class="nc">'+esc(noteTxt)+'</div></div>'
+      +'<div class="nrow"><div class="nl">비고</div><div class="nc">'+esc(noteFixed)+'</div></div>'
       +'</div></body></html>';
     const w=window.open('','_blank');
     if(!w){alert('팝업이 차단되었습니다. 팝업을 허용해 주세요.');return;}
@@ -3032,7 +3032,7 @@ function PageNewProduct({user}){
       ),
       R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:12}},
         R('div',null,R('div',{style:lbl},'견적일자'),R('input',{type:'date',value:qDate,onChange:e=>setQuote('date',e.target.value),style:{...inp,width:'100%'}})),
-        R('div',null,R('div',{style:lbl},'견적유효일 (14일 고정)'),R('input',{value:validDate,readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}})),
+        R('div',null,R('div',{style:lbl},'견적 유효 기간'),R('input',{value:'견적일로부터 14일',readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}})),
         R('div',null,R('div',{style:lbl},'수신자 (거래처)'),R('input',{value:sel.client||'',readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}}))
       ),
       R('div',{style:{marginBottom:12}},R('div',{style:lbl},'규격 (제품 스펙 · 수기 입력)'),
@@ -3044,9 +3044,9 @@ function PageNewProduct({user}){
         R('div',{style:{display:'grid',gridTemplateColumns:'90px 1fr 1.3fr 64px 90px 50px 76px',borderTop:'1px solid #EEE',fontWeight:600}},
           ...[qDate,sel.name||'-',qd.specText||'-',nf(totW)+'g',nf(Math.round(finalQuote)),'별도',nf(moq)+'ea'].map((v,i)=>R('div',{key:i,style:{padding:'7px 8px',borderLeft:i>0?'1px solid #EEE':'none',textAlign:i===1||i===2?'left':'center',color:i===4?'var(--p)':'var(--t)',fontWeight:i===4?800:600}},v)))
       )),
-      R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)',marginBottom:8}},'합계금액(공급가액+세액) : ',R('span',{style:{color:'var(--p)',fontWeight:800}},'₩ '+nf(Math.round(finalQuote)*moq))),
-      R('div',null,R('div',{style:lbl},'비고'),
-        R('textarea',{value:qd.note!==undefined?qd.note:'*생산리드타임 : 영업일로부터 14일 +@\n\n*제품 규격\n',onChange:e=>setQuote('note',e.target.value),style:{...inp,width:'100%',minHeight:90,resize:'vertical',lineHeight:1.7,whiteSpace:'pre-wrap'}}))
+      R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)',marginBottom:8}},'합계금액(공급가액+세액) : ',R('span',{style:{color:'var(--p)',fontWeight:800}},'₩ 0 (고정)')),
+      R('div',null,R('div',{style:lbl},'비고 (고정)'),
+        R('div',{style:{fontSize:11,lineHeight:1.9,color:'var(--tm)',background:'#FAFAFA',border:'1px solid var(--bd)',borderRadius:9,padding:'12px 14px',whiteSpace:'pre-line'}},noteFixed))
     ),
     /* 3. 출시 확정 */
     section('3','출시 확정',statusBtns(sel,'launch',['진행중','진행완료']),null,'launch'),
