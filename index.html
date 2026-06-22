@@ -2858,19 +2858,61 @@ function PageNewProduct({user}){
     R('div',null,R('span',{style:{fontSize:12,fontWeight:700,color:'var(--tm)'}},label),sub&&R('span',{style:{fontSize:10,color:'#B8B8B8',marginLeft:6}},'('+sub+')')),
     R('span',{style:{fontSize:13,fontWeight:700}},nf(Math.round(val))+'원'));
   const printQuote=()=>{
-    const rows=[['제품명',sel.name||''],['제품 스펙',(qd.specText||'').replace(/\n/g,'<br>')],['제품 총중량',nf(totW)+' g'],['최종 견적가',nf(Math.round(finalQuote))+' 원'],['MOQ',nf(moq)+' 개'],['박스 입수량',nf(boxQ)+' 개']];
-    const noteLines=['*본 견적은 최종 포장되는 패키지를 제외한 견적서 입니다.','결제조건 : 선결제','생산리드타임 : 영업일로부터 14일 +@','박스 규격 : '+(plan.boxSpec||'-'),'파레트 규격 : AJ파레트 12A형 (1,200mm*1,000mm*150mm)','보관방법 : -18℃이하 냉동보관'];
-    const html='<html><head><meta charset="utf-8"><title>견적서_'+(sel.name||'')+'</title>'
-      +'<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1a1a1a;padding:32px;max-width:720px;margin:auto}h1{text-align:center;letter-spacing:8px;border-bottom:3px solid #1a1a1a;padding-bottom:14px;margin:0 0 18px}.meta{display:flex;justify-content:space-between;font-size:13px;margin-bottom:18px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid #999;padding:9px 12px;text-align:left}th{background:#f3f1f6;width:140px;font-weight:700}.note{margin-top:18px;font-size:12px;line-height:1.9;white-space:pre-line;border:1px solid #ccc;padding:14px;background:#fafafa}.final{color:#D94F1E;font-weight:800;font-size:16px}.company{text-align:right;margin-top:28px;font-size:13px;font-weight:700}</style></head><body>'
-      +'<h1>견 적 서</h1>'
-      +'<div class="meta"><div>수신자 : <b>'+(sel.client||'-')+'</b></div><div>견적일자 : '+qDate+'<br>견적유효일 : '+validDate+' (14일)</div></div>'
-      +'<table>'+rows.map(r=>'<tr><th>'+r[0]+'</th><td'+(r[0]==='최종 견적가'?' class="final"':'')+'>'+r[1]+'</td></tr>').join('')+'</table>'
-      +'<div class="note">'+noteLines.join('\n')+'</div>'
-      +'<div class="company">(주)비엔에프글로벌</div>'
-      +'</body></html>';
+    const kDate=(()=>{const d=new Date(qDate);if(isNaN(d))return qDate;return d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일';})();
+    const noteTxt=(qd.note!==undefined?qd.note:'*생산리드타임 : 영업일로부터 14일 +@\n\n*제품 규격\n');
+    const esc=(s)=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const total=Math.round(finalQuote)*moq;
+    const dataRow='<tr><td>'+esc(qDate)+'</td><td>'+esc(sel.name||'')+'</td><td style="text-align:left;padding-left:10px">'+esc(qd.specText||'')+'</td><td>'+nf(totW)+'g</td><td style="text-align:right;padding-right:10px">'+nf(Math.round(finalQuote))+'</td><td>별도</td><td>'+nf(moq)+'ea</td></tr>';
+    let empties='';for(let i=0;i<11;i++)empties+='<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
+    const html='<html><head><meta charset="utf-8"><title>견적서_'+esc(sel.name||'')+'</title>'
+      +'<style>'
+      +'*{box-sizing:border-box}body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;margin:0;padding:22px}'
+      +'.wrap{max-width:940px;margin:auto;border:2px solid #2b2b2b}'
+      +'.top{display:flex;align-items:center;padding:12px 16px;border-bottom:2px solid #2b2b2b}'
+      +'.logo{display:flex;align-items:center;gap:9px;flex:0 0 250px}'
+      +'.logo .mk{background:#D94F1E;color:#fff;font-weight:800;font-size:20px;padding:3px 8px;border-radius:5px}'
+      +'.logo b{font-size:19px;letter-spacing:.5px}'
+      +'.ttl{flex:1;text-align:center;font-size:33px;font-weight:800;letter-spacing:16px;padding:0 0 6px}'
+      +'.ttl span{border-bottom:3px solid #1a1a1a;padding:0 16px 6px}'
+      +'.head{display:flex;border-bottom:2px solid #2b2b2b}'
+      +'.hl{flex:1;padding:16px 18px}'
+      +'.hl .d1{font-size:14px;margin-bottom:26px}'
+      +'.hl .rc{font-size:15px;border-bottom:1px solid #888;padding:0 6px 5px;display:inline-block;min-width:300px;margin-bottom:16px}'
+      +'.hl .cf{font-size:13px;color:#333}'
+      +'.sup{flex:0 0 430px;border-left:2px solid #2b2b2b}'
+      +'.sup table{width:100%;height:100%;border-collapse:collapse;font-size:12px}'
+      +'.sup td{border:1px solid #888;padding:5px 8px}'
+      +'.sup .sd{width:20px;text-align:center;font-weight:700;background:#f3f1f6;line-height:1.5}'
+      +'.sup .lb{background:#f7f5fa;font-weight:700;white-space:nowrap}'
+      +'.sumb{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;border-bottom:2px solid #2b2b2b;font-size:14px;font-weight:700}'
+      +'table.it{width:100%;border-collapse:collapse;font-size:13px}'
+      +'table.it th,table.it td{border:1px solid #888;padding:7px 5px;text-align:center;height:30px}'
+      +'table.it th{background:#f3f1f6}'
+      +'.nrow{display:flex;border-top:2px solid #2b2b2b}'
+      +'.nl{flex:0 0 64px;display:flex;align-items:center;justify-content:center;font-weight:700;border-right:1px solid #888;font-size:13px}'
+      +'.nc{flex:1;padding:14px 16px;font-size:13px;line-height:1.85;white-space:pre-wrap;min-height:96px}'
+      +'@media print{body{padding:0}.wrap{border:2px solid #000}}'
+      +'</style></head><body><div class="wrap">'
+      +'<div class="top"><div class="logo"><span class="mk">B&amp;F</span><b>B&amp;F GLOBAL</b></div><div class="ttl"><span>견 적 서</span></div></div>'
+      +'<div class="head"><div class="hl">'
+      +'<div class="d1">견 적 일 자 : &nbsp;&nbsp;'+esc(kDate)+'</div>'
+      +'<div><span class="rc">'+esc(sel.client||'')+' &nbsp;&nbsp;&nbsp; 귀하</span></div>'
+      +'<div class="cf">연락처 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 팩스</div>'
+      +'</div><div class="sup"><table>'
+      +'<tr><td class="sd" rowspan="5">공<br>급<br>자</td><td class="lb">사업자번호</td><td colspan="3">887-85-01252</td></tr>'
+      +'<tr><td class="lb">상호(법인명)</td><td style="font-weight:700">㈜비엔에프글로벌</td><td class="lb">대표자</td><td>이용재</td></tr>'
+      +'<tr><td class="lb">사업장주소</td><td colspan="3">경기도 이천시 백사면 이여로 260-15</td></tr>'
+      +'<tr><td class="lb">업태</td><td>제조업</td><td class="lb">업종</td><td>식품제조및가공</td></tr>'
+      +'<tr><td class="lb">전화번호</td><td>031-794-5071</td><td class="lb">팩스</td><td>031-794-5009</td></tr>'
+      +'</table></div></div>'
+      +'<div class="sumb"><span>합 계 금 액 (공급가액+세액)</span><span>원정 ( ₩ '+nf(total)+' )</span></div>'
+      +'<table class="it"><tr><th style="width:96px">일자</th><th>품명</th><th>규격</th><th style="width:66px">중량</th><th style="width:92px">공급가액</th><th style="width:54px">세액</th><th style="width:80px">moq</th></tr>'
+      +dataRow+empties+'</table>'
+      +'<div class="nrow"><div class="nl">비고</div><div class="nc">'+esc(noteTxt)+'</div></div>'
+      +'</div></body></html>';
     const w=window.open('','_blank');
     if(!w){alert('팝업이 차단되었습니다. 팝업을 허용해 주세요.');return;}
-    w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){}},350);
+    w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){}},400);
   };
 
   return R('div',{className:'pg fa'},
@@ -2982,6 +3024,30 @@ function PageNewProduct({user}){
     ),
     /* 2. 견적 */
     section('2','견적',statusBtns(sel,'quote',['조정중','견적 픽스']),null,'quote'),
+    /* 견적서 자동 생성 (견적 단계 아래) */
+    R('div',{id:'npsec-quotedoc',className:'card',style:{marginBottom:12,padding:'14px 16px',borderColor:'var(--p)'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}},
+        R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📄 견적서 (자동 생성)'),
+        R('button',{onClick:printQuote,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'8px 16px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'🖨 견적서 인쇄 / PDF')
+      ),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:12}},
+        R('div',null,R('div',{style:lbl},'견적일자'),R('input',{type:'date',value:qDate,onChange:e=>setQuote('date',e.target.value),style:{...inp,width:'100%'}})),
+        R('div',null,R('div',{style:lbl},'견적유효일 (14일 고정)'),R('input',{value:validDate,readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}})),
+        R('div',null,R('div',{style:lbl},'수신자 (거래처)'),R('input',{value:sel.client||'',readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}}))
+      ),
+      R('div',{style:{marginBottom:12}},R('div',{style:lbl},'규격 (제품 스펙 · 수기 입력)'),
+        R('input',{value:qd.specText||'',onChange:e=>setQuote('specText',e.target.value),placeholder:'예: 70g*5ea(트레이+슬리브)',style:{...inp,width:'100%'}})),
+      /* 미리보기 표 (실제 견적서 항목) */
+      R('div',{style:{overflowX:'auto',marginBottom:12}},R('div',{style:{minWidth:560,border:'1px solid var(--bd)',borderRadius:8,overflow:'hidden',fontSize:12}},
+        R('div',{style:{display:'grid',gridTemplateColumns:'90px 1fr 1.3fr 64px 90px 50px 76px',background:'#FAFAFA',fontWeight:700,color:'#64748b'}},
+          ...['일자','품명','규격','중량','공급가액','세액','moq'].map((h,i)=>R('div',{key:i,style:{padding:'7px 8px',borderLeft:i>0?'1px solid #EEE':'none',textAlign:'center'}},h))),
+        R('div',{style:{display:'grid',gridTemplateColumns:'90px 1fr 1.3fr 64px 90px 50px 76px',borderTop:'1px solid #EEE',fontWeight:600}},
+          ...[qDate,sel.name||'-',qd.specText||'-',nf(totW)+'g',nf(Math.round(finalQuote)),'별도',nf(moq)+'ea'].map((v,i)=>R('div',{key:i,style:{padding:'7px 8px',borderLeft:i>0?'1px solid #EEE':'none',textAlign:i===1||i===2?'left':'center',color:i===4?'var(--p)':'var(--t)',fontWeight:i===4?800:600}},v)))
+      )),
+      R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)',marginBottom:8}},'합계금액(공급가액+세액) : ',R('span',{style:{color:'var(--p)',fontWeight:800}},'₩ '+nf(Math.round(finalQuote)*moq))),
+      R('div',null,R('div',{style:lbl},'비고'),
+        R('textarea',{value:qd.note!==undefined?qd.note:'*생산리드타임 : 영업일로부터 14일 +@\n\n*제품 규격\n',onChange:e=>setQuote('note',e.target.value),style:{...inp,width:'100%',minHeight:90,resize:'vertical',lineHeight:1.7,whiteSpace:'pre-wrap'}}))
+    ),
     /* 3. 출시 확정 */
     section('3','출시 확정',statusBtns(sel,'launch',['진행중','진행완료']),null,'launch'),
     /* 4. 영양정보 */
@@ -2995,29 +3061,7 @@ function PageNewProduct({user}){
       R('input',{type:'date',value:(sel.production&&sel.production.schedule)||'',onChange:e=>patchStage(sel.id,'production',{schedule:e.target.value}),style:inp})),'production'),
     /* 8. 출고 */
     section('8','출고',null,R('div',{style:{display:'flex',alignItems:'center',gap:8}},R('span',{style:lbl},'출고 일정'),
-      R('input',{type:'date',value:(sel.shipping&&sel.shipping.schedule)||'',onChange:e=>patchStage(sel.id,'shipping',{schedule:e.target.value}),style:inp})),'shipping'),
-    /* 견적서 자동 생성 */
-    R('div',{className:'card',style:{marginBottom:12,padding:'14px 16px',borderColor:'var(--p)'}},
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}},
-        R('div',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'📄 견적서 (자동 생성)'),
-        R('button',{onClick:printQuote,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'8px 16px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'🖨 견적서 인쇄 / PDF')
-      ),
-      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:12}},
-        R('div',null,R('div',{style:lbl},'견적일자'),R('input',{type:'date',value:qDate,onChange:e=>setQuote('date',e.target.value),style:{...inp,width:'100%'}})),
-        R('div',null,R('div',{style:lbl},'견적유효일 (14일 고정)'),R('input',{value:validDate,readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}})),
-        R('div',null,R('div',{style:lbl},'수신자 (거래처)'),R('input',{value:sel.client||'',readOnly:true,style:{...inp,width:'100%',background:'#F8F8F8',color:'var(--tm)'}}))
-      ),
-      R('div',{style:{marginBottom:12}},R('div',{style:lbl},'제품 스펙 (수기 입력)'),
-        R('textarea',{value:qd.specText||'',onChange:e=>setQuote('specText',e.target.value),placeholder:'견적서에 표기할 제품 스펙을 입력하세요',style:{...inp,width:'100%',minHeight:70,resize:'vertical'}})),
-      R('div',{style:{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',fontSize:13}},
-        ...[['제품명',sel.name||'-'],['제품 총중량',nf(totW)+' g'],['최종 견적가',nf(Math.round(finalQuote))+' 원'],['MOQ',nf(moq)+' 개'],['박스 입수량',nf(boxQ)+' 개'],['박스 규격',plan.boxSpec||'-']].map((r,i)=>R('div',{key:i,style:{display:'flex',borderTop:i>0?'1px solid #F1EEF6':'none'}},
-          R('div',{style:{width:110,flexShrink:0,background:'#FAFAFA',padding:'8px 12px',fontWeight:700,color:'var(--tm)',fontSize:12}},r[0]),
-          R('div',{style:{padding:'8px 12px',fontWeight:r[0]==='최종 견적가'?800:600,color:r[0]==='최종 견적가'?'var(--p)':'var(--t)'}},r[1])
-        ))
-      ),
-      R('div',{style:{marginTop:12,fontSize:11,lineHeight:1.9,color:'var(--tm)',background:'#FAFAFA',border:'1px solid var(--bd)',borderRadius:9,padding:'12px 14px',whiteSpace:'pre-line'}},
-        '*본 견적은 최종 포장되는 패키지를 제외한 견적서 입니다.\n결제조건 : 선결제\n생산리드타임 : 영업일로부터 14일 +@\n박스 규격 : '+(plan.boxSpec||'-')+'\n파레트 규격 : AJ파레트 12A형 (1,200mm*1,000mm*150mm)\n보관방법 : -18℃이하 냉동보관')
-    )
+      R('input',{type:'date',value:(sel.shipping&&sel.shipping.schedule)||'',onChange:e=>patchStage(sel.id,'shipping',{schedule:e.target.value}),style:inp})),'shipping')
     )
   );
 }
