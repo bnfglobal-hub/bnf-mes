@@ -3231,6 +3231,131 @@ function OngoingWork({user,onGoPage}){
   );
 }
 
+/* ═══ 영업 이익 분석: 월별 매출-매입=영업이익 ═══ */
+function PageProfit(){
+  const[data,setData]=useState({});
+  const[loaded,setLoaded]=useState(false);
+  const[saving,setSaving]=useState(false);
+  const[year,setYear]=useState(new Date().getFullYear());
+  const[pasteFor,setPasteFor]=useState(null); /* 'sales' | 'purchase' */
+  const[pasteText,setPasteText]=useState('');
+  const tRef=useRef(null);
+  const nf=(n)=>Math.round(+n||0).toLocaleString();
+  const MONTHS=['01','02','03','04','05','06','07','08','09','10','11','12'];
+
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:d})=>{
+      const sd=d&&d.state_data?d.state_data:{};
+      if(sd.profit_analysis&&typeof sd.profit_analysis==='object')setData(sd.profit_analysis);
+      setLoaded(true);
+    }).catch(()=>setLoaded(true));
+  },[]);
+  const saveData=(next)=>{
+    setData(next);setSaving(true);
+    if(tRef.current)clearTimeout(tRef.current);
+    tRef.current=setTimeout(()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
+        const ex=cur&&cur.state_data?cur.state_data:{};
+        return sbClient.from('app_state').upsert({id:1,state_data:{...ex,profit_analysis:next},updated_at:new Date().toISOString()});
+      }).then(()=>setSaving(false)).catch(()=>setSaving(false));
+    },300);
+  };
+  const yr=String(year);
+  const ydata=data[yr]||{};
+  const cellVal=(mm,f)=>{const r=ydata[mm];return r&&r[f]!==undefined&&r[f]!==''?r[f]:'';};
+  const setCell=(mm,f,val)=>{
+    const next={...data};next[yr]={...(next[yr]||{})};
+    next[yr][mm]={sales:'',purchase:'',...(next[yr][mm]||{}),[f]:(val===''?'':+val||0)};
+    saveData(next);
+  };
+  const doPaste=()=>{
+    const field=pasteFor;const next=JSON.parse(JSON.stringify(data));if(!next[yr])next[yr]={};
+    let cnt=0;
+    (pasteText||'').split(/\n/).forEach(line=>{
+      const m=line.match(/(\d{4})\/(\d{1,2})/);if(!m||m[1]!==yr)return;
+      const mm=String(m[2]).padStart(2,'0');
+      const after=line.slice(line.indexOf(m[0])+m[0].length);
+      const nums=(after.match(/-?[\d,]+(?:\.\d+)?/g)||[]).map(x=>parseFloat(x.replace(/,/g,''))).filter(n=>!isNaN(n));
+      if(nums.length>=2){if(!next[yr][mm])next[yr][mm]={sales:'',purchase:''};next[yr][mm][field]=Math.round(nums[1]);cnt++;}
+    });
+    saveData(next);setPasteFor(null);setPasteText('');
+    setTimeout(()=>alert(cnt>0?(cnt+'개월 '+(field==='sales'?'매출':'매입')+' 데이터를 채웠습니다.'):'인식된 월별 데이터가 없습니다. 표를 그대로 복사해 붙여넣어 주세요.'),0);
+  };
+
+  let tS=0,tP=0;
+  MONTHS.forEach(mm=>{tS+=(+cellVal(mm,'sales')||0);tP+=(+cellVal(mm,'purchase')||0);});
+  const tProfit=tS-tP;
+  const inp={boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:7,padding:'6px 8px',fontSize:12,fontFamily:'inherit',textAlign:'right',width:'100%'};
+  const cols='52px 1fr 1fr 1fr 64px';
+  const cell=(txt,extra)=>R('div',{style:{textAlign:'right',...(extra||{})}},txt);
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📈 영업 이익 분석'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'월별 매출 − 매입 = 영업이익 (공급가액 기준)',
+        saving&&R('span',{style:{marginLeft:8,color:'var(--ok)',fontWeight:700}},'· 저장 중…'))),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('button',{onClick:()=>setYear(year-1),style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontFamily:'inherit'}},'◀'),
+        R('span',{style:{fontSize:15,fontWeight:800,minWidth:54,textAlign:'center'}},yr),
+        R('button',{onClick:()=>setYear(year+1),style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontFamily:'inherit'}},'▶')
+      )
+    ),
+    R('div',{style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}},
+      R('button',{onClick:()=>{setPasteFor('sales');setPasteText('');},style:{border:'1px solid #BFDBFE',background:'#EFF6FF',color:'#2563EB',borderRadius:9,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'📋 판매현황(매출) 붙여넣기'),
+      R('button',{onClick:()=>{setPasteFor('purchase');setPasteText('');},style:{border:'1px solid #FED7AA',background:'#FFF7ED',color:'#C2410C',borderRadius:9,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'📋 구매현황(매입) 붙여넣기')
+    ),
+    /* 요약 카드 */
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:14}},
+      R('div',{className:'card',style:{padding:'14px 16px'}},R('div',{style:{fontSize:11,fontWeight:700,color:'#2563EB'}},yr+' 총 매출'),R('div',{style:{fontSize:22,fontWeight:800,marginTop:3}},nf(tS))),
+      R('div',{className:'card',style:{padding:'14px 16px'}},R('div',{style:{fontSize:11,fontWeight:700,color:'#C2410C'}},yr+' 총 매입'),R('div',{style:{fontSize:22,fontWeight:800,marginTop:3}},nf(tP))),
+      R('div',{className:'card',style:{padding:'14px 16px',background:tProfit>=0?'#F0FDF4':'#FEF2F2',borderColor:tProfit>=0?'#BBF7D0':'#FECACA'}},R('div',{style:{fontSize:11,fontWeight:700,color:tProfit>=0?'#15803D':'#B91C1C'}},yr+' 총 영업이익'),R('div',{style:{fontSize:22,fontWeight:800,marginTop:3,color:tProfit>=0?'#15803D':'#B91C1C'}},nf(tProfit))),
+      R('div',{className:'card',style:{padding:'14px 16px'}},R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},'영업이익률'),R('div',{style:{fontSize:22,fontWeight:800,marginTop:3,color:'var(--p)'}},tS>0?((tProfit/tS*100).toFixed(1)+'%'):'-'))
+    ),
+    /* 월별 표 */
+    R('div',{className:'card',style:{padding:'12px 14px'}},
+      R('div',{style:{overflowX:'auto'}},R('div',{style:{minWidth:560}},
+        R('div',{style:{display:'grid',gridTemplateColumns:cols,gap:8,fontSize:11,fontWeight:700,color:'#94A3B8',padding:'0 2px 8px',borderBottom:'1px solid var(--bd)'}},
+          R('div',null,'월'),R('div',{style:{textAlign:'right'}},'매출(공급가)'),R('div',{style:{textAlign:'right'}},'매입(공급가)'),R('div',{style:{textAlign:'right'}},'영업이익'),R('div',{style:{textAlign:'right'}},'이익률')),
+        ...MONTHS.map(mm=>{
+          const s=+cellVal(mm,'sales')||0,pu=+cellVal(mm,'purchase')||0,pr=s-pu;
+          const has=cellVal(mm,'sales')!==''||cellVal(mm,'purchase')!=='';
+          return R('div',{key:mm,style:{display:'grid',gridTemplateColumns:cols,gap:8,alignItems:'center',padding:'5px 2px',borderBottom:'1px solid #F4F1F7'}},
+            R('div',{style:{fontSize:12,fontWeight:700,color:'var(--t)'}},mm+'월'),
+            R('input',{type:'number',value:cellVal(mm,'sales'),onChange:e=>setCell(mm,'sales',e.target.value),placeholder:'0',style:inp}),
+            R('input',{type:'number',value:cellVal(mm,'purchase'),onChange:e=>setCell(mm,'purchase',e.target.value),placeholder:'0',style:inp}),
+            R('div',{style:{textAlign:'right',fontSize:12,fontWeight:700,color:!has?'#CBD5E1':(pr>=0?'#15803D':'#B91C1C')}},has?nf(pr):'-'),
+            R('div',{style:{textAlign:'right',fontSize:11,color:'var(--tm)'}},has&&s>0?((pr/s*100).toFixed(1)+'%'):'-')
+          );
+        }),
+        R('div',{style:{display:'grid',gridTemplateColumns:cols,gap:8,alignItems:'center',padding:'10px 2px 2px',borderTop:'2px solid var(--bd)',marginTop:4,fontWeight:800,fontSize:13}},
+          R('div',null,'합계'),
+          R('div',{style:{textAlign:'right'}},nf(tS)),
+          R('div',{style:{textAlign:'right'}},nf(tP)),
+          R('div',{style:{textAlign:'right',color:tProfit>=0?'#15803D':'#B91C1C'}},nf(tProfit)),
+          R('div',{style:{textAlign:'right',color:'var(--p)',fontSize:12}},tS>0?((tProfit/tS*100).toFixed(1)+'%'):'-'))
+      )),
+      R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:10}},'※ 이카운트 판매현황/구매현황을 보고 월별 공급가액을 입력하거나, 표를 복사해 위 "붙여넣기"로 자동 입력하세요. 영업이익 = 매출 − 매입(공급가액 기준).')
+    ),
+    /* 붙여넣기 모달 */
+    pasteFor&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setPasteFor(null);setPasteText('');}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
+        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9'}},
+          R('div',{style:{fontSize:14,fontWeight:800}},(pasteFor==='sales'?'판매현황(매출)':'구매현황(매입)')+' 붙여넣기 · '+yr),
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},'이카운트 표를 드래그·복사(Ctrl+C)해서 아래에 붙여넣기(Ctrl+V) 하세요. "2026/01 ..." 줄에서 공급가액을 자동 인식합니다.')
+        ),
+        R('div',{style:{padding:'14px 18px'}},
+          R('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),autoFocus:true,placeholder:'2026/01   83,992   197,581,647   19,758,165   217,339,812\n...',
+            style:{width:'100%',boxSizing:'border-box',minHeight:160,border:'1px solid var(--bd)',borderRadius:9,padding:'10px',fontSize:12,fontFamily:'monospace',resize:'vertical'}}),
+          R('div',{style:{display:'flex',justifyContent:'flex-end',gap:8,marginTop:12}},
+            R('button',{onClick:()=>{setPasteFor(null);setPasteText('');},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
+            R('button',{onClick:doPaste,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'자동 입력')
+          )
+        )
+      )
+    )
+  );
+}
+
 function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const totalMats=mats.length;
   const goodMats=mats.filter(m=>!m.mu||m.s>=m.mu).length;
@@ -7164,7 +7289,7 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
-    {id:'purchase_data',l:'매입 자료',ic:'🛒'},
+    {id:'profit',l:'영업 이익 분석',ic:'📈'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
     {id:'cost',l:'원가분석',ic:'💰'},
     {id:'data',l:'데이터관리',ic:'💾'},
@@ -7178,14 +7303,14 @@ function loadNavSections(){
       const p=JSON.parse(saved);
       if(Array.isArray(p)&&p.length>0){
         /* 본사(hq) 섹션 + 관리자 섹션에서 제거된 항목들 자동 정리 */
-        const REMOVED_IDS=new Set(['adm_sales','adm_purchase','fixed_costs','adm_dash','hq_dash','hq_sales','hq_purchase','hq_fixed_costs','expiry','shipment','hygiene','vendors','quote','prodResult','autoOrder','orders']);
+        const REMOVED_IDS=new Set(['adm_sales','adm_purchase','fixed_costs','adm_dash','hq_dash','hq_sales','hq_purchase','hq_fixed_costs','expiry','shipment','hygiene','vendors','quote','prodResult','autoOrder','orders','purchase_data']);
         let changed=false;
         const filtered=p.filter(s=>{if(s&&s.type==='hq'){changed=true;return false;}return true;}).map(s=>{
           if(s&&Array.isArray(s.items)){
             const newItems=s.items.filter(it=>!REMOVED_IDS.has(it.id));
-            /* 관리자 섹션에 purchase_data 없으면 추가 */
-            if(s.type==='admin'&&!newItems.find(it=>it.id==='purchase_data')){
-              newItems.unshift({id:'purchase_data',l:'매입 자료',ic:'🛒'});
+            /* 관리자 섹션에 영업 이익 분석 없으면 추가 */
+            if(s.type==='admin'&&!newItems.find(it=>it.id==='profit')){
+              newItems.unshift({id:'profit',l:'영업 이익 분석',ic:'📈'});
               changed=true;
             }
             /* factory 섹션에 mytasks 없으면 홈 다음에 추가 */
@@ -9028,6 +9153,7 @@ function App(){
     /* ══ 관리자 (ADM) ══ */
     if(page==='adminDash'||page==='adm_dash'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageDashboard,{user,variant:'adm'});}
     if(page==='sales_data'||page==='adm_sales'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageSalesAnalysis,{user,variant:'adm'});}
+    if(page==='profit'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageProfit,{});}
     if(page==='purchase_data'||page==='adm_purchase'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PagePurchaseAnalysis,{mats,variant:'adm'});}
     if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
