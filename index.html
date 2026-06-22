@@ -4029,8 +4029,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       const res=await fetch(SB_URL+'/functions/v1/rapid-service',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify({imageBase64:b64,mediaType:mt,items:names})});
       let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류 ('+res.status+'). Edge Function 배포 상태를 확인하세요.');}
       if(!res.ok||j.error)throw new Error(j.error||('서버 오류 '+res.status));
-      const txt=String(j.text||'').replace(/```json|```/g,'').trim();
-      let arr;try{arr=JSON.parse(txt);}catch(e){throw new Error('응답 파싱 실패:\n'+txt.slice(0,160));}
+      let txt=String(j.text||'').replace(/```json/gi,'').replace(/```/g,'').trim();
+      const _s=txt.indexOf('['),_e=txt.lastIndexOf(']');if(_s>=0&&_e>_s)txt=txt.slice(_s,_e+1);
+      let arr;try{arr=JSON.parse(txt);}catch(e){throw new Error('응답 파싱 실패(내용 잘림 가능):\n'+txt.slice(0,400));}
       if(!Array.isArray(arr))throw new Error('형식 오류');
       const rows=arr.map(o=>{
         const hi=hqItems.find(h=>{const m=mats.find(x=>x.c===h.matCode)||{};return (m.n||h.matName)===o.name;});
