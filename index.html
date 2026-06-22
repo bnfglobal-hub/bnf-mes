@@ -2687,9 +2687,10 @@ const NP_STAGES=[
 ];
 const NP_PKG_PRESETS=['삼방파우치','종이슬리브+트레이','스탠드파우치','진공파우치','박스'];
 const npStageState=(p,st)=>{
-  if(st.sched){const v=p[st.k]&&p[st.k].schedule;return{done:!!v,label:v||'미정'};}
-  const v=(p[st.k]&&p[st.k].status)||st.opts[0];
-  return{done:v===st.opts[st.opts.length-1],label:v};
+  const node=p[st.k]||{};
+  const label = st.sched ? (node.schedule||'미정') : (node.status||(st.opts?st.opts[0]:''));
+  const done = node.done!==undefined ? !!node.done : (st.sched ? !!node.schedule : (st.opts ? node.status===st.opts[st.opts.length-1] : false));
+  return {done,label};
 };
 
 /* 홈/목록에서 신제품을 눌렀을 때 열 대상 (페이지 진입 시 사용) */
@@ -2791,10 +2792,14 @@ function PageNewProduct({user}){
       f&&R('button',{onClick:()=>patchStage(p.id,key,{file:null}),style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'4px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
     );
   };
-  const section=(num,title,statusEl,body,anchor)=>R('div',{id:anchor?('npsec-'+anchor):undefined,className:'card',style:{marginBottom:12,padding:'14px 16px',scrollMarginTop:12}},
+  const doneBtn=(key)=>{if(!key)return null;const stDef=NP_STAGES.find(s=>s.k===key);const d=stDef?npStageState(sel,stDef).done:!!(sel[key]&&sel[key].done);
+    return R('button',{onClick:()=>patchStage(sel.id,key,{done:!d}),title:'진행률에 반영',
+      style:{border:'1px solid '+(d?'#16A34A':'var(--bd)'),background:d?'#16A34A':'#fff',color:d?'#fff':'var(--tm)',borderRadius:8,padding:'5px 13px',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},d?'완료 ✓':'완료');};
+  const section=(num,title,statusEl,body,anchor,stageKey)=>{const sk=stageKey||anchor;return R('div',{id:anchor?('npsec-'+anchor):undefined,className:'card',style:{marginBottom:12,padding:'14px 16px',scrollMarginTop:12}},
     R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:body?12:0}},
-      R('div',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},num+'. '+title),statusEl),
-    body);
+      R('div',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},num+'. '+title),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},statusEl,doneBtn(sk))),
+    body);};
 
   /* ===== 목록 화면 ===== */
   if(!sel){
@@ -2824,15 +2829,19 @@ function PageNewProduct({user}){
   const spec=plan.spec||[];
   const labor=plan.labor||{rows:[],wage:''};
   const lrows=labor.rows||[];
+  const rowAmt=(r)=>((+r.qty>0?+r.qty:(+r.weight||0))*(+r.buyPrice||0));
   const totW=spec.reduce((a,r)=>a+(+r.weight||0),0);
-  const totMat=spec.reduce((a,r)=>a+((+r.weight||0)*(+r.buyPrice||0)),0);
+  const totMat=spec.reduce((a,r)=>a+rowAmt(r),0);
   const totPpl=lrows.reduce((a,r)=>a+(+r.count||0),0);
   const wage=+labor.wage||0;
   const totLabor=totPpl*wage;
   const setSpec=(rows)=>patchStage(sel.id,'plan',{spec:rows});
   const setLabor=(pa)=>patchStage(sel.id,'plan',{labor:{...labor,...pa}});
   const togglePkg=(pk)=>{const arr=plan.packaging||[];patchStage(sel.id,'plan',{packaging:arr.includes(pk)?arr.filter(x=>x!==pk):[...arr,pk]});};
-  const specCols='minmax(110px,1fr) 70px 86px 90px minmax(110px,1fr) 30px';
+  const pkgCustom=plan.pkgCustom||[];
+  const addPkgOpt=(name)=>{name=(name||'').trim();if(!name)return;const cust=(NP_PKG_PRESETS.includes(name)||pkgCustom.includes(name))?pkgCustom:[...pkgCustom,name];const sels=(plan.packaging||[]).includes(name)?(plan.packaging||[]):[...(plan.packaging||[]),name];patchStage(sel.id,'plan',{pkgCustom:cust,packaging:sels});};
+  const delPkgOpt=(name)=>{patchStage(sel.id,'plan',{pkgCustom:pkgCustom.filter(x=>x!==name),packaging:(plan.packaging||[]).filter(x=>x!==name)});};
+  const specCols='minmax(94px,1fr) 56px 56px 78px 84px minmax(88px,1fr) 28px';
   const numField=(label,key,unit,dis)=>R('div',null,R('div',{style:lbl},label),
     R('div',{style:{display:'flex',alignItems:'center',gap:6}},
       R('input',{type:'number',value:plan[key]||'',disabled:dis,onChange:e=>patchStage(sel.id,'plan',{[key]:e.target.value}),style:{...inp,flex:1,width:'100%',background:dis?'#F4F4F4':'#fff',color:dis?'var(--tm)':'var(--t)'}}),
@@ -2841,12 +2850,12 @@ function PageNewProduct({user}){
   const clientOpts=[...new Set(items.map(x=>x&&x.client).filter(Boolean))];
   const setLrows=(rows)=>setLabor({rows});
   const moveDown=(rows,setRows,blank,prefix,i,f)=>(e)=>{if(e.key!=='Enter')return;e.preventDefault();if(i>=rows.length-1)setRows([...rows,blank]);setTimeout(()=>{const el=document.getElementById(prefix+(i+1)+'-'+f);if(el){el.focus();if(el.select)el.select();}},40);};
-  const moq=+plan.moq||0,boxQ=+plan.boxQty||0;
+  const moq=+plan.moq||0,boxQ=+plan.boxQty||0,shipMoq=+plan.shipMoq||0;
   const matCost=totMat;
   const laborPU=moq>0?totLabor/moq:0;
   const fixedPU=moq>0?(+plan.fixedCost||0)/moq:0;
   const boxPU=boxQ>0?(+plan.boxPrice||0)/boxQ:0;
-  const logiPU=moq>0?(+plan.logisticsCost||0)/moq:0;
+  const logiPU=shipMoq>0?(+plan.logisticsCost||0)/shipMoq:0;
   const totalCost=matCost+laborPU+fixedPU+boxPU+logiPU;
   const margin=+plan.margin||0;
   const finalQuote=totalCost+margin;
@@ -2960,36 +2969,39 @@ function PageNewProduct({user}){
         R('div',{style:{marginBottom:16}},
           R('div',{style:lbl},'포장재'),
           R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:6}},
-            ...NP_PKG_PRESETS.concat((plan.packaging||[]).filter(x=>!NP_PKG_PRESETS.includes(x))).map(pk=>{
-              const on=(plan.packaging||[]).includes(pk);
-              return R('button',{key:pk,onClick:()=>togglePkg(pk),style:{border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},(on?'✓ ':'')+pk);
+            ...NP_PKG_PRESETS.concat(pkgCustom.filter(x=>!NP_PKG_PRESETS.includes(x))).map(pk=>{
+              const on=(plan.packaging||[]).includes(pk);const custom=!NP_PKG_PRESETS.includes(pk);
+              return R('span',{key:pk,style:{display:'inline-flex',alignItems:'center'}},
+                R('button',{onClick:()=>togglePkg(pk),style:{border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)',borderRadius:custom?'999px 0 0 999px':999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},(on?'✓ ':'')+pk),
+                custom&&R('button',{onClick:()=>delPkgOpt(pk),title:'삭제',style:{border:'1px solid var(--bd)',borderLeft:'none',background:'#fff',color:'#B91C1C',borderRadius:'0 999px 999px 0',padding:'5px 8px',fontSize:11,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'✕'));
             })
           ),
           R('div',{style:{display:'flex',gap:6}},
-            R('input',{value:pkgInput,onChange:e=>setPkgInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter'&&pkgInput.trim()){togglePkg(pkgInput.trim());setPkgInput('');}},placeholder:'직접 추가',style:{...inp,flex:1,maxWidth:220}}),
-            R('button',{onClick:()=>{if(pkgInput.trim()){togglePkg(pkgInput.trim());setPkgInput('');}},style:{border:'1px solid var(--bd)',background:'#fff',color:'var(--tm)',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'추가')
+            R('input',{value:pkgInput,onChange:e=>setPkgInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter'&&pkgInput.trim()){addPkgOpt(pkgInput);setPkgInput('');}},placeholder:'포장재 직접 추가',style:{...inp,flex:1,maxWidth:220}}),
+            R('button',{onClick:()=>{if(pkgInput.trim()){addPkgOpt(pkgInput);setPkgInput('');}},style:{border:'1px solid var(--bd)',background:'#fff',color:'var(--tm)',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'추가')
           )
         ),
         /* 제품 스펙 */
         R('div',{style:{marginBottom:16}},
           R('div',{style:{...lbl,marginBottom:7}},'제품 스펙'),
-          R('div',{style:{overflowX:'auto'}},R('div',{style:{minWidth:560}},
+          R('div',{style:{overflowX:'auto'}},R('div',{style:{minWidth:620}},
             R('div',{style:{display:'grid',gridTemplateColumns:specCols,gap:8,fontSize:10,fontWeight:700,color:'#94A3B8',padding:'0 2px 5px'}},
-              R('div',null,'구분'),R('div',null,'중량(g)'),R('div',null,'매입단가'),R('div',null,'적용단가'),R('div',null,'비고'),R('div',null,'')),
+              R('div',null,'구분'),R('div',null,'중량(g)'),R('div',null,'수량(ea)'),R('div',null,'매입단가'),R('div',null,'적용단가'),R('div',null,'비고'),R('div',null,'')),
             ...spec.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:specCols,gap:8,alignItems:'center',marginBottom:6}},
-              R('input',{id:'npsp-'+i+'-cat',value:r.cat||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,cat:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',buyPrice:'',note:''},'npsp-',i,'cat'),placeholder:'원재료명',style:inp}),
-              R('input',{id:'npsp-'+i+'-weight',type:'number',value:r.weight||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,weight:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',buyPrice:'',note:''},'npsp-',i,'weight'),style:inp}),
-              R('input',{id:'npsp-'+i+'-buyPrice',type:'number',value:r.buyPrice||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,buyPrice:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',buyPrice:'',note:''},'npsp-',i,'buyPrice'),style:inp}),
-              R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)',textAlign:'right',paddingRight:4}},nf((+r.weight||0)*(+r.buyPrice||0))),
-              R('input',{id:'npsp-'+i+'-note',value:r.note||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,note:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',buyPrice:'',note:''},'npsp-',i,'note'),placeholder:'비고',style:inp}),
+              R('input',{id:'npsp-'+i+'-cat',value:r.cat||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,cat:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'cat'),placeholder:'원재료명',style:inp}),
+              R('input',{id:'npsp-'+i+'-weight',type:'number',value:r.weight||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,weight:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'weight'),placeholder:'g',style:inp}),
+              R('input',{id:'npsp-'+i+'-qty',type:'number',value:r.qty||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,qty:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'qty'),placeholder:'ea',style:inp}),
+              R('input',{id:'npsp-'+i+'-buyPrice',type:'number',value:r.buyPrice||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,buyPrice:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'buyPrice'),style:inp}),
+              R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)',textAlign:'right',paddingRight:4}},nf(rowAmt(r))),
+              R('input',{id:'npsp-'+i+'-note',value:r.note||'',onChange:e=>setSpec(spec.map((x,j)=>j===i?{...x,note:e.target.value}:x)),onKeyDown:moveDown(spec,setSpec,{cat:'',weight:'',qty:'',buyPrice:'',note:''},'npsp-',i,'note'),placeholder:'비고',style:inp}),
               R('button',{onClick:()=>setSpec(spec.filter((_,j)=>j!==i)),style:{border:'none',background:'#FEF2F2',color:'#B91C1C',borderRadius:6,padding:'5px 0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'✕')
             )),
             R('div',{style:{display:'grid',gridTemplateColumns:specCols,gap:8,alignItems:'center',padding:'8px 2px 0',borderTop:'1px solid var(--bd)',marginTop:4,fontWeight:800,fontSize:12}},
-              R('div',null,'합계'),R('div',{style:{color:'var(--t)'}},nf(totW)+'g'),R('div',null,''),R('div',{style:{textAlign:'right',color:'var(--p)',paddingRight:4}},nf(totMat)),R('div',null,''),R('div',null,''))
+              R('div',null,'합계'),R('div',{style:{color:'var(--t)'}},nf(totW)+'g'),R('div',null,''),R('div',null,''),R('div',{style:{textAlign:'right',color:'var(--p)',paddingRight:4}},nf(totMat)),R('div',null,''),R('div',null,''))
           )),
-          R('button',{onClick:()=>setSpec([...spec,{cat:'',weight:'',buyPrice:'',note:''}]),style:{marginTop:8,border:'1px dashed var(--bd)',background:'#FAFAFA',color:'var(--tm)',borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:'inherit'}},'+ 원재료 추가'),
+          R('button',{onClick:()=>setSpec([...spec,{cat:'',weight:'',qty:'',buyPrice:'',note:''}]),style:{marginTop:8,border:'1px dashed var(--bd)',background:'#FAFAFA',color:'var(--tm)',borderRadius:8,padding:'7px 0',fontSize:12,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:'inherit'}},'+ 원재료 추가'),
           R('div',{style:{display:'flex',gap:16,flexWrap:'wrap',marginTop:8,fontSize:12,fontWeight:700}},
-            R('span',null,'총중량 ',R('span',{style:{color:'var(--t)'}},nf(totW)+'g')),
+            R('span',null,'총중량 ',R('span',{style:{color:'var(--t)'}},nf(totW)+'g'),R('span',{style:{color:'#A0A0A0',fontWeight:500,marginLeft:4}},'(중량만 합산)')),
             R('span',null,'총 원재료 값 ',R('span',{style:{color:'var(--p)'}},nf(totMat)+'원')))
         ),
         /* 직접 인건비 */
@@ -3014,8 +3026,9 @@ function PageNewProduct({user}){
         ),
         /* 입력값 (원가·견적은 관리자만) */
         !isAdmin&&R('div',{style:{fontSize:11,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:8,padding:'8px 12px',marginBottom:10}},'🔒 원가·견적 항목은 관리자(기획)만 입력할 수 있습니다. 개발자는 위의 제품 스펙/원재료값을 작성하세요.'),
-        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:10,marginBottom:14}},
-          numField('MOQ','moq','개',lock),
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:10,marginBottom:14}},
+          numField('생산 MOQ','moq','개',lock),
+          numField('출고 MOQ','shipMoq','개',lock),
           numField('고정비','fixedCost','원',lock),
           numField('박스 입수량','boxQty','개',lock),
           numField('박스 매입단가','boxPrice','원',lock),
@@ -3032,10 +3045,10 @@ function PageNewProduct({user}){
           R('div',{style:{background:'#FAFAFA',padding:'8px 14px',fontSize:12,fontWeight:800,color:'var(--t)',borderBottom:'1px solid var(--bd)'}},'💰 원가 산정 (개당)'),
           R('div',{style:{padding:'4px 14px 12px'}},
             costRow('원재료값',matCost),
-            costRow('직접 인건비',laborPU,'총인건비 '+nf(totLabor)+' ÷ MOQ '+nf(moq)),
-            costRow('고정비',fixedPU,nf(+plan.fixedCost||0)+' ÷ MOQ '+nf(moq)),
+            costRow('직접 인건비',laborPU,'총인건비 '+nf(totLabor)+' ÷ 생산MOQ '+nf(moq)),
+            costRow('고정비',fixedPU,nf(+plan.fixedCost||0)+' ÷ 생산MOQ '+nf(moq)),
             costRow('박스',boxPU,'매입 '+nf(+plan.boxPrice||0)+' ÷ 입수량 '+nf(boxQ)),
-            costRow('물류',logiPU,nf(+plan.logisticsCost||0)+' ÷ MOQ '+nf(moq)),
+            costRow('물류',logiPU,nf(+plan.logisticsCost||0)+' ÷ 출고MOQ '+nf(shipMoq)),
             R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderTop:'2px solid var(--bd)',marginTop:2}},
               R('span',{style:{fontSize:13,fontWeight:800}},'총 원가'),R('span',{style:{fontSize:15,fontWeight:800,color:'var(--t)'}},nf(Math.round(totalCost))+'원')),
             R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0'}},
@@ -3043,7 +3056,7 @@ function PageNewProduct({user}){
             R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',background:'var(--pb)',borderRadius:9,margin:'4px 0 8px'}},
               R('span',{style:{fontSize:14,fontWeight:800,color:'var(--p)'}},'최종 견적가 (개당)'),R('span',{style:{fontSize:18,fontWeight:800,color:'var(--p)'}},nf(Math.round(finalQuote))+'원')),
             R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0',borderTop:'1px solid var(--bd)'}},
-              R('span',{style:{fontSize:13,fontWeight:700,color:'#15803D'}},'순이익 (마진×MOQ)'),R('span',{style:{fontSize:14,fontWeight:800,color:'#15803D'}},nf(margin)+' × '+nf(moq)+' = '+nf(Math.round(netProfit))+'원'))
+              R('span',{style:{fontSize:13,fontWeight:700,color:'#15803D'}},'순이익 (마진×생산MOQ)'),R('span',{style:{fontSize:14,fontWeight:800,color:'#15803D'}},nf(margin)+' × '+nf(moq)+' = '+nf(Math.round(netProfit))+'원'))
           )
         )
       ),'plan'
