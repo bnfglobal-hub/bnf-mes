@@ -4026,7 +4026,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     try{
       const parts=aiImg.split(',');const meta=parts[0]||'';const b64=parts[1]||'';
       const mt=(meta.match(/data:(.*?);/)||[])[1]||'image/jpeg';
-      const res=await fetch(SB_URL+'/functions/v1/extract-hq-stock',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify({imageBase64:b64,mediaType:mt,items:names})});
+      const res=await fetch(SB_URL+'/functions/v1/rapid-service',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify({imageBase64:b64,mediaType:mt,items:names})});
       let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류 ('+res.status+'). Edge Function 배포 상태를 확인하세요.');}
       if(!res.ok||j.error)throw new Error(j.error||('서버 오류 '+res.status));
       const txt=String(j.text||'').replace(/```json|```/g,'').trim();
@@ -4042,7 +4042,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       }).filter(Boolean);
       if(!rows.length)setAiErr('일치하는 품목을 찾지 못했습니다. 사진을 다시 확인하세요.');
       setAiRows(rows);
-    }catch(e){let msg=String((e&&e.message)||e);if(msg==='Failed to fetch')msg='서버에 연결하지 못했습니다.\nSupabase Edge Function(extract-hq-stock)을 먼저 배포해야 합니다.';setAiErr(msg);}
+    }catch(e){let msg=String((e&&e.message)||e);if(msg==='Failed to fetch')msg='서버에 연결하지 못했습니다.\nSupabase Edge Function(rapid-service) 코드/배포를 확인하세요.';setAiErr(msg);}
     setAiLoading(false);
   };
   const applyAi=()=>{
