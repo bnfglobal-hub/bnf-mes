@@ -5618,7 +5618,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
         R('div',{style:{fontSize:11,fontWeight:700,color:'#64748b'}},'같은 원재료를 합산한 실제 필요량'),
         R('button',{onClick:()=>setShowAllCombined(v=>!v),style:{background:'none',border:'none',cursor:'pointer',fontSize:10,color:'var(--p)',fontWeight:700,fontFamily:'inherit'}},showAllCombined?'▲ 부족만':'▼ 전체 보기('+combined.rows.length+'종)')
       ),
-      R('table',{style:{width:'100%',fontSize:11,borderCollapse:'collapse'}},
+      R('div',{style:{overflowX:'auto'}},R('table',{style:{width:'auto',fontSize:11,borderCollapse:'collapse'}},
         R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
           R('th',{style:{padding:'5px 12px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'원재료'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:80}},'총 필요'),
@@ -5639,7 +5639,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
           )),
           combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:4,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
-      )
+      ))
     ),
     /* ── 폴더 바 ── */
     prods.length>0&&R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:10,padding:'8px 4px'}},
@@ -5710,7 +5710,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('div',null,hasShort?'⚠ 부족 원재료 '+shortItems.length+'건':'✓ 원재료 모두 충분 ('+okItems.length+'건)'),
             (shortItems.length>0||okItems.length>0)&&R('button',{onClick:()=>setShowAllFor(prev=>({...prev,[p.id]:!showAll})),style:{background:'none',border:'none',cursor:'pointer',fontSize:10,color:'var(--p)',fontWeight:700,fontFamily:'inherit'}},showAll?'▲ 부족만':'▼ 전체 보기('+needs.filter(n=>n.mat).length+')')
           ),
-          R('table',{style:{width:'100%',fontSize:11,borderCollapse:'collapse'}},
+          R('div',{style:{overflowX:'auto'}},R('table',{style:{width:'auto',fontSize:11,borderCollapse:'collapse'}},
             R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
               R('th',{style:{padding:'4px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'품목'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'필요'),
@@ -5734,7 +5734,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               )):null,
               shortItems.length===0&&!showAll&&R('tr',null,R('td',{colSpan:4,style:{padding:'10px',textAlign:'center',color:'#059669',fontSize:11,fontWeight:600}},'✓ 모든 원재료가 충분합니다'))
             )
-          )
+          ))
         ),
         confirmData&&confirmData.prod.id===p.id&&R(ProdConfirmModal,{
           data:confirmData,mats,
