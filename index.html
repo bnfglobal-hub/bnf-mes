@@ -9012,8 +9012,8 @@ function PageShipSort({mats,hqItems}){
       R('input',{ref:fileRef,type:'file',accept:'.pdf',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}})
     ),
     /* 결과 */
-    parsed&&R('div',{ref:captureRef,style:{background:'#fff'}},
-      shipDate&&R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',marginBottom:12}},shipDate+' 출고 예정 상품'),
+    parsed&&R('div',{ref:captureRef,style:{background:'#fff',display:'inline-block',padding:10,boxSizing:'border-box'}},
+      shipDate&&R('div',{style:{textAlign:'left',fontSize:15,fontWeight:800,color:'var(--p)',marginBottom:12}},shipDate+' 출고 예정 상품'),
       ...Object.entries(parsed.byCenter).map(([center,d])=>{
         const pallet=d.totalBox/30;
         /* 센터별 색상 (헤더 배경/합계 배경) */
