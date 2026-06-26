@@ -8857,7 +8857,7 @@ function PageShipSort({mats,hqItems}){
       'MK0000131921':'[엄마밥상] 맑은곰탕'
     };
     const items=[];
-    const re=/(M[K]?\d{8,})\s+(8\d{12})(.*?)(\d[\d,]*)\s*\(소\)\s*(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)\s+\d+g/g;
+    const re=/(M[K]?\d{8,})\s+(8\d{12})(.*?)(\d[\d,]*)\s*\((?:소|유)\)\s*(\d{4}-\d{2}-\d{2})\s+(\d+)\s+(\d+)\s+\d+g/g;
     let m;
     while((m=re.exec(text))!==null){
       const mcode=m[1];
@@ -8969,7 +8969,7 @@ function PageShipSort({mats,hqItems}){
     if(!parsed)return;
     const rows=[[ (shipDate||'') +' 출고 예정 상품','','','','']];
     rows.push(['출고센터','제품명','박스수량','제품수량','소비기한']);
-    Object.entries(parsed.byCenter).forEach(([center,d])=>{
+    Object.entries(parsed.byCenter).sort((a,b)=>a[0].localeCompare(b[0],'ko')).forEach(([center,d])=>{
       const its=Object.entries(d.items);
       its.forEach(([name,v],i)=>rows.push([i===0?center:'',name,v.box,v.total,v.exp]));
       rows.push(['','합계',d.totalBox,'','']);
@@ -9014,7 +9014,7 @@ function PageShipSort({mats,hqItems}){
     /* 결과 */
     parsed&&R('div',{ref:captureRef,style:{background:'#fff',display:'inline-block',padding:10,boxSizing:'border-box'}},
       shipDate&&R('div',{style:{textAlign:'left',fontSize:15,fontWeight:800,color:'var(--p)',marginBottom:12}},shipDate+' 출고 예정 상품'),
-      ...Object.entries(parsed.byCenter).map(([center,d])=>{
+      ...Object.entries(parsed.byCenter).sort((a,b)=>a[0].localeCompare(b[0],'ko')).map(([center,d])=>{
         const pallet=d.totalBox/30;
         /* 센터별 색상 (헤더 배경/합계 배경) */
         const colorMap={
