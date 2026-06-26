@@ -8841,8 +8841,9 @@ function PageShipSort({mats,hqItems}){
     text=text.replace(/\x00/g,' ').replace(/\n/g,' ');
     /* 센터 */
     let center='기타';
-    const cm=text.match(/(김포냉동|평택냉동|창원냉동)/);
-    if(cm)center=normCenter(cm[1]);
+    if(/켄달/.test(text)) center='김포(켄달)';
+    else if(/삼우/.test(text)) center='김포(삼우)';
+    else { const cm=text.match(/(김포냉동|김포|평택냉동|평택|창원냉동|창원)/); if(cm)center=normCenter(cm[1]); }
     /* 입고일 */
     let date='';
     const dm=text.match(/입고[일차()]*[:\s]*(\d{4}-\d{2}-\d{2})/)||text.match(/(\d{4}-\d{2}-\d{2})/);
@@ -9018,6 +9019,7 @@ function PageShipSort({mats,hqItems}){
         /* 센터별 색상 (헤더 배경/합계 배경) */
         const colorMap={
           '김포(삼우)':{hdr:'#16A34A',hdrD:'#15803D',sum:'#F0FDF4',sumT:'#16A34A'},
+          '김포(켄달)':{hdr:'#9333EA',hdrD:'#7E22CE',sum:'#FAF5FF',sumT:'#9333EA'},
           '평택컬리':{hdr:'#2563EB',hdrD:'#1D4ED8',sum:'#EFF6FF',sumT:'#2563EB'},
           '창원물류대행':{hdr:'#D94F1E',hdrD:'#B83E15',sum:'#FFF8F4',sumT:'#D94F1E'}
         };
