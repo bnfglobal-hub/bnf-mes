@@ -5485,6 +5485,8 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   const[confirmData,setConfirmData]=useState(null);
   const[showAllFor,setShowAllFor]=useState({}); /* {prodId: true} - 충분한 원재료도 모두 보기 */
   const[showAllCombined,setShowAllCombined]=useState(false);
+  const[orderedMats,setOrderedMats]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem('bnf_ordered_mats_v1')||'[]'));}catch(e){return new Set();}});
+  const toggleOrdered=(code)=>{setOrderedMats(prev=>{const n=new Set(prev);n.has(code)?n.delete(code):n.add(code);localStorage.setItem('bnf_ordered_mats_v1',JSON.stringify([...n]));return n;});};
   /* ── 제품 폴더 (생산계획 정리용) ── */
   const[prodFolders,setProdFolders]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_folders')||'null')||[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}catch(e){return[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}});
   const[prodItemFolder,setProdItemFolder]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_item_folder')||'{}');}catch(e){return{};}});
@@ -5620,24 +5622,28 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       ),
       R('table',{style:{width:'100%',fontSize:11,borderCollapse:'collapse'}},
         R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
+          R('th',{style:{padding:'5px 6px 5px 12px',textAlign:'center',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:38}},'발주'),
           R('th',{style:{padding:'5px 12px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'원재료'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:80}},'총 필요'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'재고'),
           R('th',{style:{padding:'5px 12px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:90}},'부족')
         )),
         R('tbody',null,
-          ...combined.rows.filter(r=>showAllCombined||r.short>0).map(r=>R('tr',{key:r.code,style:{background:r.short>0?'#FFF7F4':'#fff'}},
-            R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',fontWeight:r.short>0?700:500,color:r.short>0?'#991B1B':'#374151',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:220}},
+          ...combined.rows.filter(r=>showAllCombined||r.short>0).map(r=>{const ordered=orderedMats.has(r.code);return R('tr',{key:r.code,style:{background:ordered?'#F0FDF4':(r.short>0?'#FFF7F4':'#fff')}},
+            R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'center'}},
+              R('input',{type:'checkbox',checked:ordered,onChange:()=>toggleOrdered(r.code),title:ordered?'발주 완료':'발주 체크',style:{width:16,height:16,cursor:'pointer',accentColor:'#16A34A'}})),
+            R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',fontWeight:r.short>0?700:500,color:ordered?'#9CA3AF':(r.short>0?'#991B1B':'#374151'),textDecoration:ordered?'line-through':'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:220}},
               r.name,
-              r.prods.length>1&&R('span',{style:{fontSize:9,color:'#94a3b8',fontWeight:500,marginLeft:5}},'('+r.prods.length+'개 제품 공용)')
+              ordered&&R('span',{style:{fontSize:9,color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료'),
+              !ordered&&r.prods.length>1&&R('span',{style:{fontSize:9,color:'#94a3b8',fontWeight:500,marginLeft:5}},'('+r.prods.length+'개 제품 공용)')
             ),
-            R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:700,color:'#374151'}},r.needed.toFixed(2),' ',r.unit),
+            R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:700,color:ordered?'#9CA3AF':'#374151'}},r.needed.toFixed(2),' ',r.unit),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#64748B'}},(+r.stock).toFixed(2),' ',r.unit),
             r.short>0
-              ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:800,color:'#DC2626'}},'-',r.short.toFixed(2),' ',r.unit)
+              ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:800,color:ordered?'#9CA3AF':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
               :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:10}},'✓ 충분')
-          )),
-          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:4,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
+          );}),
+          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:5,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
       )
     ),
