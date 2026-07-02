@@ -90,13 +90,13 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .tab.act{background:#fff;color:var(--p);box-shadow:0 1px 4px rgba(0,0,0,.1)}
 .empty{text-align:center;padding:36px 20px;color:var(--tm)}
 .empty-ic{font-size:36px;margin-bottom:8px}
-.inv-wrap{display:flex;height:100%;overflow:hidden}
-.cat-col{width:130px;flex-shrink:0;border-right:1px solid var(--bd);overflow-y:auto;background:#fff;padding:8px 0;position:sticky;top:0;align-self:flex-start;max-height:100%}
+.inv-wrap{display:flex;align-items:flex-start}
+.cat-col{width:130px;flex-shrink:0;border-right:1px solid var(--bd);overflow-y:auto;background:#fff;padding:8px 0;position:sticky;top:0;align-self:flex-start;max-height:calc(100dvh - 120px)}
 .cb{display:block;width:100%;text-align:left;border:none;background:none;padding:9px 12px;cursor:pointer;font-size:12px;color:var(--tm);font-family:inherit;border-left:3px solid transparent;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:all .1s;font-weight:500}
 .cb.act{background:#fff5f0;color:var(--p);font-weight:700;border-left-color:var(--p)}
 .cb.dng{color:var(--err);font-weight:700}.cb.dng.act{background:#fef2f2;border-left-color:var(--err)}
 .cb:hover:not(.act){background:#f8f3f0;color:var(--t)}
-.inv-main{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;padding:10px;min-width:0;min-height:0}
+.inv-main{flex:1;display:flex;flex-direction:column;padding:10px;min-width:0}
 .inv-tbl{overflow:visible;background:#fff;border:1px solid var(--bd);border-radius:10px;min-height:400px;margin-bottom:60px}
 .q-wrap{background:#fff;border-radius:12px;padding:20px;max-width:860px;margin:0 auto}
 .q-title{text-align:center;font-size:22px;font-weight:800;letter-spacing:7px;margin-bottom:16px}
@@ -4416,6 +4416,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const[dragOverFavFolder,setDragOverFavFolder]=useState(null);
 
   const saveFavFolders=(next)=>{
+    markLocalEdit();
     setFavFolders(next);
     localStorage.setItem('bnf_fav_folders',JSON.stringify(next));
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
@@ -4425,6 +4426,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       }).catch(()=>{});
   };
   const saveFavItemFolder=(next)=>{
+    markLocalEdit();
     setFavItemFolder(next);
     localStorage.setItem('bnf_fav_item_folder',JSON.stringify(next));
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
@@ -4500,6 +4502,8 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const[semiPickerFor,setSemiPickerFor]=useState(null); /* 어느 완제품을 위한 picker인지 */
   const[semiPickerSearch,setSemiPickerSearch]=useState('');
   const[lastSyncAt,setLastSyncAt]=useState(0);
+  const localEditRef=useRef(0); /* 별표/반제품 등 로컬 수정 직후엔 서버 동기화가 덮어쓰지 않도록 */
+  const markLocalEdit=()=>{localEditRef.current=Date.now();};
   const semiPickerInputRef=useRef(null);
   /* Supabase에서 favorites 복원 (다른 기기에서 설정한 값) */
   /* Supabase에서 favorites/semiItems/prodSemiMap 동기화 - Supabase가 source of truth */
@@ -4507,6 +4511,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
       .then(({data})=>{
         setLastSyncAt(Date.now());
+        if(Date.now()-localEditRef.current<8000)return; /* 방금 이 기기에서 수정함 → 서버 반영 끝날 때까지 덮어쓰기 보류 */
         if(!data||!data.state_data)return;
         const sd=data.state_data;
         /* 서버에 즐겨찾기/반제품/폴더가 하나도 없는데 이 기기 localStorage엔 있으면 → 자동 업로드 (유실 방지) */
@@ -4621,6 +4626,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   },[mats,catF,search,sortBy]);
   /* ── 즐겨찾기/반제품 관리 (모든 탭 공통) ── */
   const toggleFav=(id)=>{
+    markLocalEdit();
     setFavorites(prev=>{
       const next=prev.includes(id)?prev.filter(x=>x!==id):[...prev,id];
       localStorage.setItem('bnf_fav_mats',JSON.stringify(next));
@@ -4636,6 +4642,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     });
   };
   const addSemi=(mat)=>{
+    markLocalEdit();
     setSemiItems(prev=>{
       if(prev.find(x=>x.id===mat.id))return prev;
       const next=[...prev,{id:mat.id,n:mat.n,u:mat.u}];
@@ -4652,11 +4659,21 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     /* 검색어/검색창 모두 유지 - 같은 결과 목록에서 연속 클릭 가능 (이미 추가된 항목은 필터에서 자동 제외됨) */
   };
   const removeSemi=(id)=>{
-    setSemiItems(prev=>{const next=prev.filter(x=>x.id!==id);localStorage.setItem('bnf_semi_items',JSON.stringify(next));return next;});
+    markLocalEdit();
+    setSemiItems(prev=>{const next=prev.filter(x=>x.id!==id);localStorage.setItem('bnf_semi_items',JSON.stringify(next));
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+        .then(({data})=>{
+          if(data&&data.state_data){
+            const sd={...data.state_data,bnf_semi_items:next,bnf_favorites:JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]')};
+            sbClient.from('app_state').upsert({id:1,state_data:sd,updated_at:new Date().toISOString()});
+          }
+        }).catch(()=>{});
+      return next;});
   };
 
   /* 완제품 ↔ 반제품 매핑 관리 */
   const saveProdSemiMap=(map)=>{
+    markLocalEdit();
     localStorage.setItem('bnf_prod_semi_map',JSON.stringify(map));
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
       .then(({data})=>{
@@ -4916,7 +4933,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                   onDrop:e=>onFavFolderDrop(e,f.id),
                   style:{borderBottom:'1px solid var(--bd)',background:isDragOver?'#F5F3FF':'transparent'}
                 },
-                  R('div',{style:{padding:'6px 12px',background:f.color+'15',borderBottom:'1px solid '+f.color+'33',display:'flex',alignItems:'center',gap:6,position:'sticky',top:0,zIndex:1}},
+                  R('div',{style:{padding:'6px 12px',background:'linear-gradient(0deg,'+f.color+'15,'+f.color+'15),#fff',borderBottom:'1px solid '+f.color+'33',display:'flex',alignItems:'center',gap:6,position:'sticky',top:0,zIndex:2}},
                     R('span',{style:{width:8,height:8,borderRadius:'50%',background:f.color,display:'inline-block'}}),
                     R('span',{style:{fontSize:11,fontWeight:700,color:f.color}},f.name),
                     R('span',{style:{fontSize:9,color:'var(--tm)'}},'('+items.length+'개)')
