@@ -4608,50 +4608,72 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     const maxB=Math.max(1,...MM.flatMap(m=>[gv(y,m,'sales')||0,gv(y-1,m,'sales')||0]));
     const target=+(salesTarget[String(y)]||0);
     const achieve=target>0?Math.min(100,ytd/target*100):null;
-    const badge=(txt,good)=>R('span',{style:{fontSize:9.5,fontWeight:800,padding:'1px 7px',borderRadius:20,background:'rgba(255,255,255,.15)',color:good?'#86EFAC':'#FCA5A5',whiteSpace:'nowrap'}},txt);
+    /* 이번달 매입/이익 */
+    const pu=li>=0?gv(y,MM[li],'purchase'):null;
+    const profit=(s!==null&&pu!==null)?s-pu:null;
+    const hasData=s!==null;
+    const chip=(label,val,color)=>R('div',{style:{flex:1,minWidth:0,background:'rgba(255,255,255,.12)',borderRadius:11,padding:'8px 9px',textAlign:'center'}},
+      R('div',{style:{fontSize:9.5,opacity:.75,fontWeight:600,whiteSpace:'nowrap'}},label),
+      R('div',{style:{fontSize:14,fontWeight:800,marginTop:2,color:color||'#fff',whiteSpace:'nowrap'}},val)
+    );
     return R('div',{onClick:()=>!editMode&&onGoPage('salesStat'),
-      style:{background:'linear-gradient(135deg,#1E3A8A,#2563EB)',borderRadius:16,padding:'12px 14px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 6px 18px rgba(37,99,235,.22)'}},
-      /* 1행: 제목 + 목표 설정 */
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}},
-        R('div',{style:{fontSize:10.5,fontWeight:700,opacity:.8,whiteSpace:'nowrap'}},'💵 매출',li>=0?(' · '+(li+1)+'월 기준'):''),
+      style:{background:'linear-gradient(135deg,#1E3A8A,#2563EB)',borderRadius:18,padding:'14px 16px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 8px 22px rgba(37,99,235,.25)'}},
+      /* 제목 + 목표 */
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:10}},
+        R('div',{style:{fontSize:12,fontWeight:800,letterSpacing:-.2}},'💵 매출 현황',
+          R('span',{style:{fontWeight:600,opacity:.7,marginLeft:5}},li>=0?(y+'년 '+(li+1)+'월'):'데이터 없음')),
         R('button',{onClick:e=>{e.stopPropagation();saveSalesTarget(y);},
-          style:{background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.25)',color:'#fff',borderRadius:20,padding:'2px 9px',fontSize:9.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
-          target>0?('🎯 목표 '+nfW(target)):'🎯 목표 설정')
+          style:{background:'rgba(255,255,255,.16)',border:'1px solid rgba(255,255,255,.28)',color:'#fff',borderRadius:20,padding:'4px 11px',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',flexShrink:0}},
+          target>0?('🎯 '+nfW(target)):'🎯 목표 설정')
       ),
-      /* 2행: 금액+배지 | 전년비교 차트 */
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:10,marginTop:6}},
-        R('div',{style:{minWidth:0}},
-          R('div',{style:{fontSize:21,fontWeight:900,letterSpacing:-.5,lineHeight:1.1}},s===null?'-':(nfW(s)+'원')),
-          R('div',{style:{display:'flex',gap:4,marginTop:5,flexWrap:'wrap'}},
-            diff!==null&&badge((diff>=0?'▲':'▼')+Math.abs(diff).toFixed(1)+'% 전월',diff>=0),
-            yoy!==null?badge((yoy>=0?'▲':'▼')+Math.abs(yoy).toFixed(1)+'% 작년동월',yoy>=0):R('span',{style:{fontSize:9,opacity:.55}},'작년 데이터 없음')
-          ),
-          R('div',{style:{fontSize:9.5,opacity:.75,marginTop:4}},y+'년 누계 ',R('b',null,nfW(ytd)),'원')
-        ),
-        /* 전년비교 미니 그래프: 회색=작년, 흰색=올해 */
-        R('div',{style:{flexShrink:0}},
-          R('div',{style:{display:'flex',alignItems:'flex-end',gap:2,height:40}},
-            ...MM.map((m,i)=>{
-              const c=gv(y,m,'sales'),l=gv(y-1,m,'sales');
-              return R('div',{key:m,title:(i+1)+'월 · 올해 '+(c===null?'-':nfW(c))+' / 작년 '+(l===null?'-':nfW(l)),style:{display:'flex',alignItems:'flex-end',gap:1}},
-                R('div',{style:{width:3.5,borderRadius:1.5,height:Math.max(l?3:1,Math.round((l||0)/maxB*38)),background:'rgba(255,255,255,.3)'}}),
-                R('div',{style:{width:3.5,borderRadius:1.5,height:Math.max(c?3:1,Math.round((c||0)/maxB*38)),background:i===li?'#FBBF24':'#fff'}})
-              );
-            })
-          ),
-          R('div',{style:{fontSize:8,opacity:.6,textAlign:'right',marginTop:2}},'▦ 작년 · ▮ 올해')
-        )
+      /* 큰 숫자 + 증감 */
+      R('div',{style:{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap',marginBottom:10}},
+        R('div',{style:{fontSize:30,fontWeight:900,letterSpacing:-1,lineHeight:1}},hasData?(nfW(s)+'원'):'-'),
+        diff!==null&&R('div',{style:{fontSize:13,fontWeight:800,color:diff>=0?'#86EFAC':'#FCA5A5'}},
+          (diff>=0?'▲ ':'▼ ')+Math.abs(diff).toFixed(1)+'%',
+          R('span',{style:{fontSize:10,fontWeight:600,opacity:.75,marginLeft:3}},'전월'))
       ),
-      /* 3행: 목표 달성률 게이지 */
-      target>0&&R('div',{style:{marginTop:9}},
-        R('div',{style:{display:'flex',justifyContent:'space-between',fontSize:9.5,fontWeight:700,marginBottom:3}},
-          R('span',{style:{opacity:.8}},'목표 달성률'),
-          R('span',{style:{color:'#FBBF24'}},achieve.toFixed(1)+'%')
+      /* 3칸 요약 */
+      R('div',{style:{display:'flex',gap:7,marginBottom:target>0?10:12}},
+        chip('작년 같은달', yoy!==null?((yoy>=0?'+':'')+yoy.toFixed(0)+'%'):'—', yoy===null?'rgba(255,255,255,.5)':(yoy>=0?'#86EFAC':'#FCA5A5')),
+        chip(y+'년 누계', ytd>0?nfW(ytd):'—'),
+        chip('이번달 이익', profit!==null?nfW(profit):'—', profit!==null?(profit>=0?'#86EFAC':'#FCA5A5'):'rgba(255,255,255,.5)')
+      ),
+      /* 목표 달성률 */
+      target>0&&R('div',{style:{marginBottom:12}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',fontSize:10,fontWeight:700,marginBottom:4}},
+          R('span',{style:{opacity:.85}},'목표 달성률'),
+          R('span',{style:{color:'#FBBF24',fontSize:12,fontWeight:800}},achieve.toFixed(1)+'%')
         ),
-        R('div',{style:{height:7,background:'rgba(255,255,255,.18)',borderRadius:99,overflow:'hidden'}},
+        R('div',{style:{height:9,background:'rgba(255,255,255,.18)',borderRadius:99,overflow:'hidden'}},
           R('div',{style:{height:'100%',width:achieve+'%',background:'linear-gradient(90deg,#FBBF24,#F59E0B)',borderRadius:99,transition:'width .4s ease'}})
         )
-      )
+      ),
+      /* 월별 차트 - 가로 전체 사용, 크게 */
+      R('div',{style:{borderTop:'1px solid rgba(255,255,255,.18)',paddingTop:10}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+          R('span',{style:{fontSize:10,fontWeight:700,opacity:.8}},'월별 추이'),
+          R('span',{style:{fontSize:9.5,opacity:.7,display:'flex',gap:9}},
+            R('span',null,R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:2,background:'rgba(255,255,255,.35)',marginRight:3}}),(y-1)+'년'),
+            R('span',null,R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:2,background:'#fff',marginRight:3}}),y+'년')
+          )
+        ),
+        R('div',{style:{display:'flex',alignItems:'flex-end',gap:3,height:62}},
+          ...MM.map((m,i)=>{
+            const c=gv(y,m,'sales'),l=gv(y-1,m,'sales');
+            const cur=i===li;
+            return R('div',{key:m,title:(i+1)+'월 · '+y+'년 '+(c===null?'-':nfW(c))+' / '+(y-1)+'년 '+(l===null?'-':nfW(l)),
+              style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,minWidth:0}},
+              R('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'center',gap:1.5,height:46,width:'100%'}},
+                R('div',{style:{flex:1,maxWidth:9,borderRadius:'2px 2px 0 0',height:Math.max(l?3:2,Math.round((l||0)/maxB*46)),background:'rgba(255,255,255,.35)'}}),
+                R('div',{style:{flex:1,maxWidth:9,borderRadius:'2px 2px 0 0',height:Math.max(c?3:2,Math.round((c||0)/maxB*46)),background:cur?'#FBBF24':'#fff'}})
+              ),
+              R('div',{style:{fontSize:8.5,opacity:cur?1:.55,fontWeight:cur?800:500}},i+1)
+            );
+          })
+        )
+      ),
+      R('div',{style:{fontSize:9.5,opacity:.55,marginTop:8,textAlign:'right'}},'눌러서 상세 보기 →')
     );
   };
 
