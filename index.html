@@ -3609,25 +3609,6 @@ function OngoingWork({user,onGoPage}){
   };
 
   return R('div',{style:{marginBottom:14}},
-    /* ── 일일 업무 체크리스트 (최상단) ── */
-    R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:12}},
-      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
-        R('span',{style:{fontSize:15,fontWeight:800,color:'var(--t)'}},'📋 일일 업무'),
-        daily.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'var(--pb)',padding:'2px 9px',borderRadius:999}},daily.filter(d=>d.done).length+'/'+daily.length)
-      ),
-      R('div',{style:{display:'flex',gap:6,marginBottom:daily.length?12:0}},
-        R('input',{value:dailyInput,onChange:e=>setDailyInput(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addDaily();},placeholder:'오늘 할 일을 입력하고 Enter',
-          style:{flex:1,minWidth:0,boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:9,padding:'9px 12px',fontSize:13,fontFamily:'inherit'}}),
-        R('button',{onClick:addDaily,style:{flexShrink:0,border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'9px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'추가')
-      ),
-      ...daily.map(d=>R('div',{key:d.id,style:{display:'flex',alignItems:'center',gap:10,padding:'7px 4px',borderBottom:'1px solid #F4F1F7'}},
-        R('button',{onClick:()=>saveDaily(daily.map(x=>x.id===d.id?{...x,done:!x.done}:x)),title:'체크',
-          style:{flexShrink:0,width:22,height:22,borderRadius:6,border:'2px solid '+(d.done?'#16A34A':'var(--bd)'),background:d.done?'#16A34A':'#fff',color:'#fff',cursor:'pointer',fontSize:13,fontWeight:800,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}},d.done?'✓':''),
-        R('input',{value:d.text,onChange:e=>saveDaily(daily.map(x=>x.id===d.id?{...x,text:e.target.value}:x)),
-          style:{flex:1,minWidth:0,border:'none',background:'transparent',fontSize:13,fontFamily:'inherit',color:d.done?'var(--tm)':'var(--t)',textDecoration:d.done?'line-through':'none',padding:'2px 0'}}),
-        R('button',{onClick:()=>saveDaily(daily.filter(x=>x.id!==d.id)),style:{flexShrink:0,border:'none',background:'none',color:'#C4C9D0',cursor:'pointer',fontSize:14,fontFamily:'inherit'}},'✕')
-      ))
-    ),
     /* ── 카테고리 필터 탭 ── */
     R('div',{className:'tab-row',style:{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap',alignItems:'center'}},
       ...[{v:'all',l:'전체'}].concat(CATS).map(c=>{
@@ -3884,19 +3865,29 @@ function PageTrade({kind}){
 
   const[meta,setMeta]=useState(null); /* 공장 현황 요약용 */
 
+  /* 항상 최신 데이터: 1분마다 + 화면 복귀 시 자동 갱신 */
   useEffect(()=>{
-    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:d})=>{
-      const sd=d&&d.state_data?d.state_data:{};
-      if(sd.profit_analysis&&typeof sd.profit_analysis==='object')setData(sd.profit_analysis);
-      const ms=Array.isArray(sd.mats)?sd.mats:[];
-      setMeta({
-        matCount:ms.length,
-        shortCnt:ms.filter(m=>(+m.mu||0)>0&&m.s<+m.mu).length,
-        prodCount:Array.isArray(sd.prods)?sd.prods.length:0,
-        ecountAt:sd.ecount_sync&&sd.ecount_sync.at?sd.ecount_sync.at:null
-      });
-      setLoaded(true);
-    }).catch(()=>setLoaded(true));
+    let alive=true;
+    const load=()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:d})=>{
+        if(!alive)return;
+        const sd=d&&d.state_data?d.state_data:{};
+        if(sd.profit_analysis&&typeof sd.profit_analysis==='object')setData(sd.profit_analysis);
+        const ms=Array.isArray(sd.mats)?sd.mats:[];
+        setMeta({
+          matCount:ms.length,
+          shortCnt:ms.filter(m=>(+m.mu||0)>0&&m.s<+m.mu).length,
+          prodCount:Array.isArray(sd.prods)?sd.prods.length:0,
+          ecountAt:sd.ecount_sync&&sd.ecount_sync.at?sd.ecount_sync.at:null
+        });
+        setLoaded(true);
+      }).catch(()=>setLoaded(true));
+    };
+    load();
+    const t=setInterval(load,60000);
+    const onVis=()=>{if(!document.hidden)load();};
+    document.addEventListener('visibilitychange',onVis);
+    return()=>{alive=false;clearInterval(t);document.removeEventListener('visibilitychange',onVis);};
   },[]);
 
   /* 이카운트 표 붙여넣기 → profit_analysis 저장 (영업 이익 분석과 동일 데이터) */
@@ -4162,14 +4153,38 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   });
   const[hiddenSecs,setHiddenSecs]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_home_hidden')||'[]');}catch(e){return[];}});
   const toggleHide=(id)=>{setHiddenSecs(p=>{const n=p.includes(id)?p.filter(x=>x!==id):[...p,id];try{localStorage.setItem('bnf_home_hidden',JSON.stringify(n));}catch(e){}return n;});};
-  /* 매출 스냅샷 (관리자 전용) */
+  /* 매출 스냅샷 (관리자 전용) - 1분마다 + 화면 복귀 시 자동 갱신 */
   const isBoss=['superadmin','admin'].includes((user&&user.role)||'');
   const[profitSnap,setProfitSnap]=useState(null);
+  const[salesTarget,setSalesTarget]=useState({});
   useEffect(()=>{
     if(!isBoss)return;
-    sbClient.from('app_state').select('pa:state_data->profit_analysis').eq('id',1).maybeSingle()
-      .then(({data})=>{if(data&&data.pa)setProfitSnap(data.pa);}).catch(()=>{});
+    let alive=true;
+    const load=()=>{
+      try{
+        sbClient.from('app_state').select('pa:state_data->profit_analysis,st:state_data->sales_target').eq('id',1).maybeSingle()
+          .then(({data})=>{if(alive&&data){if(data.pa)setProfitSnap(data.pa);if(data.st)setSalesTarget(data.st);}}).catch(()=>{});
+      }catch(e){}
+    };
+    load();
+    const t=setInterval(load,60000);
+    const onVis=()=>{if(!document.hidden)load();};
+    document.addEventListener('visibilitychange',onVis);
+    return()=>{alive=false;clearInterval(t);document.removeEventListener('visibilitychange',onVis);};
   },[]);
+  const saveSalesTarget=(y)=>{
+    const cur=salesTarget[String(y)]||'';
+    const inp=prompt(y+'년 목표 매출액을 입력하세요 (원 단위, 숫자만)\n예: 3000000000 (30억)',cur?String(cur):'');
+    if(inp===null)return;
+    const clean=String(inp).replace(/[,\s원]/g,'');
+    const num=Math.round((clean.includes('억')?(parseFloat(clean)*100000000):parseFloat(clean))||0);
+    const next={...salesTarget,[String(y)]:num};
+    setSalesTarget(next);
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur2})=>{
+      const ex=cur2&&cur2.state_data?cur2.state_data:{};
+      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,sales_target:next},updated_at:new Date().toISOString()});
+    }).catch(()=>{});
+  };
   const[dragged,setDragged]=useState(null);
   const chartRef=useRef();
 
@@ -4526,7 +4541,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     )
   );
 
-  /* ── 매출 스냅샷 (홈 최상단, 관리자 전용) ── */
+  /* ── 매출 스냅샷 (홈 최상단, 관리자 전용) - 컴팩트: 전년비교 그래프 + 목표 달성률 ── */
   const buildSales=()=>{
     const MM=['01','02','03','04','05','06','07','08','09','10','11','12'];
     const nfW=(n)=>{const a=Math.abs(n);return a>=100000000?((n/100000000).toFixed(1)+'억'):a>=10000000?((n/10000000).toFixed(1)+'천만'):Math.round(n).toLocaleString();};
@@ -4535,28 +4550,58 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     const gv=(yy,mm,f)=>{const r=(pa[String(yy)]||{})[mm];return r&&r[f]!==undefined&&r[f]!==''?(+r[f]||0):null;};
     let li=-1;for(let i=11;i>=0;i--){if(gv(y,MM[i],'sales')!==null){li=i;break;}}
     const s=li>=0?gv(y,MM[li],'sales'):null;
-    const p=li>=0?gv(y,MM[li],'purchase'):null;
     const prev=li>0?gv(y,MM[li-1],'sales'):(li===0?gv(y-1,'12','sales'):null);
+    const lastY=li>=0?gv(y-1,MM[li],'sales'):null;
     const diff=(s!==null&&prev!==null&&prev>0)?(s-prev)/prev*100:null;
+    const yoy=(s!==null&&lastY!==null&&lastY>0)?(s-lastY)/lastY*100:null;
     let ytd=0;for(let i=0;i<12;i++){const v=gv(y,MM[i],'sales');if(v!==null)ytd+=v;}
-    const maxB=Math.max(1,...MM.map(m=>gv(y,m,'sales')||0));
+    const maxB=Math.max(1,...MM.flatMap(m=>[gv(y,m,'sales')||0,gv(y-1,m,'sales')||0]));
+    const target=+(salesTarget[String(y)]||0);
+    const achieve=target>0?Math.min(100,ytd/target*100):null;
+    const badge=(txt,good)=>R('span',{style:{fontSize:9.5,fontWeight:800,padding:'1px 7px',borderRadius:20,background:'rgba(255,255,255,.15)',color:good?'#86EFAC':'#FCA5A5',whiteSpace:'nowrap'}},txt);
     return R('div',{onClick:()=>!editMode&&onGoPage('salesStat'),
-      style:{background:'linear-gradient(135deg,#1E3A8A,#2563EB)',borderRadius:18,padding:'16px 18px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 8px 24px rgba(37,99,235,.25)'}},
-      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,flexWrap:'wrap'}},
+      style:{background:'linear-gradient(135deg,#1E3A8A,#2563EB)',borderRadius:16,padding:'12px 14px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 6px 18px rgba(37,99,235,.22)'}},
+      /* 1행: 제목 + 목표 설정 */
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}},
+        R('div',{style:{fontSize:10.5,fontWeight:700,opacity:.8,whiteSpace:'nowrap'}},'💵 매출',li>=0?(' · '+(li+1)+'월 기준'):''),
+        R('button',{onClick:e=>{e.stopPropagation();saveSalesTarget(y);},
+          style:{background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.25)',color:'#fff',borderRadius:20,padding:'2px 9px',fontSize:9.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
+          target>0?('🎯 목표 '+nfW(target)):'🎯 목표 설정')
+      ),
+      /* 2행: 금액+배지 | 전년비교 차트 */
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:10,marginTop:6}},
         R('div',{style:{minWidth:0}},
-          R('div',{style:{fontSize:11,fontWeight:700,opacity:.75}},'💵 매출 현황',li>=0?(' · '+y+'년 '+(li+1)+'월'):''),
-          R('div',{style:{fontSize:26,fontWeight:900,marginTop:3,letterSpacing:-.5}},s===null?'데이터 없음':(nfW(s)+'원')),
-          R('div',{style:{fontSize:10.5,opacity:.85,marginTop:3,display:'flex',gap:8,flexWrap:'wrap'}},
-            diff!==null&&R('span',{style:{fontWeight:800,color:diff>=0?'#86EFAC':'#FCA5A5'}},(diff>=0?'▲ +':'▼ ')+diff.toFixed(1)+'% 전월비'),
-            ytd>0&&R('span',null,y+'년 누계 '+nfW(ytd)+'원'),
-            (s!==null&&p!==null)&&R('span',null,'이익 '+nfW(s-p)+'원')
-          )
+          R('div',{style:{fontSize:21,fontWeight:900,letterSpacing:-.5,lineHeight:1.1}},s===null?'-':(nfW(s)+'원')),
+          R('div',{style:{display:'flex',gap:4,marginTop:5,flexWrap:'wrap'}},
+            diff!==null&&badge((diff>=0?'▲':'▼')+Math.abs(diff).toFixed(1)+'% 전월',diff>=0),
+            yoy!==null?badge((yoy>=0?'▲':'▼')+Math.abs(yoy).toFixed(1)+'% 작년동월',yoy>=0):R('span',{style:{fontSize:9,opacity:.55}},'작년 데이터 없음')
+          ),
+          R('div',{style:{fontSize:9.5,opacity:.75,marginTop:4}},y+'년 누계 ',R('b',null,nfW(ytd)),'원')
         ),
-        R('div',{style:{display:'flex',alignItems:'flex-end',gap:3,height:44,flexShrink:0}},
-          ...MM.map((m,i)=>{const v=gv(y,m,'sales');return R('div',{key:m,title:(i+1)+'월',style:{width:7,borderRadius:2,height:Math.max(v?5:2,Math.round((v||0)/maxB*44)),background:i===li?'#fff':'rgba(255,255,255,'+(v?'.45':'.15')+')'}});})
+        /* 전년비교 미니 그래프: 회색=작년, 흰색=올해 */
+        R('div',{style:{flexShrink:0}},
+          R('div',{style:{display:'flex',alignItems:'flex-end',gap:2,height:40}},
+            ...MM.map((m,i)=>{
+              const c=gv(y,m,'sales'),l=gv(y-1,m,'sales');
+              return R('div',{key:m,title:(i+1)+'월 · 올해 '+(c===null?'-':nfW(c))+' / 작년 '+(l===null?'-':nfW(l)),style:{display:'flex',alignItems:'flex-end',gap:1}},
+                R('div',{style:{width:3.5,borderRadius:1.5,height:Math.max(l?3:1,Math.round((l||0)/maxB*38)),background:'rgba(255,255,255,.3)'}}),
+                R('div',{style:{width:3.5,borderRadius:1.5,height:Math.max(c?3:1,Math.round((c||0)/maxB*38)),background:i===li?'#FBBF24':'#fff'}})
+              );
+            })
+          ),
+          R('div',{style:{fontSize:8,opacity:.6,textAlign:'right',marginTop:2}},'▦ 작년 · ▮ 올해')
         )
       ),
-      R('div',{style:{fontSize:9.5,opacity:.6,marginTop:8,textAlign:'right'}},'눌러서 상세 보기 →')
+      /* 3행: 목표 달성률 게이지 */
+      target>0&&R('div',{style:{marginTop:9}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',fontSize:9.5,fontWeight:700,marginBottom:3}},
+          R('span',{style:{opacity:.8}},'목표 달성률'),
+          R('span',{style:{color:'#FBBF24'}},achieve.toFixed(1)+'%')
+        ),
+        R('div',{style:{height:7,background:'rgba(255,255,255,.18)',borderRadius:99,overflow:'hidden'}},
+          R('div',{style:{height:'100%',width:achieve+'%',background:'linear-gradient(90deg,#FBBF24,#F59E0B)',borderRadius:99,transition:'width .4s ease'}})
+        )
+      )
     );
   };
 
@@ -9907,9 +9952,9 @@ function PageShipSort({mats,hqItems}){
         style:{border:'2px dashed var(--p)',borderRadius:12,padding:'28px 16px',textAlign:'center',cursor:'pointer',background:'#FFF8F4'}},
         R('div',{style:{fontSize:36,marginBottom:8}},'📄'),
         R('div',{style:{fontSize:14,fontWeight:700,marginBottom:4}},loading?progress:'거래명세서 PDF 올리기'),
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'여러 센터 PDF를 한 번에 선택하거나 드래그하세요 · 올릴 때마다 기존 데이터에 누적됩니다')
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'📱 휴대폰: 여기를 탭 → 파일 앱/다운로드에서 PDF 선택 · 💻 PC: 클릭 또는 드래그 · 여러 개 가능, 올릴 때마다 누적됩니다')
       ),
-      R('input',{ref:fileRef,type:'file',accept:'.pdf',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
+      R('input',{ref:fileRef,type:'file',accept:'application/pdf,.pdf',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
       /* 발주서 붙여넣기 토글 */
       R('div',{style:{marginTop:12,borderTop:'1px dashed var(--bd)',paddingTop:12}},
         R('button',{onClick:()=>setShowPaste(v=>!v),style:{background:'none',border:'none',cursor:'pointer',fontSize:12,fontWeight:700,color:'var(--p)',fontFamily:'inherit',padding:0}},
