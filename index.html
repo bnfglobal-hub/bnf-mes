@@ -449,6 +449,7 @@ tr:hover td{background:#FBF7FB}
 
   /* 하단 네비 4탭 균등 */
   .mobile-nav{height:58px}
+  .pg-title{background:none!important;-webkit-text-fill-color:initial!important}
 
   /* 완제품 재고 현황 카드: 좁은 화면에서 보조 컬럼 숨겨 품목명 확보 */
   .fav-stock-card .fav-hm,.fav-stock-card .fav-hf,
@@ -458,6 +459,39 @@ tr:hover td{background:#FBF7FB}
   .fav-stock-card .fav-hdrag{display:none!important}
   .fav-stock-card [title='현재고'],.fav-stock-card .fav-hs{width:64px!important}
   .fav-stock-card [title='부족수량'],.fav-stock-card .fav-hshort{width:64px!important}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   2026 모던 UI v2 — 입체감·그라데이션 (컬러 팔레트 유지)
+   ═══════════════════════════════════════════════════════════ */
+body{font-variant-numeric:tabular-nums}
+/* 주요 버튼: 오렌지 그라데이션 + 은은한 글로우 */
+.bp{background:linear-gradient(135deg,#EE6231,#D94F1E)!important;box-shadow:0 2px 8px rgba(217,79,30,.28),inset 0 1px 0 rgba(255,255,255,.2)}
+.bp:hover{background:linear-gradient(135deg,#E85A29,#C84517)!important;box-shadow:0 4px 14px rgba(217,79,30,.35),inset 0 1px 0 rgba(255,255,255,.2)}
+/* 카드: 호버 시 살짝 떠오름 (마우스 환경에서만) */
+@media(hover:hover){
+  .card{transition:box-shadow .18s ease,transform .18s ease}
+  .card:hover{box-shadow:0 6px 20px rgba(16,24,40,.08),0 2px 6px rgba(16,24,40,.05);transform:translateY(-1px)}
+}
+/* 헤더 하단 오렌지 헤어라인 */
+.hdr{position:relative}
+.hdr::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--p),#F59E0B 45%,transparent 85%);opacity:.55;pointer-events:none}
+/* 사이드바 활성 메뉴: 그라데이션 필 + 좌측 인디케이터 */
+.ni.act{background:linear-gradient(135deg,#FFF3EC,#FFE9DC)!important;box-shadow:inset 3px 0 0 var(--p),inset 0 0 0 1px rgba(217,79,30,.10)}
+/* 페이지 제목: 살짝 그라데이션 텍스트 */
+.pg-title{background:linear-gradient(120deg,#1A1A1A 30%,#7A3013);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+/* 표 래퍼: 부드러운 내부 그림자 상단 */
+.tw,.inv-tbl{box-shadow:0 1px 2px rgba(16,24,40,.04)}
+/* 탭 활성: 오렌지 포인트 */
+.tab.act{color:var(--p);box-shadow:0 2px 6px rgba(16,24,40,.12)}
+/* 모바일 하단 네비 활성 탭: 글로우 필 */
+.mnav-item.act{background:linear-gradient(135deg,#FFF3EC,#FFE9DC)}
+.mnav-item.act svg{filter:drop-shadow(0 2px 4px rgba(217,79,30,.35))}
+/* 스크롤 부드럽게 */
+.pg,.inv-page{scroll-behavior:smooth}
+/* 빈 상태 아이콘 애니메이션 */
+.empty-ic{animation:pulse 3s ease-in-out infinite}
+@media(max-width:768px){
 
   /* ═══ 재고 페이지 세로 스크롤 수정 ═══
      원인: 재고 페이지 루트에 .pg가 없어 스크롤 소유자가 없었음.
@@ -4116,18 +4150,26 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
   const[editMode,setEditMode]=useState(false);
+  const HOME_ALL=['sales','newprod','ongoing','quick','wr','news','lt','stats'];
   const[sectionOrder,setSectionOrder]=useState(()=>{
     try{
       const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');
-      if(Array.isArray(v)&&v.length>0){
-        /* 'ai' 섹션 자동 제거 (제거된 기능) */
-        const cleaned=v.filter(x=>x!=='ai');
-        if(cleaned.length!==v.length){try{localStorage.setItem('bnf_home_order',JSON.stringify(cleaned));}catch(e){}}
-        return cleaned.length>0?cleaned:['wr','news','lt','stats'];
-      }
-      return['wr','news','lt','stats'];
-    }catch(e){return['wr','news','lt','stats'];}
+      let arr=(Array.isArray(v)&&v.length>0)?v.filter(x=>x!=='ai'):['wr','news','lt','stats'];
+      /* 신규 섹션 자동 삽입: 매출 → 신제품 → 진행업무 → 퀵메뉴 순으로 상단 배치 */
+      ['quick','ongoing','newprod','sales'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
+      return arr.filter(x=>HOME_ALL.includes(x));
+    }catch(e){return HOME_ALL.slice();}
   });
+  const[hiddenSecs,setHiddenSecs]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_home_hidden')||'[]');}catch(e){return[];}});
+  const toggleHide=(id)=>{setHiddenSecs(p=>{const n=p.includes(id)?p.filter(x=>x!==id):[...p,id];try{localStorage.setItem('bnf_home_hidden',JSON.stringify(n));}catch(e){}return n;});};
+  /* 매출 스냅샷 (관리자 전용) */
+  const isBoss=['superadmin','admin'].includes((user&&user.role)||'');
+  const[profitSnap,setProfitSnap]=useState(null);
+  useEffect(()=>{
+    if(!isBoss)return;
+    sbClient.from('app_state').select('pa:state_data->profit_analysis').eq('id',1).maybeSingle()
+      .then(({data})=>{if(data&&data.pa)setProfitSnap(data.pa);}).catch(()=>{});
+  },[]);
   const[dragged,setDragged]=useState(null);
   const chartRef=useRef();
 
@@ -4484,10 +4526,54 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     )
   );
 
-  const builders={wr:buildWR,news:buildNews,lt:buildLT,stats:buildStats};
+  /* ── 매출 스냅샷 (홈 최상단, 관리자 전용) ── */
+  const buildSales=()=>{
+    const MM=['01','02','03','04','05','06','07','08','09','10','11','12'];
+    const nfW=(n)=>{const a=Math.abs(n);return a>=100000000?((n/100000000).toFixed(1)+'억'):a>=10000000?((n/10000000).toFixed(1)+'천만'):Math.round(n).toLocaleString();};
+    const y=new Date().getFullYear();
+    const pa=profitSnap||{};
+    const gv=(yy,mm,f)=>{const r=(pa[String(yy)]||{})[mm];return r&&r[f]!==undefined&&r[f]!==''?(+r[f]||0):null;};
+    let li=-1;for(let i=11;i>=0;i--){if(gv(y,MM[i],'sales')!==null){li=i;break;}}
+    const s=li>=0?gv(y,MM[li],'sales'):null;
+    const p=li>=0?gv(y,MM[li],'purchase'):null;
+    const prev=li>0?gv(y,MM[li-1],'sales'):(li===0?gv(y-1,'12','sales'):null);
+    const diff=(s!==null&&prev!==null&&prev>0)?(s-prev)/prev*100:null;
+    let ytd=0;for(let i=0;i<12;i++){const v=gv(y,MM[i],'sales');if(v!==null)ytd+=v;}
+    const maxB=Math.max(1,...MM.map(m=>gv(y,m,'sales')||0));
+    return R('div',{onClick:()=>!editMode&&onGoPage('salesStat'),
+      style:{background:'linear-gradient(135deg,#1E3A8A,#2563EB)',borderRadius:18,padding:'16px 18px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 8px 24px rgba(37,99,235,.25)'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,flexWrap:'wrap'}},
+        R('div',{style:{minWidth:0}},
+          R('div',{style:{fontSize:11,fontWeight:700,opacity:.75}},'💵 매출 현황',li>=0?(' · '+y+'년 '+(li+1)+'월'):''),
+          R('div',{style:{fontSize:26,fontWeight:900,marginTop:3,letterSpacing:-.5}},s===null?'데이터 없음':(nfW(s)+'원')),
+          R('div',{style:{fontSize:10.5,opacity:.85,marginTop:3,display:'flex',gap:8,flexWrap:'wrap'}},
+            diff!==null&&R('span',{style:{fontWeight:800,color:diff>=0?'#86EFAC':'#FCA5A5'}},(diff>=0?'▲ +':'▼ ')+diff.toFixed(1)+'% 전월비'),
+            ytd>0&&R('span',null,y+'년 누계 '+nfW(ytd)+'원'),
+            (s!==null&&p!==null)&&R('span',null,'이익 '+nfW(s-p)+'원')
+          )
+        ),
+        R('div',{style:{display:'flex',alignItems:'flex-end',gap:3,height:44,flexShrink:0}},
+          ...MM.map((m,i)=>{const v=gv(y,m,'sales');return R('div',{key:m,title:(i+1)+'월',style:{width:7,borderRadius:2,height:Math.max(v?5:2,Math.round((v||0)/maxB*44)),background:i===li?'#fff':'rgba(255,255,255,'+(v?'.45':'.15')+')'}});})
+        )
+      ),
+      R('div',{style:{fontSize:9.5,opacity:.6,marginTop:8,textAlign:'right'}},'눌러서 상세 보기 →')
+    );
+  };
+
+  const SEC_LABELS={sales:'💵 매출 현황',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
+  const builders={
+    sales:buildSales,
+    newprod:()=>R(NewProductHome,{onGoPage}),
+    ongoing:()=>R(OngoingWork,{user,onGoPage}),
+    quick:buildQuick,
+    wr:buildWR,news:buildNews,lt:buildLT,stats:buildStats
+  };
 
   const renderSection=(id,idx)=>{
     const builder=builders[id];if(!builder)return null;
+    if(id==='sales'&&!isBoss)return null;
+    const isHidden=hiddenSecs.includes(id);
+    if(isHidden&&!editMode)return null;
     const dragProps=editMode?{
       draggable:true,
       onDragStart:e=>{setDragged(id);e.dataTransfer.effectAllowed='move';},
@@ -4495,8 +4581,15 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       onDrop:e=>{e.preventDefault();if(dragged&&dragged!==id){moveSec(sectionOrder.indexOf(dragged),sectionOrder.indexOf(id));}setDragged(null);},
       onDragEnd:()=>setDragged(null)
     }:{};
-    return R('div',{key:id,...dragProps,style:{position:'relative',marginBottom:14,...(editMode?{border:'2px dashed '+(dragged===id?'#D94F1E':'#D1D5DB'),borderRadius:14,padding:6,cursor:'move',opacity:dragged===id?0.4:1,transition:'opacity .2s, border-color .2s'}:{})}},
-      editMode&&R('div',{style:{position:'absolute',top:-10,left:14,background:'#D94F1E',color:'#fff',padding:'2px 10px',borderRadius:6,fontSize:10,fontWeight:700,zIndex:10}},'⠿ DRAG'),
+    const ebtn={background:'#fff',border:'1px solid #E5E7EB',borderRadius:8,padding:'5px 10px',cursor:'pointer',fontSize:12,fontWeight:700,color:'#374151',lineHeight:1,boxShadow:'0 1px 3px rgba(0,0,0,.08)'};
+    const oi=sectionOrder.indexOf(id);
+    return R('div',{key:id,...dragProps,style:{position:'relative',marginBottom:14,...(editMode?{border:'2px dashed '+(dragged===id?'#D94F1E':isHidden?'#FCA5A5':'#D1D5DB'),borderRadius:14,padding:6,paddingTop:16,cursor:'move',opacity:dragged===id?0.4:(isHidden?0.45:1),transition:'opacity .2s, border-color .2s'}:{})}},
+      editMode&&R('div',{style:{position:'absolute',top:-11,left:12,background:isHidden?'#9CA3AF':'#D94F1E',color:'#fff',padding:'2px 10px',borderRadius:6,fontSize:10,fontWeight:700,zIndex:10}},(SEC_LABELS[id]||id)+(isHidden?' · 숨김':'')),
+      editMode&&R('div',{style:{position:'absolute',top:-14,right:8,display:'flex',gap:4,zIndex:10}},
+        R('button',{style:ebtn,title:'위로',onClick:e=>{e.stopPropagation();if(oi>0)moveSec(oi,oi-1);}},'↑'),
+        R('button',{style:ebtn,title:'아래로',onClick:e=>{e.stopPropagation();if(oi<sectionOrder.length-1)moveSec(oi,oi+1);}},'↓'),
+        R('button',{style:{...ebtn,color:isHidden?'#15803D':'#B91C1C'},onClick:e=>{e.stopPropagation();toggleHide(id);}},isHidden?'표시':'숨김')
+      ),
       builder()
     );
   };
@@ -4509,13 +4602,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       ),
       R('button',{onClick:()=>setEditMode(!editMode),style:{background:editMode?'#D94F1E':'#fff',color:editMode?'#fff':'#374151',border:'1px solid '+(editMode?'#D94F1E':'#E5E7EB'),borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}},editMode?'✓ 완료':'⠿ 편집')
     ),
-    /* ── 신제품 현황 (최상단) ── */
-    R(NewProductHome,{onGoPage}),
-    /* ── 진행 중인 업무 ── */
-    R(OngoingWork,{user,onGoPage}),
-    editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:8,marginBottom:14,fontSize:11,color:'#92400E',fontWeight:600}},'💡 박스를 드래그하여 위치를 변경하세요. 완료 버튼을 누르면 저장됩니다.'),
-    /* 퀵메뉴 - 항상 최상단 고정 (마켓컬리 스타일) */
-    R('div',{style:{marginBottom:14}},buildQuick()),
+    editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:10,marginBottom:18,fontSize:11,color:'#92400E',fontWeight:600}},'💡 ↑↓ 버튼(또는 드래그)으로 순서 변경, [숨김]으로 안 보이게 설정. 완료를 누르면 저장됩니다.'),
     ...sectionOrder.map((id,idx)=>renderSection(id,idx))
   );
 }
