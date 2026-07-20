@@ -4924,8 +4924,6 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   },
     R('td',{style:{width:24,textAlign:'center',color:'#cbd5e1',fontSize:14,cursor:'move'},title:'드래그로 폴더 이동'},'⋮⋮'),
     R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170,borderLeft:'3px solid '+(folderColor||'#E5E7EB')}},row.matName),
-    R('td',{style:{textAlign:'right'}},R(EC,{rk:row.id+'upb'+rk,initVal:row.upb||'',type:'number',onSave:v=>{const u=+v||0;onUpdHQ(row.id,'upb',u);onUpdHQ(row.id,'hqStock',(+row.boxes||0)*u);},placeholder:'입수량',className:'ci',style:{textAlign:'right',color:'#64748b'}})),
-    R('td',{style:{textAlign:'right'}},R(EC,{rk:row.id+'box'+rk,initVal:row.boxes||'',type:'number',onSave:v=>{const b=+v||0;onUpdHQ(row.id,'boxes',b);onUpdHQ(row.id,'hqStock',b*(+row.upb||0));},placeholder:'박스',className:'ci',style:{textAlign:'right',fontWeight:700,color:'#b45309'}})),
     R('td',{style:{textAlign:'right'}},R(EC,{rk:row.id+'hq'+rk,initVal:row.hqStock,type:'number',onSave:v=>onUpdHQ(row.id,'hqStock',+v),className:'ci',style:{textAlign:'right',fontWeight:700,color:'#0369a1'}})),
     R('td',{style:{textAlign:'right',fontSize:12,color:'#64748b'}},row.fSt),
     R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)',background:'#fff5f0'}},row.totalStock.toFixed(1)),
@@ -4945,8 +4943,6 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       R('th',{style:{width:24}}),
       /* 나머지 고정폭 합이 754px이므로 최소폭을 충분히 줘야 품목명이 눌리지 않음 */
       R('th',{style:{width:230,minWidth:180}},'품목명'),
-      R('th',{style:{width:58,textAlign:'right'}},'입수량'),
-      R('th',{style:{width:52,textAlign:'right'}},'박스'),
       R('th',{style:{width:75,textAlign:'right'}},'본사재고'),
       R('th',{style:{width:75,textAlign:'right'}},'공장재고'),
       R('th',{style:{width:80,textAlign:'right',background:'#fff5f0'}},'총재고'),
@@ -5076,7 +5072,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
                 rows.filter(r=>r.short>0).length>0&&R('span',{style:{marginLeft:6,fontSize:10,background:'#FEE2E2',color:'#B91C1C',padding:'1px 8px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+rows.filter(r=>r.short>0).length)
               ),
               !isCollapsed&&R('div',{style:{overflow:'auto'}},
-                R('table',{style:{minWidth:990,width:'100%'}},
+                R('table',{style:{minWidth:880,width:'100%'}},
                   tableHeader,
                   R('tbody',null,...rows.map(row=>renderRow(row,f.color)))
                 )
@@ -5087,7 +5083,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       : R('div',{style:{background:'#fff',border:'2px solid '+((folders.find(f=>f.id===selectedFolder)||{}).color||'#E5E7EB')+'33',borderRadius:12,overflow:'auto'}},
           visibleRows.length===0
             ? R('div',{style:{padding:'30px',textAlign:'center',color:'var(--tm)',fontSize:12}},'이 폴더에 품목이 없습니다. 다른 폴더의 행을 드래그해서 이동하거나 위에서 검색해 추가하세요.')
-            : R('table',{style:{minWidth:990,width:'100%'}},
+            : R('table',{style:{minWidth:880,width:'100%'}},
                 tableHeader,
                 R('tbody',null,...visibleRows.map(row=>renderRow(row,(folders.find(f=>f.id===selectedFolder)||{}).color)))
               )
