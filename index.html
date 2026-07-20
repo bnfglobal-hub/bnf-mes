@@ -458,6 +458,22 @@ tr:hover td{background:#FBF7FB}
   .fav-stock-card .fav-hdrag{display:none!important}
   .fav-stock-card [title='현재고'],.fav-stock-card .fav-hs{width:64px!important}
   .fav-stock-card [title='부족수량'],.fav-stock-card .fav-hshort{width:64px!important}
+
+  /* ═══ 재고 페이지 세로 스크롤 수정 ═══
+     원인: 재고 페이지 루트에 .pg가 없어 스크롤 소유자가 없었음.
+     해결: .inv-page 자체를 유일한 세로 스크롤러로 만들고,
+           내부 카드/표의 자체 스크롤(max-height)을 해제해 한 덩어리로 스크롤. */
+  .inv-page{
+    height:100%!important;min-height:0!important;
+    overflow-y:auto!important;overflow-x:hidden!important;
+    -webkit-overflow-scrolling:touch!important;
+    overscroll-behavior-y:contain;touch-action:pan-y;
+    padding-bottom:96px!important;
+  }
+  .inv-page .fav-stock-card{max-height:none!important}
+  .inv-page .fav-stock-card>div:last-child{overflow:visible!important;max-height:none!important;flex:none!important}
+  .inv-page .inv-tbl{max-height:none!important;overflow-x:auto!important;overflow-y:visible!important;margin-bottom:0!important}
+  .inv-page .inv-main{padding-bottom:20px!important}
 }
 </style>
 <script>
@@ -5234,7 +5250,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   ):null;}catch(e){console.warn('FavSection error:',e);return null;}};
 
 
-  return R('div',null,
+  return R('div',{className:'inv-page'},
     /* 동기화 상태 바 */
     R('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 12px',background:lastSyncAt&&(Date.now()-lastSyncAt<10000)?'#ECFDF5':'#FFFBEB',borderBottom:'1px solid '+(lastSyncAt&&(Date.now()-lastSyncAt<10000)?'#A7F3D0':'#FDE68A'),fontSize:10,color:lastSyncAt?'#15803D':'#92400E',fontWeight:600}},
       R('div',{style:{display:'flex',alignItems:'center',gap:6,minWidth:0,overflow:'hidden',whiteSpace:'nowrap'}},
