@@ -3829,6 +3829,144 @@ function PageProfit(){
   );
 }
 
+/* ═══ 매출/매입 현황 대시보드 (이번달 KPI + 월별 + 작년대비) ═══ */
+function PageTrade({kind}){
+  const isS=kind==='sales';
+  const label=isS?'매출':'매입';
+  const accent=isS?'#2563EB':'#C2410C';
+  const accentBg=isS?'#EFF6FF':'#FFF7ED';
+  const accentBd=isS?'#BFDBFE':'#FED7AA';
+  const[data,setData]=useState({});
+  const[loaded,setLoaded]=useState(false);
+  const now=new Date();
+  const[year,setYear]=useState(now.getFullYear());
+  const MONTHS=['01','02','03','04','05','06','07','08','09','10','11','12'];
+  const nf=(n)=>Math.round(+n||0).toLocaleString();
+  const field=isS?'sales':'purchase';
+
+  useEffect(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:d})=>{
+      const sd=d&&d.state_data?d.state_data:{};
+      if(sd.profit_analysis&&typeof sd.profit_analysis==='object')setData(sd.profit_analysis);
+      setLoaded(true);
+    }).catch(()=>setLoaded(true));
+  },[]);
+
+  const val=(y,mm)=>{const r=(data[String(y)]||{})[mm];return r&&r[field]!==undefined&&r[field]!==''?(+r[field]||0):null;};
+  const v0=(y,mm)=>val(y,mm)||0;
+  const pct=(cur,prev)=>{
+    if(prev===null||cur===null)return null;
+    if(prev===0)return cur>0?100:0;
+    return (cur-prev)/Math.abs(prev)*100;
+  };
+  const pctBadge=(p,size)=>{
+    if(p===null)return R('span',{style:{fontSize:11,color:'#CBD5E1'}},'비교 데이터 없음');
+    const up=p>=0;
+    return R('span',{style:{display:'inline-flex',alignItems:'center',gap:3,fontSize:size||12,fontWeight:800,color:up?'#15803D':'#B91C1C',background:up?'#F0FDF4':'#FEF2F2',border:'1px solid '+(up?'#BBF7D0':'#FECACA'),borderRadius:20,padding:'2px 9px'}},
+      up?'▲':'▼',Math.abs(p).toFixed(1)+'%');
+  };
+
+  /* 이번달 KPI */
+  const cy=now.getFullYear();
+  const cmIdx=now.getMonth(); /* 0-base */
+  const cm=MONTHS[cmIdx];
+  const thisM=val(cy,cm);
+  const prevM=cmIdx===0?val(cy-1,'12'):val(cy,MONTHS[cmIdx-1]);
+  const lastYM=val(cy-1,cm);
+  /* 연 누계 (이번달까지) */
+  let ytd=0,ytdPrev=0,ytdHas=false;
+  for(let i=0;i<=cmIdx;i++){const a=val(cy,MONTHS[i]);const b=val(cy-1,MONTHS[i]);if(a!==null){ytd+=a;ytdHas=true;}if(b!==null)ytdPrev+=b;}
+
+  /* 선택 연도 월별 + 작년 비교 */
+  const rows=MONTHS.map(mm=>({mm,cur:val(year,mm),prev:val(year-1,mm)}));
+  const maxV=Math.max(1,...rows.flatMap(r=>[r.cur||0,r.prev||0]));
+  const totCur=rows.reduce((a,r)=>a+(r.cur||0),0);
+  const totPrev=rows.reduce((a,r)=>a+(r.prev||0),0);
+  const hasAny=rows.some(r=>r.cur!==null||r.prev!==null);
+
+  const kpiCard=(title,children,sub)=>R('div',{className:'card',style:{padding:'14px 16px',minWidth:0}},
+    R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},title),
+    R('div',{style:{marginTop:4}},children),
+    sub&&R('div',{style:{marginTop:5}},sub)
+  );
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},(isS?'💵 매출 현황':'🧾 매입 현황')),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'이카운트 '+(isS?'판매':'구매')+' 기준 · 공급가액 · 영업 이익 분석 데이터와 연동')
+      ),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+        R('button',{className:'btn bw btn-sm',onClick:()=>setYear(year-1)},'◀'),
+        R('span',{style:{fontSize:15,fontWeight:800,minWidth:52,textAlign:'center'}},year),
+        R('button',{className:'btn bw btn-sm',onClick:()=>setYear(year+1)},'▶')
+      )
+    ),
+    !loaded?R('div',{className:'empty'},'불러오는 중...'):
+    R('div',null,
+      /* ── 이번달 메인 KPI ── */
+      R('div',{style:{background:accentBg,border:'1px solid '+accentBd,borderRadius:16,padding:'16px 18px',marginBottom:14}},
+        R('div',{style:{fontSize:12,fontWeight:800,color:accent,marginBottom:10}},cy+'년 '+(cmIdx+1)+'월 '+label+' (이번달)'),
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}},
+          kpiCard('이번달 '+label,
+            R('span',{style:{fontSize:24,fontWeight:800,color:accent}},thisM===null?'-':nf(thisM)),
+            R('span',{style:{fontSize:10,color:'var(--tm)'}},thisM===null?'아직 입력 전':'원')),
+          kpiCard('전월 대비',pctBadge(pct(thisM,prevM),13),
+            R('span',{style:{fontSize:10,color:'var(--tm)'}},'전월 '+(prevM===null?'-':nf(prevM))+'원')),
+          kpiCard('작년 같은달 대비',pctBadge(pct(thisM,lastYM),13),
+            R('span',{style:{fontSize:10,color:'var(--tm)'}},(cy-1)+'년 '+(cmIdx+1)+'월 '+(lastYM===null?'-':nf(lastYM))+'원')),
+          kpiCard(cy+'년 누계 (1~'+(cmIdx+1)+'월)',
+            R('span',{style:{fontSize:20,fontWeight:800}},ytdHas?nf(ytd):'-'),
+            ytdPrev>0?pctBadge(pct(ytd,ytdPrev),11):R('span',{style:{fontSize:10,color:'var(--tm)'}},'작년 데이터 없음'))
+        )
+      ),
+      /* ── 월별 차트 ── */
+      R('div',{className:'card',style:{padding:'14px 16px',marginBottom:14}},
+        R('div',{className:'card-hdr'},
+          R('div',{className:'card-title'},'📊 '+year+'년 월별 '+label),
+          R('div',{style:{display:'flex',gap:10,fontSize:10,color:'var(--tm)',alignItems:'center'}},
+            R('span',{style:{display:'inline-flex',alignItems:'center',gap:4}},R('span',{style:{width:10,height:10,borderRadius:3,background:accent,display:'inline-block'}}),year+'년'),
+            R('span',{style:{display:'inline-flex',alignItems:'center',gap:4}},R('span',{style:{width:10,height:10,borderRadius:3,background:'#D1D5DB',display:'inline-block'}}),(year-1)+'년')
+          )
+        ),
+        !hasAny?R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),label+' 데이터가 없습니다',R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'관리자 → 영업 이익 분석에서 월별 금액을 입력하거나 이카운트 표를 붙여넣으세요')):
+        R('div',{className:'hscroll'},
+          R('div',{style:{display:'flex',alignItems:'flex-end',gap:6,height:170,minWidth:560,padding:'8px 4px 0'}},
+            ...rows.map(r=>R('div',{key:r.mm,style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4,minWidth:36}},
+              R('div',{style:{display:'flex',alignItems:'flex-end',gap:2,height:130,width:'100%',justifyContent:'center'}},
+                R('div',{title:(year-1)+'년 '+(+r.mm)+'월: '+(r.prev===null?'-':nf(r.prev)+'원'),style:{width:'38%',maxWidth:16,height:Math.max(r.prev?4:0,Math.round((r.prev||0)/maxV*126)),background:'#D1D5DB',borderRadius:'3px 3px 0 0'}}),
+                R('div',{title:year+'년 '+(+r.mm)+'월: '+(r.cur===null?'-':nf(r.cur)+'원'),style:{width:'38%',maxWidth:16,height:Math.max(r.cur?4:0,Math.round((r.cur||0)/maxV*126)),background:accent,borderRadius:'3px 3px 0 0'}})
+              ),
+              R('div',{style:{fontSize:9,color:'var(--tm)',fontWeight:600}},(+r.mm)+'월')
+            ))
+          )
+        )
+      ),
+      /* ── 월별 표: 작년대비 증감률 ── */
+      R('div',{className:'card',style:{padding:'12px 14px'}},
+        R('div',{className:'card-title',style:{marginBottom:10}},'📋 '+year+'년 vs '+(year-1)+'년 증감률'),
+        R('div',{className:'hscroll'},R('div',{style:{minWidth:480}},
+          R('div',{style:{display:'grid',gridTemplateColumns:'46px 1fr 110px 1fr',gap:8,fontSize:11,fontWeight:700,color:'#94A3B8',padding:'0 2px 8px',borderBottom:'1px solid var(--bd)'}},
+            R('div',null,'월'),R('div',{style:{textAlign:'right'}},year+'년'),R('div',{style:{textAlign:'right'}},'증감률'),R('div',{style:{textAlign:'right'}},(year-1)+'년')),
+          ...rows.map(r=>R('div',{key:r.mm,style:{display:'grid',gridTemplateColumns:'46px 1fr 110px 1fr',gap:8,alignItems:'center',padding:'6px 2px',borderBottom:'1px solid #F4F1F7'}},
+            R('div',{style:{fontSize:12,fontWeight:700}},(+r.mm)+'월'),
+            R('div',{style:{textAlign:'right',fontSize:12,fontWeight:700,color:r.cur===null?'#CBD5E1':'inherit'}},r.cur===null?'-':nf(r.cur)),
+            R('div',{style:{textAlign:'right'}},pctBadge(pct(r.cur,r.prev),11)),
+            R('div',{style:{textAlign:'right',fontSize:12,color:r.prev===null?'#CBD5E1':'var(--tm)'}},r.prev===null?'-':nf(r.prev))
+          )),
+          R('div',{style:{display:'grid',gridTemplateColumns:'46px 1fr 110px 1fr',gap:8,alignItems:'center',padding:'10px 2px 2px',borderTop:'2px solid var(--bd)',marginTop:4,fontWeight:800,fontSize:13}},
+            R('div',null,'합계'),
+            R('div',{style:{textAlign:'right'}},nf(totCur)),
+            R('div',{style:{textAlign:'right'}},pctBadge(totPrev>0?pct(totCur,totPrev):null,11)),
+            R('div',{style:{textAlign:'right',color:'var(--tm)'}},nf(totPrev))
+          )
+        )),
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:10}},'※ 데이터 출처: 영업 이익 분석의 월별 '+label+' (공급가액). 이카운트 자동 연동 시 매일 자동 갱신됩니다.')
+      )
+    )
+  );
+}
+
 function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const totalMats=mats.length;
   const goodMats=mats.filter(m=>!m.mu||m.s>=m.mu).length;
@@ -7921,6 +8059,8 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
+    {id:'salesStat',l:'매출 현황',ic:'💵'},
+    {id:'purchaseStat',l:'매입 현황',ic:'🧾'},
     {id:'profit',l:'영업 이익 분석',ic:'📈'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
     {id:'cost',l:'원가분석',ic:'💰'},
@@ -7943,6 +8083,15 @@ function loadNavSections(){
             /* 관리자 섹션에 영업 이익 분석 없으면 추가 */
             if(s.type==='admin'&&!newItems.find(it=>it.id==='profit')){
               newItems.unshift({id:'profit',l:'영업 이익 분석',ic:'📈'});
+              changed=true;
+            }
+            /* 관리자 섹션에 매출/매입 현황 없으면 맨 앞에 추가 */
+            if(s.type==='admin'&&!newItems.find(it=>it.id==='purchaseStat')){
+              newItems.unshift({id:'purchaseStat',l:'매입 현황',ic:'🧾'});
+              changed=true;
+            }
+            if(s.type==='admin'&&!newItems.find(it=>it.id==='salesStat')){
+              newItems.unshift({id:'salesStat',l:'매출 현황',ic:'💵'});
               changed=true;
             }
             /* factory 섹션에 mytasks 없으면 홈 다음에 추가 */
@@ -10109,6 +10258,7 @@ function App(){
     if(page==='adminDash'||page==='adm_dash'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageDashboard,{user,variant:'adm'});}
     if(page==='sales_data'||page==='adm_sales'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageSalesAnalysis,{user,variant:'adm'});}
     if(page==='profit'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageProfit,{});}
+    if(page==='salesStat'||page==='purchaseStat'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageTrade,{kind:page==='salesStat'?'sales':'purchase'});}
     if(page==='purchase_data'||page==='adm_purchase'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PagePurchaseAnalysis,{mats,variant:'adm'});}
     if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
