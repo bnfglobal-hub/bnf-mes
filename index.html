@@ -3861,6 +3861,8 @@ function PageTrade({kind}){
 
   const[showPaste,setShowPaste]=useState(false);
   const[pasteText,setPasteText]=useState('');
+  const[pasteRows,setPasteRows]=useState(null); /* 붙여넣기 미리보기 */
+  const[pasteCol,setPasteCol]=useState(1);      /* 금액으로 쓸 숫자 열 */
   const[saving,setSaving]=useState(false);
 
   const[meta,setMeta]=useState(null); /* 공장 현황 요약용 */
@@ -3891,22 +3893,42 @@ function PageTrade({kind}){
   },[]);
 
   /* 이카운트 표 붙여넣기 → profit_analysis 저장 (영업 이익 분석과 동일 데이터) */
-  const doPaste=()=>{
+  /* 붙여넣은 표를 연/월 + 숫자열로 분해 (연도 제한 없음 - 2021년~올해 한 번에 가능) */
+  const parsePaste=(txt)=>{
+    const rows=[];
+    (txt||'').split(/\n/).forEach(line=>{
+      const m=line.match(/(\d{4})[\/\-.](\d{1,2})/);if(!m)return;
+      const y=m[1];if(+y<2000||+y>2100)return;
+      const mm=String(m[2]).padStart(2,'0');if(+mm<1||+mm>12)return;
+      const after=line.slice(line.indexOf(m[0])+m[0].length);
+      const nums=(after.match(/-?[\d,]+(?:\.\d+)?/g)||[])
+        .map(x=>parseFloat(x.replace(/,/g,''))).filter(n=>!isNaN(n));
+      if(nums.length)rows.push({y,mm,nums});
+    });
+    return rows;
+  };
+  const analyzePaste=()=>{
+    const rows=parsePaste(pasteText);
+    if(!rows.length){
+      alert('인식된 월별 데이터가 없습니다.\n이카운트 '+(isS?'판매':'구매')+'현황 표를 그대로 복사해 붙여넣어 주세요.\n(2021/01 처럼 연/월이 있는 줄을 자동으로 찾습니다)');
+      return;
+    }
+    /* 공급가액은 보통 두 번째 숫자(건수 다음). 열이 하나뿐이면 첫 번째 */
+    const maxCols=Math.max(...rows.map(r=>r.nums.length));
+    setPasteRows(rows);setPasteCol(maxCols>=2?1:0);
+  };
+  const confirmPaste=()=>{
     const next=JSON.parse(JSON.stringify(data));
     let cnt=0;
-    (pasteText||'').split(/\n/).forEach(line=>{
-      const m=line.match(/(\d{4})\/(\d{1,2})/);if(!m)return;
-      const py=m[1];const mm=String(m[2]).padStart(2,'0');
-      const after=line.slice(line.indexOf(m[0])+m[0].length);
-      const nums=(after.match(/-?[\d,]+(?:\.\d+)?/g)||[]).map(x=>parseFloat(x.replace(/,/g,''))).filter(n=>!isNaN(n));
-      if(nums.length>=2){
-        if(!next[py])next[py]={};
-        if(!next[py][mm])next[py][mm]={sales:'',purchase:''};
-        next[py][mm][field]=Math.round(nums[1]);cnt++;
-      }
+    pasteRows.forEach(r=>{
+      const v=r.nums[pasteCol];
+      if(v===undefined||isNaN(v))return;
+      if(!next[r.y])next[r.y]={};
+      if(!next[r.y][r.mm])next[r.y][r.mm]={sales:'',purchase:''};
+      next[r.y][r.mm][field]=Math.round(v);cnt++;
     });
-    if(cnt===0){alert('인식된 월별 데이터가 없습니다.\n이카운트 '+(isS?'판매':'구매')+'현황 표를 그대로 복사해 붙여넣어 주세요.\n(연도 상관없이 "2025/01 ..." 줄을 자동 인식합니다)');return;}
-    setData(next);setSaving(true);setShowPaste(false);setPasteText('');
+    if(cnt===0){alert('선택한 열에 값이 없습니다. 다른 열을 선택해 주세요.');return;}
+    setData(next);setSaving(true);setShowPaste(false);setPasteText('');setPasteRows(null);
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
       const ex=cur&&cur.state_data?cur.state_data:{};
       return sbClient.from('app_state').upsert({id:1,state_data:{...ex,profit_analysis:next},updated_at:new Date().toISOString()});
@@ -3966,20 +3988,48 @@ function PageTrade({kind}){
       )
     ),
     /* 붙여넣기 모달 */
-    showPaste&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setShowPaste(false);setPasteText('');}},
-      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
-      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
-        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9'}},
+    showPaste&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setShowPaste(false);setPasteText('');setPasteRows(null);}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'6vh 16px 16px'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:560,width:'100%',maxHeight:'86vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
+        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',flexShrink:0}},
           R('div',{style:{fontSize:14,fontWeight:800}},'이카운트 '+(isS?'판매현황':'구매현황')+' 붙여넣기'),
-          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},'이카운트에서 월별 표를 복사(Ctrl+C)해서 붙여넣기(Ctrl+V) 하세요. "2025/01 ..." 줄의 공급가액을 연도 구분 없이 자동 인식합니다. 작년 표까지 붙여넣으면 증감률이 자동 계산됩니다.')
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},
+            pasteRows?'인식 결과를 확인하고 저장하세요. 금액이 다르면 아래에서 열을 바꿔주세요.'
+                     :'이카운트에서 조회기간을 2021-01-01 ~ 오늘로 잡고 월별 표를 복사(Ctrl+C)해 붙여넣으세요. 여러 해를 한 번에 넣을 수 있습니다.')
         ),
-        R('div',{style:{padding:'14px 18px'}},
-          R('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),autoFocus:true,placeholder:'2025/01   83,992   197,581,647   19,758,165   217,339,812\n2025/02   ...\n2026/01   ...',
-            style:{width:'100%',boxSizing:'border-box',minHeight:160,border:'1px solid var(--bd)',borderRadius:9,padding:'10px',fontSize:12,fontFamily:'monospace',resize:'vertical'}}),
-          R('div',{style:{display:'flex',justifyContent:'flex-end',gap:8,marginTop:12}},
-            R('button',{onClick:()=>{setShowPaste(false);setPasteText('');},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
-            R('button',{onClick:doPaste,style:{border:'none',background:accent,color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'자동 입력')
+        R('div',{style:{padding:'14px 18px',overflowY:'auto',flex:1}},
+          !pasteRows?R('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),autoFocus:true,
+            placeholder:'2021/01   83,992   197,581,647   19,758,165   217,339,812\n2021/02   ...\n2025/12   ...\n2026/07   ...',
+            style:{width:'100%',boxSizing:'border-box',minHeight:170,border:'1px solid var(--bd)',borderRadius:9,padding:'10px',fontSize:12,fontFamily:'monospace',resize:'vertical'}})
+          :R('div',null,
+            /* 금액 열 선택 */
+            (()=>{
+              const maxCols=Math.max(...pasteRows.map(r=>r.nums.length));
+              const sample=pasteRows[0];
+              return R('div',{style:{marginBottom:12}},
+                R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'금액으로 사용할 열 (보통 공급가액)'),
+                R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+                  ...Array.from({length:maxCols},(_,i)=>R('button',{key:i,onClick:()=>setPasteCol(i),
+                    style:{border:'1px solid '+(pasteCol===i?accent:'var(--bd)'),background:pasteCol===i?accentBg:'#fff',color:pasteCol===i?accent:'var(--t)',borderRadius:8,padding:'6px 11px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
+                    (i+1)+'번째',R('span',{style:{display:'block',fontSize:10,fontWeight:500,color:'var(--tm)',marginTop:1}},sample&&sample.nums[i]!==undefined?nf(sample.nums[i]):'-')))
+                )
+              );
+            })(),
+            /* 미리보기 */
+            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'인식된 데이터 ',R('b',{style:{color:accent}},pasteRows.length+'개월')),
+            R('div',{style:{border:'1px solid var(--bd)',borderRadius:9,maxHeight:220,overflowY:'auto'}},
+              ...pasteRows.map((r,i)=>R('div',{key:i,style:{display:'flex',justifyContent:'space-between',padding:'6px 11px',borderBottom:i<pasteRows.length-1?'1px solid #F4F1F7':'none',fontSize:12}},
+                R('span',{style:{fontWeight:700}},r.y+'년 '+(+r.mm)+'월'),
+                R('span',{style:{color:r.nums[pasteCol]===undefined?'var(--err)':'var(--t)',fontWeight:700}},r.nums[pasteCol]===undefined?'값 없음':nf(r.nums[pasteCol]))
+              ))
+            )
           )
+        ),
+        R('div',{style:{padding:'12px 18px',borderTop:'1px solid #F1F5F9',display:'flex',justifyContent:'flex-end',gap:8,flexShrink:0}},
+          R('button',{onClick:()=>{if(pasteRows)setPasteRows(null);else{setShowPaste(false);setPasteText('');}},
+            style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'9px 16px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},pasteRows?'← 다시 붙여넣기':'취소'),
+          R('button',{onClick:pasteRows?confirmPaste:analyzePaste,
+            style:{border:'none',background:accent,color:'#fff',borderRadius:8,padding:'9px 20px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},pasteRows?'저장하기':'분석하기')
         )
       )
     ),
