@@ -9533,6 +9533,42 @@ function PageShipSort({mats,hqItems}){
   const[imgBusy,setImgBusy]=useState(false);
   const[imgErr,setImgErr]=useState('');
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
+  const[ajBridge,setAjBridge]=useState(null);   /* null=확인중 true=연결됨 false=꺼짐 */
+  const[ajRun,setAjRun]=useState(null);         /* {dry,lines,done,code} */
+  const AJ_BRIDGE='http://127.0.0.1:8777';
+
+  /* 브리지(PC 프로그램) 연결 확인 */
+  useEffect(()=>{
+    let alive=true;
+    const ping=()=>{
+      const to=setTimeout(()=>{},0);clearTimeout(to);
+      fetch(AJ_BRIDGE+'/status',{cache:'no-store'})
+        .then(r=>r.json()).then(d=>{if(alive)setAjBridge(!!(d&&d.ok));})
+        .catch(()=>{if(alive)setAjBridge(false);});
+    };
+    ping();
+    const t=setInterval(ping,15000);
+    return()=>{alive=false;clearInterval(t);};
+  },[]);
+
+  /* 전표 등록 실행 (PC 프로그램 호출) */
+  const runAj=(dry)=>{
+    if(ajRun&&!ajRun.done)return;
+    setAjRun({dry,lines:['시작하는 중...'],done:false,code:null});
+    fetch(AJ_BRIDGE+'/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dry})})
+      .then(r=>r.json())
+      .then(d=>{
+        if(!d||!d.job)throw new Error(d&&d.error||'실행 실패');
+        const poll=()=>{
+          fetch(AJ_BRIDGE+'/log?job='+d.job,{cache:'no-store'}).then(r=>r.json()).then(s=>{
+            setAjRun({dry,lines:s.lines&&s.lines.length?s.lines:['진행 중...'],done:s.done,code:s.code});
+            if(!s.done)setTimeout(poll,1200);
+          }).catch(()=>setTimeout(poll,2000));
+        };
+        setTimeout(poll,1200);
+      })
+      .catch(e=>setAjRun({dry,lines:['오류: '+e.message],done:true,code:1}));
+  };
   const imgRef=useRef(null);
   const fileRef=useRef(null);
   const captureRef=useRef(null);
@@ -10126,9 +10162,30 @@ function PageShipSort({mats,hqItems}){
           ),
           R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
             ajMsg&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},ajMsg),
-            R('button',{className:'btn bs btn-sm',onClick:()=>copy(rows.map(line).join('\n'),'✓ 전체 복사됨')},'📋 전체 복사'),
-            R('a',{href:'http://edi.ajuprs.com/main_frame.do',target:'_blank',rel:'noreferrer',className:'btn bp btn-sm',style:{textDecoration:'none'}},'AJ 사이트 열기 →')
+            ajBridge&&R('button',{className:'btn bs btn-sm',disabled:!!(ajRun&&!ajRun.done),
+              onClick:()=>runAj(true)},'👁 미리보기'),
+            ajBridge&&R('button',{className:'btn bp btn-sm',disabled:!!(ajRun&&!ajRun.done),
+              style:{opacity:(ajRun&&!ajRun.done)?0.5:1},
+              onClick:()=>{if(confirm('AJ네트웍스에 파렛트 전표 '+rows.length+'건('+totPal+'파렛트)을 등록하고 출력합니다.\n진행할까요?'))runAj(false);}},
+              (ajRun&&!ajRun.done&&!ajRun.dry)?'⏳ 등록 중...':'🖨 전표 등록/출력'),
+            R('button',{className:'btn bw btn-sm',onClick:()=>copy(rows.map(line).join('\n'),'✓ 전체 복사됨')},'📋 복사'),
+            R('a',{href:'http://edi.ajuprs.com/main_frame.do',target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'AJ 열기 →')
           )
+        ),
+        /* 브리지 상태 / 실행 로그 */
+        ajBridge===false&&R('div',{style:{marginBottom:9,padding:'9px 11px',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,fontSize:11,color:'#92400E',lineHeight:1.6}},
+          R('b',null,'⚡ 자동 등록을 쓰려면 PC 프로그램을 켜주세요'),R('br'),
+          '문서 → bnf-aj 폴더 → ',R('b',null,'0-브리지 실행(항상 켜두기).bat'),' 더블클릭 (한 번 켜두면 계속 사용 가능)'
+        ),
+        ajRun&&R('div',{style:{marginBottom:9,padding:'9px 11px',borderRadius:9,fontSize:11,lineHeight:1.55,
+          background:ajRun.done?(ajRun.code===0?'#F0FDF4':'#FEF2F2'):'#F5F3FF',
+          border:'1px solid '+(ajRun.done?(ajRun.code===0?'#BBF7D0':'#FECACA'):'#DDD6FE')}},
+          R('div',{style:{fontWeight:800,marginBottom:5,display:'flex',justifyContent:'space-between',alignItems:'center'}},
+            R('span',null,ajRun.done?(ajRun.code===0?(ajRun.dry?'✅ 미리보기 완료 (저장 안 함)':'✅ 전표 등록·출력 완료'):'❌ 실패'):'⏳ 진행 중...'),
+            ajRun.done&&R('button',{onClick:()=>setAjRun(null),style:{background:'none',border:'none',cursor:'pointer',color:'var(--tm)',fontSize:13}},'✕')
+          ),
+          R('div',{style:{maxHeight:170,overflowY:'auto',fontFamily:'monospace',fontSize:10.5,whiteSpace:'pre-wrap',color:'#374151'}},
+            ajRun.lines.join('\n'))
         ),
         R('div',{className:'hscroll'},R('div',{style:{minWidth:520,border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden'}},
           R('div',{style:{display:'grid',gridTemplateColumns:cols,background:'#FAF8FC',fontSize:10.5,fontWeight:700,color:'#94A3B8'}},
