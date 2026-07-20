@@ -76,6 +76,8 @@ $head = @'
 <meta name="theme-color" content="#D94F1E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="출고 계획">
+<link rel="manifest" href="./shipping-manifest.json">
+<link rel="apple-touch-icon" href="./icon-512.png">
 <title>출고 계획 · B&F Global</title>
 '@
 
@@ -93,12 +95,45 @@ const R=React.createElement;
 
 $appCode = @'
 
+/* ═══ 카카오톡 등에서 "보내기(공유)"로 받은 PDF 처리 ═══
+   서비스워커가 공유 파일을 임시 보관 → 여기서 꺼내 자동 입력합니다. */
+const SHARE_CACHE='bnf-shipping-share-v1';
+const SHARE_PREFIX='/__bnf_shared__/';
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw-shipping.js').catch(()=>{});
+  });
+}
+async function pickupSharedFiles(){
+  try{
+    if(!('caches' in window))return[];
+    const cache=await caches.open(SHARE_CACHE);
+    const cntRes=await cache.match(SHARE_PREFIX+'count');
+    if(!cntRes)return[];
+    const n=parseInt(await cntRes.text(),10)||0;
+    const out=[];
+    for(let i=0;i<n;i++){
+      const res=await cache.match(SHARE_PREFIX+i);
+      if(!res)continue;
+      const blob=await res.blob();
+      let name='공유파일'+(i+1)+'.pdf';
+      try{const h=res.headers.get('x-bnf-filename');if(h)name=decodeURIComponent(h);}catch(e){}
+      if(!/\.pdf$/i.test(name))name=name+'.pdf';
+      out.push(new File([blob],name,{type:blob.type||'application/pdf'}));
+    }
+    /* 한 번 꺼내면 정리 (새로고침 시 중복 입력 방지) */
+    for(const key of await cache.keys()){if(key.url.indexOf(SHARE_PREFIX)!==-1)await cache.delete(key);}
+    return out;
+  }catch(e){return[];}
+}
+
 /* ═══ 독립 실행형 앱: MES와 같은 DB를 사용하므로 데이터가 자동 공유됩니다 ═══ */
 function ShippingApp(){
   const[mats,setMats]=useState([]);
   const[hqItems,setHqItems]=useState([]);
   const[loading,setLoading]=useState(true);
   const[err,setErr]=useState('');
+  const[shareMsg,setShareMsg]=useState('');
 
   const load=()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
@@ -118,6 +153,23 @@ function ShippingApp(){
     return()=>document.removeEventListener('visibilitychange',onVis);
   },[]);
 
+  /* 공유로 들어온 PDF를 재고 로딩 후 자동 입력 */
+  useEffect(()=>{
+    if(loading||err)return;
+    let done=false;
+    const run=async()=>{
+      const files=await pickupSharedFiles();
+      if(done||!files.length)return;
+      setShareMsg('📥 카톡에서 받은 '+files.length+'개 파일을 정리하는 중...');
+      window.dispatchEvent(new CustomEvent('bnf-shared-files',{detail:files}));
+      setTimeout(()=>setShareMsg(''),6000);
+      /* 주소창의 ?shared=1 정리 */
+      try{history.replaceState(null,'',location.pathname);}catch(e){}
+    };
+    run();
+    return()=>{done=true;};
+  },[loading,err]);
+
   return R('div',{className:'app'},
     R('div',{className:'hdr'},
       R('div',{style:{display:'flex',alignItems:'center',gap:9,minWidth:0}},
@@ -131,6 +183,7 @@ function ShippingApp(){
       R('button',{onClick:()=>{setLoading(true);load();},title:'최신 재고 다시 불러오기',
         style:{background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:8,padding:'6px 11px',fontSize:11,fontWeight:700,color:'#6B6B6B',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},'↻ 새로고침')
     ),
+    shareMsg&&R('div',{style:{background:'#ECFDF5',borderBottom:'1px solid #A7F3D0',color:'#15803D',fontSize:12,fontWeight:700,padding:'8px 14px',flexShrink:0}},shareMsg),
     R('div',{className:'body'},
       R('div',{className:'main'},
         loading

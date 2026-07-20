@@ -1,0 +1,42 @@
+{
+  "name": "B&F 출고 계획",
+  "short_name": "출고 계획",
+  "description": "거래명세서 PDF를 센터별 출고 계획으로 자동 정리합니다",
+  "start_url": "./shipping.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#D94F1E",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "./shipping.html",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": ["application/pdf", ".pdf"]
+        }
+      ]
+    }
+  }
+}

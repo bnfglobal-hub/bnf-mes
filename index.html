@@ -9785,7 +9785,8 @@ function PageShipSort({mats,hqItems}){
 
   /* 여러 PDF 파일 처리 */
   const handleFiles=async(fileList)=>{
-    const files=Array.from(fileList).filter(f=>String(f.name||'').toLowerCase().endsWith('.pdf'));
+    /* 이름이 없는 공유 파일(카톡 등)도 받도록 MIME 타입까지 허용 */
+    const files=Array.from(fileList).filter(f=>String(f.name||'').toLowerCase().endsWith('.pdf')||String(f.type||'')==='application/pdf');
     if(files.length===0){alert('PDF 파일을 선택하세요');return;}
     if(typeof pdfjsLib==='undefined'&&typeof window.pdfjsLib==='undefined'){alert('PDF 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.');return;}
     const lib=window.pdfjsLib||pdfjsLib;
@@ -9928,6 +9929,17 @@ function PageShipSort({mats,hqItems}){
   };
 
   const onDrop=(e)=>{e.preventDefault();if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);};
+
+  /* 카톡 등에서 "보내기(공유)"로 전달된 PDF 자동 처리 (독립 실행형 앱 전용) */
+  useEffect(()=>{
+    const onShared=(e)=>{const fs=e&&e.detail;if(fs&&fs.length)handleFiles(fs);};
+    window.addEventListener('bnf-shared-files',onShared);
+    if(window.__bnfSharedFiles&&window.__bnfSharedFiles.length){
+      const fs=window.__bnfSharedFiles;window.__bnfSharedFiles=null;
+      setTimeout(()=>handleFiles(fs),0);
+    }
+    return()=>window.removeEventListener('bnf-shared-files',onShared);
+  },[]);
 
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
