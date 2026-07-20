@@ -565,6 +565,37 @@ function Modal2({title,onClose,footer,children,size}){
   );
 }
 
+/* ═══ 이카운트 ERP 연동 상태 배지 (10분 주기 자동 동기화 표시) ═══ */
+function EcountSyncBadge(){
+  const[info,setInfo]=useState(null);
+  const[,setTick]=useState(0);
+  useEffect(()=>{
+    let alive=true;
+    const load=()=>{
+      try{
+        sbClient.from('app_state').select('sync:state_data->ecount_sync').eq('id',1).maybeSingle()
+          .then(({data})=>{if(alive&&data&&data.sync)setInfo(data.sync);})
+          .catch(()=>{});
+      }catch(e){}
+    };
+    load();
+    const t=setInterval(()=>{load();setTick(x=>x+1);},60000);
+    return()=>{alive=false;clearInterval(t);};
+  },[]);
+  if(!info||!info.at)return null;
+  const mins=Math.max(0,Math.floor((Date.now()-new Date(info.at).getTime())/60000));
+  const fresh=mins<=20;
+  const ago=mins<1?'방금':mins<60?(mins+'분 전'):(Math.floor(mins/60)+'시간 전');
+  return R('span',{
+    title:'이카운트 ERP 자동 동기화 · 매칭 '+(info.matched||0)+'개 품목 · 10분 주기'+(info.changed?(' · 최근 변경 '+info.changed+'건'):''),
+    style:{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 9px',borderRadius:20,fontSize:10,fontWeight:700,whiteSpace:'nowrap',cursor:'help',
+      background:fresh?'#EFF6FF':'#F3F4F6',color:fresh?'#1D4ED8':'#6B7280',border:'1px solid '+(fresh?'#BFDBFE':'#E5E7EB')}
+  },
+    R('span',{style:{width:7,height:7,borderRadius:'50%',background:fresh?'#3B82F6':'#9CA3AF',display:'inline-block',animation:fresh?'pulse 2s ease-in-out infinite':'none'}}),
+    '이카운트 '+(fresh?'연동중':'연동')+' · '+ago
+  );
+}
+
 /* ═══ 생산 스케줄표 (신규 구조) ════════════════════════════════════ */
 /* 카테고리: key, label, bg(라인 배경), accent(좌측 색띠) */
 const SCHED_CATS=[
@@ -5210,7 +5241,8 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
         R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:'50%',flexShrink:0,background:lastSyncAt&&(Date.now()-lastSyncAt<10000)?'#22C55E':'#F59E0B',animation:'pulse 2s ease-in-out infinite'}}),
         lastSyncAt?R('span',{style:{overflow:'hidden',textOverflow:'ellipsis'}},'☁ 자동 동기화 · ',Math.max(0,Math.floor((Date.now()-lastSyncAt)/1000)),'초 전'):'☁ 동기화 대기 중...'
       ),
-      R('div',{style:{display:'flex',gap:6,flexShrink:0}},
+      R('div',{style:{display:'flex',gap:6,flexShrink:0,alignItems:'center'}},
+        R(EcountSyncBadge),
         R('button',{onClick:async()=>{
           if(!confirm('이 기기의 즐겨찾기·반제품·폴더 구성을 서버에 올립니다.\n다른 기기들도 이 구성을 보게 됩니다. 진행할까요?'))return;
           try{
