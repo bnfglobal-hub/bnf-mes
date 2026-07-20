@@ -9438,27 +9438,30 @@ function PageDartLookup(){
   const MKT={Y:'유가증권(코스피)',K:'코스닥',N:'코넥스',E:'기타(비상장)'};
   const won=(s)=>{const n=parseInt(String(s||'').replace(/[^0-9-]/g,''))||0;if(!n)return '-';const eok=n/100000000;if(Math.abs(eok)>=10000)return (eok/10000).toFixed(1)+'조 원';if(Math.abs(eok)>=1)return Math.round(eok).toLocaleString()+'억 원';return n.toLocaleString()+' 원';};
 
+  /* DART 조회는 PC 브리지(문서\bnf-aj\0-브리지 실행.bat)를 통해 금융감독원 DART API 호출 */
+  const DART_BRIDGE='http://127.0.0.1:8777';
+  const bridgeErr='PC 브리지가 꺼져 있습니다.\n문서 → bnf-aj 폴더 → "0-브리지 실행(항상 켜두기).bat"을 실행해 주세요.\n(휴대폰에서는 조회되지 않습니다 - PC에서 이용하세요)';
   const search=async()=>{
     const name=q.trim();
     if(!name){setErr('회사명을 입력하세요.');return;}
     setBusy(true);setErr('');setMatches(null);setDetail(null);setPicked(null);
     try{
-      const res=await fetch(SB_URL+'/functions/v1/dart-service',{method:'POST',headers:HDRS,body:JSON.stringify({name})});
-      let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류('+res.status+'). Edge Function(dart-service) 배포 상태를 확인하세요.');}
-      if(!res.ok||j.error)throw new Error(j.error||('서버 오류 '+res.status));
+      const res=await fetch(DART_BRIDGE+'/dart/search?name='+encodeURIComponent(name),{cache:'no-store'});
+      const j=await res.json();
+      if(!res.ok||j.error)throw new Error(j.error||('오류 '+res.status));
       setMatches(j.matches||[]);setCount(j.count||0);
       if((j.matches||[]).length===0)setErr('"'+name+'" 검색 결과가 없습니다.\nDART(전자공시)에는 상장사·외부감사대상 법인만 등록되어 있어, 소규모 거래처는 조회되지 않을 수 있습니다.');
-    }catch(e){let m=String(e&&e.message||e);if(m==='Failed to fetch')m='서버에 연결하지 못했습니다.\nEdge Function(dart-service)이 배포되어 있는지 확인하세요.';setErr(m);}
+    }catch(e){let m=String(e&&e.message||e);if(m==='Failed to fetch'||/NetworkError|load failed/i.test(m))m=bridgeErr;setErr(m);}
     setBusy(false);
   };
   const pick=async(c)=>{
     setPicked(c);setDetail(null);setDetailBusy(true);setErr('');
     try{
-      const res=await fetch(SB_URL+'/functions/v1/dart-service',{method:'POST',headers:HDRS,body:JSON.stringify({corp_code:c.corp_code})});
-      let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류('+res.status+')');}
-      if(!res.ok||j.error)throw new Error(j.error||('서버 오류 '+res.status));
+      const res=await fetch(DART_BRIDGE+'/dart/company?corp_code='+encodeURIComponent(c.corp_code),{cache:'no-store'});
+      const j=await res.json();
+      if(!res.ok||j.error)throw new Error(j.error||('오류 '+res.status));
       setDetail(j);
-    }catch(e){setErr('상세 조회 실패: '+String(e&&e.message||e));}
+    }catch(e){let m=String(e&&e.message||e);if(m==='Failed to fetch'||/NetworkError|load failed/i.test(m))m=bridgeErr;setErr('상세 조회 실패: '+m);}
     setDetailBusy(false);
   };
 
@@ -9472,7 +9475,7 @@ function PageDartLookup(){
   return R('div',{className:'pg fa'},
     R('div',{style:{marginBottom:14}},
       R('div',{className:'pg-title'},'🔍 거래처 정보 조회'),
-      R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'금융감독원 DART 전자공시 연동 · 회사명으로 기업 정보를 조회합니다')
+      R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'금융감독원 DART 전자공시 연동 · 회사명으로 기업 정보를 조회합니다 (PC 전용)')
     ),
     /* 검색창 */
     R('div',{className:'card',style:{padding:14,marginBottom:14,maxWidth:640}},
