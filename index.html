@@ -9532,6 +9532,7 @@ function PageShipSort({mats,hqItems}){
   const[shipImg,setShipImg]=useState(null); /* 발주서 이미지(base64 dataURL) */
   const[imgBusy,setImgBusy]=useState(false);
   const[imgErr,setImgErr]=useState('');
+  const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
   const imgRef=useRef(null);
   const fileRef=useRef(null);
   const captureRef=useRef(null);
@@ -9889,6 +9890,18 @@ function PageShipSort({mats,hqItems}){
     return pt;
   };
   /* 날짜+센터 복합키 (입고예정일이 다르면 별도 그룹으로 분리) */
+  /* \u2500\u2500 AJ\uB124\uD2B8\uC6CD\uC2A4 \uD30C\uB81B\uD2B8 \uC804\uD45C \uC124\uC815 \u2500\u2500
+     \uD30C\uB81B\uD2B8 = 30\uBC15\uC2A4 \uAE30\uC900, \uC794\uC5EC\uAC00 6\uBC15\uC2A4 \uC774\uC0C1\uC77C \uB54C\uB9CC 1\uD30C\uB81B\uD2B8 \uCD94\uAC00
+     (125\uBC15\uC2A4 \u2192 4\uD30C\uB81B\uD2B8 / 126\uBC15\uC2A4 \u2192 5\uD30C\uB81B\uD2B8) */
+  const AJ_VENDOR='(\uC8FC)\uCEEC\uB9AC/\uB9C8\uCF13\uCEEC\uB9AC';
+  const AJ_WARE={
+    '\uAE40\uD3EC(\uCF04\uB2EC)':{ware:'\uB9C8\uCF13\uCEEC\uB9AC_\uAE40\uD3EC\uB0C9\uB3D9'},
+    '\uAE40\uD3EC(\uC0BC\uC6B0)':{ware:'\uB9C8\uCF13\uCEEC\uB9AC_\uAE40\uD3EC\uB0C9\uB3D9'},
+    '\uD3C9\uD0DD\uCEEC\uB9AC':{ware:'\uB9C8\uCF13\uCEEC\uB9AC_\uD3C9\uD0DD\uB0C9\uB3D9(4\uCE35)'},
+    '\uCC3D\uC6D0\uBB3C\uB958\uB300\uD589':{ware:'\uB9C8\uCF13\uCEEC\uB9AC_\uC785\uACE0\uB300\uD589\uC13C\uD130 \uB0C9\uB3D9'}
+  };
+  const palletOf=(box)=>Math.floor((+box||0)/30)+(((+box||0)%30)>=6?1:0);
+
   const DSEP='\u241F';
   const ckey=(date,center)=>(date||'미정')+DSEP+center;
   const parseCkey=(k)=>{const i=k.indexOf(DSEP);return i<0?{date:'미정',center:k}:{date:k.slice(0,i),center:k.slice(i+DSEP.length)};};
@@ -10082,6 +10095,60 @@ function PageShipSort({mats,hqItems}){
         R('textarea',{readOnly:true,value:rawDbg,onClick:e=>e.target.select(),style:{width:'100%',height:220,fontSize:11,fontFamily:'monospace',padding:10,border:'1px solid var(--bd)',borderRadius:8,boxSizing:'border-box',whiteSpace:'pre-wrap',background:'#FAFAFA'}})
       )
     ),
+    /* ── AJ네트웍스 파렛트 이동전표 ── */
+    parsed&&parsed.byCenter&&(()=>{
+      const rows=[];
+      Object.entries(parsed.byCenter).forEach(([k,d])=>{
+        const{date,center}=parseCkey(k);
+        const box=+d.totalBox||0;
+        if(box<=0)return;
+        const info=AJ_WARE[center];
+        rows.push({date,center,box,pal:palletOf(box),ware:info?info.ware:'',ok:!!info});
+      });
+      if(!rows.length)return null;
+      rows.sort((a,b)=>(a.date+a.center).localeCompare(b.date+b.center,'ko'));
+      const totPal=rows.reduce((s,r)=>s+r.pal,0);
+      const dupWare={};rows.forEach(r=>{if(r.ware)dupWare[r.ware]=(dupWare[r.ware]||0)+1;});
+      const hasDup=Object.values(dupWare).some(v=>v>1);
+      const line=(r)=>[r.date,'12A',r.pal,AJ_VENDOR,r.ware,'0000'].join('\t');
+      const copy=(txt,msg)=>{
+        const done=()=>{setAjMsg(msg);setTimeout(()=>setAjMsg(''),2000);};
+        if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done).catch(()=>done());}
+        else{const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(t);done();}
+      };
+      const cell={fontSize:12,padding:'7px 8px',borderBottom:'1px solid #F4F1F7',whiteSpace:'nowrap'};
+      const cols='92px 46px 54px minmax(150px,1fr) 62px 62px';
+      return R('div',{className:'card',style:{marginBottom:14,padding:'12px 14px'}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}},
+          R('div',null,
+            R('div',{style:{fontSize:13,fontWeight:800}},'🏷 파렛트 이동전표 (AJ네트웍스)'),
+            R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'30박스=1파렛트 · 잔여 6박스부터 1파렛트로 계산 · 총 ',R('b',{style:{color:'var(--p)'}},totPal+'파렛트'))
+          ),
+          R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+            ajMsg&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},ajMsg),
+            R('button',{className:'btn bs btn-sm',onClick:()=>copy(rows.map(line).join('\n'),'✓ 전체 복사됨')},'📋 전체 복사'),
+            R('a',{href:'http://edi.ajuprs.com/main_frame.do',target:'_blank',rel:'noreferrer',className:'btn bp btn-sm',style:{textDecoration:'none'}},'AJ 사이트 열기 →')
+          )
+        ),
+        R('div',{className:'hscroll'},R('div',{style:{minWidth:520,border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden'}},
+          R('div',{style:{display:'grid',gridTemplateColumns:cols,background:'#FAF8FC',fontSize:10.5,fontWeight:700,color:'#94A3B8'}},
+            ...['이동일자','제품','수량','입고작업장명','차량','복사'].map((h,i)=>R('div',{key:i,style:{padding:'7px 8px',whiteSpace:'nowrap'}},h))
+          ),
+          ...rows.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:cols,alignItems:'center',background:r.ok?'#fff':'#FFFBEB'}},
+            R('div',{style:cell},r.date),
+            R('div',{style:{...cell,fontWeight:800,color:'var(--p)'}},'12A'),
+            R('div',{style:{...cell,fontWeight:800}},r.pal,R('span',{style:{fontSize:9.5,color:'var(--tm)',fontWeight:500}},' ('+r.box+'박스)')),
+            R('div',{style:cell},r.ok?r.ware:R('span',{style:{color:'#B45309',fontWeight:700}},'⚠ '+r.center+' 매핑없음')),
+            R('div',{style:cell},'0000'),
+            R('div',{style:{...cell,padding:'4px 8px'}},r.ok&&R('button',{className:'btn bw btn-sm',style:{padding:'3px 8px',fontSize:10},onClick:()=>copy(line(r),'✓ '+r.center+' 복사됨')},'복사'))
+          ))
+        )),
+        hasDup&&R('div',{style:{marginTop:8,padding:'8px 10px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,fontSize:11,color:'#B91C1C',fontWeight:600}},
+          '⚠ 같은 입고처가 2건입니다 (김포 켄달·삼우). 출력 시 "통합 발행" 창이 뜨면 반드시 [취소]를 눌러야 전표가 2장으로 나옵니다.'),
+        R('div',{style:{marginTop:8,fontSize:10.5,color:'var(--tm)',lineHeight:1.6}},
+          'AJ 사이트 → 이동조회/관리 → 추가 → 위 값 그대로 입력 → 저장 → 출력 체크 → (통합발행 창은 취소) → 인쇄')
+      );
+    })(),
     /* 결과 */
     parsed&&R('div',{ref:captureRef,style:{background:'#fff',display:'inline-block',padding:10,boxSizing:'border-box'}},
       ...(()=>{
