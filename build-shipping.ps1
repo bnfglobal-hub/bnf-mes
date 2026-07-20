@@ -148,9 +148,11 @@ function ShippingApp(){
   };
   useEffect(()=>{
     load();
+    /* 재고 자동 연동: 1분마다 + 화면 복귀 시 최신 재고 반영 */
+    const t=setInterval(load,60000);
     const onVis=()=>{if(!document.hidden)load();};
     document.addEventListener('visibilitychange',onVis);
-    return()=>document.removeEventListener('visibilitychange',onVis);
+    return()=>{clearInterval(t);document.removeEventListener('visibilitychange',onVis);};
   },[]);
 
   /* 공유로 들어온 PDF를 재고 로딩 후 자동 입력 */

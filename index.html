@@ -9494,8 +9494,6 @@ function PageShipSort({mats,hqItems}){
     if(!prodName)return null;
     const norm=normName;
     const target=norm(prodName);
-    /* 핵심 단어: 대괄호 부분 제거한 본 이름 */
-    const core=norm(String(prodName).replace(/\[[^\]]*\]/g,''));
     /* 0) 수동 연결 매핑 우선 (matCode 기준) */
     const mapped=nameMap[target];
     if(mapped){
@@ -9507,23 +9505,39 @@ function PageShipSort({mats,hqItems}){
       const m=(mats||[]).find(x=>x.c===mapped);
       if(m)return{stock:+(m.s||0),unit:m.u||'ea',source:'재고(수동)',matchedName:m.n||mapped};
     }
-    /* 유사도 점수: 정확 일치(100) > 끝일치+같은단어(80) > 한쪽이 다른쪽 끝에 포함(60) > 어떤 포함(40) */
+    /* ── 자동 매칭 점수 ──
+       출고 제품명은 "[브랜드] 제품명", 재고 품목명은 "브랜드/제품명[규격]" 형태라
+       ① 규격([600g*30] 등 숫자가 든 괄호)을 떼고 ② 브랜드를 분리한 뒤
+       ③ 제품명끼리 비교한다. 접두어가 다르면(예: 소고기쌀국수 vs 마라소고기쌀국수)
+       다른 제품이므로 낮은 점수를 줘 오매칭을 막는다. */
+    const stripSize=(s)=>String(s||'').replace(/[\[(][^\])]*\d[^\])]*[\])]/g,' ');
+    const SUBMAT=/육수|포장지|패키지|팩키지|스티커|라벨|지대|농축액|반제품|박스|파우치|봉투|분말|소스|^롤/;
+    const bigrams=(s)=>{const o=[];for(let i=0;i<s.length-1;i++)o.push(s.slice(i,i+2));return o;};
+    const dice=(a,b)=>{
+      if(!a||!b)return 0;if(a===b)return 1;
+      const A=bigrams(a),B=bigrams(b);if(!A.length||!B.length)return 0;
+      const m={};A.forEach(g=>{m[g]=(m[g]||0)+1;});
+      let hit=0;B.forEach(g=>{if(m[g]>0){m[g]--;hit++;}});
+      return 2*hit/(A.length+B.length);
+    };
+    const pm=String(prodName||'').match(/^\s*\[([^\]]+)\]\s*(.*)$/);
+    const brand=pm?norm(pm[1]):'';
+    const prodOnly=pm?norm(pm[2]):target;
     const score=(candidate)=>{
-      const cn=norm(candidate);
-      if(!cn||!core)return 0;
-      if(cn===target||cn===core)return 100;
-      /* 끝 일치 (예: '엄마밥상청국장' === ends with '청국장') */
-      if(cn.endsWith(core)||core.endsWith(cn))return 80;
-      /* 부분 일치인데 길이차가 작으면 (예: '청국장' vs '청국장600g') */
-      if(cn.includes(core)){
-        const ratio=core.length/cn.length;
-        return ratio>=0.6?60:30; /* 길이차 40% 이내일때만 신뢰 */
+      let c=norm(stripSize(candidate));
+      if(!c||!prodOnly)return 0;
+      if(brand&&c.startsWith(brand))c=c.slice(brand.length);
+      let s=0;
+      if(c===prodOnly)s=100;                                   /* 완전 일치 */
+      else if(c.startsWith(prodOnly))s=90;                     /* 규격/인분 등 뒤에만 추가 */
+      else if(prodOnly.startsWith(c)&&c.length>=Math.max(3,prodOnly.length*0.6))s=88;
+      else{
+        const d=dice(prodOnly,c);
+        s=d>=0.85?75:(d>=0.72?65:((c.endsWith(prodOnly)||prodOnly.endsWith(c))?40:0));
       }
-      if(core.includes(cn)){
-        const ratio=cn.length/core.length;
-        return ratio>=0.6?60:30;
-      }
-      return 0;
+      if(s<100&&SUBMAT.test(String(candidate)))s-=60;          /* 육수·포장지 등 부자재 제외 */
+      if(brand&&norm(candidate).indexOf(brand)>=0)s+=4;        /* 브랜드 일치 가산 */
+      return Math.max(0,s);
     };
     /* 1) 본사재고에서 최고 점수 찾기 (60점 이상만 유효)
        ※ 본사재고 항목 필드: matName(이름), matCode(코드), hqStock(본사보유)
