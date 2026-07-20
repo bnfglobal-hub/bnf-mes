@@ -3844,6 +3844,10 @@ function PageTrade({kind}){
   const nf=(n)=>Math.round(+n||0).toLocaleString();
   const field=isS?'sales':'purchase';
 
+  const[showPaste,setShowPaste]=useState(false);
+  const[pasteText,setPasteText]=useState('');
+  const[saving,setSaving]=useState(false);
+
   useEffect(()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:d})=>{
       const sd=d&&d.state_data?d.state_data:{};
@@ -3851,6 +3855,29 @@ function PageTrade({kind}){
       setLoaded(true);
     }).catch(()=>setLoaded(true));
   },[]);
+
+  /* 이카운트 표 붙여넣기 → profit_analysis 저장 (영업 이익 분석과 동일 데이터) */
+  const doPaste=()=>{
+    const next=JSON.parse(JSON.stringify(data));
+    let cnt=0;
+    (pasteText||'').split(/\n/).forEach(line=>{
+      const m=line.match(/(\d{4})\/(\d{1,2})/);if(!m)return;
+      const py=m[1];const mm=String(m[2]).padStart(2,'0');
+      const after=line.slice(line.indexOf(m[0])+m[0].length);
+      const nums=(after.match(/-?[\d,]+(?:\.\d+)?/g)||[]).map(x=>parseFloat(x.replace(/,/g,''))).filter(n=>!isNaN(n));
+      if(nums.length>=2){
+        if(!next[py])next[py]={};
+        if(!next[py][mm])next[py][mm]={sales:'',purchase:''};
+        next[py][mm][field]=Math.round(nums[1]);cnt++;
+      }
+    });
+    if(cnt===0){alert('인식된 월별 데이터가 없습니다.\n이카운트 '+(isS?'판매':'구매')+'현황 표를 그대로 복사해 붙여넣어 주세요.\n(연도 상관없이 "2025/01 ..." 줄을 자동 인식합니다)');return;}
+    setData(next);setSaving(true);setShowPaste(false);setPasteText('');
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
+      const ex=cur&&cur.state_data?cur.state_data:{};
+      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,profit_analysis:next},updated_at:new Date().toISOString()});
+    }).then(()=>{setSaving(false);alert('✅ '+cnt+'개월 '+label+' 데이터가 저장되었습니다.');}).catch(e=>{setSaving(false);alert('저장 실패: '+e.message);});
+  };
 
   const val=(y,mm)=>{const r=(data[String(y)]||{})[mm];return r&&r[field]!==undefined&&r[field]!==''?(+r[field]||0):null;};
   const v0=(y,mm)=>val(y,mm)||0;
@@ -3896,10 +3923,30 @@ function PageTrade({kind}){
         R('div',{className:'pg-title'},(isS?'💵 매출 현황':'🧾 매입 현황')),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'이카운트 '+(isS?'판매':'구매')+' 기준 · 공급가액 · 영업 이익 분석 데이터와 연동')
       ),
-      R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('button',{onClick:()=>{setShowPaste(true);setPasteText('');},style:{border:'1px solid '+accentBd,background:accentBg,color:accent,borderRadius:9,padding:'7px 13px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'📋 이카운트 표 붙여넣기'),
+        saving&&R('span',{style:{fontSize:11,color:'var(--ok)',fontWeight:700}},'저장 중…'),
         R('button',{className:'btn bw btn-sm',onClick:()=>setYear(year-1)},'◀'),
         R('span',{style:{fontSize:15,fontWeight:800,minWidth:52,textAlign:'center'}},year),
         R('button',{className:'btn bw btn-sm',onClick:()=>setYear(year+1)},'▶')
+      )
+    ),
+    /* 붙여넣기 모달 */
+    showPaste&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setShowPaste(false);setPasteText('');}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
+        R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9'}},
+          R('div',{style:{fontSize:14,fontWeight:800}},'이카운트 '+(isS?'판매현황':'구매현황')+' 붙여넣기'),
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},'이카운트에서 월별 표를 복사(Ctrl+C)해서 붙여넣기(Ctrl+V) 하세요. "2025/01 ..." 줄의 공급가액을 연도 구분 없이 자동 인식합니다. 작년 표까지 붙여넣으면 증감률이 자동 계산됩니다.')
+        ),
+        R('div',{style:{padding:'14px 18px'}},
+          R('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),autoFocus:true,placeholder:'2025/01   83,992   197,581,647   19,758,165   217,339,812\n2025/02   ...\n2026/01   ...',
+            style:{width:'100%',boxSizing:'border-box',minHeight:160,border:'1px solid var(--bd)',borderRadius:9,padding:'10px',fontSize:12,fontFamily:'monospace',resize:'vertical'}}),
+          R('div',{style:{display:'flex',justifyContent:'flex-end',gap:8,marginTop:12}},
+            R('button',{onClick:()=>{setShowPaste(false);setPasteText('');},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:'pointer',color:'var(--tm)',fontFamily:'inherit'}},'취소'),
+            R('button',{onClick:doPaste,style:{border:'none',background:accent,color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'자동 입력')
+          )
+        )
       )
     ),
     !loaded?R('div',{className:'empty'},'불러오는 중...'):
