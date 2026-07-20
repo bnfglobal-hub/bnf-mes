@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>출고물량 정리 도구</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background:#f4f5f7; color:#222; padding:20px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:#777; font-size:13px; margin-bottom:16px; }
+  .card { background:#fff; border:1px solid #ddd; border-radius:8px; padding:16px; margin-bottom:16px; }
+  .tabs { display:flex; gap:6px; margin-bottom:12px; }
+  .tabs button { padding:8px 16px; border:1px solid #ccc; background:#eee; border-radius:6px; cursor:pointer; font-size:14px; }
+  .tabs button.on { background:#4a3b8f; color:#fff; border-color:#4a3b8f; }
+  textarea { width:100%; height:140px; padding:10px; border:1px solid #ccc; border-radius:6px; font-size:14px; font-family:inherit; resize:vertical; }
+  .hint { font-size:12px; color:#888; margin:6px 0; white-space:pre-line; }
+  .drop { border:2px dashed #aaa; border-radius:8px; padding:30px; text-align:center; color:#666; cursor:pointer; }
+  .drop.over { border-color:#4a3b8f; background:#f0edff; }
+  .btn { padding:9px 18px; border:none; border-radius:6px; background:#4a3b8f; color:#fff; font-size:14px; cursor:pointer; margin-top:10px; }
+  .btn.gray { background:#888; }
+  .btn.green { background:#1a7f4e; }
+  .btn:disabled { background:#bbb; cursor:default; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border:1px solid #ccc; padding:6px 8px; text-align:center; }
+  th { background:#ece9f7; }
+  td.name { text-align:left; }
+  td[contenteditable] { background:#fffdf0; }
+  .prog { font-size:13px; color:#4a3b8f; margin-top:8px; min-height:18px; }
+  .pane { display:none; }
+  .pane.on { display:block; }
+  .tools { display:flex; gap:8px; flex-wrap:wrap; }
+  .total-row td { background:#f3f0ff; font-weight:bold; }
+  h2 { font-size:16px; margin:14px 0 8px; }
+  .del { color:#c00; cursor:pointer; font-weight:bold; }
+  @media print { .card.input, .tools, .tabs, .sub { display:none; } body { background:#fff; padding:0; } }
+</style>
+</head>
+<body>
+<h1>📦 출고물량 정리 도구</h1>
+<div class="sub">텍스트 · ERP표 붙여넣기 · 이미지 · PDF(스캔 OCR) → 입고지별/품목별 출고물량 자동 정리</div>
+
+<div class="card input">
+  <div class="tabs">
+    <button class="on" data-t="text">텍스트 입력</button>
+    <button data-t="file">이미지 / PDF</button>
+  </div>
+
+  <div class="pane on" id="pane-text">
+    <textarea id="txt" placeholder="예)
+창원 똠얌쌀국수 400개 / 소고기쌀국수 100개
+평택 똠얌쌀국수 1200개 / 소고기쌀국수 200개
+김포 똠얌쌀국수 1200개 / 소고기쌀국수 200개
+
+또는 발주 화면 표를 그대로 복사해서 붙여넣기 (발주코드/입고지/상품명/수량 자동 인식)"></textarea>
+    <div class="hint">지원 형식: ① 지역 품목 수량개 / 품목 수량개  ② 컬리 발주표 복사 붙여넣기(T발주코드·마스터코드·수량/낱개수량 자동 인식)</div>
+    <button class="btn" onclick="runText()">정리하기</button>
+  </div>
+
+  <div class="pane" id="pane-file">
+    <div class="drop" id="drop">이미지 또는 PDF 파일을 끌어다 놓거나 클릭해서 선택<br><small>(스캔 PDF는 OCR로 읽습니다 · Ctrl+V로 캡처 이미지 붙여넣기도 가능)</small></div>
+    <input type="file" id="file" accept="image/*,.pdf" multiple style="display:none">
+    <div class="prog" id="prog"></div>
+  </div>
+</div>
+
+<div class="card" id="result" style="display:none">
+  <div class="tools">
+    <button class="btn green" onclick="copyTSV()">엑셀용 복사 (탭 구분)</button>
+    <button class="btn gray" onclick="window.print()">인쇄</button>
+    <button class="btn gray" onclick="clearAll()">전체 지우기</button>
+  </div>
+  <h2>출고 내역</h2>
+  <div id="detail"></div>
+  <h2>품목별 합계</h2>
+  <div id="pivot"></div>
+</div>
+
+<script>
+let rows = []; // {region, order, code, name, qty, ea}
+
+/* ---------- 탭 ---------- */
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.pane').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  document.getElementById('pane-' + b.dataset.t).classList.add('on');
+});
+
+/* ---------- 파서 ---------- */
+const REGION_RE = /(창원|평택|김포|이천|곤지암|장성|대구|용인)[^\s\/,|]*(?:\s*(?:냉동|냉장|상온|켄달|삼우)?\s*\(?\d?층?\)?)?/;
+
+function normRegion(s) {
+  const m = s.match(/(창원|평택|김포|이천|곤지암|장성|대구|용인)/);
+  if (!m) return s.trim();
+  let extra = '';
+  const t = s.match(/(냉동|냉장|상온|켄달|삼우)/g); if (t) extra += t.join('');
+  const f = s.match(/(\d)\s*층/); if (f) extra += f[1] + '층';
+  return m[1] + (extra ? ' ' + extra : '');
+}
+
+function parseAll(text) {
+  const out = [];
+  let region = '', order = '';
+  const lines = text.split(/\r?\n/);
+  for (let raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    const om = line.match(/T\d{8}_[A-Z0-9]{4,6}/);
+    if (om) order = om[0];
+
+    const rm = line.match(REGION_RE);
+    if (rm && (/(냉동|냉장|상온|켄달|삼우|층)/.test(line.slice(line.indexOf(rm[0]), line.indexOf(rm[0]) + 15)) || !line.match(/\[\S/))) region = normRegion(line.slice(line.indexOf(rm[0]), line.indexOf(rm[0]) + 15));
+
+    // 컬리 명세서 행: 마스터코드 바코드 [브랜드] 품명 총수량 ... 수량 입수
+    const km = line.match(/(M[K0O]?\d{7,})\s+(\d{13})\s+(.+?)\s+(\d[\d,]*)\s/);
+    if (km) {
+      out.push({ region, order, code: km[1], name: km[3].trim(), qty: '', ea: num(km[4]) });
+      continue;
+    }
+
+    // 발주표 행: 마스터코드/(바코드) ... [브랜드] 품명 ... 수량 낱개수량
+    const bm = line.match(/(M[K]?\d{7,}|MK\d+)[\s\S]*?(\[[^\]]+\][^\t\d]*|\S+청국장\S*|\S+곰탕\S*)([\s\S]*)/);
+    if (line.match(/\[[^\]]+\]/) && !km) {
+      const nameM = line.match(/(\[[^\]]+\][^\t]*?)(?=\s+\d|\t|$)/);
+      const nums = (line.match(/(?:^|\s)(\d[\d,]{0,6})(?=\s|$)/g) || []).map(num).filter(n => n > 0 && n < 1000000 && String(n).length < 8);
+      const codeM = line.match(/(M[K]?[0O]?\d{7,})/);
+      if (nameM && nums.length) {
+        const tail = nums.filter(n => String(n) !== (codeM ? codeM[1].replace(/\D/g,'') : ''));
+        // 마지막 두 숫자 = 수량 / 낱개수량 (바코드 13자리 제외)
+        const cand = tail.filter(n => String(n).length !== 13);
+        let qty = '', ea = '';
+        if (cand.length >= 2) { qty = cand[cand.length-2]; ea = cand[cand.length-1]; }
+        else if (cand.length === 1) { ea = cand[0]; }
+        out.push({ region, order, code: codeM ? codeM[1] : '', name: nameM[1].trim(), qty, ea });
+        continue;
+      }
+    }
+
+    // 자유 텍스트: 지역 품목 수량개 / 품목 수량개
+    if (/\d\s*(개|박스|box|ea)/i.test(line) || /\/.*\d/.test(line)) {
+      let rest = line, lineRegion = region;
+      const fm = line.match(REGION_RE);
+      if (fm && line.indexOf(fm[0]) < 3) { lineRegion = normRegion(fm[0]); rest = line.slice(line.indexOf(fm[0]) + fm[0].length); }
+      const parts = rest.split(/[\/,·]/);
+      let got = false;
+      for (const p of parts) {
+        const im = p.trim().match(/(.+?)\s*(\d[\d,]*)\s*(개|박스|box|ea)?\s*$/i);
+        if (im && im[1].trim()) {
+          const unit = (im[3] || '').toLowerCase();
+          const isBox = unit === '박스' || unit === 'box';
+          out.push({ region: lineRegion, order, code: '', name: im[1].trim(), qty: isBox ? num(im[2]) : '', ea: isBox ? '' : num(im[2]) });
+          got = true;
+        }
+      }
+      if (got) continue;
+    }
+  }
+  return out;
+}
+
+function num(s) { return parseInt(String(s).replace(/,/g, ''), 10) || 0; }
+
+/* ---------- 실행 ---------- */
+function runText() {
+  const t = document.getElementById('txt').value;
+  if (!t.trim()) return alert('내용을 입력하세요.');
+  const r = parseAll(t);
+  if (!r.length) return alert('인식된 품목이 없습니다. 형식을 확인해 주세요.');
+  rows = rows.concat(r);
+  render();
+}
+
+/* ---------- 파일 / OCR ---------- */
+const drop = document.getElementById('drop'), fileEl = document.getElementById('file'), prog = document.getElementById('prog');
+drop.onclick = () => fileEl.click();
+fileEl.onchange = e => handleFiles(e.target.files);
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); handleFiles(e.dataTransfer.files); };
+document.addEventListener('paste', e => {
+  const items = [...(e.clipboardData?.items || [])].filter(i => i.type.startsWith('image/'));
+  if (items.length) handleFiles(items.map(i => i.getAsFile()));
+});
+
+async function handleFiles(files) {
+  for (const f of files) {
+    try {
+      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) await doPDF(f);
+      else await doImage(f);
+    } catch (err) { prog.textContent = '오류: ' + err.message; }
+  }
+}
+
+let worker = null;
+async function getWorker() {
+  if (worker) return worker;
+  prog.textContent = 'OCR 엔진 로딩 중...';
+  worker = await Tesseract.createWorker('kor+eng');
+  return worker;
+}
+
+async function ocr(imgSrc, label) {
+  const w = await getWorker();
+  prog.textContent = label + ' 글자 인식 중...';
+  const { data } = await w.recognize(imgSrc);
+  return data.text;
+}
+
+async function doImage(f) {
+  const url = URL.createObjectURL(f);
+  const text = await ocr(url, f.name);
+  URL.revokeObjectURL(url);
+  finish(text, f.name);
+}
+
+async function doPDF(f) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+  let all = '';
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    // 먼저 텍스트 레이어 시도
+    const tc = await page.getTextContent();
+    let txt = tc.items.map(i => i.str).join(' ');
+    if (txt.trim().length < 30) {
+      // 스캔본 → OCR
+      prog.textContent = `${f.name} ${p}/${pdf.numPages} 페이지 렌더링 중...`;
+      const vp = page.getViewport({ scale: 2.2 });
+      const cv = document.createElement('canvas');
+      cv.width = vp.width; cv.height = vp.height;
+      await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      txt = await ocr(cv, `${f.name} ${p}/${pdf.numPages}p`);
+    }
+    all += '\n' + txt;
+  }
+  finish(all, f.name);
+}
+
+function finish(text, name) {
+  const r = parseAll(text);
+  if (!r.length) {
+    prog.textContent = `${name}: 인식된 품목이 없습니다. (OCR 정확도 문제일 수 있음 — 텍스트 탭에 직접 입력해 주세요)`;
+    return;
+  }
+  rows = rows.concat(r);
+  prog.textContent = `${name}: ${r.length}개 품목 인식 완료 ✓ (표에서 직접 수정 가능)`;
+  render();
+}
+
+/* ---------- 렌더 ---------- */
+function render() {
+  document.getElementById('result').style.display = '';
+  let h = '<table><tr><th>입고지</th><th>발주코드</th><th>마스터코드</th><th>품명</th><th>수량(박스)</th><th>낱개수량</th><th></th></tr>';
+  rows.forEach((r, i) => {
+    h += `<tr>
+      <td contenteditable oninput="ed(${i},'region',this)">${esc(r.region)}</td>
+      <td>${esc(r.order)}</td>
+      <td>${esc(r.code)}</td>
+      <td class="name" contenteditable oninput="ed(${i},'name',this)">${esc(r.name)}</td>
+      <td contenteditable oninput="ed(${i},'qty',this)">${r.qty}</td>
+      <td contenteditable oninput="ed(${i},'ea',this)">${r.ea}</td>
+      <td><span class="del" onclick="delRow(${i})">✕</span></td></tr>`;
+  });
+  const tq = rows.reduce((s, r) => s + (num(r.qty)||0), 0), te = rows.reduce((s, r) => s + (num(r.ea)||0), 0);
+  h += `<tr class="total-row"><td colspan="4">합계</td><td>${tq.toLocaleString()}</td><td>${te.toLocaleString()}</td><td></td></tr></table>`;
+  document.getElementById('detail').innerHTML = h;
+
+  // 품목별 × 입고지 피벗
+  const regions = [...new Set(rows.map(r => r.region || '(미지정)'))];
+  const items = {};
+  rows.forEach(r => {
+    const k = r.name;
+    items[k] = items[k] || {};
+    const rg = r.region || '(미지정)';
+    items[k][rg] = items[k][rg] || { qty: 0, ea: 0 };
+    items[k][rg].qty += num(r.qty) || 0;
+    items[k][rg].ea += num(r.ea) || 0;
+  });
+  let p = '<table><tr><th>품명</th>' + regions.map(r => `<th>${esc(r)}</th>`).join('') + '<th>합계(낱개)</th></tr>';
+  for (const k in items) {
+    let tot = 0;
+    p += `<tr><td class="name">${esc(k)}</td>`;
+    regions.forEach(rg => {
+      const c = items[k][rg];
+      tot += c ? c.ea : 0;
+      p += `<td>${c ? (c.ea ? c.ea.toLocaleString() : '') + (c.qty ? ` <small style="color:#888">(${c.qty}박스)</small>` : '') : ''}</td>`;
+    });
+    p += `<td><b>${tot.toLocaleString()}</b></td></tr>`;
+  }
+  p += '</table>';
+  document.getElementById('pivot').innerHTML = p;
+}
+
+function ed(i, f, el) { rows[i][f] = el.innerText.trim(); refreshPivotOnly(); }
+function refreshPivotOnly() { /* 편집 중 재렌더 시 커서 튐 방지: blur 시 갱신 */ }
+document.addEventListener('focusout', e => { if (e.target.hasAttribute && e.target.hasAttribute('contenteditable')) render(); });
+
+function delRow(i) { rows.splice(i, 1); render(); }
+function clearAll() { if (confirm('전체 지우시겠습니까?')) { rows = []; render(); document.getElementById('result').style.display = 'none'; } }
+
+function copyTSV() {
+  let t = '입고지\t발주코드\t마스터코드\t품명\t수량(박스)\t낱개수량\n';
+  rows.forEach(r => t += `${r.region}\t${r.order}\t${r.code}\t${r.name}\t${r.qty}\t${r.ea}\n`);
+  navigator.clipboard.writeText(t).then(() => alert('복사 완료! 엑셀/이카운트에 붙여넣으세요.'));
+}
+
+function esc(s) { return String(s ?? '').replace(/</g, '&lt;'); }
+</script>
+</body>
+</html>
