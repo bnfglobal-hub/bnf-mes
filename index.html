@@ -4921,7 +4921,8 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const tableHeader=R('thead',null,
     R('tr',null,
       R('th',{style:{width:24}}),
-      R('th',{style:{width:'18%'}},'품목명'),
+      /* 나머지 고정폭 합이 754px이므로 최소폭을 충분히 줘야 품목명이 눌리지 않음 */
+      R('th',{style:{width:230,minWidth:180}},'품목명'),
       R('th',{style:{width:58,textAlign:'right'}},'입수량'),
       R('th',{style:{width:52,textAlign:'right'}},'박스'),
       R('th',{style:{width:75,textAlign:'right'}},'본사재고'),
@@ -5053,7 +5054,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
                 rows.filter(r=>r.short>0).length>0&&R('span',{style:{marginLeft:6,fontSize:10,background:'#FEE2E2',color:'#B91C1C',padding:'1px 8px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+rows.filter(r=>r.short>0).length)
               ),
               !isCollapsed&&R('div',{style:{overflow:'auto'}},
-                R('table',{style:{minWidth:790,width:'100%'}},
+                R('table',{style:{minWidth:990,width:'100%'}},
                   tableHeader,
                   R('tbody',null,...rows.map(row=>renderRow(row,f.color)))
                 )
@@ -5064,7 +5065,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       : R('div',{style:{background:'#fff',border:'2px solid '+((folders.find(f=>f.id===selectedFolder)||{}).color||'#E5E7EB')+'33',borderRadius:12,overflow:'auto'}},
           visibleRows.length===0
             ? R('div',{style:{padding:'30px',textAlign:'center',color:'var(--tm)',fontSize:12}},'이 폴더에 품목이 없습니다. 다른 폴더의 행을 드래그해서 이동하거나 위에서 검색해 추가하세요.')
-            : R('table',{style:{minWidth:790,width:'100%'}},
+            : R('table',{style:{minWidth:990,width:'100%'}},
                 tableHeader,
                 R('tbody',null,...visibleRows.map(row=>renderRow(row,(folders.find(f=>f.id===selectedFolder)||{}).color)))
               )
