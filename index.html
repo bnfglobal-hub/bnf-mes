@@ -8746,6 +8746,15 @@ function XlPreviewModal({preview,onClose,onConfirm}){
 }
 
 /* ─── 🔍 글로벌 검색 모달 (Ctrl+K) ─── */
+/* ═══ 권한: 관리자 전용 페이지 + 관리자가 개별로 끈 메뉴를 어디서든 차단 ═══ */
+const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart']);
+function isPageBlockedFor(user,pid){
+  if(!user)return false;
+  if(['superadmin','admin'].includes(user.role))return false;   /* 관리자 전부 허용 */
+  if(ADMIN_ONLY_PAGES.has(pid))return true;                     /* 역할 기반 고정 차단 */
+  if(user.menu_perms&&user.menu_perms[pid]===false)return true; /* 관리자가 개별로 끈 메뉴 */
+  return false;
+}
 const NAV_PAGES_INDEX=[
   {p:'home',title:'홈',ic:'🏠',keys:['홈','대시보드','메인','home']},
   {p:'workreq',title:'업무 현황',ic:'📋',keys:['업무','요청','workreq','task']},
@@ -8775,10 +8784,12 @@ function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
   useEffect(()=>{if(inputRef.current)setTimeout(()=>inputRef.current.focus(),50);},[]);
   
+  /* 접근 차단된 페이지는 검색결과에서도 제외 (검색 우회 차단) */
+  const allowedPages=NAV_PAGES_INDEX.filter(np=>!isPageBlockedFor(user,np.p));
   const results=useMemo(()=>{
-    if(!q||!q.trim())return{pages:NAV_PAGES_INDEX.slice(0,6),mats:[],prods:[]};
+    if(!q||!q.trim())return{pages:allowedPages.slice(0,6),mats:[],prods:[]};
     const lq=q.toLowerCase().trim();
-    const pages=NAV_PAGES_INDEX.filter(np=>np.title.toLowerCase().includes(lq)||np.keys.some(k=>k.toLowerCase().includes(lq))).slice(0,6);
+    const pages=allowedPages.filter(np=>np.title.toLowerCase().includes(lq)||np.keys.some(k=>k.toLowerCase().includes(lq))).slice(0,6);
     const matResults=(mats||[]).filter(m=>(m.n||'').toLowerCase().includes(lq)||(m.c||'').includes(q)||(m.g||'').toLowerCase().includes(lq)).slice(0,8);
     const prodResults=(prods||[]).filter(p=>(p.name||'').toLowerCase().includes(lq)||(p.cat||'').toLowerCase().includes(lq)).slice(0,6);
     return{pages,mats:matResults,prods:prodResults};
@@ -10831,17 +10842,16 @@ function App(){
   const allNavItems=NAV_SECTIONS.flatMap(s=>s.items).filter(i=>i.id!=='admin'||isAdmin);
   const navDefMap=Object.fromEntries(allNavItems.map(i=>[i.id,i]));
 
-  /* 페이지 렌더 */
-  /* 관리자 전용 페이지: 일반직원은 페이지 ID로도 접근 불가 (완전 차단) */
-  const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart']);
+  /* 페이지 렌더 - 관리자가 정한 숨김 범위를 실제 접근까지 강제 (전역 isPageBlockedFor) */
+  const isPageBlocked=(pid)=>isPageBlockedFor(user,pid);
   const renderPage=()=>{
     const p={user,mats,cats,isAdmin,rk};
-    /* ── 권한 차단: 관리자 전용 페이지를 일반직원이 열려 하면 즉시 잠금 ── */
-    if(ADMIN_ONLY_PAGES.has(page)&&!isAdmin){
+    /* ── 권한 차단: 관리자 전용 + 관리자가 끈 메뉴를 일반직원이 열려 하면 즉시 잠금 ── */
+    if(isPageBlocked(page)){
       return R('div',{className:'pg fa'},R('div',{className:'empty',style:{padding:'60px 20px'}},
         R('div',{className:'empty-ic'},'🔒'),
-        R('div',{style:{fontWeight:800,fontSize:15,color:'var(--t)',marginTop:4}},'관리자 전용 화면'),
-        R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:6}},'이 메뉴는 관리자만 볼 수 있습니다.'),
+        R('div',{style:{fontWeight:800,fontSize:15,color:'var(--t)',marginTop:4}},'접근 권한이 없습니다'),
+        R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:6}},'이 메뉴는 관리자가 접근을 제한했습니다.'),
         R('button',{className:'btn bp',style:{marginTop:16},onClick:()=>setPage('home')},'홈으로')
       ));
     }
@@ -11175,7 +11185,7 @@ function App(){
         {id:'home',icon:'home',l:'홈'},
         {id:'inv',icon:'box',l:'재고'},
         {id:'sched',icon:'calendar',l:'스케줄'}
-      ].map(item=>R('button',{key:item.id,className:'mnav-item'+(page===item.id?' act':''),onClick:()=>setPage(item.id)},
+      ].filter(item=>!isPageBlocked(item.id)).map(item=>R('button',{key:item.id,className:'mnav-item'+(page===item.id?' act':''),onClick:()=>setPage(item.id)},
         R(NavIcon,{name:item.icon}),
         R('span',{className:'mnav-lbl'},item.l)
       )),
