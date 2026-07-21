@@ -7867,6 +7867,8 @@ function PageWehago({user}){
   const pl=data.pl||[],bs=data.bs||[];
   const 매출=find(pl,'매출액'),매출전=findP(pl,'매출액');
   const 판관비=find(pl,'판매비와관리비'),판관전=findP(pl,'판매비와관리비');
+  const 영업이익=find(pl,'영업이익'),영업이익전=findP(pl,'영업이익');
+  const 순이익=find(pl,'당기순이익'),순이익전=findP(pl,'당기순이익');
   const 자산=find(bs,'자산총계'),부채=find(bs,'부채총계');
   const 차입=find(bs,'단기차입금')+find(bs,'장기차입금');
   const 현금성=find(bs,'현금')+find(bs,'보통예금')+find(bs,'정기예.적금')+find(bs,'단기매매증권');
@@ -7889,6 +7891,8 @@ function PageWehago({user}){
         '⚠️ '+String(data.curLabel||'당기')+'는 결산 전입니다 — 매출원가가 반영되지 않아 이익·재고·자본 수치는 확정치가 아닙니다.'),
       R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:14}},
         kpi('매출 ('+String(data.curLabel||'').replace(/^\d+기 /,'')+')',eok(매출),'전기 '+eok(매출전),'#2563EB'),
+        kpi('영업이익'+(data.unclosed?' (결산 전)':''),eok(영업이익),(data.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(영업이익전)+(매출전?' ('+(영업이익전*100/매출전).toFixed(1)+'%)':''),영업이익>=0?'#15803D':'#B91C1C'),
+        kpi('순이익'+(data.unclosed?' (결산 전)':''),eok(순이익),(data.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(순이익전),순이익>=0?'#15803D':'#B91C1C'),
         kpi('판매관리비',eok(판관비),'전기 '+eok(판관전)),
         kpi('현금성 자산',eok(현금성),data.bsCurLabel+' 기준','#15803D'),
         kpi('차입금',eok(차입),'단기+장기','#B91C1C'),
