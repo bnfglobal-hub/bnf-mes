@@ -7845,6 +7845,72 @@ function PageAutoOrder({user,mats,onCreateOrder}){
 /* ═══ 관리자 경영 대시보드 ═══════════════════════ */
 
 /* ═══ 매입단가 조회 (이카운트 구매현황 수집 → 품목별 단가 검색) ═══ */
+/* ═══ 재무 현황 (위하고 Smart A) ═══════════════════ */
+function PageWehago({user}){
+  const[data,setData]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[tab,setTab]=useState('pl');
+  const nf=(n)=>(+n||0).toLocaleString();
+  const eok=(n)=>{const a=Math.abs(+n||0);return a>=100000000?((n/100000000).toFixed(1)+'억'):a>=10000000?((n/10000000).toFixed(1)+'천만'):nf(n);};
+  useEffect(()=>{
+    sbClient.from('app_state').select('wf:state_data->wehago_finance').eq('id',1).maybeSingle()
+      .then(({data:d})=>{setData(d&&d.wf?d.wf:null);setLoading(false);})
+      .catch(()=>setLoading(false));
+  },[]);
+  const find=(list,kw)=>{const r=(list||[]).find(x=>x.n.replace(/\s/g,'').includes(kw));return r?r.c:0;};
+  const findP=(list,kw)=>{const r=(list||[]).find(x=>x.n.replace(/\s/g,'').includes(kw));return r?r.p:0;};
+
+  if(loading)return R('div',{className:'pg fa'},R('div',{className:'empty'},'불러오는 중...'));
+  if(!data)return R('div',{className:'pg fa'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'재무 데이터가 없습니다',
+    R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'PC 문서 → bnf-wehago → "python wehago_pull.py" 후 "python push_mes.py" 실행')));
+
+  const pl=data.pl||[],bs=data.bs||[];
+  const 매출=find(pl,'매출액'),매출전=findP(pl,'매출액');
+  const 판관비=find(pl,'판매비와관리비'),판관전=findP(pl,'판매비와관리비');
+  const 자산=find(bs,'자산총계'),부채=find(bs,'부채총계');
+  const 차입=find(bs,'단기차입금')+find(bs,'장기차입금');
+  const 현금성=find(bs,'현금')+find(bs,'보통예금')+find(bs,'정기예.적금')+find(bs,'단기매매증권');
+  const rows=tab==='pl'?pl:bs;
+  const curL=tab==='pl'?data.curLabel:data.bsCurLabel;
+  const prevL=tab==='pl'?data.prevLabel:data.bsPrevLabel;
+  const kpi=(t,v,sub,color)=>R('div',{className:'card',style:{padding:'13px 15px'}},
+    R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)'}},t),
+    R('div',{style:{fontSize:20,fontWeight:800,marginTop:3,color:color||'var(--t)'}},v),
+    sub&&R('div',{style:{fontSize:9.5,color:'var(--tm)',marginTop:2}},sub));
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🏦 재무 현황'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'위하고(Smart A) 법인 회계 기준',
+          data.at&&R('span',{style:{marginLeft:8,color:'#15803D',fontWeight:600}},'· '+String(data.at).slice(0,10)+' 수집')))
+    ),
+    R('div',{style:{maxWidth:860}},
+      data.unclosed&&R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#92400E',marginBottom:12,fontWeight:600}},
+        '⚠️ '+String(data.curLabel||'당기')+'는 결산 전입니다 — 매출원가가 반영되지 않아 이익·재고·자본 수치는 확정치가 아닙니다.'),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:14}},
+        kpi('매출 ('+String(data.curLabel||'').replace(/^\d+기 /,'')+')',eok(매출),'전기 '+eok(매출전),'#2563EB'),
+        kpi('판매관리비',eok(판관비),'전기 '+eok(판관전)),
+        kpi('현금성 자산',eok(현금성),data.bsCurLabel+' 기준','#15803D'),
+        kpi('차입금',eok(차입),'단기+장기','#B91C1C'),
+        kpi('자산 / 부채',eok(자산)+' / '+eok(부채),'')
+      ),
+      R('div',{style:{display:'flex',gap:6,marginBottom:10}},
+        ...[['pl','손익계산서'],['bs','재무상태표']].map(([k,l])=>R('button',{key:k,onClick:()=>setTab(k),
+          style:{border:'1px solid '+(tab===k?'var(--p)':'var(--bd)'),background:tab===k?'#FFF8F4':'#fff',color:tab===k?'var(--p)':'var(--tm)',borderRadius:9,padding:'7px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},l))),
+      R('div',{className:'card'},
+        R('div',{className:'tw'},R('table',{style:{tableLayout:'fixed',width:'100%'}},
+          R('thead',null,R('tr',null,R('th',null,'과목'),R('th',{style:{width:120,textAlign:'right'}},curL),R('th',{style:{width:120,textAlign:'right'}},prevL))),
+          R('tbody',null,...rows.map((r,i)=>R('tr',{key:i,style:r.h?{background:'#F8FAFC'}:null},
+            R('td',{style:{fontSize:11.5,fontWeight:r.h?800:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',paddingLeft:r.h?8:18}},r.n),
+            R('td',{style:{textAlign:'right',fontWeight:r.h?800:600,fontSize:11.5}},r.c?nf(r.c):'-'),
+            R('td',{style:{textAlign:'right',fontSize:11,color:'var(--tm)'}},r.p?nf(r.p):'-')
+          )))
+        ))
+      )
+    )
+  );
+}
+
 /* ═══ 컬리 리뷰 모니터링 ═══════════════════════════ */
 function PageKurly({user}){
   const[data,setData]=useState(null);
@@ -8934,6 +9000,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'purchaseStat',l:'매입 현황',ic:'🧾'},
     {id:'pricelookup',l:'매입단가 조회',ic:'🔎'},
     {id:'kurly',l:'컬리 리뷰',ic:'💜'},
+    {id:'wehago',l:'재무 현황',ic:'🏦'},
     {id:'profit',l:'영업 이익 분석',ic:'📈'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
     {id:'cost',l:'원가분석',ic:'💰'},
@@ -8959,6 +9026,12 @@ function loadNavSections(){
               changed=true;
             }
             /* 관리자 섹션에 매출/매입 현황 없으면 맨 앞에 추가 */
+            if(s.type==='admin'&&!newItems.find(it=>it.id==='wehago')){
+              const wi=newItems.findIndex(it=>it.id==='kurly');
+              const wItem={id:'wehago',l:'재무 현황',ic:'🏦'};
+              if(wi>=0)newItems.splice(wi+1,0,wItem);else newItems.unshift(wItem);
+              changed=true;
+            }
             if(s.type==='admin'&&!newItems.find(it=>it.id==='kurly')){
               const ki=newItems.findIndex(it=>it.id==='pricelookup');
               const kItem={id:'kurly',l:'컬리 리뷰',ic:'💜'};
@@ -9215,7 +9288,7 @@ function XlPreviewModal({preview,onClose,onConfirm}){
 
 /* ─── 🔍 글로벌 검색 모달 (Ctrl+K) ─── */
 /* ═══ 권한: 관리자 전용 페이지 + 관리자가 개별로 끈 메뉴를 어디서든 차단 ═══ */
-const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart','pricelookup','kurly']);
+const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart','pricelookup','kurly','wehago']);
 function isPageBlockedFor(user,pid){
   if(!user)return false;
   if(['superadmin','admin'].includes(user.role))return false;   /* 관리자 전부 허용 */
@@ -9244,6 +9317,7 @@ const NAV_PAGES_INDEX=[
   {p:'purchase_data',title:'매입 자료',ic:'🛒',keys:['매입','구매','purchase']},
   {p:'pricelookup',title:'매입단가 조회',ic:'🔎',keys:['매입단가','단가','가격','원가','price','매입가']},
   {p:'kurly',title:'컬리 리뷰',ic:'💜',keys:['컬리','리뷰','후기','부정후기','kurly','review']},
+  {p:'wehago',title:'재무 현황',ic:'🏦',keys:['재무','위하고','손익','재무상태표','회계','wehago','finance']},
   {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']}
 ];
 
@@ -11368,6 +11442,7 @@ function App(){
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
     if(page==='pricelookup')return R(PagePriceLookup,{user});
     if(page==='kurly')return R(PageKurly,{user});
+    if(page==='wehago')return R(PageWehago,{user});
     if(page==='cost')return R(PageCost,{prods,mats});
         if(page==='data')return R(PageData,{mats,prods,orders,hqItems,cats,quote,pqty,onImport:handleImport});
     if(page==='cats')return R('div',{className:'pg fa'},
