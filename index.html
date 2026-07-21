@@ -7845,11 +7845,12 @@ function PageAutoOrder({user,mats,onCreateOrder}){
 /* ═══ 관리자 경영 대시보드 ═══════════════════════ */
 
 /* ═══ 매입단가 조회 (이카운트 구매현황 수집 → 품목별 단가 검색) ═══ */
-/* ═══ 재무 현황 (위하고 Smart A) ═══════════════════ */
+/* ═══ 재무 현황 (위하고 Smart A · 다중회사) ═══════════════════ */
 function PageWehago({user}){
   const[data,setData]=useState(null);
   const[loading,setLoading]=useState(true);
   const[tab,setTab]=useState('pl');
+  const[ci,setCi]=useState(0); /* 회사 인덱스 */
   const nf=(n)=>(+n||0).toLocaleString();
   const eok=(n)=>{const a=Math.abs(+n||0);return a>=100000000?((n/100000000).toFixed(1)+'억'):a>=10000000?((n/10000000).toFixed(1)+'천만'):nf(n);};
   useEffect(()=>{
@@ -7864,7 +7865,10 @@ function PageWehago({user}){
   if(!data)return R('div',{className:'pg fa'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'재무 데이터가 없습니다',
     R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'PC 문서 → bnf-wehago → "python wehago_pull.py" 후 "python push_mes.py" 실행')));
 
-  const pl=data.pl||[],bs=data.bs||[];
+  /* 구버전(단일회사) 호환: companies 없으면 data 자체를 회사1로 */
+  const companies=data.companies&&data.companies.length?data.companies:[Object.assign({label:'회사',curLabel:data.curLabel,prevLabel:data.prevLabel,bsCurLabel:data.bsCurLabel,bsPrevLabel:data.bsPrevLabel,unclosed:data.unclosed},data)];
+  const cc=companies[Math.min(ci,companies.length-1)];
+  const pl=cc.pl||[],bs=cc.bs||[];
   const 매출=find(pl,'매출액'),매출전=findP(pl,'매출액');
   const 판관비=find(pl,'판매비와관리비'),판관전=findP(pl,'판매비와관리비');
   const 영업이익=find(pl,'영업이익'),영업이익전=findP(pl,'영업이익');
@@ -7873,8 +7877,8 @@ function PageWehago({user}){
   const 차입=find(bs,'단기차입금')+find(bs,'장기차입금');
   const 현금성=find(bs,'현금')+find(bs,'보통예금')+find(bs,'정기예.적금')+find(bs,'단기매매증권');
   const rows=tab==='pl'?pl:bs;
-  const curL=tab==='pl'?data.curLabel:data.bsCurLabel;
-  const prevL=tab==='pl'?data.prevLabel:data.bsPrevLabel;
+  const curL=tab==='pl'?cc.curLabel:cc.bsCurLabel;
+  const prevL=tab==='pl'?cc.prevLabel:cc.bsPrevLabel;
   const kpi=(t,v,sub,color)=>R('div',{className:'card',style:{padding:'13px 15px'}},
     R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)'}},t),
     R('div',{style:{fontSize:20,fontWeight:800,marginTop:3,color:color||'var(--t)'}},v),
@@ -7887,14 +7891,19 @@ function PageWehago({user}){
           data.at&&R('span',{style:{marginLeft:8,color:'#15803D',fontWeight:600}},'· '+String(data.at).slice(0,10)+' 수집')))
     ),
     R('div',{style:{maxWidth:860}},
-      data.unclosed&&R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#92400E',marginBottom:12,fontWeight:600}},
-        '⚠️ '+String(data.curLabel||'당기')+'는 결산 전입니다 — 매출원가가 반영되지 않아 이익·재고·자본 수치는 확정치가 아닙니다.'),
+      /* 회사 선택 탭 */
+      companies.length>1&&R('div',{style:{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}},
+        ...companies.map((c,i)=>R('button',{key:i,onClick:()=>setCi(i),
+          style:{border:'1.5px solid '+(ci===i?'var(--p)':'var(--bd)'),background:ci===i?'var(--p)':'#fff',color:ci===i?'#fff':'var(--t)',borderRadius:10,padding:'8px 15px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
+          (c.label||c.name),c.bizno&&R('span',{style:{display:'block',fontSize:9,fontWeight:500,color:ci===i?'rgba(255,255,255,0.85)':'var(--tm)',marginTop:1}},c.bizno)))),
+      cc.unclosed&&R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#92400E',marginBottom:12,fontWeight:600}},
+        '⚠️ '+String(cc.curLabel||'당기')+'는 결산 전입니다 — 매출원가가 반영되지 않아 이익·재고·자본 수치는 확정치가 아닙니다.'),
       R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:14}},
-        kpi('매출 ('+String(data.curLabel||'').replace(/^\d+기 /,'')+')',eok(매출),'전기 '+eok(매출전),'#2563EB'),
-        kpi('영업이익'+(data.unclosed?' (결산 전)':''),eok(영업이익),(data.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(영업이익전)+(매출전?' ('+(영업이익전*100/매출전).toFixed(1)+'%)':''),영업이익>=0?'#15803D':'#B91C1C'),
-        kpi('순이익'+(data.unclosed?' (결산 전)':''),eok(순이익),(data.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(순이익전),순이익>=0?'#15803D':'#B91C1C'),
+        kpi('매출 ('+String(cc.curLabel||'').replace(/^\d+기 /,'')+')',eok(매출),'전기 '+eok(매출전),'#2563EB'),
+        kpi('영업이익'+(cc.unclosed?' (결산 전)':''),eok(영업이익),(cc.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(영업이익전)+(매출전?' ('+(영업이익전*100/매출전).toFixed(1)+'%)':''),영업이익>=0?'#15803D':'#B91C1C'),
+        kpi('순이익'+(cc.unclosed?' (결산 전)':''),eok(순이익),(cc.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(순이익전),순이익>=0?'#15803D':'#B91C1C'),
         kpi('판매관리비',eok(판관비),'전기 '+eok(판관전)),
-        kpi('현금성 자산',eok(현금성),data.bsCurLabel+' 기준','#15803D'),
+        kpi('현금성 자산',eok(현금성),cc.bsCurLabel+' 기준','#15803D'),
         kpi('차입금',eok(차입),'단기+장기','#B91C1C'),
         kpi('자산 / 부채',eok(자산)+' / '+eok(부채),'')
       ),
