@@ -7837,19 +7837,19 @@ function PagePriceLookup({user}){
           data&&data.at&&R('span',{style:{marginLeft:8,color:'#15803D',fontWeight:600}},'· '+syncAgo+' 갱신 ('+data.months+'개월)'))
       )
     ),
-    R('div',{style:{position:'relative',marginBottom:12}},
+    R('div',{style:{position:'relative',marginBottom:12,maxWidth:860}},
       R('input',{value:q,onChange:e=>setQ(e.target.value),autoFocus:true,placeholder:'🔍 품목명 또는 거래처 검색 (예: 양파, 된장, 세우)',
         style:{width:'100%',boxSizing:'border-box',border:'1.5px solid var(--bd)',borderRadius:12,padding:'12px 14px',fontSize:15,fontFamily:'inherit',outline:'none'}})
     ),
     loading?R('div',{className:'empty'},'불러오는 중...'):
     items.length===0?R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'수집된 매입단가가 없습니다',
       R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'문서 → bnf-ecount-web → "매입단가-수집.bat" 실행 후 여기서 검색하세요')):
-    R('div',null,
+    R('div',{style:{maxWidth:860}},
       R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8}},q?results.length+'개 검색됨':'전체 '+items.length+'개 품목 (검색어를 입력하세요)'),
-      R('div',{className:'tw'},R('table',null,
-        R('thead',null,R('tr',null,R('th',null,'품목명'),R('th',{style:{width:90,textAlign:'right'}},'최근단가'),R('th',{style:{width:130}},'거래처'),R('th',{style:{width:80}},'일자'))),
+      R('div',{className:'tw'},R('table',{style:{tableLayout:'fixed',width:'100%'}},
+        R('thead',null,R('tr',null,R('th',null,'품목명'),R('th',{style:{width:90,textAlign:'right'}},'최근단가'),R('th',{style:{width:150}},'거래처'),R('th',{style:{width:80}},'일자'))),
         R('tbody',null,...results.map((it,i)=>R('tr',{key:i,style:{cursor:'pointer'},onClick:()=>setSel(it)},
-          R('td',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},it.name),
+          R('td',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},it.name),
           R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)'}},nf(it.latest)),
           R('td',{style:{fontSize:11,color:'var(--tm)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},it.latestSupplier),
           R('td',{style:{fontSize:11,color:'var(--tm)'}},it.latestDate)
