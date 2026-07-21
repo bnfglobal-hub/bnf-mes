@@ -7861,12 +7861,46 @@ function PageWehago({user}){
   const find=(list,kw)=>{const r=(list||[]).find(x=>x.n.replace(/\s/g,'').includes(kw));return r?r.c:0;};
   const findP=(list,kw)=>{const r=(list||[]).find(x=>x.n.replace(/\s/g,'').includes(kw));return r?r.p:0;};
 
-  if(loading)return R('div',{className:'pg fa'},R('div',{className:'empty'},'불러오는 중...'));
-  if(!data)return R('div',{className:'pg fa'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'재무 데이터가 없습니다',
-    R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'PC 문서 → bnf-wehago → "python wehago_pull.py" 후 "python push_mes.py" 실행')));
+  /* 구버전(단일회사) 호환 + 통합(합산) 가상 회사 — 훅이라 early return보다 먼저 */
+  const companies=useMemo(()=>{
+    if(!data)return [];
+    const baseCompanies=data.companies&&data.companies.length?data.companies:[Object.assign({label:'회사',curLabel:data.curLabel,prevLabel:data.prevLabel,bsCurLabel:data.bsCurLabel,bsPrevLabel:data.bsPrevLabel,unclosed:data.unclosed},data)];
+    if(baseCompanies.length<2)return baseCompanies;
+    const mergeRows=(lists)=>{
+      const out=[];const idx={};
+      const keyOf=(n)=>n.trim();
+      lists.forEach(rows=>{
+        let lastPos=-1;
+        (rows||[]).forEach(r=>{
+          const k=keyOf(r.n);
+          if(idx[k]!==undefined){
+            out[idx[k]]={...out[idx[k]],c:out[idx[k]].c+(+r.c||0),p:out[idx[k]].p+(+r.p||0)};
+            lastPos=idx[k];
+          }else{
+            const pos=lastPos+1;
+            out.splice(pos,0,{n:r.n,c:+r.c||0,p:+r.p||0,h:r.h});
+            Object.keys(idx).forEach(kk=>{if(idx[kk]>=pos)idx[kk]++;});
+            idx[k]=pos;lastPos=pos;
+          }
+        });
+      });
+      return out;
+    };
+    const first=baseCompanies[0];
+    return [...baseCompanies,{
+      key:'total',label:'통합',name:'통합 (본점+이선 단순합산)',bizno:'내부거래 미제거',
+      gisu:null,curLabel:first.curLabel,prevLabel:first.prevLabel,
+      bsCurLabel:first.bsCurLabel,bsPrevLabel:first.bsPrevLabel,
+      unclosed:baseCompanies.some(c=>c.unclosed),
+      pl:mergeRows(baseCompanies.map(c=>c.pl)),
+      bs:mergeRows(baseCompanies.map(c=>c.bs)),
+    }];
+  },[data]);
 
-  /* 구버전(단일회사) 호환: companies 없으면 data 자체를 회사1로 */
-  const companies=data.companies&&data.companies.length?data.companies:[Object.assign({label:'회사',curLabel:data.curLabel,prevLabel:data.prevLabel,bsCurLabel:data.bsCurLabel,bsPrevLabel:data.bsPrevLabel,unclosed:data.unclosed},data)];
+  if(loading)return R('div',{className:'pg fa'},R('div',{className:'empty'},'불러오는 중...'));
+  if(!data||!companies.length)return R('div',{className:'pg fa'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'재무 데이터가 없습니다',
+    R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'PC 문서 → bnf-wehago → "위하고재무-수집.bat" 실행')));
+
   const cc=companies[Math.min(ci,companies.length-1)];
   const pl=cc.pl||[],bs=cc.bs||[];
   const 매출=find(pl,'매출액'),매출전=findP(pl,'매출액');
@@ -7896,6 +7930,8 @@ function PageWehago({user}){
         ...companies.map((c,i)=>R('button',{key:i,onClick:()=>setCi(i),
           style:{border:'1.5px solid '+(ci===i?'var(--p)':'var(--bd)'),background:ci===i?'var(--p)':'#fff',color:ci===i?'#fff':'var(--t)',borderRadius:10,padding:'8px 15px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
           (c.label||c.name),c.bizno&&R('span',{style:{display:'block',fontSize:9,fontWeight:500,color:ci===i?'rgba(255,255,255,0.85)':'var(--tm)',marginTop:1}},c.bizno)))),
+      cc.key==='total'&&R('div',{style:{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#1E40AF',marginBottom:12,fontWeight:600}},
+        'ℹ️ 본점+이선 단순 합산입니다 — 두 회사 간 내부거래(지점계정 등)가 제거되지 않아 실제 연결재무와 다를 수 있습니다.'),
       cc.unclosed&&R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#92400E',marginBottom:12,fontWeight:600}},
         '⚠️ '+String(cc.curLabel||'당기')+'는 결산 전입니다 — 매출원가가 반영되지 않아 이익·재고·자본 수치는 확정치가 아닙니다.'),
       R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:14}},
