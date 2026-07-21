@@ -7769,6 +7769,96 @@ function PageAutoOrder({user,mats,onCreateOrder}){
 
 /* ═══ 관리자 경영 대시보드 ═══════════════════════ */
 
+/* ═══ 매입단가 조회 (이카운트 구매현황 수집 → 품목별 단가 검색) ═══ */
+function PagePriceLookup({user}){
+  const[data,setData]=useState(null);
+  const[q,setQ]=useState('');
+  const[sel,setSel]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const nf=(n)=>(+n||0).toLocaleString();
+  const load=()=>{
+    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',1).maybeSingle()
+      .then(({data:d})=>{setData(d&&d.pp?d.pp:{items:[]});setLoading(false);})
+      .catch(()=>setLoading(false));
+  };
+  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},30000);return()=>clearInterval(t);},[]);
+
+  const items=(data&&data.items)||[];
+  /* 검색: 품목명/거래처 부분일치, 관련도순 */
+  const results=useMemo(()=>{
+    const lq=q.trim().toLowerCase();
+    let list=items;
+    if(lq){
+      list=items.filter(it=>(it.name||'').toLowerCase().includes(lq)||(it.latestSupplier||'').toLowerCase().includes(lq));
+      list=list.sort((a,b)=>{
+        const an=(a.name||'').toLowerCase(),bn=(b.name||'').toLowerCase();
+        const as=an.indexOf(lq),bs=bn.indexOf(lq);
+        return as-bs||an.length-bn.length;
+      });
+    }
+    return list.slice(0,120);
+  },[q,items]);
+
+  const clean=(nm)=>String(nm||'').replace(/^\[[^\]]*\]/,'').replace(/\s*\[[^\]]*\]\s*$/,'').trim()||nm;
+  const syncAgo=(()=>{if(!data||!data.at)return '';const mins=Math.floor((Date.now()-new Date(data.at).getTime())/60000);return mins<60?mins+'분 전':mins<1440?Math.floor(mins/60)+'시간 전':Math.floor(mins/1440)+'일 전';})();
+
+  /* 상세 (단가 이력) */
+  if(sel){
+    return R('div',{className:'pg fa'},
+      R('div',{className:'pg-hdr'},R('button',{className:'btn bs',onClick:()=>setSel(null)},'← 목록')),
+      R('div',{className:'card',style:{marginBottom:12}},
+        R('div',{style:{fontSize:16,fontWeight:800,marginBottom:10}},sel.name),
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:10}},
+          R('div',{style:{background:'#FFF8F4',borderRadius:10,padding:'12px 10px',textAlign:'center'}},R('div',{style:{fontSize:10,color:'var(--tm)'}},'최근 단가'),R('div',{style:{fontSize:19,fontWeight:900,color:'var(--p)',marginTop:2}},nf(sel.latest)),R('div',{style:{fontSize:9,color:'var(--tm)'}},sel.latestDate)),
+          R('div',{style:{background:'#F8FAFC',borderRadius:10,padding:'12px 10px',textAlign:'center'}},R('div',{style:{fontSize:10,color:'var(--tm)'}},'평균'),R('div',{style:{fontSize:17,fontWeight:800,marginTop:2}},nf(sel.avg))),
+          R('div',{style:{background:'#F0FDF4',borderRadius:10,padding:'12px 10px',textAlign:'center'}},R('div',{style:{fontSize:10,color:'var(--tm)'}},'최저'),R('div',{style:{fontSize:17,fontWeight:800,color:'#15803D',marginTop:2}},nf(sel.min))),
+          R('div',{style:{background:'#FEF2F2',borderRadius:10,padding:'12px 10px',textAlign:'center'}},R('div',{style:{fontSize:10,color:'var(--tm)'}},'최고'),R('div',{style:{fontSize:17,fontWeight:800,color:'#B91C1C',marginTop:2}},nf(sel.max)))
+        )
+      ),
+      R('div',{className:'card'},
+        R('div',{className:'card-title',style:{marginBottom:10}},'📜 최근 매입 이력'),
+        R('div',{className:'tw'},R('table',null,
+          R('thead',null,R('tr',null,R('th',{style:{width:90}},'일자'),R('th',{style:{width:80,textAlign:'right'}},'단가'),R('th',{style:{width:70,textAlign:'right'}},'수량'),R('th',null,'거래처'))),
+          R('tbody',null,...(sel.recent||[]).map((r,i)=>R('tr',{key:i},
+            R('td',{style:{fontSize:11}},r.date),
+            R('td',{style:{textAlign:'right',fontWeight:700,color:'var(--p)'}},nf(r.price)),
+            R('td',{style:{textAlign:'right',fontSize:11,color:'var(--tm)'}},nf(r.qty)),
+            R('td',{style:{fontSize:11,color:'var(--tm)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.supplier)
+          )))
+        ))
+      )
+    );
+  }
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🔎 매입단가 조회'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'이카운트 구매현황 기준 · 품목명·거래처로 검색',
+          data&&data.at&&R('span',{style:{marginLeft:8,color:'#15803D',fontWeight:600}},'· '+syncAgo+' 갱신 ('+data.months+'개월)'))
+      )
+    ),
+    R('div',{style:{position:'relative',marginBottom:12}},
+      R('input',{value:q,onChange:e=>setQ(e.target.value),autoFocus:true,placeholder:'🔍 품목명 또는 거래처 검색 (예: 양파, 된장, 세우)',
+        style:{width:'100%',boxSizing:'border-box',border:'1.5px solid var(--bd)',borderRadius:12,padding:'12px 14px',fontSize:15,fontFamily:'inherit',outline:'none'}})
+    ),
+    loading?R('div',{className:'empty'},'불러오는 중...'):
+    items.length===0?R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'수집된 매입단가가 없습니다',
+      R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'문서 → bnf-ecount-web → "매입단가-수집.bat" 실행 후 여기서 검색하세요')):
+    R('div',null,
+      R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8}},q?results.length+'개 검색됨':'전체 '+items.length+'개 품목 (검색어를 입력하세요)'),
+      R('div',{className:'tw'},R('table',null,
+        R('thead',null,R('tr',null,R('th',null,'품목명'),R('th',{style:{width:90,textAlign:'right'}},'최근단가'),R('th',{style:{width:130}},'거래처'),R('th',{style:{width:80}},'일자'))),
+        R('tbody',null,...results.map((it,i)=>R('tr',{key:i,style:{cursor:'pointer'},onClick:()=>setSel(it)},
+          R('td',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},it.name),
+          R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)'}},nf(it.latest)),
+          R('td',{style:{fontSize:11,color:'var(--tm)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},it.latestSupplier),
+          R('td',{style:{fontSize:11,color:'var(--tm)'}},it.latestDate)
+        )))
+      ))
+    )
+  );
+}
+
 /* ═══ 매입 분석 페이지 ════════════════════════════ */
 /* ═══ 매입 분석 ═══════════════════════════════════ */
 function PagePurchaseAnalysis({mats,variant='hq'}){
@@ -8689,6 +8779,7 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
     {id:'salesStat',l:'매출 현황',ic:'💵'},
     {id:'purchaseStat',l:'매입 현황',ic:'🧾'},
+    {id:'pricelookup',l:'매입단가 조회',ic:'🔎'},
     {id:'profit',l:'영업 이익 분석',ic:'📈'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
     {id:'cost',l:'원가분석',ic:'💰'},
@@ -8714,6 +8805,12 @@ function loadNavSections(){
               changed=true;
             }
             /* 관리자 섹션에 매출/매입 현황 없으면 맨 앞에 추가 */
+            if(s.type==='admin'&&!newItems.find(it=>it.id==='pricelookup')){
+              const pi=newItems.findIndex(it=>it.id==='purchaseStat');
+              const item={id:'pricelookup',l:'매입단가 조회',ic:'🔎'};
+              if(pi>=0)newItems.splice(pi+1,0,item);else newItems.unshift(item);
+              changed=true;
+            }
             if(s.type==='admin'&&!newItems.find(it=>it.id==='purchaseStat')){
               newItems.unshift({id:'purchaseStat',l:'매입 현황',ic:'🧾'});
               changed=true;
@@ -8958,7 +9055,7 @@ function XlPreviewModal({preview,onClose,onConfirm}){
 
 /* ─── 🔍 글로벌 검색 모달 (Ctrl+K) ─── */
 /* ═══ 권한: 관리자 전용 페이지 + 관리자가 개별로 끈 메뉴를 어디서든 차단 ═══ */
-const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart']);
+const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart','pricelookup']);
 function isPageBlockedFor(user,pid){
   if(!user)return false;
   if(['superadmin','admin'].includes(user.role))return false;   /* 관리자 전부 허용 */
@@ -8985,6 +9082,7 @@ const NAV_PAGES_INDEX=[
   {p:'cost',title:'원가분석',ic:'💰',keys:['원가','분석','cost']},
   {p:'operation',title:'공장 가동률',ic:'📊',keys:['가동률','operation','utilization']},
   {p:'purchase_data',title:'매입 자료',ic:'🛒',keys:['매입','구매','purchase']},
+  {p:'pricelookup',title:'매입단가 조회',ic:'🔎',keys:['매입단가','단가','가격','원가','price','매입가']},
   {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']}
 ];
 
@@ -11107,6 +11205,7 @@ function App(){
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
+    if(page==='pricelookup')return R(PagePriceLookup,{user});
     if(page==='cost')return R(PageCost,{prods,mats});
         if(page==='data')return R(PageData,{mats,prods,orders,hqItems,cats,quote,pqty,onImport:handleImport});
     if(page==='cats')return R('div',{className:'pg fa'},
