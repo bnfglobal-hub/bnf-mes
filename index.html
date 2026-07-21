@@ -3464,6 +3464,215 @@ function PageNewProduct({user,mats=[],mode}){
   );
 }
 
+/* ═══ 샘플 개발 워크플로우 (영업 의뢰 → 연구소 개발 → 확정 공유) ═══ */
+const SD_STAGES=[
+  {k:'requested',l:'의뢰 접수',c:'#DB2777',bg:'#FDF2F8'},
+  {k:'developing',l:'개발중',c:'#2563EB',bg:'#EFF6FF'},
+  {k:'sample',l:'시제품',c:'#CA8A04',bg:'#FEFCE8'},
+  {k:'done',l:'개발 완료',c:'#0D9488',bg:'#F0FDFA'},
+  {k:'confirmed',l:'제품 확정',c:'#15803D',bg:'#F0FDF4'}
+];
+function PageSampleDev({user}){
+  const[devs,setDevs]=useState([]);
+  const[emps,setEmps]=useState([]);
+  const[loaded,setLoaded]=useState(false);
+  const[tab,setTab]=useState('all');
+  const[selId,setSelId]=useState(null);
+  const[showNew,setShowNew]=useState(false);
+  const[nf0,setNf0]=useState({name:'',concept:'',reqSpec:'',targetPrice:'',assigneeId:''});
+  const[cmt,setCmt]=useState('');
+  const tRef=useRef(null);
+  const isAdmin=['superadmin','admin'].includes(user.role);
+  const nfw=(n)=>(+n||0).toLocaleString();
+
+  const load=()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const sd=data&&data.state_data?data.state_data:{};
+      if(Array.isArray(sd.sample_devs))setDevs(sd.sample_devs);
+      setLoaded(true);
+    }).catch(()=>setLoaded(true));
+  };
+  useEffect(()=>{load();sbClient.from('emp').select('id,name,position,depts(name)').eq('status','active').order('name').then(({data})=>setEmps(data||[]));
+    const t=setInterval(()=>{if(!document.hidden)load();},8000);return()=>clearInterval(t);},[]);
+  const save=(next)=>{
+    setDevs(next);
+    if(tRef.current)clearTimeout(tRef.current);
+    tRef.current=setTimeout(()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
+        const ex=cur&&cur.state_data?cur.state_data:{};
+        return sbClient.from('app_state').upsert({id:1,state_data:{...ex,sample_devs:next},updated_at:new Date().toISOString()});
+      });
+    },300);
+  };
+  const empName=id=>{const e=emps.find(x=>x.id===id);return e?e.name:'';};
+
+  /* 영업 → 연구소 의뢰 생성 */
+  const createReq=()=>{
+    if(!nf0.name.trim())return alert('제품명을 입력하세요');
+    if(!nf0.assigneeId)return alert('담당 연구원을 선택하세요');
+    const it={id:'sd_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+      name:nf0.name.trim(),concept:nf0.concept.trim(),reqSpec:nf0.reqSpec.trim(),targetPrice:nf0.targetPrice,
+      origin:'sales',requesterId:user.id,requesterName:user.name,
+      assigneeId:nf0.assigneeId,assigneeName:empName(nf0.assigneeId),
+      stage:'requested',devNote:'',comments:[],createdAt:Date.now(),updatedAt:Date.now()};
+    save([it,...devs]);setShowNew(false);setNf0({name:'',concept:'',reqSpec:'',targetPrice:'',assigneeId:''});
+    pushNotif({to:it.assigneeId,from:user.id,fromName:user.name,type:'mention',text:(user.name||'영업')+'님이 샘플 개발을 의뢰했습니다: "'+it.name+'"',page:'sampledev'});
+  };
+  /* 연구소 자체 개발 발의 */
+  const createLab=()=>{
+    const n=prompt('자체 개발할 제품명:');if(!n||!n.trim())return;
+    const it={id:'sd_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+      name:n.trim(),concept:'',reqSpec:'',targetPrice:'',origin:'lab',
+      requesterId:user.id,requesterName:user.name,assigneeId:user.id,assigneeName:user.name,
+      stage:'developing',devNote:'',comments:[],createdAt:Date.now(),updatedAt:Date.now()};
+    save([it,...devs]);setSelId(it.id);
+  };
+  const patch=(id,pa)=>save(devs.map(d=>d.id===id?{...d,...pa,updatedAt:Date.now()}:d));
+  const setStage=(d,stage)=>{
+    if(stage==='confirmed'&&!isAdmin)return alert('제품 확정은 관리자(기획)만 할 수 있습니다.');
+    patch(d.id,{stage,...(stage==='confirmed'?{confirmedBy:user.name,confirmedAt:Date.now()}:{})});
+    /* 단계 전환 알림 */
+    const msgMap={developing:'개발을 시작했습니다',sample:'시제품이 나왔습니다',done:'개발을 완료했습니다',confirmed:'제품이 확정되었습니다'};
+    if(msgMap[stage]){
+      if(stage==='confirmed'){
+        /* 확정 → 요청자 + 전 직원에게 공유 알림 */
+        const targets=[...new Set([d.requesterId,...emps.map(e=>e.id)])].filter(id=>id&&id!==user.id);
+        pushNotif(targets.map(id=>({to:id,from:user.id,fromName:user.name,type:'done',text:'🎉 신제품 확정: "'+d.name+'" 이(가) 확정 공유되었습니다.',page:'sampledev'})));
+      }else{
+        /* 요청자에게 진행 통지 (본인이 요청자면 담당자에게) */
+        const to=d.requesterId!==user.id?d.requesterId:d.assigneeId;
+        pushNotif({to,from:user.id,fromName:user.name,type:stage==='done'?'done':'info',text:'"'+d.name+'" '+msgMap[stage]+'.',page:'sampledev'});
+      }
+    }
+  };
+  const addCmt=(d)=>{
+    if(!cmt.trim())return;
+    const c={id:'c'+Date.now(),by:user.id,byName:user.name,text:cmt.trim(),at:Date.now()};
+    patch(d.id,{comments:[...(d.comments||[]),c]});
+    /* 상대방에게 알림 */
+    const other=d.requesterId===user.id?d.assigneeId:d.requesterId;
+    pushNotif({to:other,from:user.id,fromName:user.name,type:'mention',text:'"'+d.name+'" 개발에 댓글: '+cmt.trim().slice(0,40),page:'sampledev'});
+    setCmt('');
+  };
+  const delDev=(id)=>{if(!confirm('이 개발 건을 삭제할까요?'))return;save(devs.filter(d=>d.id!==id));setSelId(null);};
+
+  const stIdx=s=>SD_STAGES.findIndex(x=>x.k===s);
+  const filtered=devs.filter(d=>{
+    if(tab==='mine')return d.assigneeId===user.id&&d.stage!=='confirmed';
+    if(tab==='req')return d.requesterId===user.id;
+    if(tab==='confirmed')return d.stage==='confirmed';
+    return d.stage!=='confirmed';   /* 전체(진행중) */
+  });
+  const sel=devs.find(d=>d.id===selId);
+  const inp={boxSizing:'border-box',width:'100%',border:'1px solid var(--bd)',borderRadius:9,padding:'9px 11px',fontSize:13,fontFamily:'inherit'};
+  const lbl={fontSize:11,fontWeight:700,color:'var(--tm)',display:'block',marginBottom:5};
+
+  /* ── 상세 화면 ── */
+  if(sel){
+    const si=stIdx(sel.stage);
+    const canDev=sel.assigneeId===user.id||isAdmin;   /* 담당 연구원/관리자만 개발내용 수정 */
+    return R('div',{className:'pg fa'},
+      R('div',{className:'pg-hdr'},
+        R('button',{className:'btn bs',onClick:()=>setSelId(null)},'← 목록'),
+        (sel.requesterId===user.id||isAdmin)&&R('button',{className:'btn bd2 btn-sm',onClick:()=>delDev(sel.id)},'삭제')
+      ),
+      /* 헤더 카드 */
+      R('div',{className:'card',style:{marginBottom:12}},
+        R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
+          R('span',{style:{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:20,background:sel.origin==='sales'?'#FDF2F8':'#F0FDFA',color:sel.origin==='sales'?'#DB2777':'#0D9488'}},sel.origin==='sales'?'📣 영업 의뢰':'🔬 자체 개발'),
+          R('span',{style:{fontSize:18,fontWeight:800}},sel.name)
+        ),
+        /* 단계 파이프라인 */
+        R('div',{style:{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap',marginBottom:12}},
+          ...SD_STAGES.map((st,i)=>[
+            R('div',{key:st.k,onClick:()=>{if(canDev||isAdmin)setStage(sel,st.k);},
+              style:{cursor:(canDev||isAdmin)?'pointer':'default',padding:'6px 11px',borderRadius:8,fontSize:11.5,fontWeight:700,border:'1px solid '+(i<=si?st.c:'var(--bd)'),background:i<=si?st.bg:'#fff',color:i<=si?st.c:'#9CA3AF'}},
+              (i<si?'✓ ':i===si?'● ':'')+st.l),
+            i<SD_STAGES.length-1&&R('span',{key:'a'+i,style:{color:'#CBD5E1'}},'→')
+          ]).flat()
+        ),
+        R('div',{style:{fontSize:11,color:'var(--tm)',display:'flex',gap:12,flexWrap:'wrap'}},
+          R('span',null,'의뢰: ',R('b',null,sel.requesterName)),
+          R('span',null,'담당 연구원: ',R('b',null,sel.assigneeName||'-')),
+          sel.confirmedAt&&R('span',{style:{color:'#15803D'}},'확정: ',sel.confirmedBy,' · ',new Date(sel.confirmedAt).toLocaleDateString('ko-KR'))
+        )
+      ),
+      /* 영업 요청 내용 */
+      R('div',{className:'card',style:{marginBottom:12}},
+        R('div',{className:'card-title',style:{marginBottom:10}},'📣 영업 요청 내용'),
+        R('div',{style:{marginBottom:10}},R('span',{style:lbl},'컨셉 / 타겟'),R('div',{style:{fontSize:13,whiteSpace:'pre-wrap',color:sel.concept?'var(--t)':'#CBD5E1'}},sel.concept||'-')),
+        R('div',{style:{marginBottom:10}},R('span',{style:lbl},'요청 스펙'),R('div',{style:{fontSize:13,whiteSpace:'pre-wrap',color:sel.reqSpec?'var(--t)':'#CBD5E1'}},sel.reqSpec||'-')),
+        /* 희망 단가는 관리자만 (민감 정보) */
+        isAdmin&&R('div',null,R('span',{style:lbl},'희망 단가 (관리자만)'),R('div',{style:{fontSize:13,fontWeight:700,color:'var(--p)'}},sel.targetPrice?nfw(sel.targetPrice)+'원':'-'))
+      ),
+      /* 연구소 개발 내용 */
+      R('div',{className:'card',style:{marginBottom:12}},
+        R('div',{className:'card-title',style:{marginBottom:10}},'🔬 연구소 개발 내용'),
+        canDev
+          ? R('textarea',{value:sel.devNote||'',onChange:e=>patch(sel.id,{devNote:e.target.value}),placeholder:'배합·공정·특징·시제품 결과 등을 자유롭게 기록하세요',style:{...inp,minHeight:120}})
+          : R('div',{style:{fontSize:13,whiteSpace:'pre-wrap',color:sel.devNote?'var(--t)':'#CBD5E1'}},sel.devNote||'아직 작성 전')
+      ),
+      /* 협업 댓글 */
+      R('div',{className:'card'},
+        R('div',{className:'card-title',style:{marginBottom:10}},'💬 협업 댓글 ('+((sel.comments||[]).length)+')'),
+        (sel.comments||[]).length>0&&R('div',{style:{display:'flex',flexDirection:'column',gap:6,marginBottom:10,maxHeight:220,overflow:'auto'}},
+          ...(sel.comments||[]).map(c=>R('div',{key:c.id,style:{padding:'8px 10px',borderRadius:8,background:c.by===user.id?'#FFF8F4':'#F9FAFB',borderLeft:'3px solid '+(c.by===user.id?'var(--p)':'#9CA3AF')}},
+            R('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:2}},R('span',{style:{fontSize:11,fontWeight:700}},c.byName),R('span',{style:{fontSize:10,color:'var(--tm)'}},new Date(c.at).toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}))),
+            R('div',{style:{fontSize:12.5}},c.text)
+          ))
+        ),
+        R('div',{style:{display:'flex',gap:6}},
+          R('input',{value:cmt,onChange:e=>setCmt(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addCmt(sel);},placeholder:'댓글 입력 후 Enter',style:inp}),
+          R('button',{className:'btn bp',onClick:()=>addCmt(sel)},'등록')
+        )
+      )
+    );
+  }
+
+  /* ── 목록 화면 ── */
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🧪 샘플 개발'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'영업 의뢰 → 연구소 개발 → 제품 확정')),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        R('button',{className:'btn bw btn-sm',onClick:createLab},'🔬 자체 개발'),
+        R('button',{className:'btn bp',onClick:()=>setShowNew(true)},'+ 샘플 개발 의뢰')
+      )
+    ),
+    R('div',{className:'tab-row'},[['all','진행중'],['mine','내 담당'],['req','내 의뢰'],['confirmed','확정 제품']].map(([v,l])=>
+      R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
+    !loaded?R('div',{className:'empty'},'불러오는 중...'):
+    filtered.length===0?R('div',{className:'empty'},R('div',{className:'empty-ic'},'🧪'),tab==='confirmed'?'확정된 제품이 없습니다':'개발 건이 없습니다',R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'상단 "+ 샘플 개발 의뢰"로 시작하세요')):
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:10}},
+      ...filtered.sort((a,b)=>b.updatedAt-a.updatedAt).map(d=>{
+        const st=SD_STAGES.find(x=>x.k===d.stage)||SD_STAGES[0];const si=stIdx(d.stage);
+        return R('div',{key:d.id,className:'card',onClick:()=>setSelId(d.id),style:{cursor:'pointer',padding:'14px 16px'}},
+          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:8}},
+            R('div',{style:{fontSize:14,fontWeight:800,minWidth:0,flex:1}},d.name),
+            R('span',{style:{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,background:st.bg,color:st.c,whiteSpace:'nowrap'}},st.l)
+          ),
+          R('div',{style:{display:'flex',gap:3,marginBottom:8}},
+            ...SD_STAGES.map((s,i)=>R('div',{key:s.k,style:{flex:1,height:4,borderRadius:2,background:i<=si?s.c:'#EEF1F5'}}))
+          ),
+          R('div',{style:{fontSize:10.5,color:'var(--tm)',display:'flex',justifyContent:'space-between'}},
+            R('span',null,d.origin==='sales'?'📣 '+d.requesterName:'🔬 자체'),
+            R('span',null,'담당 ',d.assigneeName||'-')
+          )
+        );
+      })
+    ),
+    /* 의뢰 작성 모달 */
+    showNew&&R(Modal2,{title:'샘플 개발 의뢰',onClose:()=>setShowNew(false),size:520,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>setShowNew(false),style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:createReq,style:{flex:2}},'의뢰 보내기'))},
+      R('div',{style:{marginBottom:12}},R('label',{style:lbl},'제품명 *'),R('input',{value:nf0.name,onChange:e=>setNf0(p=>({...p,name:e.target.value})),placeholder:'예: 저당 쌀국수',style:inp,autoFocus:true})),
+      R('div',{style:{marginBottom:12}},R('label',{style:lbl},'컨셉 / 타겟'),R('textarea',{value:nf0.concept,onChange:e=>setNf0(p=>({...p,concept:e.target.value})),placeholder:'누구에게 어떤 컨셉으로 팔 제품인지',style:{...inp,minHeight:70}})),
+      R('div',{style:{marginBottom:12}},R('label',{style:lbl},'요청 스펙'),R('textarea',{value:nf0.reqSpec,onChange:e=>setNf0(p=>({...p,reqSpec:e.target.value})),placeholder:'중량·맛·원료 제한·인증 등 요구사항',style:{...inp,minHeight:70}})),
+      R('div',{className:'fg'},
+        R('div',null,R('label',{style:lbl},'희망 단가 (원)'),R('input',{type:'number',value:nf0.targetPrice,onChange:e=>setNf0(p=>({...p,targetPrice:e.target.value})),placeholder:'선택',style:inp})),
+        R('div',null,R('label',{style:lbl},'담당 연구원 *'),R('select',{value:nf0.assigneeId,onChange:e=>setNf0(p=>({...p,assigneeId:e.target.value})),style:inp},R('option',{value:''},'-- 선택 --'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+(e.position?' '+e.position:'')))))
+      )
+    )
+  );
+}
+
 /* 홈 요약: 신제품 현황 */
 function NewProductHome({onGoPage}){
   const[items,setItems]=useState([]);
@@ -8460,6 +8669,7 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'home',l:'홈',ic:'⊞'},
     {id:'newprod',l:'신제품 현황',ic:'🆕'},
+    {id:'sampledev',l:'샘플 개발',ic:'🧪'},
     {id:'lab',l:'연구소',ic:'🔬'},
     {id:'workreq',l:'업무 현황',ic:'📋'},
     {id:'mytasks',l:'나의 업무',ic:'📌'},
@@ -8532,7 +8742,8 @@ function loadNavSections(){
                 {after:'sched',item:{id:'shipsort',l:'출고 계획',ic:'📦'}},
                 {after:'shipsort',item:{id:'dart',l:'거래처 정보 조회',ic:'🔍'}},
                 {after:'home',item:{id:'newprod',l:'신제품 현황',ic:'🆕'}},
-                {after:'newprod',item:{id:'lab',l:'연구소',ic:'🔬'}}
+                {after:'newprod',item:{id:'sampledev',l:'샘플 개발',ic:'🧪'}},
+                {after:'sampledev',item:{id:'lab',l:'연구소',ic:'🔬'}}
               ];
               newMenus.forEach(({after,item})=>{
                 if(!newItems.find(it=>it.id===item.id)){
@@ -10859,6 +11070,7 @@ function App(){
     if(page==='workreq')return R('div',{className:'pg fa'},R(OngoingWork,{user,onGoPage:setPage}));
     if(page==='newprod')return R(PageNewProduct,{key:'np',user,mats});
     if(page==='lab')return R(PageNewProduct,{key:'lab',user,mats,mode:'lab'});
+    if(page==='sampledev')return R(PageSampleDev,{user});
     if(page==='mytasks')return R(PageMyTasks,{user});
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
