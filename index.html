@@ -8009,16 +8009,17 @@ function PageKurly({user}){
       /* 부정후기 */
       R('div',{className:'card',style:{marginBottom:14}},
         R('div',{className:'card-title',style:{marginBottom:8}},'⚠️ 부정후기'),
+        R('div',{style:{fontSize:10,color:'var(--tm)',marginBottom:8}},'제품별 최근 후기 30건을 매일 분석 · 이물/변질/환불 등 강한 신호와 별로/싱거움 등 약한 신호를 점수로 합산해 감지'),
         negs.length===0
-          ?R('div',{style:{fontSize:12,color:'var(--tm)',padding:'4px 0'}},
-             data.loginUsed?'감지된 부정후기가 없습니다 👍'
-             :'리뷰 본문은 컬리 로그인이 필요합니다. PC 문서→bnf-kurly→config.json에 KURLY_ID/KURLY_PW를 넣으면 다음 수집부터 부정후기를 감지합니다. (현재는 리뷰 수 증감만 추적 중)')
+          ?R('div',{style:{fontSize:12,color:'var(--tm)',padding:'4px 0'}},'감지된 부정후기가 없습니다 👍')
           :R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
             ...negs.slice(0,20).map((n,i)=>R('div',{key:i,style:{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'9px 12px'}},
-              R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,marginBottom:3}},
+              R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,marginBottom:3,flexWrap:'wrap'}},
                 R('span',{style:{fontSize:11.5,fontWeight:800}},n.name),
                 R('span',{style:{fontSize:10,color:'var(--tm)',flexShrink:0}},n.date)),
-              R('div',{style:{fontSize:11.5,color:'#7F1D1D',lineHeight:1.5}},n.text)
+              R('div',{style:{fontSize:11.5,color:'#7F1D1D',lineHeight:1.5}},n.text),
+              n.hits&&n.hits.length>0&&R('div',{style:{marginTop:5,display:'flex',gap:4,flexWrap:'wrap'}},
+                ...n.hits.map((h,j)=>R('span',{key:j,style:{fontSize:9,fontWeight:700,background:'#FEE2E2',color:'#B91C1C',borderRadius:6,padding:'2px 7px'}},h)))
             )))
       ),
       /* 제품별 */
