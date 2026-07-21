@@ -1032,8 +1032,13 @@ function PageWorkRequest({user}){
     if(!payload.assigneeId){alert('담당자를 선택하세요');return;}
     payload.updatedAt=Date.now();
     const idx=requests.findIndex(r=>r.id===payload.id);
+    const prev=idx>=0?requests[idx]:null;
     const next=idx>=0?requests.map(r=>r.id===payload.id?payload:r):[payload,...requests];
     saveRequests(next);setModalItem(null);
+    /* 담당자가 새로 지정/변경되면 담당자에게 알림 (본인 제외) */
+    if(payload.assigneeId&&payload.assigneeId!==user.id&&(!prev||prev.assigneeId!==payload.assigneeId)){
+      pushNotif({to:payload.assigneeId,from:user.id,fromName:user.name||user.email,type:'mention',text:(user.name||'요청자')+'님이 업무를 요청했습니다: "'+payload.title+'"'+(payload.dueDate?' (마감 '+payload.dueDate+')':''),page:'workreq'});
+    }
   };
 
   const deleteItem=(id)=>{
@@ -1042,8 +1047,14 @@ function PageWorkRequest({user}){
     setModalItem(null);
   };
   const updStatus=(id,status)=>{
+    const r0=requests.find(r=>r.id===id);
     saveRequests(requests.map(r=>r.id===id?{...r,status,updatedAt:Date.now()}:r));
     if(modalItem&&modalItem.id===id)setModalItem(p=>p?{...p,status}:p);
+    /* 완료/수락/반려 시 요청자에게 알림 (내가 담당자이고 요청자가 다를 때) */
+    if(r0&&r0.requesterId&&r0.requesterId!==user.id){
+      const label={done:'완료',accepted:'수락',rejected:'반려',doing:'진행 시작'}[status];
+      if(label)pushNotif({to:r0.requesterId,from:user.id,fromName:user.name||user.email,type:status==='done'?'done':'info',text:(user.name||'담당자')+'님이 "'+r0.title+'" 업무를 '+label+'했습니다.',page:'workreq'});
+    }
   };
   /* 인라인 빠른 업데이트 */
   const updField=(id,field,value)=>{
@@ -1792,7 +1803,8 @@ function PageApproval({user}){
   const[tab,setTab]=useState('mine');const[docs,setDocs]=useState([]);const[sel,setSel]=useState(null);
   const[showF,setShowF]=useState(false);const[fType,setFType]=useState('leave');const[loading,setLoading]=useState(true);
   const[emps,setEmps]=useState([]);
-  const[form,setForm]=useState({title:'',step1_id:'',step2_id:'',content:{}});
+  const[form,setForm]=useState({title:'',step1_id:'',step2_id:'',content:{},refs:[]});
+  const[decideComment,setDecideComment]=useState('');
   const isAdmin=['superadmin','admin'].includes(user.role);
   useEffect(()=>{load();loadEmps();},[tab]);
   const loadEmps=async()=>{const{data}=await db('emp').select('id,name,position').eq('status','active').order('name');setEmps(data||[]);};
@@ -1808,14 +1820,36 @@ function PageApproval({user}){
   const updC=(k,v)=>setForm(p=>({...p,content:{...p.content,[k]:v}}));
   const submit=async()=>{
     if(!form.title||!form.step1_id)return alert('제목과 1차 결재자 필수');
-    await db('approvals').insert({form_type:fType,title:form.title,content:form.content,writer_id:user.id,status:'결재중',step1_id:form.step1_id||null,step2_id:form.step2_id||null,step1_status:'대기',step2_status:'대기'});
-    setShowF(false);setForm({title:'',step1_id:'',step2_id:'',content:{}});load();
+    /* content에 참조자 함께 저장 (스키마 변경 없이) */
+    const content={...form.content,__refs:form.refs||[]};
+    await db('approvals').insert({form_type:fType,title:form.title,content,writer_id:user.id,status:'결재중',step1_id:form.step1_id||null,step2_id:form.step2_id||null,step1_status:'대기',step2_status:'대기'});
+    /* 1차 결재자 + 참조자에게 알림 */
+    const nm=n=>(emps.find(e=>e.id===n)||{}).name||'';
+    pushNotif([
+      {to:form.step1_id,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 결재를 요청했습니다.',page:'approval'},
+      ...(form.refs||[]).map(rid=>({to:rid,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 문서에 참조로 지정되었습니다.',page:'approval'}))
+    ]);
+    setShowF(false);setForm({title:'',step1_id:'',step2_id:'',content:{},refs:[]});load();
   };
   const decide=async(id,step,status)=>{
     const doc=docs.find(d=>d.id===id);
+    const comment=(decideComment||'').trim();
     let fs='결재중';if(status==='반려')fs='반려';else if(status==='승인'&&(step===2||!doc?.step2_id))fs='승인';
-    await db('approvals').update({[`step${step}_status`]:status,[`step${step}_at`]:now2(),status:fs,updated_at:now2()}).eq('id',id);
-    setSel(null);load();
+    /* 의견 로그를 content에 누적 */
+    const content={...(doc?.content||{})};
+    const opinions=Array.isArray(content.__opinions)?content.__opinions:[];
+    if(comment)opinions.push({by:user.name,step,status,text:comment,at:now2()});
+    content.__opinions=opinions;
+    await db('approvals').update({[`step${step}_status`]:status,[`step${step}_at`]:now2(),status:fs,content,updated_at:now2()}).eq('id',id);
+    /* 알림: 승인이고 2차 결재자 있으면 다음 결재자, 아니면 기안자에게 결과 통지 */
+    if(doc){
+      if(status==='승인'&&step===1&&doc.step2_id){
+        pushNotif({to:doc.step2_id,from:user.id,fromName:user.name,type:'approval',text:'"'+doc.title+'" 1차 승인됨 · 2차 결재 요청',page:'approval'});
+      }else{
+        pushNotif({to:doc.writer_id,from:user.id,fromName:user.name,type:status==='승인'?'done':'approval',text:'"'+doc.title+'" 문서가 '+status+'되었습니다.'+(comment?' ('+comment+')':''),page:'approval'});
+      }
+    }
+    setDecideComment('');setSel(null);load();
   };
   const renderFields=()=>{
     if(fType==='leave')return R('div',null,
@@ -1843,8 +1877,22 @@ function PageApproval({user}){
         sel.step2_id&&R('div',{className:'pipe-step'},R('div',{className:'pipe-circle'+(sel.step2_status==='승인'?' done':sel.step2_status==='반려'?' rej':'')},'2'),R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3}},'2차결재'),R('div',{style:{fontSize:11,fontWeight:700,color:sel.step2_status==='승인'?'var(--ok)':sel.step2_status==='반려'?'var(--err)':'var(--tm)'}},sel.step2_status||'대기'))
       )
     ),
+    /* 의견 로그 */
+    (sel.content&&Array.isArray(sel.content.__opinions)&&sel.content.__opinions.length>0)&&R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{className:'card-title',style:{marginBottom:10}},'💬 결재 의견'),
+      ...sel.content.__opinions.map((o,i)=>R('div',{key:i,style:{padding:'8px 0',borderBottom:i<sel.content.__opinions.length-1?'1px solid #F4F1F7':'none'}},
+        R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:2}},
+          R('span',{style:{fontSize:12,fontWeight:700}},o.by),
+          R(Bdg2,{cls:o.status==='승인'?'b-ok':o.status==='반려'?'b-e':'b-g',txt:(o.step+'차 ')+o.status}),
+          R('span',{style:{fontSize:10,color:'var(--tm)'}},fDT(o.at))
+        ),
+        R('div',{style:{fontSize:13,color:'var(--t)'}},o.text)
+      ))
+    ),
     (sel.step1_id===user.id&&sel.step1_status==='대기')||(sel.step2_id===user.id&&sel.step1_status==='승인'&&sel.step2_status==='대기')
-    ?R('div',{className:'card'},R('div',{className:'card-title',style:{marginBottom:10}},'결재 처리'),R('div',{style:{display:'flex',gap:8}},R('button',{className:'btn bok',style:{flex:1,justifyContent:'center'},onClick:()=>{const s=sel.step1_id===user.id&&sel.step1_status==='대기'?1:2;decide(sel.id,s,'승인');}},'✅ 승인'),R('button',{className:'btn bd2',style:{flex:1,justifyContent:'center'},onClick:()=>{const s=sel.step1_id===user.id&&sel.step1_status==='대기'?1:2;decide(sel.id,s,'반려');}},'❌ 반려'))):null
+    ?R('div',{className:'card'},R('div',{className:'card-title',style:{marginBottom:10}},'결재 처리'),
+      R('textarea',{className:'inp',value:decideComment,onChange:e=>setDecideComment(e.target.value),placeholder:'의견 입력 (선택)',style:{minHeight:60,marginBottom:10}}),
+      R('div',{style:{display:'flex',gap:8}},R('button',{className:'btn bok',style:{flex:1,justifyContent:'center'},onClick:()=>{const s=sel.step1_id===user.id&&sel.step1_status==='대기'?1:2;decide(sel.id,s,'승인');}},'✅ 승인'),R('button',{className:'btn bd2',style:{flex:1,justifyContent:'center'},onClick:()=>{const s=sel.step1_id===user.id&&sel.step1_status==='대기'?1:2;decide(sel.id,s,'반려');}},'❌ 반려'))):null
   );
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},R('div',{className:'pg-title'},'📋 전자결재'),R('button',{className:'btn bp',onClick:()=>setShowF(true)},'+ 결재 기안')),
@@ -1865,6 +1913,17 @@ function PageApproval({user}){
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'1차 결재자 *'),R('select',{className:'inp',value:form.step1_id,onChange:e=>setForm(p=>({...p,step1_id:e.target.value}))},R('option',{value:''},'선택'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+e.position)))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'2차 결재자'),R('select',{className:'inp',value:form.step2_id,onChange:e=>setForm(p=>({...p,step2_id:e.target.value}))},R('option',{value:''},'없음'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+e.position))))
+      ),
+      /* 참조자 (여러명 - 알림만 감, 결재권 없음) */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'참조 (선택 · 알림만)'),
+        R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+          ...emps.filter(e=>e.id!==user.id&&e.id!==form.step1_id&&e.id!==form.step2_id).map(e=>{
+            const on=(form.refs||[]).includes(e.id);
+            return R('button',{key:e.id,onClick:()=>setForm(p=>({...p,refs:on?(p.refs||[]).filter(x=>x!==e.id):[...(p.refs||[]),e.id]})),
+              style:{padding:'5px 11px',borderRadius:16,fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)'}},
+              (on?'✓ ':'')+e.name);
+          })
+        )
       )
     )
   );
@@ -2524,6 +2583,34 @@ const SB_URL='https://fchxlplnacyycuddvdmu.supabase.co';
 const SB_KEY='sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli';
 const sbClient=supabase.createClient(SB_URL,SB_KEY);
 const db=t=>sbClient.from(t);
+
+/* ═══ 알림 시스템 (협업 태그·완료 통지) ═══
+   app_state.notifications = [{id,to,from,fromName,type,text,page,ts,read}]
+   pushNotif로 특정 직원에게 알림 생성. NotifPanel(🔔)이 읽음. */
+async function pushNotif(list){
+  /* list: [{to, from, fromName, type, text, page}] - 여러명 한번에 */
+  const items=(Array.isArray(list)?list:[list]).filter(n=>n&&n.to&&n.to!==n.from);
+  if(!items.length)return;
+  try{
+    const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+    const ex=data&&data.state_data?data.state_data:{};
+    const prev=Array.isArray(ex.notifications)?ex.notifications:[];
+    const now=new Date().toISOString();
+    const add=items.map(n=>({id:'nt'+Date.now()+Math.floor(Math.random()*9999),to:n.to,from:n.from||'',fromName:n.fromName||'',type:n.type||'info',text:n.text||'',page:n.page||'',ts:now,read:false}));
+    /* 최근 300개만 보관 */
+    const next=[...add,...prev].slice(0,300);
+    await sbClient.from('app_state').upsert({id:1,state_data:{...ex,notifications:next},updated_at:now});
+    /* 카카오톡 연동 준비: 브리지가 켜져 있으면 릴레이 (없어도 무시) */
+    add.forEach(n=>pushKakao(n).catch(()=>{}));
+  }catch(e){console.warn('알림 생성 실패',e);}
+}
+/* 카카오 알림 릴레이 (선택) - 로컬 브리지의 /kakao 로 전달, 없으면 조용히 무시.
+   실제 카톡 발송은 카카오 알림톡(사업자) 준비 후 브리지에서 처리 */
+async function pushKakao(n){
+  try{
+    await fetch('http://127.0.0.1:8777/kakao',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(n)});
+  }catch(e){/* 브리지 없으면 무시 */}
+}
 
 async function dbLoad(){
   try{
@@ -8794,19 +8881,36 @@ function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
 /* ─── 🔔 알림 패널 ─── */
 function NotifPanel({mats,user,onClose,onGoPage}){
   const[requests,setRequests]=useState([]);
+  const[notifs,setNotifs]=useState([]);
+  const isAdmin=['superadmin','admin'].includes(user.role);
   useEffect(()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
       .then(({data})=>{
         if(data?.state_data?.work_requests)setRequests(data.state_data.work_requests);
+        if(Array.isArray(data?.state_data?.notifications))setNotifs(data.state_data.notifications);
       });
   },[]);
-  
-  /* 알림 수집 */
-  const shortMats=(mats||[]).filter(m=>(+m.mu||0)>0&&m.s<+m.mu).sort((a,b)=>((+b.mu||0)-b.s)-((+a.mu||0)-a.s));
+
+  /* 내 개인 알림 (태그·완료·결재) */
+  const myNotifs=(notifs||[]).filter(n=>n.to===user.id&&!n.read);
+  const markRead=async(ids)=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=data&&data.state_data?data.state_data:{};
+      const next=(ex.notifications||[]).map(n=>ids.includes(n.id)?{...n,read:true}:n);
+      await sbClient.from('app_state').upsert({id:1,state_data:{...ex,notifications:next},updated_at:new Date().toISOString()});
+      setNotifs(next);
+    }catch(e){}
+  };
+  const openNotif=(n)=>{markRead([n.id]);if(n.page)onGoPage(n.page);else onClose();};
+
+  /* 알림 수집 (부족재고는 관리자만 - 민감정보) */
+  const shortMats=(isAdmin?(mats||[]):[]).filter(m=>(+m.mu||0)>0&&m.s<+m.mu).sort((a,b)=>((+b.mu||0)-b.s)-((+a.mu||0)-a.s));
   const myRequests=(requests||[]).filter(r=>r.assigneeId===user.id&&['pending','accepted','doing'].includes(r.status));
   const today=new Date().toISOString().slice(0,10);
   const overdueRequests=(requests||[]).filter(r=>r.assigneeId===user.id&&r.dueDate&&r.dueDate<today&&!['done','cancelled','rejected'].includes(r.status));
-  const totalCount=shortMats.length+myRequests.length+overdueRequests.length;
+  const totalCount=myNotifs.length+shortMats.length+myRequests.length+overdueRequests.length;
+  const NT_STY={mention:{bg:'#F5F3FF',bd:'#DDD6FE',tag:'#7C3AED',ic:'🏷'},done:{bg:'#F0FDF4',bd:'#BBF7D0',tag:'#15803D',ic:'✅'},approval:{bg:'#EFF6FF',bd:'#BFDBFE',tag:'#2563EB',ic:'📋'},info:{bg:'#F9FAFB',bd:'#E5E7EB',tag:'#6B7280',ic:'🔔'}};
   
   return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.3)',backdropFilter:'blur(4px)',display:'flex',alignItems:'flex-start',justifyContent:'flex-end',zIndex:99998,padding:'70px 20px 20px 20px',animation:'fadeIn .15s ease'}},
     R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,maxWidth:400,width:'100%',maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25),0 0 0 1px rgba(0,0,0,0.05)',overflow:'hidden',animation:'slideDown .2s ease'}},
@@ -8828,6 +8932,26 @@ function NotifPanel({mats,user,onClose,onGoPage}){
           R('div',{style:{fontSize:13,fontWeight:600,color:'#374151'}},'모두 확인했습니다'),
           R('div',{style:{fontSize:11,marginTop:4}},'새 알림이 없습니다')
         ):R('div',null,
+          /* 개인 알림 (태그·완료·결재) */
+          myNotifs.length>0&&R('div',{style:{marginBottom:8}},
+            R('div',{style:{padding:'8px 12px 4px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+              R('span',{style:{fontSize:10,fontWeight:700,color:'#7C3AED',textTransform:'uppercase',letterSpacing:0.5}},'🔔 새 알림 ('+myNotifs.length+')'),
+              R('button',{onClick:()=>markRead(myNotifs.map(n=>n.id)),style:{fontSize:9.5,color:'#94a3b8',background:'none',border:'none',cursor:'pointer',fontWeight:600}},'모두 읽음')
+            ),
+            ...myNotifs.slice(0,12).map(n=>{const s=NT_STY[n.type]||NT_STY.info;const mins=Math.floor((Date.now()-new Date(n.ts).getTime())/60000);const ago=mins<1?'방금':mins<60?mins+'분 전':mins<1440?Math.floor(mins/60)+'시간 전':Math.floor(mins/1440)+'일 전';
+              return R('div',{key:n.id,onClick:()=>openNotif(n),style:{padding:'10px 12px',margin:'2px 4px',borderRadius:10,cursor:'pointer',background:s.bg,border:'1px solid '+s.bd,transition:'all .15s'},
+                onMouseEnter:e=>{e.currentTarget.style.transform='translateX(-2px)';},
+                onMouseLeave:e=>{e.currentTarget.style.transform='none';}
+              },
+                R('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:3}},
+                  R('span',{style:{fontSize:9,padding:'1px 6px',background:'#fff',color:s.tag,borderRadius:8,fontWeight:700,border:'1px solid '+s.bd}},s.ic+' '+(n.type==='mention'?'멘션':n.type==='done'?'완료':n.type==='approval'?'결재':'알림')),
+                  n.fromName&&R('span',{style:{fontSize:10,color:'#64748B',fontWeight:600}},n.fromName),
+                  R('span',{style:{flex:1}}),R('span',{style:{fontSize:9,color:'#94a3b8'}},ago)
+                ),
+                R('div',{style:{fontSize:12,fontWeight:600,color:'#1F2937',lineHeight:1.4}},n.text)
+              );
+            })
+          ),
           /* 받은 업무 요청 */
           myRequests.length>0&&R('div',{style:{marginBottom:8}},
             R('div',{style:{padding:'8px 12px 4px',fontSize:10,fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:0.5}},'📥 받은 업무 ('+myRequests.length+')'),
@@ -10708,8 +10832,19 @@ function App(){
   const navDefMap=Object.fromEntries(allNavItems.map(i=>[i.id,i]));
 
   /* 페이지 렌더 */
+  /* 관리자 전용 페이지: 일반직원은 페이지 ID로도 접근 불가 (완전 차단) */
+  const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart']);
   const renderPage=()=>{
     const p={user,mats,cats,isAdmin,rk};
+    /* ── 권한 차단: 관리자 전용 페이지를 일반직원이 열려 하면 즉시 잠금 ── */
+    if(ADMIN_ONLY_PAGES.has(page)&&!isAdmin){
+      return R('div',{className:'pg fa'},R('div',{className:'empty',style:{padding:'60px 20px'}},
+        R('div',{className:'empty-ic'},'🔒'),
+        R('div',{style:{fontWeight:800,fontSize:15,color:'var(--t)',marginTop:4}},'관리자 전용 화면'),
+        R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:6}},'이 메뉴는 관리자만 볼 수 있습니다.'),
+        R('button',{className:'btn bp',style:{marginTop:16},onClick:()=>setPage('home')},'홈으로')
+      ));
+    }
     if(page==='home')return R(PageHome,{mats,prods,orders,pqty,shortCnt,onGoPage:setPage,user});
     if(page==='workreq')return R('div',{className:'pg fa'},R(OngoingWork,{user,onGoPage:setPage}));
     if(page==='newprod')return R(PageNewProduct,{key:'np',user,mats});
