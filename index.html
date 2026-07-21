@@ -4560,7 +4560,8 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[wxHourly,setWxHourly]=useState([]);
   const[wxDaily,setWxDaily]=useState([]);
   const[wxTab,setWxTab]=useState('hour');
-  const[news,setNews]=useState([]);
+  /* 뉴스: 마지막 성공분을 캐시에서 즉시 표시 후 백그라운드 갱신 */
+  const[news,setNews]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_news_cache')||'[]');}catch(e){return[];}});
   const[rateTab,setRateTab]=useState('week');
   const[ratesUpdatedAt,setRatesUpdatedAt]=useState(null);
   const[weatherUpdatedAt,setWeatherUpdatedAt]=useState(null);
@@ -4740,22 +4741,59 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       .then(({data})=>{if(data)setMyLinks(data);}).catch(()=>{});
   },[]);
 
-  const loadFreshNews=()=>{
+  const loadFreshNews=async(retry)=>{
     const keywords=['식품','식품산업','식품제조','외식산업','식품업계','식품안전','농수산물','식품기업'];
     const kw=keywords[Math.floor(Math.random()*keywords.length)];
-    const url='https://api.rss2json.com/v1/api.json?count=20&rss_url='+encodeURIComponent('https://news.google.com/rss/search?q='+encodeURIComponent(kw)+'&hl=ko&gl=KR&ceid=KR:ko');
-    fetch(url).then(r=>r.json()).then(data=>{
-      if(data&&data.items){
-        const seenIds=new Set(JSON.parse(localStorage.getItem('bnf_seen_news')||'[]'));
-        const fresh=data.items.filter(n=>!seenIds.has(n.link)).slice(0,4);
-        const final=fresh.length>=4?fresh:[...fresh,...data.items.filter(n=>seenIds.has(n.link))].slice(0,4);
-        setNews(final);
-        final.forEach(n=>seenIds.add(n.link));
-        const arr=Array.from(seenIds);
-        if(arr.length>100)arr.splice(0,arr.length-100);
-        localStorage.setItem('bnf_seen_news',JSON.stringify(arr));
-      }
-    }).catch(()=>{});
+    const rss='https://news.google.com/rss/search?q='+encodeURIComponent(kw)+'&hl=ko&gl=KR&ceid=KR:ko';
+    /* RSS XML → {title,link,pubDate}[] */
+    const parseRss=(xml)=>{
+      try{
+        const doc=new DOMParser().parseFromString(xml,'text/xml');
+        return [...doc.querySelectorAll('item')].map(it=>({
+          title:(it.querySelector('title')||{}).textContent||'',
+          link:(it.querySelector('link')||{}).textContent||'',
+          pubDate:(it.querySelector('pubDate')||{}).textContent||''
+        })).filter(n=>n.title&&n.link);
+      }catch(e){return [];}
+    };
+    /* 프록시 후보를 순서대로 시도 (rss2json 무료 플랜 제한 대응) */
+    const sources=[
+      {u:'https://api.allorigins.win/raw?url='+encodeURIComponent(rss),p:t=>parseRss(t)},
+      {u:'https://corsproxy.io/?url='+encodeURIComponent(rss),p:t=>parseRss(t)},
+      {u:'https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(rss),
+       p:t=>{try{const j=JSON.parse(t);return (j.items||[]).map(n=>({title:n.title,link:n.link,pubDate:n.pubDate}));}catch(e){return [];}}},
+    ];
+    /* 프록시를 동시에 호출해 가장 먼저 성공한 응답 사용 (콜드 캐시 대기 최소화) */
+    const tryOne=(s)=>new Promise((ok,fail)=>{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),25000);
+      fetch(s.u,{signal:ctl.signal}).then(r=>{
+        clearTimeout(tm);
+        if(!r.ok)return fail(0);
+        return r.text().then(t=>{const arr=s.p(t);arr.length?ok(arr):fail(0);});
+      }).catch(()=>{clearTimeout(tm);fail(0);});
+    });
+    let items=[];
+    try{items=await Promise.any(sources.map(tryOne));}
+    catch(e){items=[];}
+    if(!items.length){
+      /* 프록시가 간헐적으로 죽으므로 1회 자동 재시도 (다른 키워드로) */
+      if(!retry){setTimeout(()=>loadFreshNews(1),1500);return;}
+      /* 캐시가 있으면 캐시 유지, 없을 때만 실패 표시 */
+      try{
+        const c=JSON.parse(localStorage.getItem('bnf_news_cache')||'null');
+        if(c&&c.length){setNews(c);return;}
+      }catch(e2){}
+      setNews(null);return;
+    }
+    const seenIds=new Set(JSON.parse(localStorage.getItem('bnf_seen_news')||'[]'));
+    const fresh=items.filter(n=>!seenIds.has(n.link)).slice(0,4);
+    const final=fresh.length>=4?fresh:[...fresh,...items.filter(n=>seenIds.has(n.link))].slice(0,4);
+    setNews(final);
+    try{localStorage.setItem('bnf_news_cache',JSON.stringify(final));}catch(e){}
+    final.forEach(n=>seenIds.add(n.link));
+    const arr=Array.from(seenIds);
+    if(arr.length>100)arr.splice(0,arr.length-100);
+    localStorage.setItem('bnf_seen_news',JSON.stringify(arr));
   };
 
   useEffect(()=>{
@@ -4902,11 +4940,19 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
         R('a',{href:'https://search.naver.com/search.naver?where=news&query=%EC%8B%9D%ED%92%88',target:'_blank',style:{fontSize:10,color:'var(--p)',textDecoration:'none'}},'더보기 →')
       )
     ),
-    news.length>0?R('div',null,...news.map((n,i)=>R('a',{key:i,href:n.link,target:'_blank',rel:'noopener',
+    news===null
+      ?R('div',{style:{padding:'14px 0',textAlign:'center',fontSize:11,color:'var(--tm)'}},'뉴스를 불러오지 못했습니다',
+         R('button',{onClick:loadFreshNews,style:{display:'block',margin:'7px auto 0',border:'1px solid var(--bd)',background:'#fff',borderRadius:7,padding:'4px 12px',fontSize:11,fontWeight:700,cursor:'pointer',color:'var(--p)',fontFamily:'inherit'}},'다시 시도'))
+      :news.length>0?R('div',null,...news.map((n,i)=>R('a',{key:i,href:n.link,target:'_blank',rel:'noopener',
       style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:i<news.length-1?'1px solid #F3F4F6':'none',textDecoration:'none',color:'#374151',gap:10}
     },
       R('div',{style:{flex:1,fontSize:12,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},n.title.replace(/<[^>]+>/g,'')),
-      R('div',{style:{fontSize:9,color:'#9CA3AF',whiteSpace:'nowrap'}},n.pubDate?n.pubDate.slice(5,10):'')
+      R('div',{style:{fontSize:9,color:'#9CA3AF',whiteSpace:'nowrap'}},(()=>{
+        if(!n.pubDate)return '';
+        const d=new Date(n.pubDate);
+        return isNaN(d)?String(n.pubDate).slice(5,10)
+          :String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      })())
     ))):R('div',{style:{padding:'16px 0',textAlign:'center',color:'#ccc',fontSize:11}},'뉴스 로딩 중...')
   );
 
