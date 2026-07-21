@@ -3722,6 +3722,9 @@ function OngoingWork({user,onGoPage}){
   const[mgrName,setMgrName]=useState(''); /* 분류 추가 입력 */
   const[daily,setDaily]=useState([]); /* 일일 업무 체크리스트 */
   const[dailyInput,setDailyInput]=useState('');
+  /* 완료된 업무 접기 (기본 접힘, 선택 기억) */
+  const[doneOpen,setDoneOpen]=useState(()=>localStorage.getItem('bnf_done_open')==='1');
+  const toggleDone=()=>setDoneOpen(v=>{const n=!v;try{localStorage.setItem('bnf_done_open',n?'1':'0');}catch(e){}return n;});
   const tRef=useRef(null);
   const dRef=useRef(null);
 
@@ -3938,16 +3941,19 @@ function OngoingWork({user,onGoPage}){
       :ongoing.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},catF==='all'?'위에 업무를 입력하면 바로 추가됩니다':'이 분류의 진행 업무가 없습니다')
       :sectionBody(ongoing,ongoingShow,ongoing.length-ongoingShow.length)
     ),
-    /* ── 완료된 업무 (전체 폭) ── */
-    R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px'}},
-      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
+    /* ── 완료된 업무 (전체 폭, 접기 가능) ── */
+    R('div',{className:'card',style:{borderRadius:16,padding:doneOpen?'16px 18px':'12px 18px'}},
+      R('div',{onClick:toggleDone,style:{display:'flex',alignItems:'center',gap:8,marginBottom:doneOpen?12:0,cursor:'pointer',userSelect:'none'}},
+        R('span',{style:{fontSize:12,color:'var(--tm)',transition:'transform .15s',display:'inline-block',transform:doneOpen?'rotate(90deg)':'none'}},'▶'),
         R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'✅ 완료된 업무'),
-        completed.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D',background:'#F0FDF4',padding:'2px 9px',borderRadius:999}},completed.length)
+        completed.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D',background:'#F0FDF4',padding:'2px 9px',borderRadius:999}},completed.length),
+        R('span',{style:{marginLeft:'auto',fontSize:10.5,color:'var(--tm)',fontWeight:600}},doneOpen?'접기':'펼치기')
       ),
-      !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
-      :completed.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'완료한 업무가 여기에 쌓입니다')
-      :sectionBody(completed,completedShow,completed.length-completedShow.length),
-      saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
+      doneOpen&&(
+        !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
+        :completed.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'완료한 업무가 여기에 쌓입니다')
+        :sectionBody(completed,completedShow,completed.length-completedShow.length)),
+      doneOpen&&saving&&R('div',{style:{fontSize:10,color:'var(--ok)',textAlign:'right',marginTop:6}},'저장 중...')
     ),
     /* ── 업무 수정 모달 (카드 클릭) ── */
     editTask&&draft&&R('div',{onClick:e=>{if(e.target===e.currentTarget)closeEdit();},
