@@ -4162,6 +4162,8 @@ function PageTrade({kind}){
   const[saving,setSaving]=useState(false);
 
   const[meta,setMeta]=useState(null); /* 공장 현황 요약용 */
+  const[topData,setTopData]=useState(null); /* 품목별 집계 (ec_top.py) */
+  const[topPeriod,setTopPeriod]=useState('ytd');
 
   /* 항상 최신 데이터: 1분마다 + 화면 복귀 시 자동 갱신 */
   useEffect(()=>{
@@ -4171,6 +4173,7 @@ function PageTrade({kind}){
         if(!alive)return;
         const sd=d&&d.state_data?d.state_data:{};
         if(sd.profit_analysis&&typeof sd.profit_analysis==='object')setData(sd.profit_analysis);
+        if(sd.trade_top&&typeof sd.trade_top==='object')setTopData(sd.trade_top);
         const ms=Array.isArray(sd.mats)?sd.mats:[];
         setMeta({
           matCount:ms.length,
@@ -4421,6 +4424,54 @@ function PageTrade({kind}){
             ytdPrev>0?pctBadge(pct(ytd,ytdPrev),11):R('span',{style:{fontSize:10,color:'var(--tm)'}},'작년 데이터 없음'))
         )
       ),
+      /* ── 품목 TOP 10 ── */
+      topData&&topData[field]&&(()=>{
+        const md=topData[field];
+        const yms=Object.keys(md).sort();
+        if(!yms.length)return null;
+        let use;
+        if(topPeriod==='month')use=yms.slice(-1);
+        else if(topPeriod==='3m')use=yms.slice(-3);
+        else if(topPeriod==='12m')use=yms;
+        else use=yms.filter(k=>k.startsWith(String(cy)));
+        if(!use.length)use=yms;
+        const tot={};
+        use.forEach(ym=>{const o=md[ym]||{};Object.keys(o).forEach(nm=>{const e=tot[nm]||(tot[nm]={qty:0,amt:0});e.qty+=(+o[nm].qty||0);e.amt+=(+o[nm].amt||0);});});
+        const list=Object.keys(tot).map(nm=>({name:nm,qty:tot[nm].qty,amt:tot[nm].amt})).sort((a,b)=>b.amt-a.amt);
+        const allAmt=list.reduce((a,x)=>a+x.amt,0);
+        const top=list.slice(0,10);
+        if(!top.length)return null;
+        const maxAmt=top[0].amt||1;
+        const cleanNm=(nm)=>String(nm||'').replace(/^\[[^\]]*\]/,'').trim()||nm;
+        const eok2=(n)=>{const a=Math.abs(n);return a>=100000000?((n/100000000).toFixed(1)+'억'):a>=10000000?((n/10000000).toFixed(1)+'천만'):nf(n);};
+        const periodLabel={month:yms.slice(-1)[0]?(+yms.slice(-1)[0].slice(5))+'월':'이번달',ytd:cy+'년','3m':'최근 3개월','12m':'최근 '+yms.length+'개월'};
+        const pbtn=(k,l)=>R('button',{key:k,onClick:()=>setTopPeriod(k),
+          style:{border:'1px solid '+(topPeriod===k?accent:'var(--bd)'),background:topPeriod===k?accentBg:'#fff',color:topPeriod===k?accent:'var(--tm)',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},l);
+        const medal=['🥇','🥈','🥉'];
+        return R('div',{className:'card',style:{padding:'14px 16px',marginBottom:14}},
+          R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:4}},
+            R('div',{className:'card-title'},'🏆 '+label+' 품목 TOP 10',
+              R('span',{style:{fontSize:10.5,fontWeight:600,color:'var(--tm)',marginLeft:6}},(periodLabel[topPeriod]||'')+' · 공급가액 기준')),
+            R('div',{style:{display:'flex',gap:5}},pbtn('month','이번달'),pbtn('3m','3개월'),pbtn('ytd',cy+'년'),pbtn('12m','12개월'))
+          ),
+          R('div',{style:{fontSize:10.5,color:'var(--tm)',marginBottom:10}},'전체 '+list.length+'개 품목 · 총 '+eok2(allAmt)+'원 · TOP10 비중 '+(allAmt?Math.round(top.reduce((a,x)=>a+x.amt,0)*100/allAmt):0)+'%'),
+          R('div',{style:{display:'flex',flexDirection:'column',gap:6,maxWidth:760}},
+            ...top.map((it,i)=>R('div',{key:i,style:{display:'flex',alignItems:'center',gap:10}},
+              R('div',{style:{width:26,textAlign:'center',fontSize:i<3?15:11.5,fontWeight:800,color:i<3?'var(--t)':'var(--tm)',flexShrink:0}},i<3?medal[i]:(i+1)),
+              R('div',{style:{flex:1,minWidth:0}},
+                R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,marginBottom:2}},
+                  R('span',{style:{fontSize:12,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},cleanNm(it.name)),
+                  R('span',{style:{fontSize:12,fontWeight:800,color:accent,flexShrink:0}},nf(it.amt),
+                    R('span',{style:{fontSize:9.5,fontWeight:600,color:'var(--tm)',marginLeft:5}},(allAmt?(it.amt*100/allAmt).toFixed(1):0)+'%'))
+                ),
+                R('div',{style:{height:7,background:'#F1F5F9',borderRadius:4,overflow:'hidden'}},
+                  R('div',{style:{height:'100%',width:Math.max(2,it.amt*100/maxAmt)+'%',background:accent,borderRadius:4,opacity:i<3?1:0.55}})),
+                R('div',{style:{fontSize:9.5,color:'var(--tm)',marginTop:2}},'수량 '+nf(it.qty))
+              )
+            ))
+          )
+        );
+      })(),
       /* ── 월별 차트 ── */
       R('div',{className:'card',style:{padding:'14px 16px',marginBottom:14}},
         R('div',{className:'card-hdr'},
