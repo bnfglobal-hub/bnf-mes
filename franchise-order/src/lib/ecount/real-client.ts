@@ -102,23 +102,29 @@ export class RealEcountClient implements EcountClient {
   }
 
   /**
-   * 전표 라인 구성.
-   * 필드명은 이카운트 테스트 서버(sboapi)에서 실제 호출로 검증됨:
-   * IO_DATE / UPLOAD_SER_NO / CUST / PROD_CD / QTY / PRICE / REMARKS 는 정상 수용.
-   * (미검증 코드를 넣으면 ResultDetails.Errors 에 ColCd 와 사유가 반환된다)
+   * 전표 라인 구성. 이카운트 테스트 서버(sboapi)에서 실제 전표를 발행해 검증한 규칙:
+   *
+   * - `UPLOAD_SER_NO`가 **전표를 묶는 키**다. 한 주문의 모든 품목에 같은 값을 넣어야
+   *   전표 1건으로 등록된다. 줄마다 다른 값을 넣으면 품목 수만큼 전표가 쪼개진다.
+   *   (검증: 서로 다른 값 → 전표 2개 / 같은 값 → 전표 1개)
+   *   한 번의 요청에 주문 1건만 담으므로 고정값 "1"을 쓴다. 짧은 값("1","21")은 검증됐고
+   *   8자리 값은 거부되었으므로 주문번호를 이 필드에 넣지 않는다(추적은 REMARKS로 한다).
+   * - `IO_DATE`, `CUST`, `WH_CD`, `PROD_CD`, `QTY`, `PRICE`, `REMARKS` 정상 수용.
+   * - 미등록 코드를 보내면 `ResultDetails.Errors`에 `ColCd`와 사유가 반환된다.
    */
   private buildBulkRows(payload: EcountOrderPayload) {
+    const serNo = "1"; // 요청당 주문 1건 → 모든 줄을 한 전표로 묶는다
     return payload.lines.map((l, i) => {
       const row: Record<string, string> = {
         IO_DATE: payload.orderDate,
-        UPLOAD_SER_NO: String(i + 1),
+        UPLOAD_SER_NO: serNo,
         CUST: payload.customerCode,
         PROD_CD: l.itemCode,
         QTY: String(l.qty),
         PRICE: String(l.unitPrice),
         SUPPLY_AMT: String(l.supplyAmount),
         VAT_AMT: String(l.vatAmount),
-        // 비고에 내부 주문번호 기록 → 중복 확인·추적용
+        // 비고에 내부 주문번호 기록 → 추적용
         REMARKS: i === 0 && payload.memo ? `${payload.orderNo} ${payload.memo}`.slice(0, 100) : payload.orderNo,
       };
       if (l.warehouseCode) row.WH_CD = l.warehouseCode; // 빈 값이면 전송하지 않음(미등록코드 오류 방지)
@@ -140,7 +146,15 @@ export class RealEcountClient implements EcountClient {
       detail?.TotalError ||
       d?.Message ||
       "이카운트 저장 실패";
-    return { ok: false, errorCode: d?.Code ?? "SAVE_FAIL", errorMessage: errMsg, raw: res };
+    // 데이터 검증 오류(미등록코드 등)는 자동 재시도해도 같은 결과 → VALIDATION 으로 표시해
+    // 재시도 없이 실패 처리한다. (이카운트 시간당 연속 오류 30건 제한을 소모하지 않기 위함)
+    const isValidation = (detail?.Errors?.length ?? 0) > 0 || !!detail?.TotalError;
+    return {
+      ok: false,
+      errorCode: isValidation ? "VALIDATION" : (d?.Code ?? "SAVE_FAIL"),
+      errorMessage: errMsg,
+      raw: res,
+    };
   }
 
   /** 주문서 입력 */
@@ -212,8 +226,12 @@ export class RealEcountClient implements EcountClient {
   }
 
   /**
-   * idempotency 확인 — 이카운트 OAPI에는 비고 검색 API가 없어 큐의 unique key로 중복을 차단한다.
-   * 타임아웃 후에는 재전송하지 않고 MANUAL_REVIEW로 전환되므로 여기서는 항상 미발견 처리.
+   * ⚠️ 이카운트는 중복 전송을 막지 않는다 — 같은 주문번호(REMARKS)로 다시 보내면
+   *    새 전표가 그대로 하나 더 생성된다. (테스트 서버에서 실측 확인)
+   *    또한 전표 조회 API가 이 회사에 열려 있지 않아 등록 여부를 되물을 수 없다.
+   *
+   * 따라서 중복 방지는 전적으로 내부 큐의 idempotency_key(주문번호 기준 unique)와
+   * "성공 여부가 불명확하면 재전송하지 않고 MANUAL_REVIEW로 전환"하는 정책에 의존한다.
    */
   async findOrderByKey(_key: string) {
     return { found: false };

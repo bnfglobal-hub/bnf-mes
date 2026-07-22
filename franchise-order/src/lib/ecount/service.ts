@@ -138,18 +138,27 @@ export async function processSyncQueue(limit = 10): Promise<{ processed: number;
         await markJobSuccess(job.id, job.order_id, result.docNo ?? null, result.raw);
         success++;
       } else if (result.indeterminate) {
+        // 타임아웃 등 성공 여부 불명확 → 절대 재전송하지 않는다(중복 전표 방지)
+        await markManualReview(job.id, job.order_id, result.errorCode, result.errorMessage);
+        failed++;
+      } else if (result.errorCode === "VALIDATION") {
+        // 거래처·품목코드 미등록 등 데이터 오류 → 재시도해도 동일 실패.
+        // 자동 재시도로 이카운트 오류 한도(시간당 30건)를 소모하지 않도록 즉시 실패 처리.
         await admin.from("ecount_sync_jobs").update({
-          status: "MANUAL_REVIEW", last_error_code: result.errorCode, last_error_message: result.errorMessage,
+          status: "FAILED", next_retry_at: null,
+          last_error_code: result.errorCode, last_error_message: result.errorMessage,
         }).eq("id", job.id);
-        if (job.order_id) await admin.from("orders").update({ erp_status: "MANUAL_REVIEW" }).eq("id", job.order_id);
+        if (job.order_id) await admin.from("orders").update({ erp_status: "FAILED" }).eq("id", job.order_id);
         failed++;
       } else {
         await scheduleRetry(job.id, job.order_id, job.attempts + 1, result.errorCode, result.errorMessage);
         failed++;
       }
     } catch (e) {
+      // 네트워크 오류 등은 이카운트가 이미 처리했는지 확인할 방법이 없다(조회 API 미제공)
+      // → 자동 재전송 시 중복 전표 위험이 있으므로 수동 확인으로 전환한다.
       const msg = e instanceof Error ? e.message : String(e);
-      await scheduleRetry(job.id, job.order_id, job.attempts + 1, "EXCEPTION", msg);
+      await markManualReview(job.id, job.order_id, "EXCEPTION", msg);
       failed++;
     }
   }
@@ -160,6 +169,15 @@ async function markJobSuccess(jobId: string, orderId: string | null, docNo: stri
   const admin = createAdminClient();
   await admin.from("ecount_sync_jobs").update({ status: "SUCCESS", ecount_doc_no: docNo, response: maskSensitive(raw) as object }).eq("id", jobId);
   if (orderId) await admin.from("orders").update({ erp_status: "SUCCESS", ecount_doc_no: docNo }).eq("id", orderId);
+}
+
+async function markManualReview(jobId: string, orderId: string | null, code?: string, message?: string) {
+  const admin = createAdminClient();
+  await admin.from("ecount_sync_jobs").update({
+    status: "MANUAL_REVIEW", next_retry_at: null,
+    last_error_code: code ?? null, last_error_message: message ?? null,
+  }).eq("id", jobId);
+  if (orderId) await admin.from("orders").update({ erp_status: "MANUAL_REVIEW" }).eq("id", orderId);
 }
 
 async function scheduleRetry(jobId: string, orderId: string | null, attempts: number, code?: string, message?: string) {
