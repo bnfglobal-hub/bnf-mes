@@ -8097,6 +8097,7 @@ function PagePriceLookup({user}){
   const[sel,setSel]=useState(null);
   const[loading,setLoading]=useState(true);
   const[recentOnly,setRecentOnly]=useState(false); /* 최근 1년 매입만 */
+  const[cat,setCat]=useState('all'); /* 품목 분류 필터 */
   const nf=(n)=>(+n||0).toLocaleString();
   const load=()=>{
     sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',1).maybeSingle()
@@ -8112,10 +8113,17 @@ function PagePriceLookup({user}){
     const t=new Date(d).getTime();
     return !isNaN(t)&&(Date.now()-t)>365*24*3600*1000;
   };
+  /* 이카운트 품목명 앞 [분류] 추출 */
+  const catOf=(nm)=>{const m=String(nm||'').match(/^\[([^\]]+)\]/);return m?m[1].trim():'기타';};
+  const cats=useMemo(()=>{
+    const c={};items.forEach(it=>{const k=catOf(it.name);c[k]=(c[k]||0)+1;});
+    return Object.keys(c).map(k=>({k,n:c[k]})).sort((a,b)=>b.n-a.n);
+  },[items]);
   /* 검색: 품목명/거래처 부분일치, 관련도순 */
   const results=useMemo(()=>{
     const lq=q.trim().toLowerCase();
     let list=recentOnly?items.filter(it=>!isStale(it.latestDate)):items;
+    if(cat!=='all')list=list.filter(it=>catOf(it.name)===cat);
     if(lq){
       list=list.filter(it=>(it.name||'').toLowerCase().includes(lq)||(it.latestSupplier||'').toLowerCase().includes(lq));
       list=list.sort((a,b)=>{
@@ -8125,7 +8133,7 @@ function PagePriceLookup({user}){
       });
     }
     return list.slice(0,200);
-  },[q,items,recentOnly]);
+  },[q,items,recentOnly,cat]);
 
   const clean=(nm)=>String(nm||'').replace(/^\[[^\]]*\]/,'').replace(/\s*\[[^\]]*\]\s*$/,'').trim()||nm;
   const syncAgo=(()=>{if(!data||!data.at)return '';const mins=Math.floor((Date.now()-new Date(data.at).getTime())/60000);return mins<60?mins+'분 전':mins<1440?Math.floor(mins/60)+'시간 전':Math.floor(mins/1440)+'일 전';})();
@@ -8175,11 +8183,21 @@ function PagePriceLookup({user}){
     items.length===0?R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'수집된 매입단가가 없습니다',
       R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'문서 → bnf-ecount-web → "매입단가-수집.bat" 실행 후 여기서 검색하세요')):
     R('div',{style:{maxWidth:860}},
+      /* 분류 버튼 (품목명 몰라도 찾기) */
+      R('div',{className:'hscroll',style:{marginBottom:9}},
+        R('div',{style:{display:'flex',gap:5,paddingBottom:3}},
+          R('button',{onClick:()=>setCat('all'),
+            style:{flexShrink:0,border:'1px solid '+(cat==='all'?'var(--p)':'var(--bd)'),background:cat==='all'?'var(--p)':'#fff',color:cat==='all'?'#fff':'var(--tm)',borderRadius:16,padding:'5px 12px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},'전체'),
+          ...cats.map(c=>R('button',{key:c.k,onClick:()=>setCat(c.k===cat?'all':c.k),
+            style:{flexShrink:0,border:'1px solid '+(cat===c.k?'var(--p)':'var(--bd)'),background:cat===c.k?'var(--p)':'#fff',color:cat===c.k?'#fff':'var(--tm)',borderRadius:16,padding:'5px 12px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
+            c.k,R('span',{style:{marginLeft:4,fontSize:9.5,opacity:0.75}},c.n)))
+        )),
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
         R('div',{style:{fontSize:11,color:'var(--tm)'}},
-          q?results.length+'개 검색됨'
-           :(recentOnly?items.filter(it=>!isStale(it.latestDate)).length+'개 품목 (최근 1년) · 전체 '+items.length+'개'
-                       :'전체 '+items.length+'개 품목 (검색어를 입력하세요)')),
+          q?results.length+'개 검색됨'+(cat!=='all'?' ('+cat+')':'')
+           :(cat!=='all'?results.length+'개 · '+cat
+            :(recentOnly?items.filter(it=>!isStale(it.latestDate)).length+'개 품목 (최근 1년) · 전체 '+items.length+'개'
+                       :'전체 '+items.length+'개 품목 (검색어를 입력하세요)'))),
         R('button',{onClick:()=>setRecentOnly(v=>!v),
           style:{border:'1px solid '+(recentOnly?'var(--p)':'var(--bd)'),background:recentOnly?'#FFF8F4':'#fff',color:recentOnly?'var(--p)':'var(--tm)',borderRadius:8,padding:'5px 11px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
           (recentOnly?'✓ ':'')+'최근 1년 매입만')
