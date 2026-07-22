@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   if (!secret || url.searchParams.get("key") !== secret) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const queue = await processSyncQueue(20);
+  const queue = await processSyncQueue(3);
   let stocks: { updated: number } | { error: string };
   try {
     stocks = await syncStocks();

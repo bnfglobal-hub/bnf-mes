@@ -92,8 +92,14 @@ async function buildOrderPayload(orderId: string): Promise<EcountOrderPayload> {
   };
 }
 
-/** 큐 처리 — cron 또는 관리자 수동 실행. 반환: 처리 건수 */
-export async function processSyncQueue(limit = 10): Promise<{ processed: number; success: number; failed: number }> {
+/**
+ * 큐 처리 — cron 또는 관리자 수동 실행.
+ *
+ * ⚠️ 이카운트 저장(전표 발행)은 **10초에 1건** 제한이라 클라이언트가 호출 간격을 강제한다.
+ *    따라서 한 번에 많이 처리하면 그만큼 오래 걸린다(3건 ≈ 30초).
+ *    서버리스 타임아웃을 피하려고 기본값을 작게 두고, 크론을 1~2분 주기로 자주 도는 방식을 쓴다.
+ */
+export async function processSyncQueue(limit = 3): Promise<{ processed: number; success: number; failed: number }> {
   const admin = createAdminClient();
   const client = getEcountClient();
   const now = new Date().toISOString();

@@ -144,7 +144,7 @@ export async function createShipmentAction(input: z.infer<typeof shipSchema>) {
 
 export async function runSyncQueueAction() {
   await requireRole(ADMIN_ROLES);
-  const r = await processSyncQueue(20);
+  const r = await processSyncQueue(3);
   revalidatePath("/admin/ecount");
   revalidatePath("/admin/orders");
   return { ok: true, ...r };
@@ -155,7 +155,7 @@ export async function retrySyncJobAction(jobId: string) {
   const admin = createAdminClient();
   await admin.from("ecount_sync_jobs").update({ status: "QUEUED", next_retry_at: new Date().toISOString(), attempts: 0 }).eq("id", jobId);
   await auditLog({ actorId: profile.id, actorName: profile.full_name, action: "ERP_RETRY", entity: "ecount_sync_jobs", entityId: jobId });
-  const r = await processSyncQueue(5);
+  const r = await processSyncQueue(1);
   revalidatePath("/admin/ecount");
   return { ok: true, ...r };
 }
@@ -163,7 +163,7 @@ export async function retrySyncJobAction(jobId: string) {
 export async function requeueOrderAction(orderId: string) {
   await requireRole(ADMIN_ROLES);
   await queueOrderPush(orderId);
-  const r = await processSyncQueue(5);
+  const r = await processSyncQueue(1);
   revalidatePath(`/admin/orders/${orderId}`);
   revalidatePath("/admin/ecount");
   return { ok: true, ...r };

@@ -7,9 +7,11 @@
 3. `vercel.json` 크론 (전송 큐·재고 동기화):
    ```json
    {
-     "crons": [{ "path": "/api/cron/ecount?key=CRON_SECRET값", "schedule": "*/10 * * * *" }]
+     "crons": [{ "path": "/api/cron/ecount?key=CRON_SECRET값", "schedule": "*/2 * * * *" }]
    }
    ```
+   > 이카운트 전표 발행이 **10초에 1건** 제한이라 한 번에 3건씩만 처리합니다.
+   > 주문이 몰리는 시간대를 감당하려면 **2분 주기**(분당 최대 6건)로 자주 도는 편이 낫습니다.
 4. 배포 후 Supabase Auth → URL Configuration에 배포 도메인 추가
 
 ## 대안: 사내 PC/서버 (기존 BNF 운영 방식)
