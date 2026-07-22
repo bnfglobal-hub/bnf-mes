@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 접속·인증 정보 (커밋 금지)
+접속정보.md
