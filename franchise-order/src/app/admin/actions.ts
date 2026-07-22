@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireRole, ADMIN_ROLES, STAFF_ROLES } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { changeOrderStatus } from "@/lib/domain/order-service";
-import { processSyncQueue, syncStocks, getEcountClient, queueOrderPush } from "@/lib/ecount/service";
+import { processSyncQueue, syncStocks, getEcountClient, queueOrderPush, importEcountItems } from "@/lib/ecount/service";
 import { auditLog } from "@/lib/audit";
 import { notifyStore } from "@/lib/notify";
 import { usernameToEmail, isValidUsername, normalizeUsername, INITIAL_PASSWORD } from "@/lib/login-domain";
@@ -174,6 +174,45 @@ export async function testEcountConnectionAction() {
   const client = getEcountClient();
   const r = await client.testConnection();
   return { ...r, mode: client.mode };
+}
+
+/** 이카운트 품목 마스터 가져오기 (읽기 전용 — 이카운트 데이터를 변경하지 않음) */
+export async function importEcountItemsAction() {
+  const profile = await requireRole(ADMIN_ROLES);
+  try {
+    const r = await importEcountItems();
+    await auditLog({
+      actorId: profile.id, actorName: profile.full_name, action: "ECOUNT_ITEM_IMPORT",
+      entity: "products", after: r,
+    });
+    revalidatePath("/admin/products");
+    return { ok: true, ...r };
+  } catch (e) {
+    return { ok: false, added: 0, updated: 0, total: 0, error: e instanceof Error ? e.message : "가져오기 실패" };
+  }
+}
+
+/** 공산품 지정/해제 — 지정된 품목은 전 거래처에 노출된다 */
+export async function setGeneralProductsAction(productIds: string[], isGeneral: boolean) {
+  const profile = await requireRole(ADMIN_ROLES);
+  if (productIds.length === 0) return { ok: false, error: "선택된 상품이 없습니다." };
+  const admin = createAdminClient();
+  const { error } = await admin.from("products").update({ is_general: isGeneral, updated_by: profile.id }).in("id", productIds);
+  if (error) {
+    return {
+      ok: false,
+      error: error.message.includes("is_general")
+        ? "공산품 컬럼이 없습니다 — 00003_general_products.sql 마이그레이션을 먼저 적용하세요."
+        : error.message,
+    };
+  }
+  await auditLog({
+    actorId: profile.id, actorName: profile.full_name,
+    action: isGeneral ? "PRODUCT_SET_GENERAL" : "PRODUCT_UNSET_GENERAL",
+    entity: "products", after: { count: productIds.length },
+  });
+  revalidatePath("/admin/products");
+  return { ok: true, count: productIds.length };
 }
 
 export async function syncStocksAction() {

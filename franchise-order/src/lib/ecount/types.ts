@@ -35,6 +35,9 @@ export interface EcountItem {
   itemName: string;
   spec?: string;
   unit?: string;
+  barcode?: string;
+  /** 이카운트 판매단가(OUT_PRICE). 0이면 미설정 */
+  outPrice?: number;
 }
 
 export interface EcountStockRow {

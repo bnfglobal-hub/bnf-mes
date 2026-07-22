@@ -21,6 +21,18 @@ export function getEcountClient(): EcountClient {
   return mode === "REAL" ? new RealEcountClient() : new MockEcountClient();
 }
 
+/**
+ * 읽기 전용(품목·재고 조회) 클라이언트.
+ * ECOUNT_READ_ENABLED=true 이면 전표 발행 모드(MOCK)와 무관하게 실제 이카운트에서 조회한다.
+ * 조회만 수행하므로 이카운트 데이터를 변경하지 않는다.
+ */
+export function getEcountReadClient(): EcountClient {
+  if (process.env.ECOUNT_READ_ENABLED === "true" && process.env.ECOUNT_COMPANY_CODE && process.env.ECOUNT_API_KEY) {
+    return new RealEcountClient();
+  }
+  return getEcountClient();
+}
+
 /** 지수 백오프: 1분 → 2분 → 4분 → 8분 → 16분 */
 export function backoffMinutes(attempts: number): number {
   return Math.min(2 ** Math.max(0, attempts - 1), 16);
@@ -159,10 +171,92 @@ async function scheduleRetry(jobId: string, orderId: string | null, attempts: nu
   if (orderId) await admin.from("orders").update({ erp_status: "RETRYING" }).eq("id", orderId);
 }
 
+/**
+ * 이카운트 품목명 파싱 — "[그룹]품목명[단위]" 형태를 분리한다.
+ * (기존 BNF 재고 동기화 스크립트와 동일 규칙)
+ */
+export function parseEcountItemName(raw: string): { group: string; name: string } {
+  let group = "기타";
+  const m = raw.match(/^\[([^\]]+)\]/);
+  if (m) group = m[1];
+  let name = raw.replace(/^\[[^\]]+\]/, "");
+  name = name.replace(/\[[a-zA-Z가-힣]+\]\s*$/, "").trim();
+  return { group, name: name.slice(0, 100) };
+}
+
+/**
+ * 이카운트 품목 마스터를 내부 상품으로 가져온다 (읽기 전용).
+ * - 신규 품목: 등록 (공산품 아님 / 판매 가능 상태, 단가 0 → 관리자가 지정)
+ * - 기존 품목: 품명·규격만 갱신 (단가·공산품 지정·노출 설정은 건드리지 않음)
+ */
+export async function importEcountItems(): Promise<{ added: number; updated: number; total: number }> {
+  const admin = createAdminClient();
+  const client = getEcountReadClient();
+  const items = await client.fetchItems();
+  if (items.length === 0) return { added: 0, updated: 0, total: 0 };
+
+  // 이카운트 품목 그룹([원재료], [제품] 등)을 상품 분류로 매핑 — 공산품 지정 시 필터에 사용
+  const groups = new Set<string>();
+  for (const item of items) groups.add(parseEcountItemName(item.itemName).group);
+  const { data: existingCats } = await admin.from("product_categories").select("id, name");
+  const catMap = new Map((existingCats ?? []).map((c) => [c.name, c.id]));
+  const newCats = [...groups].filter((g) => !catMap.has(g)).map((name) => ({ name }));
+  if (newCats.length > 0) {
+    const { data: created } = await admin.from("product_categories").insert(newCats).select("id, name");
+    for (const c of created ?? []) catMap.set(c.name, c.id);
+  }
+
+  const codes = items.map((i) => i.itemCode);
+  const existing = new Map<string, { id: string; name: string; base_price: number }>();
+  // in() 인자 수 제한을 피하려고 청크 단위로 조회
+  for (let i = 0; i < codes.length; i += 200) {
+    const { data } = await admin.from("products").select("id, name, base_price, ecount_item_code").in("ecount_item_code", codes.slice(i, i + 200));
+    for (const p of data ?? []) existing.set(p.ecount_item_code!, { id: p.id, name: p.name, base_price: Number(p.base_price) });
+  }
+
+  const toInsert: Record<string, unknown>[] = [];
+  const toUpdate: { id: string; patch: Record<string, unknown> }[] = [];
+  for (const item of items) {
+    const { name, group } = parseEcountItemName(item.itemName);
+    if (!name) continue;
+    const categoryId = catMap.get(group) ?? null;
+    const prev = existing.get(item.itemCode);
+    if (prev) {
+      const patch: Record<string, unknown> = {};
+      if (prev.name !== name) { patch.name = name; patch.spec = item.spec ?? null; patch.category_id = categoryId; }
+      // 단가는 내부에서 0(미설정)일 때만 이카운트 판매단가로 채운다 — 운영 중 단가를 덮어쓰지 않음
+      if (prev.base_price === 0 && item.outPrice && item.outPrice > 0) patch.base_price = item.outPrice;
+      if (Object.keys(patch).length > 0) toUpdate.push({ id: prev.id, patch });
+    } else {
+      toInsert.push({
+        ecount_item_code: item.itemCode,
+        name,
+        spec: item.spec ?? null,
+        barcode: item.barcode || null,
+        category_id: categoryId,
+        order_unit: item.unit || "EA",
+        base_price: item.outPrice && item.outPrice > 0 ? item.outPrice : 0,
+        storage_type: "ROOM",
+        tax_type: "TAXABLE", // 과세구분은 이카운트 필드가 모호해 기본 과세 — 관리자가 확인 후 조정
+        is_general: false,   // 기본 비공개 — 공산품으로 지정해야 전 거래처 노출
+        is_active: true,
+      });
+    }
+  }
+
+  for (let i = 0; i < toInsert.length; i += 100) {
+    await admin.from("products").upsert(toInsert.slice(i, i + 100), { onConflict: "ecount_item_code", ignoreDuplicates: true });
+  }
+  for (const u of toUpdate) {
+    await admin.from("products").update(u.patch).eq("id", u.id);
+  }
+  return { added: toInsert.length, updated: toUpdate.length, total: items.length };
+}
+
 /** 재고 동기화: 이카운트 재고를 스냅샷 테이블에 반영 */
 export async function syncStocks(): Promise<{ updated: number }> {
   const admin = createAdminClient();
-  const client = getEcountClient();
+  const client = getEcountReadClient();
   const rows = await client.fetchStocks();
   const { data: whs } = await admin.from("warehouses").select("id, code");
   const { data: prods } = await admin.from("products").select("id, ecount_item_code").not("ecount_item_code", "is", null);

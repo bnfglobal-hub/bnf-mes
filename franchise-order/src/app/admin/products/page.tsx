@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { auditLog } from "@/lib/audit";
+import { GeneralProductBulkBar, ImportEcountItemsButton } from "@/components/admin/product-general-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -35,35 +36,96 @@ async function createProduct(formData: FormData) {
   revalidatePath("/admin/products");
 }
 
-export default async function ProductsAdminPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+const PAGE_SIZE = 100;
+
+export default async function ProductsAdminPage({ searchParams }: { searchParams: Promise<{ q?: string; view?: string; page?: string; cat?: string }> }) {
   await requireRole(ADMIN_ROLES);
-  const { q } = await searchParams;
+  const { q, view, page: pageParam, cat } = await searchParams;
   const admin = createAdminClient();
-  let query = admin.from("products").select("*, product_categories(name)").order("sort_order").order("name").limit(300);
+  const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+
+  let query = admin.from("products").select("*, product_categories(name)", { count: "exact" })
+    .order("sort_order").order("name")
+    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
   if (q) query = query.or(`name.ilike.%${q}%,ecount_item_code.ilike.%${q}%`);
-  const { data: products } = await query;
+  if (view === "general") query = query.eq("is_general", true);
+  if (view === "unpriced") query = query.eq("base_price", 0);
+  if (cat) query = query.eq("category_id", cat);
+  const { data: products, count } = await query;
+
+  const [{ count: totalCount }, { count: generalCount }, { data: categories }] = await Promise.all([
+    admin.from("products").select("id", { count: "exact", head: true }),
+    admin.from("products").select("id", { count: "exact", head: true }).eq("is_general", true),
+    admin.from("product_categories").select("id, name").order("name"),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+  const qs = (patch: Record<string, string | undefined>) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries({ q, view, cat, page: String(page), ...patch })) if (v) params.set(k, v);
+    return `/admin/products?${params.toString()}`;
+  };
+
+  const VIEWS = [
+    { key: undefined, label: `전체 (${totalCount ?? 0})` },
+    { key: "general", label: `공산품 (${generalCount ?? 0})` },
+    { key: "unpriced", label: "단가 미설정" },
+  ];
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold">상품관리</h1>
-        <form method="get" className="flex gap-2">
-          <Input name="q" defaultValue={q} placeholder="품명/품목코드 검색" className="h-10 w-56" />
-          <Button type="submit" size="sm" className="h-10">검색</Button>
-        </form>
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportEcountItemsButton />
+          <form method="get" className="flex gap-2">
+            {view && <input type="hidden" name="view" value={view} />}
+            <Input name="q" defaultValue={q} placeholder="품명/품목코드 검색" className="h-10 w-56" />
+            <Button type="submit" size="sm" className="h-10">검색</Button>
+          </form>
+        </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-white">
-        <table className="w-full min-w-[800px] text-sm">
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {VIEWS.map((v) => (
+          <Link key={v.label} href={qs({ view: v.key, page: "1" })}
+            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ${view === v.key ? "bg-primary text-white" : "border border-border bg-white text-gray-600"}`}>
+            {v.label}
+          </Link>
+        ))}
+      </div>
+
+      {(categories ?? []).length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Link href={qs({ cat: undefined, page: "1" })}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${!cat ? "bg-orange-100 text-primary" : "bg-gray-50 text-gray-500"}`}>
+            전체 분류
+          </Link>
+          {(categories ?? []).map((c) => (
+            <Link key={c.id} href={qs({ cat: cat === c.id ? undefined : c.id, page: "1" })}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${cat === c.id ? "bg-orange-100 text-primary" : "bg-gray-50 text-gray-500"}`}>
+              {c.name}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <GeneralProductBulkBar>
+      <div className="mt-3 overflow-x-auto rounded-2xl border border-border bg-white">
+        <table className="w-full min-w-[860px] text-sm">
           <thead><tr className="border-b border-border bg-gray-50/60 text-left text-xs text-muted">
+            <th className="w-10 px-3 py-2.5"></th>
             <th className="px-3 py-2.5">품목코드</th><th className="px-3 py-2.5">품명</th><th className="px-3 py-2.5">규격</th>
             <th className="px-3 py-2.5">보관</th><th className="px-3 py-2.5">과세</th><th className="px-3 py-2.5 text-right">기본 공급가</th>
             <th className="px-3 py-2.5">상태</th><th className="px-3 py-2.5"></th>
           </tr></thead>
           <tbody>
-            {(products ?? []).length === 0 && <tr><td colSpan={8} className="py-12 text-center text-gray-400">상품이 없습니다.</td></tr>}
+            {(products ?? []).length === 0 && <tr><td colSpan={9} className="py-12 text-center text-gray-400">상품이 없습니다.</td></tr>}
             {(products ?? []).map((p) => (
               <tr key={p.id} className="border-b border-gray-50 hover:bg-orange-50/30">
+                <td className="px-3 py-2.5">
+                  <input type="checkbox" data-product-id={p.id} className="h-4 w-4 accent-orange-500" />
+                </td>
                 <td className="px-3 py-2.5 text-gray-500">{p.ecount_item_code ?? <span className="text-amber-600">미매핑</span>}</td>
                 <td className="px-3 py-2.5 font-medium">
                   {p.name}
@@ -86,6 +148,16 @@ export default async function ProductsAdminPage({ searchParams }: { searchParams
             ))}
           </tbody>
         </table>
+      </div>
+      </GeneralProductBulkBar>
+
+      <div className="mt-3 flex items-center justify-between text-sm">
+        <p className="text-muted">총 {count ?? 0}건</p>
+        <div className="flex gap-1">
+          {page > 1 && <Link href={qs({ page: String(page - 1) })} className="rounded-lg border border-border bg-white px-3 py-1.5">이전</Link>}
+          <span className="px-3 py-1.5 text-muted">{page} / {totalPages}</span>
+          {page < totalPages && <Link href={qs({ page: String(page + 1) })} className="rounded-lg border border-border bg-white px-3 py-1.5">다음</Link>}
+        </div>
       </div>
 
       <form action={createProduct} className="mt-5 rounded-2xl border border-border bg-white p-4">

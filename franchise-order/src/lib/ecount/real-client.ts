@@ -173,14 +173,18 @@ export class RealEcountClient implements EcountClient {
   async fetchItems(): Promise<EcountItem[]> {
     const sess = await this.ensureSession();
     const res = await this.post(`${this.zoneBase}/OAPI/V2/InventoryBasic/GetBasicProductsList?SESSION_ID=${sess}`, {});
-    const rows = (res?.Data?.Result ?? []) as { PROD_CD?: string; PROD_DES?: string; SIZE_DES?: string; UNIT_DES?: string }[];
+    const rows = (res?.Data?.Result ?? []) as {
+      PROD_CD?: string; PROD_DES?: string; SIZE_DES?: string; UNIT?: string; BAR_CODE?: string; OUT_PRICE?: string | number;
+    }[];
     return rows
       .filter((r) => r.PROD_CD)
       .map((r) => ({
         itemCode: String(r.PROD_CD),
         itemName: String(r.PROD_DES ?? ""),
         spec: r.SIZE_DES ? String(r.SIZE_DES) : undefined,
-        unit: r.UNIT_DES ? String(r.UNIT_DES) : undefined,
+        unit: r.UNIT ? String(r.UNIT) : undefined,
+        barcode: r.BAR_CODE ? String(r.BAR_CODE) : undefined,
+        outPrice: r.OUT_PRICE != null ? Math.round(Number(r.OUT_PRICE)) : undefined,
       }));
   }
 
