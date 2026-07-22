@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>오프라인 — BNF 발주</title>
+<style>
+  body { margin:0; font-family: -apple-system, "Malgun Gothic", sans-serif; background:#fff7ed;
+    display:flex; align-items:center; justify-content:center; min-height:100vh; text-align:center; color:#222; }
+  .box { padding: 32px; }
+  .icon { width:64px; height:64px; border-radius:16px; background:#f97316; color:#fff; font-size:32px;
+    font-weight:900; display:flex; align-items:center; justify-content:center; margin: 0 auto 16px; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  p { color:#6b7280; font-size:14px; margin:0 0 20px; }
+  button { background:#f97316; color:#fff; border:0; border-radius:12px; padding:12px 24px;
+    font-size:15px; font-weight:700; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">B</div>
+    <h1>인터넷 연결이 끊겼습니다</h1>
+    <p>네트워크 연결을 확인한 뒤 다시 시도해주세요.<br/>오프라인 상태에서는 주문을 확정할 수 없습니다.</p>
+    <button onclick="location.reload()">다시 시도</button>
+  </div>
+  <script>window.addEventListener("online", () => location.reload());</script>
+</body>
+</html>

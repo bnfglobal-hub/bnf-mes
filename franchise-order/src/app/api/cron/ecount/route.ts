@@ -1,0 +1,23 @@
+import { NextResponse } from "next/server";
+import { processSyncQueue, syncStocks } from "@/lib/ecount/service";
+
+/**
+ * 주기 실행용 엔드포인트 (Vercel Cron / 윈도우 예약작업 / GitHub Actions 등).
+ * 호출: GET /api/cron/ecount?key=<CRON_SECRET>
+ *  - 전송 큐 처리 + 재고 동기화
+ */
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const secret = process.env.CRON_SECRET;
+  if (!secret || url.searchParams.get("key") !== secret) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const queue = await processSyncQueue(20);
+  let stocks: { updated: number } | { error: string };
+  try {
+    stocks = await syncStocks();
+  } catch (e) {
+    stocks = { error: e instanceof Error ? e.message : String(e) };
+  }
+  return NextResponse.json({ ok: true, queue, stocks, at: new Date().toISOString() });
+}
