@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "franchise-order",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set PATH=C:\\Program Files\\nodejs;%PATH%&& cd /d franchise-order&& npm run dev"],
+      "port": 3000
+    }
+  ]
+}

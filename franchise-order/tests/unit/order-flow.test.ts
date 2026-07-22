@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { canTransition } from "@/lib/domain/order-service";
 import { backoffMinutes, maskSensitive } from "@/lib/ecount/service";
 import { matchesSearch, toChosung } from "@/lib/utils";
-import { usernameToEmail, isValidUsername } from "@/lib/login-domain";
+import { usernameToEmail, isValidUsername, normalizeUsername } from "@/lib/login-domain";
 
 describe("주문 상태 전이", () => {
   it("정상 흐름 허용", () => {
@@ -56,11 +56,14 @@ describe("초성 검색", () => {
   });
 });
 
-describe("로그인 아이디", () => {
-  it("아이디 → 내부 이메일 변환", () => {
-    expect(usernameToEmail("Gangnam")).toBe("gangnam@bnf-order.local");
+describe("로그인 아이디 (사업자등록번호)", () => {
+  it("하이픈 포함 사업자번호 정규화 → 내부 이메일 변환", () => {
+    expect(normalizeUsername("123-45-67890")).toBe("1234567890");
+    expect(usernameToEmail("123-45-67890")).toBe("1234567890@bnf-order.local");
+    expect(usernameToEmail("Admin")).toBe("admin@bnf-order.local");
   });
   it("아이디 형식 검증", () => {
+    expect(isValidUsername("123-45-67890")).toBe(true);
     expect(isValidUsername("abc")).toBe(true);
     expect(isValidUsername("한글아이디")).toBe(false);
     expect(isValidUsername("ab")).toBe(false);

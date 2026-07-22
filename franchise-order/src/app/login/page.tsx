@@ -21,11 +21,12 @@ export default function LoginPage() {
 
         <form action={formAction} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
           <div className="mb-4">
-            <Label htmlFor="username">아이디</Label>
+            <Label htmlFor="username">아이디 (사업자등록번호)</Label>
             <Input
-              id="username" name="username" autoComplete="username" autoCapitalize="none"
-              placeholder="가맹점 아이디" required minLength={3} maxLength={30}
+              id="username" name="username" autoComplete="username" autoCapitalize="none" inputMode="numeric"
+              placeholder="사업자등록번호 (숫자만)" required minLength={3} maxLength={30}
             />
+            <p className="mt-1 text-xs text-gray-400">하이픈(-) 없이 숫자만 입력해도 됩니다.</p>
           </div>
           <div className="mb-5">
             <Label htmlFor="password">비밀번호</Label>

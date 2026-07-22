@@ -9,9 +9,8 @@
  *   admin / admin1234!      — 최고 관리자
  *   hq / hq1234!            — 본사 관리자
  *   wh / wh1234!            — 창고 담당
- *   gangnam / store1234!    — 강남점 점주
- *   hanam / store1234!      — 하남점 점주
- *   seongsu / store1234!    — 성수점 점주
+ *   가맹점: 아이디 = 사업자등록번호(숫자만), 초기 비밀번호 1234 (최초 로그인 시 변경 강제)
+ *   1234567890 — 강남점 / 2345678901 — 하남점 / 3456789012 — 성수점
  */
 import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
@@ -26,17 +25,32 @@ if (!url || !key) {
 const db = createClient(url, key, { auth: { persistSession: false } });
 const EMAIL_DOMAIN = "bnf-order.local";
 
-async function upsertUser(username: string, password: string, fullName: string, role: string, storeId: string | null) {
+async function upsertUser(username: string, password: string, fullName: string, role: string, storeId: string | null, mustChangePassword = false) {
   const email = `${username}@${EMAIL_DOMAIN}`;
   const { data: list } = await db.auth.admin.listUsers({ perPage: 1000 });
   let user = list?.users.find((u) => u.email === email);
   if (!user) {
-    const { data, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
+    const { data, error } = await db.auth.admin.createUser({
+      email, password, email_confirm: true,
+      user_metadata: { must_change_password: mustChangePassword },
+    });
     if (error) throw error;
     user = data.user!;
   }
   await db.from("profiles").upsert({ id: user.id, username, full_name: fullName, role, store_id: storeId, is_active: true });
   return user.id;
+}
+
+/** 구버전 시드 계정 정리 */
+async function removeUser(username: string) {
+  const email = `${username}@${EMAIL_DOMAIN}`;
+  const { data: list } = await db.auth.admin.listUsers({ perPage: 1000 });
+  const user = list?.users.find((u) => u.email === email);
+  if (user) {
+    await db.from("profiles").delete().eq("id", user.id);
+    await db.auth.admin.deleteUser(user.id);
+    console.log(`구 계정 삭제: ${username}`);
+  }
 }
 
 async function main() {
@@ -72,14 +86,14 @@ async function main() {
 
   // 가맹점 3곳 (보이는 상품·단가 다르게)
   const STORES = [
-    { code: "GN001", name: "강남점", min: 300000, fee: 0, addr: "서울 강남구 테헤란로 123", zone: "강남", ecount: "C-GN001" },
-    { code: "HN001", name: "하남점", min: 200000, fee: 30000, free: 500000, addr: "경기 하남시 미사대로 456", zone: "동부", ecount: "C-HN001" },
-    { code: "SS001", name: "성수점", min: 100000, fee: 0, addr: "서울 성동구 성수이로 789", zone: "성동", ecount: "C-SS001" },
+    { code: "GN001", name: "강남점", bizNo: "123-45-67890", min: 300000, fee: 0, addr: "서울 강남구 테헤란로 123", zone: "강남", ecount: "C-GN001" },
+    { code: "HN001", name: "하남점", bizNo: "234-56-78901", min: 200000, fee: 30000, free: 500000, addr: "경기 하남시 미사대로 456", zone: "동부", ecount: "C-HN001" },
+    { code: "SS001", name: "성수점", bizNo: "345-67-89012", min: 100000, fee: 0, addr: "서울 성동구 성수이로 789", zone: "성동", ecount: "C-SS001" },
   ];
   const storeIds: Record<string, string> = {};
   for (const s of STORES) {
     const { data } = await db.from("stores").upsert({
-      store_code: s.code, name: s.name, brand_id: brand?.id, customer_id: customer?.id,
+      store_code: s.code, name: s.name, brand_id: brand?.id, customer_id: customer?.id, biz_no: s.bizNo,
       ecount_customer_code: s.ecount, phone: "02-0000-0000", address1: s.addr, delivery_zone: s.zone,
       default_warehouse_id: wh1?.id, min_order_amount: s.min, delivery_fee: s.fee,
       free_delivery_threshold: "free" in s ? (s as { free: number }).free : null,
@@ -121,22 +135,30 @@ async function main() {
     }
   }
 
-  // 사용자
+  // 사용자 — 가맹점 아이디는 사업자등록번호(숫자만), 초기 비밀번호 1234 + 변경 강제
   await upsertUser("admin", "admin1234!", "시스템 관리자", "super_admin", null);
   await upsertUser("hq", "hq1234!", "본사 담당자", "hq_admin", null);
   await upsertUser("wh", "wh1234!", "창고 담당자", "warehouse", null);
-  await upsertUser("gangnam", "store1234!", "강남점 점주", "franchise_owner", storeIds.GN001);
-  await upsertUser("hanam", "store1234!", "하남점 점주", "franchise_owner", storeIds.HN001);
-  await upsertUser("seongsu", "store1234!", "성수점 점주", "franchise_owner", storeIds.SS001);
+  await upsertUser("1234567890", "1234", "강남점 점주", "franchise_owner", storeIds.GN001, true);
+  await upsertUser("2345678901", "1234", "하남점 점주", "franchise_owner", storeIds.HN001, true);
+  await upsertUser("3456789012", "1234", "성수점 점주", "franchise_owner", storeIds.SS001, true);
+  // 구버전 아이디 정리
+  await removeUser("gangnam");
+  await removeUser("hanam");
+  await removeUser("seongsu");
 
-  // 공지
-  await db.from("announcements").insert({
-    title: "BNF 발주 시스템 오픈 안내", body: "이제 문자/카톡 대신 이 앱에서 발주해주세요.\n주문 마감은 평일 15시입니다.",
-    is_pinned: true, is_important: true, target_all: true,
-  });
+  // 공지 (중복 방지)
+  const { data: existingAnn } = await db.from("announcements").select("id").eq("title", "BNF 발주 시스템 오픈 안내").limit(1);
+  if (!existingAnn?.length) {
+    await db.from("announcements").insert({
+      title: "BNF 발주 시스템 오픈 안내", body: "이제 문자/카톡 대신 이 앱에서 발주해주세요.\n주문 마감은 평일 15시입니다.",
+      is_pinned: true, is_important: true, target_all: true,
+    });
+  }
 
   console.log("=== 시드 완료 ===");
-  console.log("데모 계정: admin/admin1234!  hq/hq1234!  wh/wh1234!  gangnam·hanam·seongsu/store1234!");
+  console.log("관리자: admin/admin1234!  hq/hq1234!  wh/wh1234!");
+  console.log("가맹점(사업자번호/초기비번 1234, 최초 로그인 시 변경): 1234567890(강남) 2345678901(하남) 3456789012(성수)");
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

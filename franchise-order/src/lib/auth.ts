@@ -12,6 +12,7 @@ export interface SessionProfile {
   role: UserRole;
   store_id: string | null;
   is_active: boolean;
+  must_change_password: boolean;
 }
 
 export const getSessionProfile = cache(async (): Promise<SessionProfile | null> => {
@@ -24,7 +25,10 @@ export const getSessionProfile = cache(async (): Promise<SessionProfile | null> 
     .eq("id", user.id)
     .single();
   if (!data || !data.is_active) return null;
-  return data as SessionProfile;
+  return {
+    ...data,
+    must_change_password: user.user_metadata?.must_change_password === true,
+  } as SessionProfile;
 });
 
 export const STAFF_ROLES: UserRole[] = ["super_admin", "hq_admin", "warehouse"];
@@ -34,6 +38,7 @@ export const FRANCHISE_ROLES: UserRole[] = ["franchise_owner", "franchise_staff"
 export async function requireRole(roles: UserRole[]): Promise<SessionProfile> {
   const profile = await getSessionProfile();
   if (!profile) redirect("/login");
+  if (profile.must_change_password) redirect("/change-password");
   if (!roles.includes(profile.role)) redirect(profile.role === "warehouse" ? "/admin/picking" : STAFF_ROLES.includes(profile.role) ? "/admin" : "/app");
   return profile;
 }

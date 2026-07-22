@@ -14,9 +14,33 @@ async function login(page: Page, username: string, password: string) {
   await page.waitForURL(/\/(app|admin)/);
 }
 
+const STORE_ID = "3456789012"; // 성수점 사업자등록번호
+const STORE_PW = "e2eStore1234!";
+
+/** 가맹점 로그인 — 초기 비밀번호(1234)면 변경 강제 화면을 통과한다 */
+async function loginFranchise(page: Page) {
+  await page.goto("/login");
+  await page.fill("#username", STORE_ID);
+  await page.fill("#password", "1234");
+  await page.click("button[type=submit]");
+  await page.waitForURL(/\/(app|change-password|login)/, { timeout: 15_000 });
+
+  if (page.url().includes("/login")) {
+    // 이미 비밀번호를 변경한 상태 (재실행)
+    await login(page, STORE_ID, STORE_PW);
+    return;
+  }
+  if (page.url().includes("/change-password")) {
+    await page.fill("#password", STORE_PW);
+    await page.fill("#confirm", STORE_PW);
+    await page.click("button[type=submit]");
+    await page.waitForURL(/\/app/, { timeout: 15_000 });
+  }
+}
+
 test.describe.serial("발주 → 출고 전체 흐름", () => {
-  test("가맹점: 허용 상품만 표시 + 최소금액 검증 + 주문", async ({ page }) => {
-    await login(page, "seongsu", "store1234!");
+  test("가맹점: 초기비번 변경 + 허용 상품만 표시 + 최소금액 검증 + 주문", async ({ page }) => {
+    await loginFranchise(page);
 
     // 성수점 취급상품 확인 (갈비탕 육수 O, 냉면육수 X)
     await page.goto("/app/products");
@@ -67,7 +91,7 @@ test.describe.serial("발주 → 출고 전체 흐름", () => {
   });
 
   test("가맹점: 주문 상태 확인", async ({ page }) => {
-    await login(page, "seongsu", "store1234!");
+    await login(page, STORE_ID, STORE_PW);
     await page.goto("/app/orders");
     await expect(page.getByText(/출고 완료|부분 출고/).first()).toBeVisible();
   });

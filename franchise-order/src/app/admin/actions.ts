@@ -8,7 +8,7 @@ import { changeOrderStatus } from "@/lib/domain/order-service";
 import { processSyncQueue, syncStocks, getEcountClient, queueOrderPush } from "@/lib/ecount/service";
 import { auditLog } from "@/lib/audit";
 import { notifyStore } from "@/lib/notify";
-import { usernameToEmail, isValidUsername } from "@/lib/login-domain";
+import { usernameToEmail, isValidUsername, normalizeUsername, INITIAL_PASSWORD } from "@/lib/login-domain";
 import { calcLine, type TaxType } from "@/lib/domain/pricing";
 
 // ---------- 주문 ----------
@@ -254,7 +254,7 @@ export async function deleteAnnouncementAction(id: string) {
 
 const userSchema = z.object({
   username: z.string().min(3).max(30),
-  password: z.string().min(6).max(100),
+  password: z.string().min(4).max(100).optional(), // 미입력 시 초기 비밀번호 1234
   fullName: z.string().min(1).max(50),
   role: z.enum(["super_admin", "hq_admin", "warehouse", "franchise_owner", "franchise_staff"]),
   storeId: z.string().uuid().optional(),
@@ -273,14 +273,16 @@ export async function createUserAction(input: z.infer<typeof userSchema>) {
   }
 
   const admin = createAdminClient();
+  const initialPassword = parsed.data.password ?? INITIAL_PASSWORD;
   const { data: created, error } = await admin.auth.admin.createUser({
     email: usernameToEmail(parsed.data.username),
-    password: parsed.data.password,
+    password: initialPassword,
     email_confirm: true,
+    user_metadata: { must_change_password: true }, // 최초 로그인 시 비밀번호 변경 강제
   });
   if (error || !created.user) return { ok: false, error: `계정 생성 실패: ${error?.message ?? ""}` };
   const { error: pErr } = await admin.from("profiles").insert({
-    id: created.user.id, username: parsed.data.username.toLowerCase(), full_name: parsed.data.fullName,
+    id: created.user.id, username: normalizeUsername(parsed.data.username), full_name: parsed.data.fullName,
     role: parsed.data.role, store_id: parsed.data.storeId ?? null, phone: parsed.data.phone ?? null,
   });
   if (pErr) {
@@ -292,12 +294,28 @@ export async function createUserAction(input: z.infer<typeof userSchema>) {
   return { ok: true };
 }
 
-export async function resetPasswordAction(userId: string, newPassword: string) {
+/** 비밀번호 초기화 — 초기값(1234)으로 리셋하고 다음 로그인 시 변경을 강제한다. */
+export async function resetPasswordAction(userId: string, newPassword?: string) {
   const profile = await requireRole(ADMIN_ROLES);
-  if (newPassword.length < 6) return { ok: false, error: "비밀번호는 6자 이상이어야 합니다." };
+  const password = newPassword || INITIAL_PASSWORD;
   const admin = createAdminClient();
-  const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword });
-  if (error) return { ok: false, error: error.message };
+
+  // Auth 서버는 비밀번호 변경 시 최소 6자를 강제하므로, 4자리 초기화는 DB 함수로 처리
+  if (password.length < 6) {
+    const { error } = await admin.rpc("admin_reset_password", { target: userId, new_password: password });
+    if (error) {
+      return {
+        ok: false,
+        error: `초기화 실패: ${error.message} — supabase/migrations/00002_reset_password.sql 이 적용되었는지 확인하세요.`,
+      };
+    }
+  } else {
+    const { error } = await admin.auth.admin.updateUserById(userId, {
+      password,
+      user_metadata: { must_change_password: true },
+    });
+    if (error) return { ok: false, error: error.message };
+  }
   await auditLog({ actorId: profile.id, actorName: profile.full_name, action: "USER_PASSWORD_RESET", entity: "profiles", entityId: userId });
   return { ok: true };
 }

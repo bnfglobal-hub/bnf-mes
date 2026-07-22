@@ -36,7 +36,7 @@ franchise-order/
 ### 1) Supabase 프로젝트 준비
 
 1. https://supabase.com 에서 프로젝트 생성
-2. SQL Editor에 `supabase/migrations/00001_init.sql` 전체 붙여넣기 실행
+2. SQL Editor에 `supabase/migrations/` 안의 SQL을 번호 순서대로 실행 (00001_init.sql → 00002_reset_password.sql)
    (또는 Supabase CLI: `supabase db push`)
 3. Project Settings → API 에서 URL / anon key / service_role key 복사
 
@@ -72,9 +72,12 @@ npm run dev         # http://localhost:3000
 | admin | admin1234! | 최고 관리자 |
 | hq | hq1234! | 본사 관리자 |
 | wh | wh1234! | 창고 담당 |
-| gangnam / hanam / seongsu | store1234! | 각 가맹점 점주 |
+| 1234567890 (강남) / 2345678901 (하남) / 3456789012 (성수) | 1234 (초기) | 각 가맹점 점주 |
 
-가맹점마다 취급상품과 단가가 다르게 시드됩니다 (예: 냉면육수는 강남·하남만, 강남은 1,700원 전용단가).
+- **가맹점 아이디는 사업자등록번호**입니다 (하이픈 있어도/없어도 로그인 가능).
+- 초기 비밀번호는 **1234**이며 최초 로그인 시 새 비밀번호(8자 이상) 설정이 강제됩니다.
+- 관리자가 계정 생성/비밀번호 초기화 시에도 동일하게 1234 + 변경 강제가 적용됩니다.
+- 가맹점마다 취급상품과 단가가 다르게 시드됩니다 (예: 냉면육수는 강남·하남만, 강남은 1,700원 전용단가).
 
 ## 테스트·빌드
 
