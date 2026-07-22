@@ -20,7 +20,9 @@
 html,body,#root{width:100%;height:100%;height:100dvh;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Noto Sans KR',sans-serif}
 input,button,select,textarea{font-family:inherit;font-size:13px}
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
-@keyframes fa{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+/* transform을 쓰면 .pg.fa가 position:fixed의 containing block이 되어
+   내부 모달이 화면 대신 목록 기준으로 잡히고 깜빡임 → opacity만 사용 */
+@keyframes fa{from{opacity:0}to{opacity:1}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes prog{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.85)}}
@@ -609,13 +611,13 @@ function Av({name,size=32}){
 }
 function Bdg2({cls,txt}){return R('span',{className:'bdg '+cls},txt);}
 function Modal2({title,onClose,footer,children,size}){
-  return R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+  return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
     R('div',{className:'mbox',style:{maxWidth:size||540,margin:'auto',borderRadius:20}},
       R('div',{className:'mhdr'},R('span',{style:{fontSize:15,fontWeight:800}},title),R('button',{onClick:onClose,style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'var(--tm)'}},'×')),
       R('div',{className:'mbody'},children),
       footer&&R('div',{className:'mfoot'},footer)
     )
-  );
+  ));
 }
 
 /* ═══ 이카운트 ERP 연동 상태 배지 (10분 주기 자동 동기화 표시) ═══ */
@@ -876,7 +878,7 @@ function SchedItemModal({item,onClose,onSave,onDelete,onDuplicate,onMoveNext,onS
     onSave(payload);
   };
   const stt=getStatus(f.status);
-  return R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+  return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
     R('div',{className:'mbox',style:{maxWidth:560,width:'100%',maxHeight:'92vh'}},
       R('div',{className:'mhdr'},
         R('div',null,
@@ -926,7 +928,7 @@ function SchedItemModal({item,onClose,onSave,onDelete,onDuplicate,onMoveNext,onS
         R('button',{className:'btn bp',onClick:save},isNew?'추가':'저장')
       )
     )
-  );
+  ));
 }
 
 
