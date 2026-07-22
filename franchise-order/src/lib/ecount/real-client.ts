@@ -101,13 +101,18 @@ export class RealEcountClient implements EcountClient {
     }
   }
 
+  /**
+   * 전표 라인 구성.
+   * 필드명은 이카운트 테스트 서버(sboapi)에서 실제 호출로 검증됨:
+   * IO_DATE / UPLOAD_SER_NO / CUST / PROD_CD / QTY / PRICE / REMARKS 는 정상 수용.
+   * (미검증 코드를 넣으면 ResultDetails.Errors 에 ColCd 와 사유가 반환된다)
+   */
   private buildBulkRows(payload: EcountOrderPayload) {
-    return payload.lines.map((l, i) => ({
-      BulkDatas: {
+    return payload.lines.map((l, i) => {
+      const row: Record<string, string> = {
         IO_DATE: payload.orderDate,
-        UPLOAD_SER_NO: "",
+        UPLOAD_SER_NO: String(i + 1),
         CUST: payload.customerCode,
-        WH_CD: l.warehouseCode,
         PROD_CD: l.itemCode,
         QTY: String(l.qty),
         PRICE: String(l.unitPrice),
@@ -115,8 +120,10 @@ export class RealEcountClient implements EcountClient {
         VAT_AMT: String(l.vatAmount),
         // 비고에 내부 주문번호 기록 → 중복 확인·추적용
         REMARKS: i === 0 && payload.memo ? `${payload.orderNo} ${payload.memo}`.slice(0, 100) : payload.orderNo,
-      },
-    }));
+      };
+      if (l.warehouseCode) row.WH_CD = l.warehouseCode; // 빈 값이면 전송하지 않음(미등록코드 오류 방지)
+      return { Line: String(i), BulkDatas: row };
+    });
   }
 
   private parseSaveResult(res: EcountApiEnvelope, orderNo: string): EcountPushResult {
