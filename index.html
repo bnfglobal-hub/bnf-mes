@@ -6236,7 +6236,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
 }
 
 /* ────── BOM Modal ────── */
-function BOMModal({mats,cats,editProd,onSave,onClose}){
+function BOMModal({mats,cats,editProd,onSave,onClose,onAddMat}){
   const searchRef=useRef(null);
   const ignoreBlur=useRef(false);
   const[pname,setPname]=useState(editProd?editProd.name:'');
@@ -6248,6 +6248,7 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
   const[pSearch,setPSearch]=useState('');
   const[showPD,setShowPD]=useState(false);
   const[editIdx,setEditIdx]=useState(null);
+  const[newMat,setNewMat]=useState(null); /* 신규 원재료 등록 폼 */
   const fl=useMemo(()=>{
     if(!search)return[];
     const q=search.toLowerCase();
@@ -6262,6 +6263,26 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
     if(bom.find(b=>b.c===m.c))return;
     setBom(p=>[...p,{c:m.c,name:m.n,unit:m.u,g:m.g,supplier:m.supplier||'',contact:m.contact||'',lead:m.lead||3}]);
     setAmts(p=>({...p,[m.c]:1}));
+  };
+  /* 검색에 없는 원재료 즉시 신규 등록 */
+  const exactHit=useMemo(()=>{
+    const s=search.trim().toLowerCase();
+    return !!s&&mats.some(m=>String(m.n||'').trim().toLowerCase()===s);
+  },[search,mats]);
+  const openNewMat=()=>{
+    setNewMat({n:search.trim(),g:(cats&&cats[0])||'원재료',u:'kg',price:'',supplier:''});
+    setShowD(false);
+  };
+  const saveNewMat=()=>{
+    const nm=String(newMat.n||'').trim();
+    if(!nm){alert('원재료명을 입력하세요');return;}
+    if(mats.some(m=>String(m.n||'').trim().toLowerCase()===nm.toLowerCase())){
+      alert('이미 등록된 원재료입니다. 검색해서 추가하세요.');return;
+    }
+    if(!onAddMat){alert('신규 등록을 사용할 수 없습니다');return;}
+    const created=onAddMat(newMat);
+    if(created){addBom(created);setNewMat(null);setSearch('');
+      setTimeout(()=>searchRef.current&&searchRef.current.focus(),0);}
   };
   const save=()=>{
     if(!pname.trim()){alert('제품명을 입력하세요');return;}
@@ -6308,7 +6329,16 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
             R('input',{value:search,onChange:e=>{setSearch(e.target.value);setShowD(true);},ref:searchRef,onFocus:()=>setShowD(true),onBlur:()=>{if(ignoreBlur.current)return;setTimeout(()=>setShowD(false),150);},placeholder:'🔍 원재료명 검색...',style:{flex:1,padding:'8px 10px',border:'1.5px solid #D94F1E',borderRadius:8,fontSize:13}}),
             search&&R('button',{onMouseDown:()=>{setSearch('');setShowD(false);},style:{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f1f5f9',color:'#64748b',cursor:'pointer',fontSize:12,flexShrink:0}},'✕')
           ),
-          showD&&fl.length>0&&R('div',{style:{position:'absolute',top:'calc(100% + 3px)',left:0,right:0,background:'#fff',border:'1px solid #e2e8f0',borderRadius:10,boxShadow:'0 4px 20px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto'}},
+          showD&&search.trim()&&R('div',{style:{position:'absolute',top:'calc(100% + 3px)',left:0,right:0,background:'#fff',border:'1px solid #e2e8f0',borderRadius:10,boxShadow:'0 4px 20px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto'}},
+            fl.length===0&&R('div',{style:{padding:'10px 14px',fontSize:11.5,color:'#94a3b8'}},'검색 결과가 없습니다'),
+            /* 목록에 없으면 신규 등록 */
+            !exactHit&&R('div',{onMouseDown:()=>{ignoreBlur.current=true;openNewMat();setTimeout(()=>{ignoreBlur.current=false;},0);},
+              style:{padding:'10px 14px',cursor:'pointer',display:'flex',gap:8,alignItems:'center',background:'#FFF8F4',borderTop:fl.length?'1px solid #f1f5f9':'none',borderBottom:'1px solid #f8fafc'}},
+              R('span',{style:{background:'#D94F1E',color:'#fff',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}},'＋'),
+              R('div',{style:{flex:1,minWidth:0}},
+                R('div',{style:{fontSize:12,fontWeight:700,color:'#D94F1E',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},'"'+search.trim()+'" 신규 등록'),
+                R('div',{style:{fontSize:10,color:'#94a3b8'}},'재고 목록에 없는 원재료를 새로 만들어 추가합니다'))
+            ),
             fl.map(m=>{
               const added=bom.some(b=>b.c===m.c);
               return R('div',{key:m.c,style:{padding:'9px 14px',cursor:added?'default':'pointer',borderBottom:'1px solid #f8fafc',display:'flex',gap:8,alignItems:'center',background:added?'#f0fdf4':'#fff'},
@@ -6322,6 +6352,34 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
               );
             })
           )
+        ),
+        /* 신규 원재료 등록 폼 */
+        newMat&&R('div',{style:{background:'#FFF8F4',border:'1.5px solid #FCC8B0',borderRadius:10,padding:'11px 12px',marginBottom:9}},
+          R('div',{style:{fontSize:11.5,fontWeight:800,color:'#D94F1E',marginBottom:8}},'＋ 신규 원재료 등록'),
+          R('div',{style:{display:'flex',gap:6,marginBottom:6,flexWrap:'wrap'}},
+            R('input',{value:newMat.n,autoFocus:true,onChange:e=>setNewMat(p=>({...p,n:e.target.value})),placeholder:'원재료명 *',
+              onKeyDown:e=>{if(e.key==='Enter')saveNewMat();},
+              style:{flex:'2 1 180px',minWidth:0,padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,fontFamily:'inherit'}}),
+            R('select',{value:newMat.g,onChange:e=>setNewMat(p=>({...p,g:e.target.value})),
+              style:{flex:'1 1 100px',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12.5,background:'#fff',fontFamily:'inherit'}},
+              ...(cats&&cats.length?cats:['원재료']).map(c=>R('option',{key:c,value:c},c)))
+          ),
+          R('div',{style:{display:'flex',gap:6,marginBottom:9,flexWrap:'wrap'}},
+            R('select',{value:newMat.u,onChange:e=>setNewMat(p=>({...p,u:e.target.value})),
+              style:{flex:'0 0 88px',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12.5,background:'#fff',fontFamily:'inherit'}},
+              ...['kg','g','ea','box','L','ml','롤','매'].map(u=>R('option',{key:u,value:u},u))),
+            R('input',{type:'number',value:newMat.price,onChange:e=>setNewMat(p=>({...p,price:e.target.value})),placeholder:'단가(원)',
+              onKeyDown:e=>{if(e.key==='Enter')saveNewMat();},
+              style:{flex:'1 1 90px',minWidth:0,padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,fontFamily:'inherit'}}),
+            R('input',{value:newMat.supplier,onChange:e=>setNewMat(p=>({...p,supplier:e.target.value})),placeholder:'매입처',
+              onKeyDown:e=>{if(e.key==='Enter')saveNewMat();},
+              style:{flex:'1 1 110px',minWidth:0,padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,fontFamily:'inherit'}})
+          ),
+          R('div',{style:{display:'flex',gap:6,justifyContent:'flex-end'}},
+            R('button',{onClick:()=>setNewMat(null),style:{border:'1px solid #e2e8f0',background:'#fff',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:700,cursor:'pointer',color:'#64748b',fontFamily:'inherit'}},'취소'),
+            R('button',{onClick:saveNewMat,style:{border:'none',background:'#D94F1E',color:'#fff',borderRadius:8,padding:'7px 16px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'등록하고 추가')
+          ),
+          R('div',{style:{fontSize:10,color:'#94a3b8',marginTop:6}},'재고는 0으로 등록됩니다. 재고 페이지에서 수정할 수 있습니다.')
         ),
         bom.length>0&&R('div',null,
           R('div',{style:{fontSize:11,color:'#64748b',marginBottom:5}},'추가된 원재료 '+bom.length+'종'),
@@ -6361,7 +6419,7 @@ function BOMModal({mats,cats,editProd,onSave,onClose}){
 }
 
 /* ────── PAGE: 제품/BOM ────── */
-function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal}){
+function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal,onAddMat}){
   const[prodSearch,setProdSearch]=useState('');
   const[expId,setExpId]=useState(null);
   const[editMod,setEditMod]=useState(null);
@@ -6446,7 +6504,7 @@ function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal}){
         );
       })
     ),
-    editMod&&editMod.id===p.id&&R(BOMModal,{mats,cats,editProd:p,
+    editMod&&editMod.id===p.id&&R(BOMModal,{mats,cats,editProd:p,onAddMat,
       onSave:updated=>onSetProds(pp=>pp.map(x=>x.id===updated.id?updated:x)),
       onClose:()=>{setEditMod(null);setExpId(null);}
     })
@@ -11275,6 +11333,15 @@ function App(){
   const fRef=useRef();
   
   const updMat=(id,k,v)=>setMats(p=>p.map(m=>m.id===id?{...m,[k]:v}:m));
+  /* BOM 등록 중 없는 원재료를 즉시 신규 생성 (생성된 품목 객체 반환) */
+  const addMatQuick=(f)=>{
+    const nm=String(f&&f.n||'').trim();
+    if(!nm)return null;
+    const m={id:uid(),c:'N'+uid(),g:f.g||'원재료',n:nm,u:f.u||'kg',s:0,mu:0,
+      supplier:f.supplier||'',contact:'',lead:3,price:+f.price||0,addedAt:Date.now()};
+    setMats(prev=>[...prev,m]);
+    return m;
+  };
   const shortCnt=useMemo(()=>mats.filter(m=>m.mu>0&&m.s<m.mu).length,[mats]);
 
   /* DB 로드 + 양방향 동기화 (PC↔모바일) */
@@ -11548,7 +11615,7 @@ function App(){
     if(page==='mytasks')return R(PageMyTasks,{user});
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
-    if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true)});
+    if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true),onAddMat:addMatQuick});
     if(page==='prod')return R(PageProd,{mats,prods,pqty,setPqty,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);}});
     if(page==='prodResult')return R(PageProdResult,{user,prods,mats});
     if(page==='expiry')return R(PageExpiry,{user,prods});
@@ -11895,7 +11962,7 @@ function App(){
         R('button',{onClick:()=>{setShowInstallTip(false);localStorage.setItem('bnf_install_seen','1');},style:{background:'none',border:'none',cursor:'pointer',color:'var(--tm)',fontSize:18,padding:'2px 4px'}},'×')
       )
     ),
-    bomModal&&R(BOMModal,{mats,cats,editProd:null,onSave:p=>setProds(pv=>[...pv,p]),onClose:()=>setBomModal(false)}),
+    bomModal&&R(BOMModal,{mats,cats,editProd:null,onSave:p=>setProds(pv=>[...pv,p]),onClose:()=>setBomModal(false),onAddMat:addMatQuick}),
     imgModal&&R(ImgModal,{data:imgModal,onClose:()=>setImgModal(null),genImg}),
     xlPreview&&R(XlPreviewModal,{preview:xlPreview,onClose:()=>setXlPreview(null),onConfirm:confirmXlImport}),
     globalSearch&&R(GlobalSearchModal,{mats,prods,user,onClose:()=>setGlobalSearch(false),onGoPage:(p,extra)=>{setPage(p);setGlobalSearch(false);}}),
