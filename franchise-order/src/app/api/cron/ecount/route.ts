@@ -7,9 +7,15 @@ import { processSyncQueue, syncStocks } from "@/lib/ecount/service";
  *  - 전송 큐 처리 + 재고 동기화
  */
 export async function GET(request: Request) {
-  const url = new URL(request.url);
   const secret = process.env.CRON_SECRET;
-  if (!secret || url.searchParams.get("key") !== secret) {
+  if (!secret) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  // Vercel Cron은 Authorization: Bearer <CRON_SECRET> 헤더를 보낸다.
+  // 수동 호출/윈도우 작업 스케줄러는 ?key= 로 인증한다.
+  const url = new URL(request.url);
+  const byHeader = request.headers.get("authorization") === `Bearer ${secret}`;
+  const byQuery = url.searchParams.get("key") === secret;
+  if (!byHeader && !byQuery) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const queue = await processSyncQueue(3);
