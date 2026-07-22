@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "BNF 프랜차이즈 물류",
+    name: "비엔에프글로벌 발주 시스템",
     short_name: "BNF 발주",
-    description: "비엔에프글로벌 가맹점 발주 시스템",
+    description: "㈜비엔에프글로벌 가맹점 발주 시스템",
     start_url: "/app",
     display: "standalone",
     background_color: "#ffffff",

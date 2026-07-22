@@ -21,15 +21,19 @@ type Filter = "ALL" | "ROOM" | "CHILLED" | "FROZEN" | "FAV" | "NEW" | "RECOMMEND
 
 export function Catalog({
   items,
+  allItems,
   cartLines,
   frequentIds,
   initialFilter = "ALL",
 }: {
   items: CatalogItem[];
+  /** 장바구니 금액 계산용 전체 카탈로그 (거래품목+공산품). 미지정 시 items 사용 */
+  allItems?: CatalogItem[];
   cartLines: { productId: string; qty: number }[];
   frequentIds: string[];
   initialFilter?: Filter;
 }) {
+  const priceCatalog = allItems ?? items;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>(initialFilter);
   const [category, setCategory] = useState<string | null>(null);
@@ -83,11 +87,11 @@ export function Catalog({
   const cartTotal = useMemo(() => {
     let sum = 0;
     for (const [pid, qty] of cart) {
-      const it = items.find((i) => i.productId === pid);
+      const it = priceCatalog.find((i) => i.productId === pid);
       if (it) sum += it.unitPrice * qty;
     }
     return sum;
-  }, [cart, items]);
+  }, [cart, priceCatalog]);
 
   const FILTERS: { key: Filter; label: string }[] = [
     { key: "ALL", label: "전체" },

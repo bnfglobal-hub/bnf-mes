@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BNF 프랜차이즈 물류",
-  description: "비엔에프글로벌 가맹점 발주·물류 관리 시스템",
+  title: "비엔에프글로벌 발주 시스템",
+  description: "㈜비엔에프글로벌 가맹점 발주·물류 관리 시스템",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

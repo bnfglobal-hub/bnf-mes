@@ -28,6 +28,7 @@ async function createProduct(formData: FormData) {
     order_unit: String(formData.get("order_unit") ?? "EA").trim() || "EA",
     min_order_qty: Number(formData.get("min_order_qty") ?? 1) || 1,
     qty_step: Number(formData.get("qty_step") ?? 1) || 1,
+    is_general: formData.get("is_general") === "on",
     created_by: profile.id,
   }).select("id").single();
   await auditLog({ actorId: profile.id, actorName: profile.full_name, action: "PRODUCT_CREATE", entity: "products", entityId: data?.id, after: { name } });
@@ -66,6 +67,7 @@ export default async function ProductsAdminPage({ searchParams }: { searchParams
                 <td className="px-3 py-2.5 text-gray-500">{p.ecount_item_code ?? <span className="text-amber-600">미매핑</span>}</td>
                 <td className="px-3 py-2.5 font-medium">
                   {p.name}
+                  {p.is_general && <Badge className="ml-1 bg-violet-50 text-violet-600">공산품</Badge>}
                   {p.is_new && <Badge className="ml-1 bg-orange-50 text-primary">NEW</Badge>}
                   {p.is_recommended && <Badge className="ml-1 bg-emerald-50 text-emerald-600">추천</Badge>}
                 </td>
@@ -108,6 +110,10 @@ export default async function ProductsAdminPage({ searchParams }: { searchParams
           <div><Label>최소주문수량</Label><Input name="min_order_qty" type="number" min={1} defaultValue={1} /></div>
           <div><Label>수량 증감단위</Label><Input name="qty_step" type="number" min={1} defaultValue={1} /></div>
         </div>
+        <label className="mt-3 flex items-center gap-1.5 text-sm">
+          <input type="checkbox" name="is_general" className="h-4 w-4 accent-orange-500" />
+          공산품 (전 거래처 공용 판매 — 가맹점별 부여 없이 모두에게 노출)
+        </label>
         <Button type="submit" className="mt-4">상품 등록</Button>
       </form>
     </div>

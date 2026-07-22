@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Bell, ChevronRight, Megaphone, RotateCcw, Clock, Truck, CreditCard } from "lucide-react";
 import { requireFranchise } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getStoreCatalog, getCartLines } from "@/lib/franchise-data";
+import { getStoreCatalog, getGeneralCatalog, getCartLines } from "@/lib/franchise-data";
 import { loadDeliveryRule, loadHolidays, nowKst } from "@/lib/domain/order-service";
 import { canOrderToday, isBeforeCutoff, calcShipDate, formatShipDateLabel } from "@/lib/domain/delivery-date";
 import { formatNumber, formatDate } from "@/lib/utils";
@@ -16,13 +16,15 @@ export default async function HomePage() {
   const profile = await requireFranchise();
   const admin = createAdminClient();
 
-  const [{ data: store }, rule, holidays, cartLines, catalog] = await Promise.all([
+  const [{ data: store }, rule, holidays, cartLines, catalog, generalCatalog] = await Promise.all([
     admin.from("stores").select("*").eq("id", profile.store_id).single(),
     loadDeliveryRule(),
     loadHolidays(),
     getCartLines(profile.store_id, profile.id),
     getStoreCatalog(profile.store_id),
+    getGeneralCatalog(profile.store_id).catch(() => []),
   ]);
+  const fullCatalog = [...catalog, ...generalCatalog];
 
   const [{ data: announcements }, { data: recentOrders }, { count: unreadCount }] = await Promise.all([
     admin.from("announcements").select("id, title, is_important, is_pinned, created_at")
@@ -47,7 +49,7 @@ export default async function HomePage() {
   }, holidays);
 
   const cartTotal = cartLines.reduce((sum, l) => {
-    const item = catalog.find((c) => c.productId === l.productId);
+    const item = fullCatalog.find((c) => c.productId === l.productId);
     return sum + (item ? item.unitPrice * l.qty : 0);
   }, 0);
 
@@ -156,14 +158,18 @@ export default async function HomePage() {
       </section>
 
       {/* 바로가기 */}
-      <section className="mb-4 mt-5 grid grid-cols-2 gap-2">
-        <Link href="/app/products?filter=FREQUENT" className="rounded-2xl bg-primary-light p-4 active:bg-orange-100">
-          <p className="text-sm font-bold text-primary">자주 주문한 상품</p>
-          <p className="mt-0.5 text-xs text-muted">빠르게 다시 담기</p>
+      <section className="mb-4 mt-5 grid grid-cols-3 gap-2">
+        <Link href="/app/products?filter=FREQUENT" className="rounded-2xl bg-primary-light p-3.5 active:bg-orange-100">
+          <p className="text-sm font-bold text-primary">자주 주문</p>
+          <p className="mt-0.5 text-xs text-muted">빠른 재주문</p>
         </Link>
-        <Link href="/app/products" className="rounded-2xl bg-gray-50 p-4 active:bg-gray-100">
-          <p className="text-sm font-bold">전체 상품 보기</p>
-          <p className="mt-0.5 text-xs text-muted">{catalog.length}개 취급 상품</p>
+        <Link href="/app/products" className="rounded-2xl bg-gray-50 p-3.5 active:bg-gray-100">
+          <p className="text-sm font-bold">거래 품목</p>
+          <p className="mt-0.5 text-xs text-muted">{catalog.length}개 상품</p>
+        </Link>
+        <Link href="/app/products?tab=general" className="rounded-2xl bg-gray-50 p-3.5 active:bg-gray-100">
+          <p className="text-sm font-bold">공산품</p>
+          <p className="mt-0.5 text-xs text-muted">{generalCatalog.length}개 상품</p>
         </Link>
       </section>
     </main>

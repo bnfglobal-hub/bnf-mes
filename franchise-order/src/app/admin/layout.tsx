@@ -9,6 +9,7 @@ const ALL_NAV: (NavItem & { roles?: string[] })[] = [
   { href: "/admin/shipping", label: "출고·배송", icon: "shipping" },
   { href: "/admin/stores", label: "가맹점관리", icon: "stores", roles: ["super_admin", "hq_admin"] },
   { href: "/admin/products", label: "상품관리", icon: "products", roles: ["super_admin", "hq_admin"] },
+  { href: "/admin/trade-import", label: "거래품목 가져오기", icon: "customers", roles: ["super_admin", "hq_admin"] },
   { href: "/admin/inventory", label: "재고현황", icon: "inventory" },
   { href: "/admin/announcements", label: "공지사항", icon: "announcements", roles: ["super_admin", "hq_admin"] },
   { href: "/admin/claims", label: "클레임관리", icon: "claims", roles: ["super_admin", "hq_admin"] },

@@ -15,8 +15,7 @@ export default function LoginPage() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-3xl font-black text-white shadow-lg shadow-orange-200">
             B
           </div>
-          <h1 className="text-2xl font-bold">BNF 프랜차이즈 물류</h1>
-          <p className="mt-1 text-sm text-muted">가맹점 발주 시스템</p>
+          <h1 className="text-2xl font-bold leading-snug">비엔에프글로벌<br />발주 시스템</h1>
         </div>
 
         <form action={formAction} className="rounded-2xl border border-border bg-white p-5 shadow-sm">

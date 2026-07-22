@@ -102,6 +102,67 @@ export async function getStoreCatalog(storeId: string): Promise<CatalogItem[]> {
   return items.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ko"));
 }
 
+/**
+ * 공산품 카탈로그 — 모든 가맹점 공용. 기본 공급가 적용 (가맹점 매핑에 있으면 그 조건 우선).
+ * 이미 취급상품으로 매핑된 상품은 제외한다(거래 품목 탭에 표시되므로).
+ */
+export async function getGeneralCatalog(storeId: string): Promise<CatalogItem[]> {
+  const admin = createAdminClient();
+  const [{ data: products }, { data: sps }, { data: setting }] = await Promise.all([
+    admin.from("products").select("*, product_categories(id, name)")
+      .eq("is_general", true).eq("is_active", true).eq("is_discontinued", false)
+      .order("sort_order").order("name"),
+    admin.from("store_products").select("product_id").eq("store_id", storeId).eq("is_visible", true),
+    admin.from("system_settings").select("value").eq("key", "public.stock_display").maybeSingle(),
+  ]);
+  if (!products?.length) return [];
+  const mapped = new Set((sps ?? []).map((sp) => sp.product_id));
+  const defaultMode = ((setting?.value as string) ?? "LEVEL") as StockDisplayMode;
+
+  const ids = products.map((p) => p.id);
+  const [{ data: stocks }, { data: reservations }] = await Promise.all([
+    admin.from("inventory_snapshots").select("product_id, qty, safety_qty").in("product_id", ids),
+    admin.from("inventory_reservations").select("product_id, qty").eq("released", false).in("product_id", ids),
+  ]);
+  const stockMap = new Map<string, { qty: number; safety: number }>();
+  for (const s of stocks ?? []) {
+    const cur = stockMap.get(s.product_id) ?? { qty: 0, safety: 0 };
+    stockMap.set(s.product_id, { qty: cur.qty + Number(s.qty), safety: cur.safety + Number(s.safety_qty) });
+  }
+  const resvMap = new Map<string, number>();
+  for (const r of reservations ?? []) resvMap.set(r.product_id, (resvMap.get(r.product_id) ?? 0) + Number(r.qty));
+
+  return products
+    .filter((p) => !mapped.has(p.id))
+    .map((p) => {
+      const mode = (p.stock_display as StockDisplayMode | null) ?? defaultMode;
+      const st = stockMap.get(p.id);
+      const available = st ? calcAvailableStock(st.qty, resvMap.get(p.id) ?? 0, st.safety) : 0;
+      return {
+        productId: p.id,
+        name: p.name,
+        spec: p.spec,
+        ecountItemCode: p.ecount_item_code,
+        storageType: p.storage_type,
+        taxType: p.tax_type as TaxType,
+        categoryId: p.product_categories?.id ?? null,
+        categoryName: p.product_categories?.name ?? null,
+        unitPrice: Number(p.base_price),
+        orderUnit: p.order_unit,
+        minQty: p.min_order_qty,
+        maxQty: p.max_order_qty,
+        qtyStep: p.qty_step,
+        boxQty: p.box_qty,
+        thumbnailUrl: p.thumbnail_url,
+        isSoldout: p.is_soldout,
+        isNew: p.is_new,
+        isRecommended: p.is_recommended,
+        stockLabel: p.is_soldout ? "품절" : st ? displayStock(available, mode) : null,
+        sortOrder: p.sort_order,
+      } satisfies CatalogItem;
+    });
+}
+
 export interface CartLine {
   productId: string;
   qty: number;

@@ -84,6 +84,27 @@ async function main() {
     if (data) productIds[p.code] = data.id;
   }
 
+  // 공산품 — 전 거래처 공용 (00003 마이그레이션 필요)
+  const GENERAL_PRODUCTS = [
+    { code: "G-GLOVE", name: "위생장갑 100매", spec: "100매×50", price: 2200, box: 50 },
+    { code: "G-WRAP", name: "업소용 랩 500m", spec: "500m×6", price: 8500, box: 6 },
+    { code: "G-BAG", name: "배달 비닐봉투 (대)", spec: "100매×20", price: 3800, box: 20 },
+    { code: "G-TOWEL", name: "종이타월 250매", spec: "250매×24", price: 1900, box: 24 },
+    { code: "G-CONTAINER", name: "일회용 반찬용기 세트", spec: "200개", price: 12000, box: 1 },
+  ];
+  for (const [i, g] of GENERAL_PRODUCTS.entries()) {
+    const { data, error } = await db.from("products").upsert({
+      ecount_item_code: g.code, name: g.name, spec: g.spec, storage_type: "ROOM",
+      tax_type: "TAXABLE", base_price: g.price, box_qty: g.box, order_unit: "EA",
+      min_order_qty: 1, qty_step: 1, sort_order: 100 + i, is_general: true,
+    }, { onConflict: "ecount_item_code" }).select("id").single();
+    if (error) {
+      console.warn(`⚠ 공산품(${g.name}) 등록 실패 — 00003_general_products.sql 마이그레이션을 먼저 적용하세요: ${error.message}`);
+      break;
+    }
+    if (data) productIds[g.code] = data.id;
+  }
+
   // 가맹점 3곳 (보이는 상품·단가 다르게)
   const STORES = [
     { code: "GN001", name: "강남점", bizNo: "123-45-67890", min: 300000, fee: 0, addr: "서울 강남구 테헤란로 123", zone: "강남", ecount: "C-GN001" },

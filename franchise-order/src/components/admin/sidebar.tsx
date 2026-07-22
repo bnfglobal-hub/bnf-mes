@@ -54,7 +54,7 @@ export function AdminSidebar({ items, userName, roleLabel }: { items: NavItem[];
       {/* 모바일 헤더 */}
       <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-white px-4 lg:hidden">
         <button onClick={() => setOpen(true)} aria-label="메뉴"><Menu size={22} /></button>
-        <span className="text-[15px] font-bold">BNF 물류 관리자</span>
+        <span className="text-[15px] font-bold">비엔에프글로벌 발주 관리자</span>
       </header>
 
       {/* 모바일 드로어 */}
@@ -63,7 +63,7 @@ export function AdminSidebar({ items, userName, roleLabel }: { items: NavItem[];
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
           <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-white">
             <div className="flex h-14 items-center justify-between border-b border-border px-4">
-              <span className="font-bold">BNF 물류 관리자</span>
+              <span className="font-bold">비엔에프글로벌 발주 관리자</span>
               <button onClick={() => setOpen(false)} aria-label="닫기"><X size={20} /></button>
             </div>
             {nav}
@@ -77,7 +77,7 @@ export function AdminSidebar({ items, userName, roleLabel }: { items: NavItem[];
         <div className="flex h-16 items-center gap-2 border-b border-border px-5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-black text-white">B</div>
           <div>
-            <p className="text-sm font-bold leading-tight">BNF 프랜차이즈 물류</p>
+            <p className="text-sm font-bold leading-tight">비엔에프글로벌 발주 시스템</p>
             <p className="text-[11px] text-muted">관리자</p>
           </div>
         </div>

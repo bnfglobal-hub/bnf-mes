@@ -34,6 +34,7 @@ async function updateProduct(formData: FormData) {
     thumbnail_url: String(formData.get("thumbnail_url") ?? "").trim() || null,
     description: String(formData.get("description") ?? "").trim() || null,
     sort_order: Number(formData.get("sort_order") ?? 0) || 0,
+    is_general: formData.get("is_general") === "on",
     is_soldout: formData.get("is_soldout") === "on",
     is_discontinued: formData.get("is_discontinued") === "on",
     is_new: formData.get("is_new") === "on",
@@ -60,6 +61,7 @@ export default async function ProductEditPage({ params }: { params: Promise<{ id
 
   const CHECKS = [
     { name: "is_active", label: "사용", checked: p.is_active },
+    { name: "is_general", label: "공산품 (전 거래처 공용)", checked: p.is_general },
     { name: "is_soldout", label: "품절", checked: p.is_soldout },
     { name: "is_discontinued", label: "판매중지", checked: p.is_discontinued },
     { name: "is_new", label: "신상품", checked: p.is_new },

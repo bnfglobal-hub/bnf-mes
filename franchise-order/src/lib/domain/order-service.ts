@@ -99,28 +99,37 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const priceMap = new Map<string, number>();
   for (const p of prices ?? []) if (!priceMap.has(p.product_id)) priceMap.set(p.product_id, Number(p.price));
 
+  // 공산품(전 거래처 공용)은 가맹점 매핑 없이 주문 가능
+  const unmappedIds = input.items.filter((i) => !spMap.has(i.productId)).map((i) => i.productId);
+  const generalMap = new Map(); // 품목 row (supabase 미타입 결과)
+  if (unmappedIds.length > 0) {
+    const { data: generals } = await admin.from("products").select("*").in("id", unmappedIds).eq("is_general", true);
+    for (const g of generals ?? []) generalMap.set(g.id, g);
+  }
+
   const lines: { productId: string; qty: number; unitPrice: number; taxType: TaxType; snapshot: object; supply: number; vat: number }[] = [];
   for (const item of input.items) {
     const sp = spMap.get(item.productId);
-    if (!sp || !sp.is_visible) return { ok: false, error: "취급하지 않는 상품이 포함되어 있습니다." };
-    const p = sp.products;
+    const general = generalMap.get(item.productId);
+    if ((!sp || !sp.is_visible) && !general) return { ok: false, error: "취급하지 않는 상품이 포함되어 있습니다." };
+    const p = sp?.products ?? general;
     if (!p || !p.is_active || p.is_discontinued) return { ok: false, error: `판매 중지된 상품입니다: ${p?.name ?? item.productId}` };
-    if (p.is_soldout || sp.is_soldout) return { ok: false, error: `품절된 상품입니다: ${p.name}` };
-    // 적용 기간
-    if (sp.valid_from && sp.valid_from > today) return { ok: false, error: `아직 주문할 수 없는 상품입니다: ${p.name}` };
-    if (sp.valid_to && sp.valid_to < today) return { ok: false, error: `취급 종료된 상품입니다: ${p.name}` };
+    if (p.is_soldout || sp?.is_soldout) return { ok: false, error: `품절된 상품입니다: ${p.name}` };
+    // 적용 기간 (취급상품 매핑에만 해당)
+    if (sp?.valid_from && sp.valid_from > today) return { ok: false, error: `아직 주문할 수 없는 상품입니다: ${p.name}` };
+    if (sp?.valid_to && sp.valid_to < today) return { ok: false, error: `취급 종료된 상품입니다: ${p.name}` };
 
     const qtyCheck = validateQty(item.qty, {
-      minQty: sp.min_order_qty ?? p.min_order_qty,
-      maxQty: sp.max_order_qty ?? p.max_order_qty,
-      step: sp.qty_step ?? p.qty_step,
+      minQty: sp?.min_order_qty ?? p.min_order_qty,
+      maxQty: sp?.max_order_qty ?? p.max_order_qty,
+      step: sp?.qty_step ?? p.qty_step,
     });
     if (!qtyCheck.ok) return { ok: false, error: `${p.name}: ${qtyCheck.message}` };
 
     const unitPrice = resolveUnitPrice({
       basePrice: Number(p.base_price),
-      customPrice: sp.custom_price != null ? Number(sp.custom_price) : null,
-      discountRate: sp.discount_rate != null ? Number(sp.discount_rate) : null,
+      customPrice: sp?.custom_price != null ? Number(sp.custom_price) : null,
+      discountRate: sp?.discount_rate != null ? Number(sp.discount_rate) : null,
       periodPrice: priceMap.get(item.productId) ?? null,
     });
     const amounts = calcLine({ qty: item.qty, unitPrice, taxType: p.tax_type as TaxType });

@@ -25,9 +25,12 @@ export async function setCartItemAction(productId: string, qty: number): Promise
   if (!parsed.success) return { ok: false, error: "잘못된 요청입니다." };
 
   const admin = createAdminClient();
-  // 취급상품 검증 (URL 조작 방어)
+  // 취급상품 또는 공산품만 담기 가능 (URL 조작 방어)
   const { data: sp } = await admin.from("store_products").select("id").eq("store_id", profile.store_id).eq("product_id", productId).eq("is_visible", true).maybeSingle();
-  if (!sp) return { ok: false, error: "취급하지 않는 상품입니다." };
+  if (!sp) {
+    const { data: general } = await admin.from("products").select("id").eq("id", productId).eq("is_general", true).eq("is_active", true).maybeSingle();
+    if (!general) return { ok: false, error: "취급하지 않는 상품입니다." };
+  }
 
   const cartId = await getOrCreateCartId(profile.store_id, profile.id);
   if (qty === 0) {
@@ -101,6 +104,13 @@ export async function reorderAction(orderId: string): Promise<{ ok: boolean; add
       return p && p.is_active && !p.is_soldout && !p.is_discontinued && !sp.is_soldout;
     }).map((sp) => sp.product_id)
   );
+  // 공산품도 다시 담기 허용
+  const missingIds = (order.order_items as { product_id: string }[]).map((i) => i.product_id).filter((id) => !available.has(id));
+  if (missingIds.length > 0) {
+    const { data: generals } = await admin.from("products").select("id")
+      .in("id", missingIds).eq("is_general", true).eq("is_active", true).eq("is_soldout", false).eq("is_discontinued", false);
+    for (const g of generals ?? []) available.add(g.id);
+  }
 
   const cartId = await getOrCreateCartId(profile.store_id, profile.id);
   let added = 0, skipped = 0;

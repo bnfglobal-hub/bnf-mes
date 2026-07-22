@@ -57,7 +57,7 @@ export default async function MyPage() {
             로그아웃
           </button>
         </form>
-        <p className="mt-4 text-center text-[11px] text-gray-300">BNF 프랜차이즈 물류 · ㈜비엔에프글로벌</p>
+        <p className="mt-4 text-center text-[11px] text-gray-300">비엔에프글로벌 발주 시스템 · ㈜비엔에프글로벌</p>
       </div>
     </main>
   );
