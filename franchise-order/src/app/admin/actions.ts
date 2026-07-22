@@ -253,7 +253,7 @@ export async function deleteAnnouncementAction(id: string) {
 // ---------- 사용자 ----------
 
 const userSchema = z.object({
-  username: z.string().min(3).max(30),
+  username: z.string().min(2).max(30),
   password: z.string().min(4).max(100).optional(), // 미입력 시 초기 비밀번호 1234
   fullName: z.string().min(1).max(50),
   role: z.enum(["super_admin", "hq_admin", "warehouse", "franchise_owner", "franchise_staff"]),

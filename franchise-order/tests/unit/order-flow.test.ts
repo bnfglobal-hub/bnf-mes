@@ -65,7 +65,8 @@ describe("로그인 아이디 (사업자등록번호)", () => {
   it("아이디 형식 검증", () => {
     expect(isValidUsername("123-45-67890")).toBe(true);
     expect(isValidUsername("abc")).toBe(true);
+    expect(isValidUsername("hq")).toBe(true); // 본사 짧은 아이디
     expect(isValidUsername("한글아이디")).toBe(false);
-    expect(isValidUsername("ab")).toBe(false);
+    expect(isValidUsername("a")).toBe(false);
   });
 });

@@ -8,7 +8,7 @@ import { usernameToEmail, isValidUsername } from "@/lib/login-domain";
 import { rateLimit } from "@/lib/rate-limit";
 
 const loginSchema = z.object({
-  username: z.string().min(3).max(30),
+  username: z.string().min(2).max(30),
   password: z.string().min(4).max(100),
 });
 

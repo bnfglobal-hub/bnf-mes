@@ -10,8 +10,9 @@ export function usernameToEmail(username: string): string {
   return `${normalizeUsername(username)}@${AUTH_EMAIL_DOMAIN}`;
 }
 
+/** 가맹점은 사업자등록번호(10자리), 본사 계정은 짧은 아이디도 허용 */
 export function isValidUsername(username: string): boolean {
-  return /^[a-z0-9._]{3,30}$/i.test(normalizeUsername(username));
+  return /^[a-z0-9._]{2,30}$/i.test(normalizeUsername(username));
 }
 
 /** 사업자등록번호 형식(숫자 10자리) 여부 — 안내 문구용 */

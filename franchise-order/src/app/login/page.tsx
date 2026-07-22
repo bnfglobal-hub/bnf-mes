@@ -22,8 +22,8 @@ export default function LoginPage() {
           <div className="mb-4">
             <Label htmlFor="username">아이디 (사업자등록번호)</Label>
             <Input
-              id="username" name="username" autoComplete="username" autoCapitalize="none" inputMode="numeric"
-              placeholder="사업자등록번호 (숫자만)" required minLength={3} maxLength={30}
+              id="username" name="username" autoComplete="username" autoCapitalize="none"
+              placeholder="사업자등록번호 (숫자만)" required minLength={2} maxLength={30}
             />
             <p className="mt-1 text-xs text-gray-400">하이픈(-) 없이 숫자만 입력해도 됩니다.</p>
           </div>
