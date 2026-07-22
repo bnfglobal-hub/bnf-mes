@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireRole, ADMIN_ROLES, STAFF_ROLES } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { changeOrderStatus } from "@/lib/domain/order-service";
-import { processSyncQueue, syncStocks, getEcountClient, queueOrderPush, importEcountItems } from "@/lib/ecount/service";
+import { processSyncQueue, syncStocks, getEcountClient, getEcountReadClient, queueOrderPush, importEcountItems } from "@/lib/ecount/service";
 import { auditLog } from "@/lib/audit";
 import { notifyStore } from "@/lib/notify";
 import { usernameToEmail, isValidUsername, normalizeUsername, INITIAL_PASSWORD } from "@/lib/login-domain";
@@ -171,9 +171,20 @@ export async function requeueOrderAction(orderId: string) {
 
 export async function testEcountConnectionAction() {
   await requireRole(ADMIN_ROLES);
-  const client = getEcountClient();
-  const r = await client.testConnection();
-  return { ...r, mode: client.mode };
+  const writeClient = getEcountClient();
+  const readClient = getEcountReadClient();
+
+  const write = await writeClient.testConnection();
+  // 읽기 클라이언트가 다를 때만 별도로 확인 (같으면 중복 호출·로그인 제한 낭비)
+  const read = readClient.mode === writeClient.mode ? null : await readClient.testConnection();
+
+  const parts = [
+    `전표 발행: ${writeClient.mode === "REAL" ? "실서버" : "Mock(실전송 안함)"} — ${write.message}`,
+  ];
+  if (read) {
+    parts.push(`품목·재고 조회: 실서버 — ${read.ok ? "정상" : "실패"} (${read.message})`);
+  }
+  return { ok: write.ok && (read?.ok ?? true), message: parts.join("\n"), mode: writeClient.mode };
 }
 
 /** 이카운트 품목 마스터 가져오기 (읽기 전용 — 이카운트 데이터를 변경하지 않음) */

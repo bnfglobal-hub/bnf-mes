@@ -16,7 +16,7 @@ export function EcountControls() {
         <Button variant="outline" size="sm" disabled={pending}
           onClick={() => startTransition(async () => {
             const r = await testEcountConnectionAction();
-            setMsg(`[${r.mode}] ${r.message}`);
+            setMsg(r.message);
           })}>
           연결 테스트
         </Button>
@@ -36,7 +36,7 @@ export function EcountControls() {
           Mock 실패 시뮬레이션
         </Button>
       </div>
-      {msg && <p className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">{msg}</p>}
+      {msg && <p className="mt-2 whitespace-pre-line rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">{msg}</p>}
     </div>
   );
 }
