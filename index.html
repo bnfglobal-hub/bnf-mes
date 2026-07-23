@@ -5854,6 +5854,46 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   };
 
   const favMats=mats.filter(m=>favorites.includes(m.id));
+  /* ── 즐겨찾기 품목 월사용량 ← 이카운트 전월 판매량 (trade_top.sales) ── */
+  const[muApplying,setMuApplying]=useState(false);
+  const applyPrevMonthSales=async()=>{
+    if(muApplying)return;
+    setMuApplying(true);
+    try{
+      const{data:d}=await sbClient.from('app_state').select('tt:state_data->trade_top').eq('id',1).maybeSingle();
+      const sales=d&&d.tt&&d.tt.sales;
+      if(!sales){alert('이카운트 품목별 매출 데이터가 없습니다.\nPC에서 ec_top.py를 먼저 실행해주세요.');setMuApplying(false);return;}
+      /* 전월(지난달) 키 */
+      const now=new Date();const pm=new Date(now.getFullYear(),now.getMonth()-1,1);
+      const ym=pm.getFullYear()+'-'+String(pm.getMonth()+1).padStart(2,'0');
+      const month=sales[ym];
+      if(!month||!Object.keys(month).length){alert(ym+' 판매 데이터가 없습니다.');setMuApplying(false);return;}
+      /* 이름 정규화: 공백 제거, 앞 [제품]/[분류] 접두 제거, 뒤 단위 [ea]/[box]/[kg] 제거 */
+      const norm=(s)=>String(s||'').replace(/\s/g,'')
+        .replace(/^\[[^\]]*\]/,'')
+        .replace(/\[(ea|box|kg|g|개|봉|매|롤|EA|BOX|KG)\]$/i,'')
+        .toLowerCase();
+      const salesArr=Object.keys(month).map(k=>({key:k,n:norm(k),qty:Math.round(+month[k].qty||0)}));
+      const matches=[],misses=[];
+      favMats.forEach(m=>{
+        const mn=norm(m.n);
+        if(!mn)return;
+        let hit=salesArr.find(s=>s.n===mn);
+        if(!hit)hit=salesArr.find(s=>s.n.includes(mn)||mn.includes(s.n));
+        if(hit&&hit.qty>0)matches.push({m,qty:hit.qty,src:hit.key});
+        else misses.push(m.n);
+      });
+      if(!matches.length){alert('전월('+ym+') 판매와 매칭되는 즐겨찾기 품목이 없습니다.');setMuApplying(false);return;}
+      const msg='전월('+ym+') 판매량을 월사용량에 적용합니다:\n\n'
+        +matches.map(x=>'· '+x.m.n+' → '+x.qty.toLocaleString()+x.m.u).join('\n')
+        +(misses.length?'\n\n⚠ 매칭 안 됨('+misses.length+'): '+misses.slice(0,5).join(', ')+(misses.length>5?' 외':''):'')
+        +'\n\n적용할까요?';
+      if(!window.confirm(msg)){setMuApplying(false);return;}
+      matches.forEach(x=>onUpd(x.m.id,'mu',x.qty));
+      alert('✅ '+matches.length+'개 품목의 월사용량을 전월 판매량으로 업데이트했습니다.');
+    }catch(e){alert('적용 실패: '+e.message);}
+    setMuApplying(false);
+  };
   const semiMatsData=semiItems.map(si=>{const m=mats.find(x=>x.id===si.id);return m?{...si,s:m.s}:{...si,s:0};});
   const semiSearchResults=semiSearch?mats.filter(m=>m.n&&m.n.includes(semiSearch)&&!semiItems.find(x=>x.id===m.id)).slice(0,8):[];
   /* 완제품별 연결된 반제품 (검색 picker용 - 이미 매핑된 것 제외) */
@@ -6026,7 +6066,12 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
             ),
             R('div',{style:{fontSize:9,color:'var(--tm)',fontWeight:500,marginTop:1}},'⋮⋮ 드래그 → 폴더 이동 · 우클릭 → 색 변경')
           ),
-          R('div',{style:{fontSize:10,color:'var(--tm)',flexShrink:0}},favMats.length,'종')
+          R('div',{style:{display:'flex',alignItems:'center',gap:6,flexShrink:0}},
+            isAdmin&&R('button',{onClick:applyPrevMonthSales,disabled:muApplying,title:'이카운트 전월 판매량을 즐겨찾기 품목 월사용량에 적용',
+              style:{border:'1px solid var(--p)',background:muApplying?'#F1F5F9':'#fff',color:'var(--p)',borderRadius:7,padding:'4px 9px',fontSize:9.5,fontWeight:700,cursor:muApplying?'default':'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
+              muApplying?'적용 중...':'📈 전월판매→월사용량'),
+            R('div',{style:{fontSize:10,color:'var(--tm)'}},favMats.length,'종')
+          )
         ),
         /* 폴더 탭 바 */
         R('div',{style:{padding:'6px 10px',borderBottom:'1px solid var(--bd)',background:'#FFFDFB',display:'flex',gap:4,flexWrap:'wrap',alignItems:'center',flexShrink:0}},
