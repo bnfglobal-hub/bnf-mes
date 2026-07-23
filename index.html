@@ -82,7 +82,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .b-ok{background:#d1fae5;color:#065f46}.b-w{background:#fef3c7;color:#92400e}
 .b-e{background:#fee2e2;color:#991b1b}.b-i{background:#dbeafe;color:#1e40af}
 .b-g{background:#f3f4f6;color:#374151}.b-o{background:#ffedd5;color:#9a3412}
-.mbg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:10005;backdrop-filter:blur(2px)}
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:10005}
 .mbox{background:#fff;border-radius:18px 18px 0 0;width:100%;max-height:92vh;display:flex;flex-direction:column;animation:fa .2s ease}
 .mhdr{padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
 .mbody{flex:1;overflow-y:auto;padding:16px 18px}
@@ -394,7 +394,7 @@ tr:hover td{background:#FBF7FB}
 .bdg{letter-spacing:-.1px}
 
 /* 모달 — 데스크톱: 중앙 다이얼로그 / 모바일: 하단 시트 */
-.mbg{backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);background:rgba(15,10,20,.45)}
+.mbg{background:rgba(15,10,20,.5)}
 .mbox{box-shadow:0 24px 60px -12px rgba(16,24,40,.35)}
 .mhdr{border-bottom-color:#F0EAF3}
 .mfoot{border-top-color:#F0EAF3}
@@ -3962,7 +3962,7 @@ function OngoingWork({user,onGoPage}){
     ),
     /* ── 업무 수정 모달 (카드 클릭) ── */
     editTask&&draft&&R('div',{onClick:e=>{if(e.target===e.currentTarget)closeEdit();},
-      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
       R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
         R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',display:'flex',justifyContent:'space-between',alignItems:'center'}},
           R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},isDone(editTask)?'✅ 완료된 업무':'업무 수정'),
@@ -3998,7 +3998,7 @@ function OngoingWork({user,onGoPage}){
     ),
     /* ── 분류 관리 모달 ── */
     catMgr&&R('div',{onClick:e=>{if(e.target===e.currentTarget)closeCatMgr();},
-      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
       R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:440,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
         R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',display:'flex',justifyContent:'space-between',alignItems:'center'}},
           R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'⚙ 분류 관리'),
@@ -4132,7 +4132,7 @@ function PageProfit(){
     ),
     /* 붙여넣기 모달 */
     pasteFor&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setPasteFor(null);setPasteText('');}},
-      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'7vh 16px 16px'}},
       R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
         R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9'}},
           R('div',{style:{fontSize:14,fontWeight:800}},(pasteFor==='sales'?'판매현황(매출)':'구매현황(매입)')+' 붙여넣기 · '+yr),
@@ -4299,7 +4299,7 @@ function PageTrade({kind}){
     ),
     /* 붙여넣기 모달 */
     showPaste&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setShowPaste(false);setPasteText('');setPasteRows(null);}},
-      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'6vh 16px 16px'}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'6vh 16px 16px'}},
       R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:560,width:'100%',maxHeight:'86vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.3)',overflow:'hidden'}},
         R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',flexShrink:0}},
           R('div',{style:{fontSize:14,fontWeight:800}},'이카운트 '+(isS?'판매현황':'구매현황')+' 붙여넣기'),
@@ -9565,7 +9565,7 @@ function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
     else if(e.key==='Enter'){e.preventDefault();if(flatList[selectedIdx])handleSelect(flatList[selectedIdx]);}
   };
   
-  return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(8px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'10vh 16px 16px',animation:'fadeIn .15s ease'}},
+  return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'10vh 16px 16px',animation:'fadeIn .15s ease'}},
     R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:640,width:'100%',maxHeight:'70vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25),0 0 0 1px rgba(0,0,0,0.05)',overflow:'hidden',animation:'slideUp .2s ease'}},
       /* 검색 입력 */
       R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',display:'flex',alignItems:'center',gap:12}},
@@ -9671,7 +9671,7 @@ function NotifPanel({mats,user,onClose,onGoPage}){
   const totalCount=myNotifs.length+shortMats.length+myRequests.length+overdueRequests.length;
   const NT_STY={mention:{bg:'#F5F3FF',bd:'#DDD6FE',tag:'#7C3AED',ic:'🏷'},done:{bg:'#F0FDF4',bd:'#BBF7D0',tag:'#15803D',ic:'✅'},approval:{bg:'#EFF6FF',bd:'#BFDBFE',tag:'#2563EB',ic:'📋'},info:{bg:'#F9FAFB',bd:'#E5E7EB',tag:'#6B7280',ic:'🔔'}};
   
-  return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.3)',backdropFilter:'blur(4px)',display:'flex',alignItems:'flex-start',justifyContent:'flex-end',zIndex:99998,padding:'70px 20px 20px 20px',animation:'fadeIn .15s ease'}},
+  return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.3)',display:'flex',alignItems:'flex-start',justifyContent:'flex-end',zIndex:99998,padding:'70px 20px 20px 20px',animation:'fadeIn .15s ease'}},
     R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,maxWidth:400,width:'100%',maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25),0 0 0 1px rgba(0,0,0,0.05)',overflow:'hidden',animation:'slideDown .2s ease'}},
       /* 헤더 */
       R('div',{style:{padding:'14px 18px',borderBottom:'1px solid #F1F5F9',background:'linear-gradient(135deg,#1F2937,#374151)',color:'#fff',display:'flex',justifyContent:'space-between',alignItems:'center'}},
@@ -11202,7 +11202,7 @@ function PageShipSort({mats,hqItems}){
     ),
     /* ── 재고 항목 수동 연결 모달 ── */
     linkTarget&&R('div',{onClick:e=>{if(e.target===e.currentTarget){setLinkTarget(null);setLinkSearch('');}},
-      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',backdropFilter:'blur(6px)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'8vh 16px 16px'}},
+      style:{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:99999,padding:'8vh 16px 16px'}},
       R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:16,maxWidth:520,width:'100%',maxHeight:'78vh',display:'flex',flexDirection:'column',boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25)',overflow:'hidden'}},
         R('div',{style:{padding:'14px 16px',borderBottom:'1px solid #F1F5F9'}},
           R('div',{style:{fontSize:13,fontWeight:800,marginBottom:2}},'재고 항목 연결'),
