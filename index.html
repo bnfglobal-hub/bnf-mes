@@ -82,7 +82,10 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .b-ok{background:#d1fae5;color:#065f46}.b-w{background:#fef3c7;color:#92400e}
 .b-e{background:#fee2e2;color:#991b1b}.b-i{background:#dbeafe;color:#1e40af}
 .b-g{background:#f3f4f6;color:#374151}.b-o{background:#ffedd5;color:#9a3412}
-.mbg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:10005}
+/* 모달을 독립 GPU 레이어로 승격 — 배경 페이지 리페인트와 격리해
+   저사양 GPU에서 커서 이동 시 깜빡임/찢어짐(tearing) 방지 */
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:10005;transform:translateZ(0);isolation:isolate}
+.mbox{transform:translateZ(0)}
 .mbox{background:#fff;border-radius:18px 18px 0 0;width:100%;max-height:92vh;display:flex;flex-direction:column;animation:fa .2s ease}
 .mhdr{padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
 .mbody{flex:1;overflow-y:auto;padding:16px 18px}
@@ -6579,7 +6582,7 @@ function ProdConfirmModal({data,mats,onConfirm,onClose}){
     onConfirm(newOrders,note);
     onClose();
   };
-  return R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+  return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
     R('div',{className:'mbox',style:{maxWidth:560,margin:'auto',borderRadius:16}},
       R('div',{className:'mhdr'},
         R('div',null,
@@ -6652,7 +6655,7 @@ function ProdConfirmModal({data,mats,onConfirm,onClose}){
         )
       )
     )
-  );
+  ));
 }
 
 /* ────── 생산지시서 이미지 Modal ────── */
@@ -6661,7 +6664,7 @@ function ImgModal({data,onClose,genImg}){
   const[sent,setSent]=useState(false);
   const[img,setImg]=useState('');
   const upd=(ri,k,v)=>setRows(p=>p.map((r,i)=>i===ri?{...r,[k]:v}:r));
-  return R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+  return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
     R('div',{className:'mbox',style:{maxWidth:640,margin:'auto',borderRadius:16,maxHeight:'92vh'}},
       R('div',{className:'mhdr'},
         R('div',null,
@@ -6700,7 +6703,7 @@ function ImgModal({data,onClose,genImg}){
         R('button',{className:'btn bs',style:{padding:'10px 12px'},onClick:onClose},'닫기')
       )
     )
-  );
+  ));
 }
 
 /* ────── PAGE: 생산계획 ────── */
