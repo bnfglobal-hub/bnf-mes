@@ -460,6 +460,7 @@ tr:hover td{background:#FBF7FB}
   .fav-stock-card .fav-hm,.fav-stock-card .fav-hf,
   .fav-stock-card [title='월사용량'],
   .fav-stock-card [title='올해 누적판매'],.fav-stock-card .fav-hytd,
+  .fav-stock-card [title='작년 판매량'],.fav-stock-card .fav-hpy,
   .fav-stock-card [title='폴더 이동'],
   .fav-stock-card [title='드래그 → 폴더 이동']{display:none!important}
   .fav-stock-card .fav-hdrag{display:none!important}
@@ -5868,23 +5869,28 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       const sales=d&&d.tt&&d.tt.sales;
       if(!sales)return;
       const yr=new Date().getFullYear();
-      const tot={};
+      const tot={},prev={};
       Object.keys(sales).forEach(k=>{
-        if(!k.startsWith(String(yr)))return;
+        const isCur=k.startsWith(String(yr)),isPrev=k.startsWith(String(yr-1));
+        if(!isCur&&!isPrev)return;
+        const box=isCur?tot:prev;
         const mo=sales[k]||{};
-        Object.keys(mo).forEach(nm=>{const n=normSaleNm(nm);tot[n]=(tot[n]||0)+(+mo[nm].qty||0);});
+        Object.keys(mo).forEach(nm=>{const n=normSaleNm(nm);box[n]=(box[n]||0)+(+mo[nm].qty||0);});
       });
-      setYtdSales(tot);
+      setYtdSales({cur:tot,prev});
     }).catch(()=>{});
   },[]);
-  const ytdOf=(name)=>{
+  const salesOf=(name,which)=>{
     if(!ytdSales)return null;
+    const box=ytdSales[which];if(!box)return null;
     const mn=normSaleNm(name);
     if(!mn)return null;
-    if(ytdSales[mn]!==undefined)return Math.round(ytdSales[mn]);
-    const k=Object.keys(ytdSales).find(n=>n.includes(mn)||mn.includes(n));
-    return k?Math.round(ytdSales[k]):null;
+    if(box[mn]!==undefined)return Math.round(box[mn]);
+    const k=Object.keys(box).find(n=>n.includes(mn)||mn.includes(n));
+    return k?Math.round(box[k]):null;
   };
+  const ytdOf=(name)=>salesOf(name,'cur');
+  const prevYrOf=(name)=>salesOf(name,'prev');
   const applyPrevMonthSales=async()=>{
     if(muApplying)return;
     setMuApplying(true);
@@ -6058,6 +6064,15 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                       R('span',{key:'v',style:{fontWeight:700,color:'#2563EB',fontSize:11}},ytd.toLocaleString())]
                     :R('span',{style:{color:'#cbd5e1',fontSize:10}},'-'));
               })(),
+              /* 작년 판매량 */
+              (()=>{
+                const py=prevYrOf(m.n);
+                return R('div',{title:'작년 판매량',style:{flexShrink:0,width:76,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
+                  py!==null
+                    ?[R('span',{key:'l',style:{color:'#94a3b8',fontSize:9,marginRight:2}},'작년'),
+                      R('span',{key:'v',style:{fontWeight:700,color:'#7C3AED',fontSize:11}},py.toLocaleString())]
+                    :R('span',{style:{color:'#cbd5e1',fontSize:10}},'-'));
+              })(),
               /* 폴더 셀렉트 */
               R('select',{value:itemFolderId,onClick:e=>e.stopPropagation(),onChange:e=>moveFavToFolder(m.id,e.target.value),title:'폴더 이동',style:{fontSize:9,border:'1px solid var(--bd)',borderRadius:4,padding:'2px 3px',maxWidth:58,background:'#fff',color:(favFolders.find(f=>f.id===itemFolderId)||{}).color||'#6B7280',fontWeight:600,flexShrink:0}},
                 ...favFolders.map(f=>R('option',{key:f.id,value:f.id},f.name))
@@ -6156,6 +6171,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           R('span',{className:'fav-hm',style:{width:62,textAlign:'right',flexShrink:0}},'월사용량'),
           R('span',{className:'fav-hshort',style:{width:74,textAlign:'right',flexShrink:0}},'부족수량'),
           R('span',{className:'fav-hytd',style:{width:76,textAlign:'right',flexShrink:0}},'올해누적판매'),
+          R('span',{className:'fav-hpy',style:{width:76,textAlign:'right',flexShrink:0}},'작년판매'),
           R('span',{className:'fav-hf',style:{width:58,textAlign:'center',flexShrink:0}},'폴더'),
           R('span',{style:{width:60,flexShrink:0}})
         ),
