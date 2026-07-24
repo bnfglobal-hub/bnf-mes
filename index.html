@@ -4195,7 +4195,8 @@ function PageTrade({kind}){
           matCount:ms.length,
           shortCnt:ms.filter(m=>(+m.mu||0)>0&&m.s<+m.mu).length,
           prodCount:Array.isArray(sd.prods)?sd.prods.length:0,
-          ecountAt:sd.ecount_sync&&sd.ecount_sync.at?sd.ecount_sync.at:null
+          ecountAt:sd.ecount_sync&&sd.ecount_sync.at?sd.ecount_sync.at:null,
+          tradeAt:sd.ecount_trade_sync&&sd.ecount_trade_sync.at?sd.ecount_trade_sync.at:null
         });
         setLoaded(true);
       }).catch(()=>setLoaded(true));
@@ -4271,6 +4272,16 @@ function PageTrade({kind}){
   const thisM=val(cy,cm);
   const prevM=cmIdx===0?val(cy-1,'12'):val(cy,MONTHS[cmIdx-1]);
   const lastYM=val(cy-1,cm);
+  /* 이번달 월말 예상치: 집계 기준일(수집일)까지의 일할 × 그 달 전체 일수 */
+  const daysInMon=new Date(cy,cmIdx+1,0).getDate();
+  const collDay=(()=>{
+    const at=meta&&meta.tradeAt?new Date(meta.tradeAt):null;
+    if(at&&at.getFullYear()===cy&&at.getMonth()===cmIdx)return at.getDate();
+    return now.getDate(); /* 수집일 정보 없으면 오늘 기준 */
+  })();
+  const elapsed=Math.max(1,Math.min(collDay,daysInMon));
+  const isPartial=elapsed<daysInMon; /* 아직 달이 안 끝남 */
+  const thisMProj=(thisM!==null&&isPartial)?Math.round(thisM/elapsed*daysInMon):thisM;
   /* 연 누계 (이번달까지) */
   let ytd=0,ytdPrev=0,ytdHas=false;
   for(let i=0;i<=cmIdx;i++){const a=val(cy,MONTHS[i]);const b=val(cy-1,MONTHS[i]);if(a!==null){ytd+=a;ytdHas=true;}if(b!==null)ytdPrev+=b;}
@@ -4424,16 +4435,20 @@ function PageTrade({kind}){
           )
         );
       })(),
-      /* ── 이번달 메인 KPI ── */
+      /* ── 이번달 메인 KPI (월말 예상치 기준) ── */
       R('div',{style:{background:accentBg,border:'1px solid '+accentBd,borderRadius:16,padding:'16px 18px',marginBottom:14}},
-        R('div',{style:{fontSize:12,fontWeight:800,color:accent,marginBottom:10}},cy+'년 '+(cmIdx+1)+'월 '+label+' (이번달)'),
+        R('div',{style:{fontSize:12,fontWeight:800,color:accent,marginBottom:10,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+          cy+'년 '+(cmIdx+1)+'월 '+label+' (이번달)',
+          isPartial&&R('span',{style:{fontSize:10,fontWeight:700,color:'#B45309',background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:20,padding:'1px 8px'}},elapsed+'일까지 집계 · 월말 예상')),
         R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}},
-          kpiCard('이번달 '+label,
-            R('span',{style:{fontSize:24,fontWeight:800,color:accent}},thisM===null?'-':nf(thisM)),
-            R('span',{style:{fontSize:10,color:'var(--tm)'}},thisM===null?'아직 입력 전':'원')),
-          kpiCard('전월 대비',pctBadge(pct(thisM,prevM),13),
+          kpiCard(isPartial?'이번달 '+label+' (월말 예상)':'이번달 '+label,
+            R('span',{style:{fontSize:24,fontWeight:800,color:accent}},thisMProj===null?'-':nf(thisMProj)),
+            isPartial&&thisM!==null
+              ?R('span',{style:{fontSize:10,color:'var(--tm)'}},'현재 '+elapsed+'일까지 '+nf(thisM)+'원')
+              :R('span',{style:{fontSize:10,color:'var(--tm)'}},thisM===null?'아직 입력 전':'원')),
+          kpiCard('전월 대비'+(isPartial?' (예상)':''),pctBadge(pct(thisMProj,prevM),13),
             R('span',{style:{fontSize:10,color:'var(--tm)'}},'전월 '+(prevM===null?'-':nf(prevM))+'원')),
-          kpiCard('작년 같은달 대비',pctBadge(pct(thisM,lastYM),13),
+          kpiCard('작년 같은달 대비'+(isPartial?' (예상)':''),pctBadge(pct(thisMProj,lastYM),13),
             R('span',{style:{fontSize:10,color:'var(--tm)'}},(cy-1)+'년 '+(cmIdx+1)+'월 '+(lastYM===null?'-':nf(lastYM))+'원')),
           kpiCard(cy+'년 누계 (1~'+(cmIdx+1)+'월)',
             R('span',{style:{fontSize:20,fontWeight:800}},ytdHas?nf(ytd):'-'),
