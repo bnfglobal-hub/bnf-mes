@@ -459,6 +459,7 @@ tr:hover td{background:#FBF7FB}
   /* 완제품 재고 현황 카드: 좁은 화면에서 보조 컬럼 숨겨 품목명 확보 */
   .fav-stock-card .fav-hm,.fav-stock-card .fav-hf,
   .fav-stock-card [title='월사용량'],
+  .fav-stock-card [title='올해 누적판매'],.fav-stock-card .fav-hytd,
   .fav-stock-card [title='폴더 이동'],
   .fav-stock-card [title='드래그 → 폴더 이동']{display:none!important}
   .fav-stock-card .fav-hdrag{display:none!important}
@@ -5856,6 +5857,34 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const favMats=mats.filter(m=>favorites.includes(m.id));
   /* ── 즐겨찾기 품목 월사용량 ← 이카운트 올해 판매량의 월평균 (trade_top.sales) ── */
   const[muApplying,setMuApplying]=useState(false);
+  /* 올해 누적판매량 (정규화 이름 → 수량) — 즐겨찾기 표 컬럼용 */
+  const[ytdSales,setYtdSales]=useState(null);
+  const normSaleNm=(s)=>String(s||'').replace(/\s/g,'')
+    .replace(/^\[[^\]]*\]/,'')
+    .replace(/\[(ea|box|kg|g|개|봉|매|롤|EA|BOX|KG)\]$/i,'')
+    .toLowerCase();
+  useEffect(()=>{
+    sbClient.from('app_state').select('tt:state_data->trade_top').eq('id',1).maybeSingle().then(({data:d})=>{
+      const sales=d&&d.tt&&d.tt.sales;
+      if(!sales)return;
+      const yr=new Date().getFullYear();
+      const tot={};
+      Object.keys(sales).forEach(k=>{
+        if(!k.startsWith(String(yr)))return;
+        const mo=sales[k]||{};
+        Object.keys(mo).forEach(nm=>{const n=normSaleNm(nm);tot[n]=(tot[n]||0)+(+mo[nm].qty||0);});
+      });
+      setYtdSales(tot);
+    }).catch(()=>{});
+  },[]);
+  const ytdOf=(name)=>{
+    if(!ytdSales)return null;
+    const mn=normSaleNm(name);
+    if(!mn)return null;
+    if(ytdSales[mn]!==undefined)return Math.round(ytdSales[mn]);
+    const k=Object.keys(ytdSales).find(n=>n.includes(mn)||mn.includes(n));
+    return k?Math.round(ytdSales[k]):null;
+  };
   const applyPrevMonthSales=async()=>{
     if(muApplying)return;
     setMuApplying(true);
@@ -6020,6 +6049,15 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                 :mu>0?R('span',{style:{color:'#059669',fontWeight:600,fontSize:10}},'✓ 충분')
                 :R('span',{style:{color:'#cbd5e1',fontSize:10}},'-')
               ),
+              /* 올해 누적판매 */
+              (()=>{
+                const ytd=ytdOf(m.n);
+                return R('div',{title:'올해 누적판매',style:{flexShrink:0,width:76,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
+                  ytd!==null
+                    ?[R('span',{key:'l',style:{color:'#94a3b8',fontSize:9,marginRight:2}},'누적'),
+                      R('span',{key:'v',style:{fontWeight:700,color:'#2563EB',fontSize:11}},ytd.toLocaleString())]
+                    :R('span',{style:{color:'#cbd5e1',fontSize:10}},'-'));
+              })(),
               /* 폴더 셀렉트 */
               R('select',{value:itemFolderId,onClick:e=>e.stopPropagation(),onChange:e=>moveFavToFolder(m.id,e.target.value),title:'폴더 이동',style:{fontSize:9,border:'1px solid var(--bd)',borderRadius:4,padding:'2px 3px',maxWidth:58,background:'#fff',color:(favFolders.find(f=>f.id===itemFolderId)||{}).color||'#6B7280',fontWeight:600,flexShrink:0}},
                 ...favFolders.map(f=>R('option',{key:f.id,value:f.id},f.name))
@@ -6117,6 +6155,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           R('span',{className:'fav-hs',style:{width:72,textAlign:'right',flexShrink:0}},'현재고'),
           R('span',{className:'fav-hm',style:{width:62,textAlign:'right',flexShrink:0}},'월사용량'),
           R('span',{className:'fav-hshort',style:{width:74,textAlign:'right',flexShrink:0}},'부족수량'),
+          R('span',{className:'fav-hytd',style:{width:76,textAlign:'right',flexShrink:0}},'올해누적판매'),
           R('span',{className:'fav-hf',style:{width:58,textAlign:'center',flexShrink:0}},'폴더'),
           R('span',{style:{width:60,flexShrink:0}})
         ),
