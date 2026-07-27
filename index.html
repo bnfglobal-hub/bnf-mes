@@ -3269,7 +3269,7 @@ function PageNewProduct({user,mats=[],mode}){
       +'.nc{flex:1;padding:14px 16px;font-size:13px;line-height:1.85;white-space:pre-wrap;min-height:110px}'
       +'@media print{body{padding:0}.wrap{border:2px solid #000}}'
       +'</style></head><body><div class="wrap">'
-      +'<div class="top"><div class="logo"><img src="'+NP_QUOTE_LOGO+'" alt="B&amp;F GLOBAL" style="height:46px;object-fit:contain"></div><span class="ttl">견 적 서</span></div>'
+      +'<div class="top"><div class="logo"><img src="'+LOGO_FULL+'" alt="B&amp;F GLOBAL" style="height:46px;object-fit:contain" onerror="this.style.display=\'none\'"></div><span class="ttl">견 적 서</span></div>'
       +'<div class="head"><div class="hl">'
       +'<div class="d1">견 적 일 자 : &nbsp;&nbsp;'+esc(kDate)+'</div>'
       +'<div class="d2">견적 유효 기간 : 견적일로부터 14일</div>'
@@ -7384,8 +7384,8 @@ ${quote.note?`<div class="note"><b>특이사항:</b>\n${quote.note}</div>`:''}
       /* 로고 + 제목 */
       R('div',{style:{textAlign:'center',marginBottom:20,paddingBottom:16,borderBottom:'3px solid #D94F1E'}},
         R('div',{style:{display:'inline-flex',alignItems:'center',gap:10,marginBottom:8}},
-          R('img',{src:LOGO_URL,alt:'B&F',style:{width:54,height:54,borderRadius:9,objectFit:'cover',boxShadow:'0 2px 8px rgba(217,79,30,0.3)'}}),
-          R('div',{style:{textAlign:'left'}},R('div',{style:{fontSize:17,fontWeight:900,letterSpacing:-0.5}},'B&F GLOBAL'),R('div',{style:{fontSize:10,color:'#666'}},'www.bnfglobal.co.kr'))
+          R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:48,width:'auto',objectFit:'contain'},onError:e=>{e.currentTarget.style.display='none';}}),
+          R('div',{style:{textAlign:'left'}},R('div',{style:{fontSize:10,color:'#666'}},'www.bnfglobal.co.kr'))
         ),
         R('div',{style:{fontSize:30,fontWeight:900,letterSpacing:14,marginTop:8}},'견  적  서')
       ),
@@ -9465,7 +9465,7 @@ function LoginPage({onLogin}){
   return R('div',{style:{display:'flex',height:'100vh',background:'linear-gradient(135deg,#1A0C07 0%,#3D1A0E 100%)'}},
     R('div',{style:{margin:'auto',background:'#fff',borderRadius:20,padding:'42px 36px',width:'100%',maxWidth:390,boxShadow:'0 20px 60px rgba(0,0,0,.35)'}},
       R('div',{style:{textAlign:'center',marginBottom:30}},
-        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{width:200,maxWidth:'80%',objectFit:'contain',margin:'0 auto 14px',display:'block'}}),
+        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{width:200,maxWidth:'80%',objectFit:'contain',margin:'0 auto 14px',display:'block'},onError:e=>{e.currentTarget.style.display='none';}}),
         R('div',{style:{fontSize:22,fontWeight:900,color:'#1A1A1A',letterSpacing:-0.5}},'B&F Global'),
         R('div',{style:{fontSize:13,color:'#6B6B6B',marginTop:3}},'통합 인트라넷 + MES 시스템')
       ),
@@ -10577,6 +10577,7 @@ function PageShipSort({mats,hqItems}){
   const[shipImg,setShipImg]=useState(null); /* 발주서 이미지(base64 dataURL) */
   const[imgBusy,setImgBusy]=useState(false);
   const[imgErr,setImgErr]=useState('');
+  const[review,setReview]=useState(null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
   const[ajBridge,setAjBridge]=useState(null);   /* null=확인중 true=연결됨 false=꺼짐 */
   const[ajRun,setAjRun]=useState(null);         /* {dry,lines,done,code} */
@@ -10929,6 +10930,53 @@ function PageShipSort({mats,hqItems}){
     setImgBusy(false);
   };
 
+  /* 이미지 base64 → AI 발주 인식 (rapid-service). orders 배열 반환, 실패 시 예외 */
+  const recognizeShipImage=async(b64,mt)=>{
+    const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),45000);
+    let res;try{res=await fetch(SB_URL+'/functions/v1/rapid-service',{method:'POST',signal:ctl.signal,headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify({mode:'shiporder',imageBase64:b64,mediaType:mt||'image/jpeg'})});}finally{clearTimeout(tm);}
+    let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류 ('+res.status+')');}
+    if(!res.ok||j.error)throw new Error(j.error||('서버 오류 '+res.status));
+    let txt=String(j.text||'').replace(/```json/gi,'').replace(/```/g,'').trim();
+    const _s=txt.indexOf('['),_e=txt.lastIndexOf(']');if(_s>=0&&_e>_s)txt=txt.slice(_s,_e+1);
+    let arr;try{arr=JSON.parse(txt);}catch(e){throw new Error('응답 파싱 실패: '+txt.slice(0,200));}
+    if(!Array.isArray(arr))return {orders:[],raw:arr};
+    let gdate='';const byC={};
+    arr.forEach(o=>{
+      const center=normCenter2(o.center);
+      const name=String(o.name||'').replace(/\s+/g,' ').trim();
+      const box=parseInt(String(o.box==null?'':o.box).replace(/[^\d]/g,''))||0;
+      const total=parseInt(String(o.total==null?'':o.total).replace(/[^\d]/g,''))||0;
+      if(o.date&&!gdate)gdate=o.date;
+      if(!name||total<=0)return;
+      if(!byC[center])byC[center]=[];
+      byC[center].push({name,total,box,exp:gdate});
+    });
+    return {orders:Object.entries(byC).map(([center,items])=>({center,date:gdate,items})),raw:arr,gdate};
+  };
+  /* 제품 박스입수 (총수량 = 박스수 × 입수). 명세서 관측값 기준, 미등록은 0(=검토표에서 입력) */
+  const PACK_MAP=[
+    [/소고기\s*쌀국수\s*2인분/,12],
+    [/마라\s*소고기\s*쌀국수/,20],
+    [/바질\s*라멘/,20],
+    [/매운\s*돈코츠\s*라멘/,20],
+    [/돈코츠\s*라멘/,20],
+    [/짜조/,35],
+    [/똠얌\s*쌀국수/,20],
+    [/소고기\s*쌀국수/,12],
+  ];
+  const packOf=(name)=>{const s=String(name||'').replace(/\s+/g,' ');for(const[re,p]of PACK_MAP){if(re.test(s))return p;}return 0;};
+  /* PDF 페이지를 고해상도 이미지(jpeg base64)로 렌더 - 이미지 PDF의 AI 인식용 */
+  const renderPdfPageToB64=async(pdf,pageNo)=>{
+    const page=await pdf.getPage(pageNo);
+    const vp0=page.getViewport({scale:1});
+    /* 긴 변 ~2200px가 되도록 스케일 (숫자/코드 선명하게 = 정확도 확보) */
+    const scale=Math.min(4,Math.max(2,2200/Math.max(vp0.width,vp0.height)));
+    const vp=page.getViewport({scale});
+    const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+    await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+    return c.toDataURL('image/jpeg',0.95).split(',')[1];
+  };
+
   /* 여러 PDF 파일 처리 */
   const handleFiles=async(fileList)=>{
     /* 이름이 없는 공유 파일(카톡 등)도 받도록 MIME 타입까지 허용 */
@@ -10938,10 +10986,13 @@ function PageShipSort({mats,hqItems}){
     const lib=window.pdfjsLib||pdfjsLib;
     lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     setLoading(true);setProgress('PDF 분석 중...');
-    const allOrders=[];
+    const allOrders=[];      /* 텍스트 파서로 확정된 정확한 주문 (바로 반영) */
+    const aiRows=[];         /* 이미지 AI 인식 행 (검토표에서 확인 후 반영) */
     let foundDate='';
     let dbg='';
+    let aiUsed=false;
     for(let fi=0;fi<files.length;fi++){
+      const fname=files[fi].name||('파일'+(fi+1));
       setProgress('PDF 분석 중... ('+(fi+1)+'/'+files.length+')');
       try{
         const buf=await files[fi].arrayBuffer();
@@ -10953,16 +11004,77 @@ function PageShipSort({mats,hqItems}){
           fullText+=' '+tc.items.map(it=>it.str).join(' ');
         }
         const order=parsePdfText(fullText);
-        dbg+='\n\n===== '+files[fi].name+' =====\n'+fullText+'\n\n[인식된 품목 '+order.items.length+'건 / 센터: '+order.center+']\n'+order.items.map(it=>'· '+it.name+' | 총수량 '+it.total+' | 박스 '+it.box+' | '+it.exp).join('\n');
-        if(order.date&&!foundDate)foundDate=order.date;
-        if(order.items.length>0)allOrders.push(order);
-      }catch(e){console.error('PDF 파싱 실패:',files[fi].name,e);}
+        if(order.items.length>0){
+          /* 글자 PDF → 텍스트 파서 (정확) */
+          dbg+='\n\n===== '+fname+' (글자 인식) =====\n[품목 '+order.items.length+'건 / 센터: '+order.center+']\n'+order.items.map(it=>'· '+it.name+' | 총 '+it.total+' | 박스 '+it.box).join('\n');
+          if(order.date&&!foundDate)foundDate=order.date;
+          allOrders.push(order);
+        }else{
+          /* 글자 없음(이미지/스캔 PDF) → 페이지를 고해상도 이미지로 렌더 → AI 인식 (박스수만 신뢰) */
+          aiUsed=true;
+          for(let p=1;p<=pdf.numPages;p++){
+            setProgress('그림 PDF AI 인식 중... ('+(fi+1)+'/'+files.length+' · '+p+'p)');
+            try{
+              const b64=await renderPdfPageToB64(pdf,p);
+              const r=await recognizeShipImage(b64,'image/jpeg');
+              if(r.orders&&r.orders.length){
+                if(r.gdate&&!foundDate)foundDate=r.gdate;
+                r.orders.forEach(o=>o.items.forEach(it=>{
+                  const pack=packOf(it.name);
+                  aiRows.push({center:o.center,name:it.name,box:it.box||0,pack,total:pack>0?(it.box||0)*pack:0});
+                }));
+                dbg+='\n\n===== '+fname+' '+p+'p (AI 인식) =====\n'+JSON.stringify(r.raw,null,1);
+              }
+            }catch(pe){dbg+='\n\n===== '+fname+' '+p+'p AI 오류: '+String(pe.message||pe);}
+          }
+        }
+      }catch(e){console.error('PDF 파싱 실패:',fname,e);dbg+='\n\n===== '+fname+' 처리 오류: '+String(e.message||e);}
     }
     setRawDbg(dbg);
-    if(allOrders.length===0){setLoading(false);setProgress('');alert('발주 정보를 추출하지 못했습니다. PDF 형식을 확인하세요.');return;}
-    aggregate(allOrders,foundDate);
     setLoading(false);setProgress('');
+
+    /* 1) 글자 PDF는 즉시 반영 (텍스트 파서 = 정확) */
+    if(allOrders.length>0)aggregate(allOrders,foundDate);
+
+    /* 2) AI 인식분(그림 PDF)은 검토표로 → 사람이 박스수·입수·총수량 확인/수정 후 반영 */
+    if(aiRows.length>0){
+      setReview({date:foundDate,rows:aiRows});
+    }else if(aiUsed&&allOrders.length===0){
+      alert('그림 PDF에서 표를 읽지 못했습니다. 더 선명한 파일로 다시 시도하거나, 🐞 인식 원문을 확인해 주세요.');
+    }else if(allOrders.length===0){
+      alert('발주 정보를 추출하지 못했습니다. PDF 형식을 확인하세요.');
+    }
   };
+
+  /* 검토표 → 출고계획 반영 */
+  const applyReview=()=>{
+    if(!review)return;
+    const bad=review.rows.filter(r=>r.name&&r.box>0&&(!(r.total>0)));
+    if(bad.length){alert('총수량이 비어있는 품목이 '+bad.length+'개 있습니다.\n박스입수를 입력하면 총수량이 자동 계산됩니다.\n(예: '+bad[0].name+')');return;}
+    const byC={};
+    review.rows.forEach(r=>{
+      if(!r.name||!(r.box>0)||!(r.total>0))return;
+      const center=normCenter2(r.center);
+      if(!byC[center])byC[center]=[];
+      byC[center].push({name:r.name,total:r.total,box:r.box,exp:''});
+    });
+    const orders=Object.entries(byC).map(([center,items])=>({center,date:review.date,items}));
+    if(!orders.length){alert('반영할 항목이 없습니다.');return;}
+    aggregate(orders,review.date);
+    setReview(null);
+  };
+  const updReviewRow=(i,key,val)=>{
+    setReview(rv=>{
+      if(!rv)return rv;
+      const rows=rv.rows.slice();
+      const r={...rows[i]};
+      const n=Math.max(0,parseInt(String(val).replace(/[^\d]/g,''))||0);
+      r[key]=n;
+      if(key==='box'||key==='pack')r.total=(r.pack>0&&r.box>0)?r.box*r.pack:r.total;
+      rows[i]=r;return{...rv,rows};
+    });
+  };
+  const delReviewRow=(i)=>setReview(rv=>rv?{...rv,rows:rv.rows.filter((_,j)=>j!==i)}:rv);
 
   /* 제품 총수량 재계산 (센터별 items 합산) */
   const recomputeProdTotal=(byCenter)=>{
@@ -11176,6 +11288,44 @@ function PageShipSort({mats,hqItems}){
         R('textarea',{readOnly:true,value:rawDbg,onClick:e=>e.target.select(),style:{width:'100%',height:220,fontSize:11,fontFamily:'monospace',padding:10,border:'1px solid var(--bd)',borderRadius:8,boxSizing:'border-box',whiteSpace:'pre-wrap',background:'#FAFAFA'}})
       )
     ),
+    /* ── 그림 PDF AI 인식 검토표 (반영 전 사람 확인 = 정확도 보장) ── */
+    review&&R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)setReview(null);}},
+      R('div',{className:'mbox',style:{maxWidth:760,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
+        R('div',{className:'mhdr'},
+          R('span',{style:{fontSize:15,fontWeight:800}},'🔎 그림 PDF 인식 결과 확인'),
+          R('button',{onClick:()=>setReview(null),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#64748b'}},'×')
+        ),
+        R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
+          R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 12px',fontSize:12,color:'#92400E',marginBottom:10,lineHeight:1.6}},
+            '⚠ AI가 읽은 값입니다. ',R('b',null,'박스수는 정확'),'하지만 총수량은 확인이 필요합니다.',R('br'),
+            '총수량 = 박스수 × 박스입수. ',R('b',null,'노란 칸(입수 미등록)은 직접 입력'),'하면 총수량이 자동 계산됩니다. 실제 명세서와 대조 후 반영하세요.'),
+          R('div',{style:{marginBottom:8}},
+            R('span',{style:{fontSize:12,color:'var(--tm)'}},'입고일 '),
+            R('input',{value:review.date||'',onChange:e=>setReview(rv=>({...rv,date:e.target.value})),placeholder:'YYYY-MM-DD',style:{border:'1px solid var(--bd)',borderRadius:6,padding:'4px 8px',fontSize:12,width:120,fontFamily:'inherit'}})),
+          R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
+            R('thead',null,R('tr',null,
+              R('th',{style:{textAlign:'left'}},'센터'),R('th',{style:{textAlign:'left'}},'품목'),
+              R('th',{style:{width:64,textAlign:'right'}},'박스수'),R('th',{style:{width:64,textAlign:'right'}},'입수'),R('th',{style:{width:80,textAlign:'right'}},'총수량'),R('th',{style:{width:32}},''))),
+            R('tbody',null,...review.rows.map((r,i)=>{
+              const need=r.box>0&&!(r.total>0);
+              const inp=(key,w)=>R('input',{value:r[key]||'',onChange:e=>updReviewRow(i,key,e.target.value),
+                style:{width:w,textAlign:'right',border:'1px solid '+(key==='pack'&&r.pack===0?'#F59E0B':'var(--bd)'),background:key==='pack'&&r.pack===0?'#FFFBEB':'#fff',borderRadius:6,padding:'4px 6px',fontSize:12,fontFamily:'inherit'}});
+              return R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9',background:need?'#FEF9F3':'#fff'}},
+                R('td',{style:{fontSize:11}},normCenter2(r.center)),
+                R('td',{style:{fontSize:11.5,fontWeight:600}},r.name),
+                R('td',{style:{textAlign:'right'}},inp('box',48)),
+                R('td',{style:{textAlign:'right'}},inp('pack',48)),
+                R('td',{style:{textAlign:'right',fontWeight:800,color:need?'#B45309':'var(--p)'}},need?'입력필요':(r.total||0).toLocaleString()),
+                R('td',{style:{textAlign:'center'}},R('button',{onClick:()=>delReviewRow(i),title:'이 행 삭제(가짜/오류)',style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:14,padding:2}},'✕')));
+            }))
+          ))
+        ),
+        R('div',{className:'mfoot'},
+          R('button',{className:'btn bs',onClick:()=>setReview(null),style:{flex:1,padding:10}},'취소'),
+          R('button',{className:'btn bp',onClick:applyReview,style:{flex:2,padding:10,fontSize:14}},'✓ 확인했습니다 · 출고계획 반영')
+        )
+      )
+    )),
     /* ── 배차 카톡 문구 (기사님께 복붙) ── */
     parsed&&parsed.byCenter&&(()=>{
       const rows=[];
@@ -11910,7 +12060,7 @@ function App(){
         title:'메뉴'
       },R(NavIcon,{name:'menu'})),
       R('div',{style:{display:'flex',alignItems:'center',gap:8}},
-        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:34,objectFit:'contain',maxWidth:160,cursor:'pointer'},onClick:()=>setPage('home')}),
+        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{height:34,objectFit:'contain',maxWidth:160,cursor:'pointer'},onClick:()=>setPage('home'),onError:e=>{e.currentTarget.style.display='none';}}),
         R('span',{className:'hdr-mes',style:{background:'var(--pb)',color:'var(--p)',fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:4,letterSpacing:0.5}},'MES')
       ),
       R('div',{style:{flex:1}}),
