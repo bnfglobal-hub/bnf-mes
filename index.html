@@ -3261,6 +3261,16 @@ function PageWorkOrder({user}){
 
 /* 각 메뉴별 표 정의 */
 const SHARED_PAGES={
+  crm:{title:'거래처 CRM',ic:'🤝',desc:'거래처 담당자·연락처·팔로우업을 함께 관리합니다 · 거래처명 가나다순',storeKey:'bnf_crm',sort:{k:'name',dir:'asc'},cols:[
+    {k:'name',l:'거래처명',w:160,ph:'예) 주식회사 컬리'},
+    {k:'kind',l:'구분',type:'select',w:90,opts:['매출처','매입처','양쪽','기타']},
+    {k:'person',l:'담당자',w:100,ph:'이름/직함'},
+    {k:'phone',l:'연락처',w:130,ph:'010-'},
+    {k:'email',l:'이메일',w:170},
+    {k:'grade',l:'등급',type:'select',w:80,opts:['A','B','C','신규','휴면']},
+    {k:'next',l:'다음 연락일',type:'date',w:110},
+    {k:'note',l:'메모',type:'textarea',ph:'거래 조건, 히스토리, 특이사항'}
+  ]},
   logins:{title:'로그인 정보',ic:'🔑',desc:'업무용 사이트 계정을 함께 관리합니다 · 사이트 이름 가나다순',storeKey:'bnf_logins',sort:{k:'site',dir:'asc'},cols:[
     {k:'site',l:'사이트 이름',w:150,ph:'예) 이카운트'},
     {k:'url',l:'링크',type:'link',w:220,ph:'https://...'},
@@ -11572,6 +11582,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'prod',l:'생산계획',ic:'⚙'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'shipsort',l:'출고 계획',ic:'📦'},
+    {id:'crm',l:'거래처 CRM',ic:'🤝'},
     {id:'dart',l:'거래처 정보 조회',ic:'🔍',adminOnly:true},
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
@@ -11810,6 +11821,8 @@ function loadNavSections(){
             {id:'pm_equip',l:'설비 점검',ic:'🔧'}]);
           ensure({t:'dept_qc',m:'품질',label:'🧪 품질관리'},[
             {id:'qc_self',l:'자가품질검사',ic:'🧪',before:'qc_process'}]);
+          ensure({t:'factory',m:'이천공장',label:'🏭 비엔에프글로벌 이천공장'},[
+            {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'}]);
         }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
@@ -12048,6 +12061,7 @@ const NAV_PAGES_INDEX=[
   {p:'approval',title:'전자결재',ic:'📋',keys:['결재','승인','approval']},
   {p:'featreq',title:'추가 기능 요청',ic:'💡',keys:['기능','요청','건의','개선','featreq']},
   {p:'logins',title:'로그인 정보',ic:'🔑',keys:['로그인','계정','비밀번호','아이디','login']},
+  {p:'crm',title:'거래처 CRM',ic:'🤝',keys:['거래처','crm','고객','담당자','영업']},
   {p:'manual',title:'업무 매뉴얼',ic:'📚',keys:['매뉴얼','메뉴얼','업무','지침','manual','sop']},
   {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
