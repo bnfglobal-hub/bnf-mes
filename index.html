@@ -606,6 +606,11 @@ function cleanItemName(name){
   s=s.replace(/(\s*\[[^\]]+\])+\s*$/,'');
   return s.trim();
 }
+/* 매입내역 품목명 ↔ 재고 품목명 매칭용 키 (분류 태그·공백·특수문자 제거) */
+function normBuyKey(name){
+  const s=cleanItemName(name);
+  return s?s.toLowerCase().replace(/[\s()[\]{}._/\-]/g,''):'';
+}
 const today2=()=>new Date().toISOString().slice(0,10);
 const now2=()=>new Date().toISOString();
 
@@ -7508,6 +7513,36 @@ function ImgModal({data,onClose,genImg}){
 /* ────── PAGE: 생산계획 ────── */
 function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOpenBOM}){
   const[confirmData,setConfirmData]=useState(null);
+  /* ── 매입내역(이카운트 구매현황) 에서 품목별 거래처·단가 끌어오기 ──
+     매입단가 조회와 같은 데이터(app_state.purchase_prices)를 그대로 사용한다. */
+  const[buyHist,setBuyHist]=useState(null);
+  useEffect(()=>{
+    let dead=false;
+    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',1).maybeSingle()
+      .then(({data:d})=>{
+        if(dead)return;
+        const items=(d&&d.pp&&d.pp.items)||[];
+        const map={};
+        items.forEach(it=>{
+          const k=normBuyKey(it.name);
+          if(!k)return;
+          /* 같은 이름이 여러 건이면 최근 매입 건을 우선 */
+          if(!map[k]||String(it.latestDate||'')>String(map[k].latestDate||''))map[k]=it;
+        });
+        setBuyHist(map);
+      })
+      .catch(()=>{if(!dead)setBuyHist({});});
+    return()=>{dead=true;};
+  },[]);
+  /* 재고에 입력된 매입처가 있으면 그것을, 없으면 매입내역의 최근 거래처를 쓴다 */
+  const supOf=(mat,fallbackName)=>{
+    const m=mat||{};
+    const own=(m.supplier||'').trim();
+    if(own)return{name:own,price:+m.price||0,lead:m.lead||3,contact:m.contact||'',from:'stock'};
+    const hit=buyHist?(buyHist[normBuyKey(m.n||fallbackName)]||buyHist[normBuyKey(m.c)]):null;
+    if(hit&&hit.latestSupplier)return{name:hit.latestSupplier,price:+hit.latest||0,lead:m.lead||3,contact:'',from:'buy',date:hit.latestDate};
+    return{name:'',price:+m.price||0,lead:m.lead||3,contact:m.contact||'',from:''};
+  };
   const[showAllFor,setShowAllFor]=useState({}); /* {prodId: true} - 충분한 원재료도 모두 보기 */
   const[showAllCombined,setShowAllCombined]=useState(false);
   const[orderedMats,setOrderedMats]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem('bnf_ordered_mats_v1')||'[]'));}catch(e){return new Set();}});
@@ -7663,13 +7698,15 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               ordered&&R('span',{style:{fontSize:9,color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료'),
               !ordered&&r.prods.length>1&&R('span',{style:{fontSize:9,color:'#94a3b8',fontWeight:500,marginLeft:5}},'('+r.prods.length+'개 제품 공용)')
             ),
-            /* 매입처 (재고 관리의 매입처·연락처·리드타임 연동) */
-            (()=>{const m=r.mat||{};const sp=(m.supplier||'').trim();
-              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',color:ordered?'#9CA3AF':(sp?'#475569':'#CBD5E1'),fontSize:10.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130},
-                title:sp?(sp+(m.contact?(' · '+m.contact):'')+' · 리드 '+(m.lead||3)+'일'):'매입처 미등록 (재고 관리에서 입력)'},
-                sp||'-',
-                sp&&m.contact&&R('span',{style:{color:'#94a3b8',marginLeft:4}},'☎'),
-                sp&&R('span',{style:{color:'#94a3b8',marginLeft:4}},(m.lead||3)+'일'));
+            /* 매입처: 재고 관리 입력값 우선, 없으면 이카운트 매입내역의 최근 거래처 */
+            (()=>{const s=supOf(r.mat,r.name);
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',color:ordered?'#9CA3AF':(s.name?'#475569':'#CBD5E1'),fontSize:10.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:150},
+                title:s.name
+                  ?(s.name+(s.contact?(' · '+s.contact):'')+(s.from==='buy'?(' · 매입내역 '+fDate(s.date)+' 기준'):'')+(s.price?(' · 단가 '+s.price.toLocaleString()+'원'):''))
+                  :'매입처 정보 없음 (재고 관리에 입력하거나 매입내역이 쌓이면 자동 표시)'},
+                s.name||'-',
+                s.from==='buy'&&R('span',{style:{fontSize:8.5,color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'),
+                s.name&&s.price>0&&R('span',{style:{color:'#94a3b8',marginLeft:4}},s.price.toLocaleString(),'원'));
             })(),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:700,color:ordered?'#9CA3AF':'#374151'}},r.needed.toFixed(2),' ',r.unit),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#64748B'}},(+r.stock).toFixed(2),' ',r.unit),
@@ -7762,7 +7799,9 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               /* 부족 항목 항상 표시 (빨강) */
               ...shortItems.map(({mat,b,needed,short})=>R('tr',{key:b.c,style:{background:'#FEF8F7'}},
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',fontWeight:600,color:'#991B1B',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},b.name||mat.n),
-                R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',color:(mat.supplier||'').trim()?'#475569':'#CBD5E1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:120},title:(mat.supplier||'')?((mat.supplier||'')+(mat.contact?(' · '+mat.contact):'')+' · 리드 '+(mat.lead||3)+'일'):'매입처 미등록'},(mat.supplier||'').trim()||'-'),
+                (()=>{const s=supOf(mat,b.name);return R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',color:s.name?'#475569':'#CBD5E1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130},
+                  title:s.name?(s.name+(s.from==='buy'?' (매입내역)':'')+(s.price?(' · '+s.price.toLocaleString()+'원'):'')):'매입처 정보 없음'},
+                  s.name||'-',s.from==='buy'&&R('span',{style:{fontSize:8,color:'#2563EB',marginLeft:3}},'*'));})(),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:'#64748B'}},needed.toFixed(2),' ',b.unit),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:'#64748B'}},mat.s,' ',b.unit),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',fontWeight:800,color:'#DC2626'}},'-',short.toFixed(2),' ',b.unit)
@@ -7770,7 +7809,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               /* 충분한 항목은 토글 시에만 (약한 회색) */
               showAll?okItems.map(({mat,b,needed,short})=>R('tr',{key:b.c},
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#94a3b8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},b.name||mat.n),
-                R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#cbd5e1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:120},title:(mat.supplier||'')+(mat.contact?(' · '+mat.contact):'')},(mat.supplier||'').trim()||'-'),
+                (()=>{const s=supOf(mat,b.name);return R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#cbd5e1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130},title:s.name||'매입처 정보 없음'},s.name||'-');})(),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1'}},needed.toFixed(2),' ',b.unit),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1'}},mat.s,' ',b.unit),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:10}},'✓')
