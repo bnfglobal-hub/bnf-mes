@@ -1965,7 +1965,7 @@ function PageFeatureReq({user}){
 /* ═══ 공용 공유 표 (여러 메뉴가 같은 구조를 씀) ═══════════
    app_state.state_data[storeKey] 에 배열로 저장 → 모든 기기·직원이 함께 봄.
    cols: [{k,l,w,type:'text'|'date'|'num'|'link'|'pw'|'textarea'|'select',opts,ph}] */
-function SharedTable({user,title,ic,desc,storeKey,cols}){
+function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   const[rows,setRows]=useState(null);
   const[q,setQ]=useState('');
   const[showF,setShowF]=useState(false);
@@ -1974,13 +1974,42 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
   const[busy,setBusy]=useState(false);
   const isAdmin=['superadmin','admin'].includes(user.role);
   const blank=()=>{const o={};cols.forEach(c=>{o[c.k]=c.type==='date'?today2():'';});return o;};
+  /* 줄 고유번호는 반드시 _id 사용 — 칸 이름(id, date 등)과 절대 겹치지 않게 */
+  const newRowId=()=>'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+  /* 정렬: 설정값 기본, 열 제목을 누르면 그 열 기준 */
+  const[sortK,setSortK]=useState((sort&&sort.k)||'');
+  const[sortDir,setSortDir]=useState((sort&&sort.dir)||'asc');
+  const toggleSort=k=>{if(sortK===k)setSortDir(d=>d==='asc'?'desc':'asc');else{setSortK(k);setSortDir('asc');}};
+  /* 글씨 크기 (메뉴별로 브라우저에 저장) */
+  const FSKEY='bnf_st_fs_'+storeKey;
+  const[fs,setFs]=useState(()=>{try{return +localStorage.getItem(FSKEY)||12;}catch(e){return 12;}});
+  const setFS=v=>{const n=Math.min(20,Math.max(9,v));setFs(n);try{localStorage.setItem(FSKEY,String(n));}catch(e){}};
+  const FBTN={background:'#fff',border:'1px solid #E2E8F0',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11,fontWeight:700,color:'#64748b',fontFamily:'inherit'};
 
   useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},60000);return()=>clearInterval(t);},[storeKey]);
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+storeKey).eq('id',1).maybeSingle();
-      setRows(Array.isArray(data&&data.v)?data.v:[]);
+      const raw=Array.isArray(data&&data.v)?data.v:[];
+      /* 예전 자료 복구: 줄 고유번호(_id)가 없거나 겹치면 새로 부여한다.
+         (아이디 칸의 필드명이 'id' 라서 줄 번호를 덮어쓰던 문제 → 같은 아이디끼리 중복처럼 보였음) */
+      const seen={};let fixed=false;
+      const norm=raw.map(r=>{
+        const o=Object.assign({},r);
+        if(!o._id||seen[o._id]){o._id=newRowId();fixed=true;}
+        seen[o._id]=1;
+        return o;
+      });
+      setRows(norm);
+      if(fixed&&raw.length)persistSilent(norm);
     }catch(e){setRows([]);}
+  };
+  const persistSilent=async(next)=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[storeKey]:next}),updated_at:new Date().toISOString()});
+    }catch(e){}
   };
   const persist=async(next)=>{
     setBusy(true);
@@ -1993,16 +2022,16 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
     setBusy(false);
   };
   const openNew=()=>{setForm(blank());setEditId(null);setShowF(true);};
-  const openEdit=r=>{const o={};cols.forEach(c=>{o[c.k]=r[c.k]||'';});setForm(o);setEditId(r.id);setShowF(true);};
+  const openEdit=r=>{const o={};cols.forEach(c=>{o[c.k]=r[c.k]||'';});setForm(o);setEditId(r._id);setShowF(true);};
   const save=async()=>{
     const first=cols[0];
     if(!String(form[first.k]||'').trim())return alert(first.l+'을(를) 입력해주세요.');
     const list=(rows||[]).slice();
     if(editId){
-      const i=list.findIndex(x=>x.id===editId);
+      const i=list.findIndex(x=>x._id===editId);
       if(i>=0)list[i]=Object.assign({},list[i],form,{_editBy:user.name,_editAt:now2()});
     }else{
-      list.unshift(Object.assign({id:'r'+Date.now()+Math.random().toString(36).slice(2,6)},form,{_by:user.id,_byName:user.name,_at:now2()}));
+      list.unshift(Object.assign({},form,{_id:newRowId(),_by:user.id,_byName:user.name,_at:now2()}));
     }
     await persist(list);
     setShowF(false);setEditId(null);
@@ -2010,7 +2039,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
   const del=async(r)=>{
     if(!(isAdmin||r._by===user.id))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
     if(!confirm('삭제할까요? 되돌릴 수 없습니다.'))return;
-    await persist((rows||[]).filter(x=>x.id!==r.id));
+    await persist((rows||[]).filter(x=>x._id!==r._id));
   };
   const canEdit=r=>isAdmin||r._by===user.id;
 
@@ -2024,8 +2053,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
       if(quickRef.current)quickRef.current.focus();
       return;
     }
-    const row=Object.assign({id:'r'+Date.now()+Math.random().toString(36).slice(2,6)},quick,
-      {_by:user.id,_byName:user.name,_at:now2()});
+    const row=Object.assign({},quick,{_id:newRowId(),_by:user.id,_byName:user.name,_at:now2()});
     await persist([row,...(rows||[])]);
     setQuick(blank());
     /* 다음 줄을 바로 이어서 칠 수 있게 첫 칸으로 커서 이동 */
@@ -2040,6 +2068,17 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
     const s=q.trim().toLowerCase();
     if(!s)return true;
     return cols.some(c=>String(r[c.k]||'').toLowerCase().includes(s));
+  }).slice().sort((a,b)=>{
+    if(!sortK)return 0;
+    const va=String(a[sortK]||''),vb=String(b[sortK]||'');
+    /* 빈 값은 항상 뒤로 */
+    if(!va&&vb)return 1;
+    if(va&&!vb)return -1;
+    const col=cols.find(c=>c.k===sortK);
+    let cmp;
+    if(col&&col.type==='num')cmp=(+va||0)-(+vb||0);
+    else cmp=va.localeCompare(vb,'ko',{numeric:true});
+    return sortDir==='asc'?cmp:-cmp;
   });
   const cell=(r,c)=>{
     const v=r[c.k]||'';
@@ -2066,12 +2105,20 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
     R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:10,flexWrap:'wrap'}},
       R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 검색',style:{flex:1,minWidth:160,maxWidth:340}}),
       R('span',{style:{fontSize:11,color:'var(--tm)'}},list.length+'건'),
-      busy&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'저장 중...')
+      busy&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'저장 중...'),
+      /* 글씨 크기 */
+      R('div',{style:{display:'flex',alignItems:'center',gap:4,marginLeft:'auto'}},
+        R('span',{style:{fontSize:10,color:'#94a3b8',fontWeight:700}},'글씨'),
+        R('button',{onClick:()=>setFS(fs-1),title:'글씨 작게',style:FBTN},'A－'),
+        R('span',{style:{fontSize:10,color:'#64748b',fontWeight:700,minWidth:28,textAlign:'center'}},fs+'px'),
+        R('button',{onClick:()=>setFS(fs+1),title:'글씨 크게',style:FBTN},'A＋'))
     ),
     R('div',{className:'tw'},
-      R('table',null,
+      R('table',{style:{fontSize:fs}},
         R('thead',null,R('tr',null,
-          ...cols.map(c=>R('th',{key:c.k,style:c.w?{width:c.w}:null},c.l)),
+          ...cols.map(c=>R('th',{key:c.k,onClick:()=>toggleSort(c.k),title:'클릭하면 이 열 기준으로 정렬',
+            style:Object.assign({cursor:'pointer',whiteSpace:'nowrap'},c.w?{width:c.w}:{})},
+            c.l,sortK===c.k&&R('span',{style:{color:'var(--p)',marginLeft:3}},sortDir==='asc'?'▲':'▼'))),
           R('th',{style:{width:96}},'등록'),
           R('th',{style:{width:84}},'')
         )),
@@ -2100,7 +2147,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
           ),
           rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20}},'로딩 중...')):
           list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. 위 줄에 바로 입력하거나 [+ 추가]를 눌러주세요.')):
-          list.map(r=>R('tr',{key:r.id},
+          list.map(r=>R('tr',{key:r._id},
             ...cols.map(c=>R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top'}},cell(r,c))),
             R('td',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap'}},r._byName||'-',R('br'),fDate(r._at)),
             R('td',{style:{whiteSpace:'nowrap'}},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
@@ -2306,7 +2353,7 @@ function PageWorkOrder({user}){
 
 /* 각 메뉴별 표 정의 */
 const SHARED_PAGES={
-  logins:{title:'로그인 정보',ic:'🔑',desc:'업무용 사이트 계정을 함께 관리합니다',storeKey:'bnf_logins',cols:[
+  logins:{title:'로그인 정보',ic:'🔑',desc:'업무용 사이트 계정을 함께 관리합니다 · 사이트 이름 가나다순',storeKey:'bnf_logins',sort:{k:'site',dir:'asc'},cols:[
     {k:'site',l:'사이트 이름',w:150,ph:'예) 이카운트'},
     {k:'url',l:'링크',type:'link',w:220,ph:'https://...'},
     {k:'id',l:'아이디',w:150},
