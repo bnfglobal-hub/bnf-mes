@@ -7649,6 +7649,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
         R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
           R('th',{style:{padding:'5px 6px 5px 12px',textAlign:'center',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:38}},'발주'),
           R('th',{style:{padding:'5px 12px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'원재료'),
+          R('th',{style:{padding:'5px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:120}},'매입처'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:80}},'총 필요'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'재고'),
           R('th',{style:{padding:'5px 12px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:90}},'부족')
@@ -7662,13 +7663,21 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               ordered&&R('span',{style:{fontSize:9,color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료'),
               !ordered&&r.prods.length>1&&R('span',{style:{fontSize:9,color:'#94a3b8',fontWeight:500,marginLeft:5}},'('+r.prods.length+'개 제품 공용)')
             ),
+            /* 매입처 (재고 관리의 매입처·연락처·리드타임 연동) */
+            (()=>{const m=r.mat||{};const sp=(m.supplier||'').trim();
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',color:ordered?'#9CA3AF':(sp?'#475569':'#CBD5E1'),fontSize:10.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130},
+                title:sp?(sp+(m.contact?(' · '+m.contact):'')+' · 리드 '+(m.lead||3)+'일'):'매입처 미등록 (재고 관리에서 입력)'},
+                sp||'-',
+                sp&&m.contact&&R('span',{style:{color:'#94a3b8',marginLeft:4}},'☎'),
+                sp&&R('span',{style:{color:'#94a3b8',marginLeft:4}},(m.lead||3)+'일'));
+            })(),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:700,color:ordered?'#9CA3AF':'#374151'}},r.needed.toFixed(2),' ',r.unit),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#64748B'}},(+r.stock).toFixed(2),' ',r.unit),
             r.short>0
               ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:800,color:ordered?'#9CA3AF':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
               :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:10}},'✓ 충분')
           );}),
-          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:5,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
+          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:6,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
       )
     ),
@@ -7744,6 +7753,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
           R('table',{style:{width:'100%',fontSize:11,borderCollapse:'collapse'}},
             R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
               R('th',{style:{padding:'4px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'품목'),
+              R('th',{style:{padding:'4px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:110}},'매입처'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'필요'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'재고'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:80}},'부족')
@@ -7752,6 +7762,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               /* 부족 항목 항상 표시 (빨강) */
               ...shortItems.map(({mat,b,needed,short})=>R('tr',{key:b.c,style:{background:'#FEF8F7'}},
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',fontWeight:600,color:'#991B1B',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},b.name||mat.n),
+                R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',color:(mat.supplier||'').trim()?'#475569':'#CBD5E1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:120},title:(mat.supplier||'')?((mat.supplier||'')+(mat.contact?(' · '+mat.contact):'')+' · 리드 '+(mat.lead||3)+'일'):'매입처 미등록'},(mat.supplier||'').trim()||'-'),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:'#64748B'}},needed.toFixed(2),' ',b.unit),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:'#64748B'}},mat.s,' ',b.unit),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',fontWeight:800,color:'#DC2626'}},'-',short.toFixed(2),' ',b.unit)
@@ -7759,11 +7770,12 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               /* 충분한 항목은 토글 시에만 (약한 회색) */
               showAll?okItems.map(({mat,b,needed,short})=>R('tr',{key:b.c},
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#94a3b8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},b.name||mat.n),
+                R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#cbd5e1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:120},title:(mat.supplier||'')+(mat.contact?(' · '+mat.contact):'')},(mat.supplier||'').trim()||'-'),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1'}},needed.toFixed(2),' ',b.unit),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1'}},mat.s,' ',b.unit),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:10}},'✓')
               )):null,
-              shortItems.length===0&&!showAll&&R('tr',null,R('td',{colSpan:4,style:{padding:'10px',textAlign:'center',color:'#059669',fontSize:11,fontWeight:600}},'✓ 모든 원재료가 충분합니다'))
+              shortItems.length===0&&!showAll&&R('tr',null,R('td',{colSpan:5,style:{padding:'10px',textAlign:'center',color:'#059669',fontSize:11,fontWeight:600}},'✓ 모든 원재료가 충분합니다'))
             )
           )
         ),
@@ -12296,6 +12308,24 @@ function App(){
   },[sbOpen]);
   const[navSections,setNavSections]=useState(()=>loadNavSections());
   const[navEditMode,setNavEditMode]=useState(false);
+  const[dropFolder,setDropFolder]=useState(null);   /* 지금 메뉴를 떨어뜨릴 폴더 (하이라이트용) */
+  /* 드래그 중에는 브라우저가 휠 스크롤을 막으므로, 사이드바 위/아래 끝에 오면 자동 스크롤 */
+  const sbRef=useRef(null);
+  const sbScrollTimer=useRef(null);
+  const stopSbScroll=()=>{if(sbScrollTimer.current){clearInterval(sbScrollTimer.current);sbScrollTimer.current=null;}};
+  const sbAutoScroll=e=>{
+    const el=sbRef.current;if(!el)return;
+    const r=el.getBoundingClientRect(),y=e.clientY,zone=70;
+    let dir=0;
+    if(y-r.top<zone)dir=-1;else if(r.bottom-y<zone)dir=1;
+    if(!dir){stopSbScroll();return;}
+    if(sbScrollTimer.current)return;
+    sbScrollTimer.current=setInterval(()=>{
+      const n=sbRef.current;if(!n){stopSbScroll();return;}
+      n.scrollTop+=dir*14;
+    },30);
+  };
+  useEffect(()=>stopSbScroll,[]);
   const[draggedItem,setDraggedItem]=useState(null);
   const[expandedFolders,setExpandedFolders]=useState(()=>{
     try{const saved=localStorage.getItem('bnf_expanded_folders');if(saved)return JSON.parse(saved);}catch(e){}
@@ -12770,7 +12800,11 @@ function App(){
       /* 모바일 사이드바 오버레이 */
       sbOpen&&R('div',{className:'sb-overlay',onClick:()=>setSbOpen(false)}),
       /* 사이드바 */
-      R('div',{className:'sb'+(sbOpen?' sb-open':'')},
+      R('div',{className:'sb'+(sbOpen?' sb-open':''),ref:sbRef,
+        onDragOver:sbAutoScroll,
+        onDragLeave:stopSbScroll,
+        onDrop:stopSbScroll,
+        onDragEnd:()=>{stopSbScroll();setDraggedItem(null);setDropFolder(null);}},
         /* 편집 모드 토글 */
         isAdmin&&R('div',{style:{padding:'8px 12px',borderBottom:'1px solid #EEE8F0',display:'flex',gap:6,alignItems:'center'}},
           R('button',{
@@ -12836,7 +12870,29 @@ function App(){
           },
             R('div',{
               onClick:()=>!navEditMode&&setExpandedFolders(p=>Object.assign({},p,{[folderKey]:!isOpen})),
-              style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',cursor:navEditMode?'grab':'pointer',background:isActiveSection?'var(--pb)':navEditMode?'#F6F3F9':'transparent',color:isActiveSection?'var(--p)':'#3A3A3A',fontSize:12,fontWeight:700,borderRadius:8,margin:'2px 8px',userSelect:'none'}
+              /* 폴더 제목 위에 메뉴를 떨어뜨리면 이 폴더로 이동 (접혀 있거나 비어 있어도 가능) */
+              onDragOver:e=>{
+                if(navEditMode&&draggedItem&&draggedItem.type==='item'){
+                  e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';
+                  setDropFolder(secIdx);
+                  if(!isOpen)setExpandedFolders(p=>Object.assign({},p,{[folderKey]:true}));
+                }
+              },
+              onDragLeave:()=>{if(navEditMode)setDropFolder(null);},
+              onDrop:e=>{
+                if(navEditMode&&draggedItem&&draggedItem.type==='item'){
+                  e.preventDefault();e.stopPropagation();
+                  setNavSections(p=>{
+                    const next=JSON.parse(JSON.stringify(p));
+                    const[moved]=next[draggedItem.fromSecIdx].items.splice(draggedItem.itemIdx,1);
+                    next[secIdx].items.push(moved);
+                    saveNavSections(next);
+                    return next;
+                  });
+                  setDraggedItem(null);setDropFolder(null);
+                }
+              },
+              style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',cursor:navEditMode?'grab':'pointer',outline:dropFolder===secIdx?'2px dashed #22C55E':'none',background:dropFolder===secIdx?'#F0FDF4':isActiveSection?'var(--pb)':navEditMode?'#F6F3F9':'transparent',color:isActiveSection?'var(--p)':'#3A3A3A',fontSize:12,fontWeight:700,borderRadius:8,margin:'2px 8px',userSelect:'none'}
             },
               navEditMode&&R('span',{style:{fontSize:11,opacity:.5,cursor:'grab'}},'⋮⋮'),
               !navEditMode&&R('span',{style:{fontSize:9,opacity:.7,transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)',display:'inline-block',width:10}},'▶'),
@@ -12883,8 +12939,13 @@ function App(){
               style:{margin:'4px 12px 6px 24px',padding:'6px 10px',background:'#F0FDF4',border:'1px dashed #22C55E',color:'#15803D',borderRadius:7,cursor:'pointer',fontSize:11,fontWeight:700,width:'calc(100% - 36px)',fontFamily:'inherit'}
             },'+ 메뉴 추가'),
             isOpen&&R('div',{
-              style:{paddingLeft:8,marginBottom:4,minHeight:navEditMode?20:0,background:navEditMode?'rgba(255,255,255,0.02)':'transparent',borderRadius:6,padding:'2px 4px'},
-              onDragOver:e=>{if(navEditMode&&draggedItem&&draggedItem.type==='item'){e.preventDefault();}},
+              style:{paddingLeft:8,marginBottom:4,
+                minHeight:navEditMode?(visibleItems.length?24:46):0,
+                background:navEditMode?(dropFolder===secIdx?'#F0FDF4':'rgba(255,255,255,0.02)'):'transparent',
+                border:navEditMode&&draggedItem&&draggedItem.type==='item'?'1px dashed '+(dropFolder===secIdx?'#22C55E':'#DDD5E3'):'1px solid transparent',
+                borderRadius:6,padding:'2px 4px'},
+              onDragOver:e=>{if(navEditMode&&draggedItem&&draggedItem.type==='item'){e.preventDefault();setDropFolder(secIdx);}},
+              onDragLeave:()=>{if(navEditMode)setDropFolder(null);},
               onDrop:e=>{
                 if(navEditMode&&draggedItem&&draggedItem.type==='item'){
                   e.preventDefault();
@@ -12895,10 +12956,12 @@ function App(){
                     saveNavSections(next);
                     return next;
                   });
-                  setDraggedItem(null);
+                  setDraggedItem(null);setDropFolder(null);
                 }
               }
             },
+              /* 빈 폴더 안내 (편집 모드) */
+              navEditMode&&visibleItems.length===0&&R('div',{style:{fontSize:10,color:'#9CA3AF',textAlign:'center',padding:'10px 4px',pointerEvents:'none'}},'메뉴를 여기로 끌어다 놓으세요'),
               ...visibleItems.map((n,itemIdx)=>{
                 const realIdx=sec.items.indexOf(n);
                 if(navEditMode){
