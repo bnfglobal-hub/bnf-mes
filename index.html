@@ -516,6 +516,78 @@ body{font-variant-numeric:tabular-nums}
   .inv-page .inv-tbl{max-height:none!important;overflow-x:auto!important;overflow-y:visible!important;margin-bottom:0!important}
   .inv-page .inv-main{padding-bottom:20px!important}
 }
+
+/* ═══════════════════════════════════════════════════════
+   2026-07-29 디자인·모션 레이어 (컬러톤 유지 · 추가 전용)
+   ═══════════════════════════════════════════════════════ */
+@keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes popIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(217,79,30,.30)}50%{box-shadow:0 0 0 6px rgba(217,79,30,0)}}
+
+/* 페이지 전환: 페이드 → 살짝 떠오르는 전환 */
+.fa{animation:pageIn .32s cubic-bezier(.22,.9,.3,1) both}
+/* 카드 순차 등장 (앞 8개까지 시차, 표 많은 화면 성능 고려) */
+.pg.fa>.card,.pg.fa>div>.card{animation:cardIn .4s cubic-bezier(.22,.9,.3,1) both}
+.pg.fa>.card:nth-child(1),.pg.fa>div>.card:nth-child(1){animation-delay:.02s}
+.pg.fa>.card:nth-child(2),.pg.fa>div>.card:nth-child(2){animation-delay:.06s}
+.pg.fa>.card:nth-child(3),.pg.fa>div>.card:nth-child(3){animation-delay:.10s}
+.pg.fa>.card:nth-child(4),.pg.fa>div>.card:nth-child(4){animation-delay:.14s}
+.pg.fa>.card:nth-child(5),.pg.fa>div>.card:nth-child(5){animation-delay:.18s}
+.pg.fa>.card:nth-child(6),.pg.fa>div>.card:nth-child(6){animation-delay:.22s}
+.pg.fa>.card:nth-child(7),.pg.fa>div>.card:nth-child(7){animation-delay:.26s}
+.pg.fa>.card:nth-child(n+8),.pg.fa>div>.card:nth-child(n+8){animation-delay:.28s}
+
+/* 버튼: 부드러운 리프트 + 눌림 반응 */
+.btn{transition:background .15s,box-shadow .15s,transform .12s cubic-bezier(.34,1.56,.64,1)}
+@media(hover:hover){.btn:hover{transform:translateY(-1px)}}
+.btn:active{transform:translateY(0) scale(.965);transition-duration:.05s}
+.bp:active{box-shadow:0 1px 4px rgba(217,79,30,.30),inset 0 1px 0 rgba(255,255,255,.2)!important}
+/* 입력창: 포커스 시 오렌지 링 */
+.inp{transition:border-color .15s,box-shadow .15s}
+.inp:focus{outline:none;border-color:var(--p)!important;box-shadow:0 0 0 3px rgba(217,79,30,.13)}
+/* 모달: 스프링 팝인 + 배경 페이드 */
+.mbg{animation:fadeIn .18s ease both}
+.mbox{animation:popIn .3s cubic-bezier(.22,1.2,.36,1) both}
+/* 사이드바 메뉴: 호버 시 오른쪽 미끄러짐 + 아이콘 확대, 활성 인디케이터 성장 */
+@media(hover:hover){
+  .ni{transition:background .15s,color .15s,padding-left .18s cubic-bezier(.22,.9,.3,1)}
+  .ni:hover{background:var(--sba);padding-left:16px}
+  .ni .ic{transition:transform .18s cubic-bezier(.34,1.56,.64,1);display:inline-block}
+  .ni:hover .ic{transform:scale(1.18)}
+}
+.ni.act .ic{transform:scale(1.12)}
+.sb-folder{animation:none}
+/* 탭: 하단 라인이 스르륵 */
+.tab{position:relative;transition:color .15s,background .15s,box-shadow .15s}
+.tab::after{content:"";position:absolute;left:50%;right:50%;bottom:-1px;height:2px;background:var(--p);border-radius:2px;transition:left .2s cubic-bezier(.22,.9,.3,1),right .2s cubic-bezier(.22,.9,.3,1)}
+.tab.act::after{left:12%;right:12%}
+/* 표: 행 호버 하이라이트 (은은한 오렌지) */
+.tw tbody tr,.inv-tbl tbody tr{transition:background .12s}
+@media(hover:hover){
+  .tw tbody tr:hover>td,.inv-tbl tbody tr:hover>td{background:rgba(217,79,30,.045)}
+}
+.tw thead th{transition:color .15s}
+@media(hover:hover){.tw thead th[style*="cursor: pointer"]:hover,.tw thead th[style*="cursor:pointer"]:hover{color:var(--p)}}
+/* 뱃지·칩: 살짝 통통 */
+.bdg,[class*="b-"]{transition:transform .12s}
+/* 스크롤바: 얇고 차분하게, 호버 시 오렌지 */
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:#DDD5DC;border-radius:8px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb:hover{background:#D94F1E99;background-clip:content-box}
+/* 알림 배지: 은은한 글로우 펄스 */
+.hdr [title="알림"] span[style*="linear-gradient"]{animation:glowPulse 2.4s ease-in-out infinite}
+/* 헤더 헤어라인: 은은하게 흐르는 광 */
+@keyframes hdrFlow{0%{background-position:0% 0}100%{background-position:200% 0}}
+.hdr::after{background:linear-gradient(90deg,var(--p),#F59E0B 30%,var(--p) 60%,#F59E0B 90%);background-size:200% 100%;animation:hdrFlow 9s linear infinite;opacity:.45}
+/* 페이지 제목 등장 */
+.pg.fa .pg-title{animation:slideDown .35s cubic-bezier(.22,.9,.3,1) both}
+/* 홈 인사말·대시보드 섹션도 카드 규칙을 타도록 이미 .card 사용 중 */
+/* 모션 최소화 설정 존중 */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
 </style>
 <script>
 window._deferredPrompt=null;
