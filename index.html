@@ -2143,6 +2143,13 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   const[sortDir,setSortDir]=useState((sort&&sort.dir)||'asc');
   const toggleSort=k=>{if(sortK===k)setSortDir(d=>d==='asc'?'desc':'asc');else{setSortK(k);setSortDir('asc');}};
   /* 글씨 크기 (메뉴별로 브라우저에 저장) */
+  /* 모바일(≤768px)에서는 표 대신 카드형으로 렌더 */
+  const[isMobile,setIsMobile]=useState(()=>window.innerWidth<=768);
+  useEffect(()=>{
+    const on=()=>setIsMobile(window.innerWidth<=768);
+    window.addEventListener('resize',on);
+    return()=>window.removeEventListener('resize',on);
+  },[]);
   const FSKEY='bnf_st_fs_'+storeKey;
   const[fs,setFs]=useState(()=>{try{return +localStorage.getItem(FSKEY)||12;}catch(e){return 12;}});
   const setFS=v=>{const n=Math.min(20,Math.max(9,v));setFs(n);try{localStorage.setItem(FSKEY,String(n));}catch(e){}};
@@ -2275,6 +2282,24 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
         R('span',{style:{fontSize:10,color:'#64748b',fontWeight:700,minWidth:28,textAlign:'center'}},fs+'px'),
         R('button',{onClick:()=>setFS(fs+1),title:'글씨 크게',style:FBTN},'A＋'))
     ),
+    /* ── 모바일: 카드형 목록 ── */
+    isMobile?R('div',{style:{display:'flex',flexDirection:'column',gap:10,fontSize:fs}},
+      rows===null?R('div',{className:'card',style:{textAlign:'center',padding:20,color:'var(--tm)'}},'로딩 중...'):
+      list.length===0?R('div',{className:'card',style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. [+ 추가]로 입력해주세요.'):
+      list.map(r=>R('div',{key:r._id,className:'card',style:{padding:'12px 14px'}},
+        R('div',{style:{display:'flex',alignItems:'flex-start',gap:8,marginBottom:6}},
+          R('div',{style:{fontWeight:700,fontSize:'1.08em',flex:1,minWidth:0,wordBreak:'break-word'}},String(r[cols[0].k]||'-')),
+          canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4,flexShrink:0}},
+            R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'3px 8px',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
+            R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'3px 8px',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'🗑'))
+        ),
+        ...cols.slice(1).filter(c=>String(r[c.k]||'').trim()).map(c=>R('div',{key:c.k,style:{display:'flex',gap:8,padding:'3px 0',alignItems:'baseline'}},
+          R('span',{style:{color:'var(--tm)',fontSize:'0.85em',width:64,flexShrink:0}},c.l),
+          R('span',{style:{flex:1,minWidth:0,wordBreak:'break-all'}},cell(r,c))
+        )),
+        R('div',{style:{fontSize:'0.8em',color:'#B0A69C',marginTop:6,paddingTop:6,borderTop:'1px solid var(--bd)'}},(r._byName||'-')+' · '+fDate(r._at))
+      ))
+    ):
     R('div',{className:'tw'},
       R('table',{style:{fontSize:fs}},
         R('thead',null,R('tr',null,
