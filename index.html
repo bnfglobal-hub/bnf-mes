@@ -2255,6 +2255,240 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   );
 }
 
+/* ═══ 설비 점검 (주기 관리 · 점검일 기록) ══════════════
+   app_state.bnf_pm_equip = [{_id,name,place,cycle,unit,last,owner,note,history:[...]}]
+   다음 점검일 = 최근 점검일 + 주기. 홈 대시보드에서도 같은 계산을 쓴다. */
+const EQ_UNITS=['일','주','개월'];
+function equipNext(r){
+  if(!r||!r.last||!(+r.cycle>0))return null;
+  const d=new Date(r.last);
+  if(isNaN(d.getTime()))return null;
+  const n=+r.cycle;
+  if(r.unit==='개월')d.setMonth(d.getMonth()+n);
+  else if(r.unit==='주')d.setDate(d.getDate()+n*7);
+  else d.setDate(d.getDate()+n);
+  return d.toISOString().slice(0,10);
+}
+function equipDday(r){
+  const nx=equipNext(r);
+  if(!nx)return null;
+  const a=new Date(today2()+'T00:00:00'),b=new Date(nx+'T00:00:00');
+  return Math.round((b-a)/86400000);
+}
+function equipState(r){
+  const d=equipDday(r);
+  if(d===null)return{k:'none',t:'주기 미설정',c:'#94A3B8',bg:'#F8FAFC'};
+  if(d<0)return{k:'over',t:'지남 '+(-d)+'일',c:'#DC2626',bg:'#FEF2F2'};
+  if(d===0)return{k:'today',t:'오늘',c:'#D94F1E',bg:'#FFF7ED'};
+  if(d<=7)return{k:'soon',t:'D-'+d,c:'#B45309',bg:'#FFFBEB'};
+  return{k:'ok',t:'D-'+d,c:'#15803D',bg:'#F0FDF4'};
+}
+
+function PageEquipCheck({user}){
+  const KEY='bnf_pm_equip';
+  const[rows,setRows]=useState(null);
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[showF,setShowF]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const[form,setForm]=useState({name:'',place:'',cycle:'',unit:'개월',last:'',owner:'',note:''});
+  const[hist,setHist]=useState(null);     /* 이력 보기 대상 */
+  const[chk,setChk]=useState(null);       /* 점검 기록 입력 대상 */
+  const[chkF,setChkF]=useState({date:today2(),result:'정상',note:''});
+  const isAdmin=['superadmin','admin','manager'].includes(user.role);
+
+  useEffect(()=>{load();},[]);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      const raw=Array.isArray(data&&data.v)?data.v:[];
+      const seen={};
+      setRows(raw.map(r=>{
+        const o=Object.assign({},r);
+        if(!o._id||seen[o._id])o._id='e'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+        seen[o._id]=1;
+        if(!Array.isArray(o.history))o.history=[];
+        return o;
+      }));
+    }catch(e){setRows([]);}
+  };
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+      setRows(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  const openNew=()=>{setForm({name:'',place:'',cycle:'',unit:'개월',last:today2(),owner:'',note:''});setEditId(null);setShowF(true);};
+  const openEdit=r=>{setForm({name:r.name||'',place:r.place||'',cycle:r.cycle||'',unit:r.unit||'개월',last:r.last||'',owner:r.owner||'',note:r.note||''});setEditId(r._id);setShowF(true);};
+  const save=async()=>{
+    if(!form.name.trim())return alert('설비명을 입력해주세요.');
+    const list=(rows||[]).slice();
+    if(editId){
+      const i=list.findIndex(x=>x._id===editId);
+      if(i>=0)list[i]=Object.assign({},list[i],form,{cycle:+form.cycle||0});
+    }else{
+      list.push(Object.assign({},form,{cycle:+form.cycle||0,history:[],
+        _id:'e'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),_by:user.id,_byName:user.name,_at:now2()}));
+    }
+    await persist(list);setShowF(false);setEditId(null);
+  };
+  const del=async(r)=>{
+    if(!(isAdmin||r._by===user.id))return alert('등록자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('"'+r.name+'" 설비를 삭제할까요? 점검 이력도 함께 지워집니다.'))return;
+    await persist((rows||[]).filter(x=>x._id!==r._id));
+  };
+  /* 점검 기록 → 최근 점검일 갱신 + 이력 추가 */
+  const saveCheck=async()=>{
+    if(!chk)return;
+    const list=(rows||[]).map(r=>{
+      if(r._id!==chk._id)return r;
+      const h=[{date:chkF.date,result:chkF.result,note:chkF.note,by:user.name,at:now2()},...(r.history||[])];
+      return Object.assign({},r,{last:chkF.date,history:h});
+    });
+    await persist(list);
+    setChk(null);setChkF({date:today2(),result:'정상',note:''});
+  };
+
+  const list=(rows||[]).filter(r=>{
+    const s=q.trim().toLowerCase();
+    if(!s)return true;
+    return [r.name,r.place,r.owner,r.note].some(v=>String(v||'').toLowerCase().includes(s));
+  }).slice().sort((a,b)=>{
+    const da=equipDday(a),db=equipDday(b);
+    if(da===null&&db===null)return String(a.name||'').localeCompare(String(b.name||''),'ko');
+    if(da===null)return 1;
+    if(db===null)return -1;
+    return da-db;
+  });
+  const overCnt=(rows||[]).filter(r=>{const d=equipDday(r);return d!==null&&d<0;}).length;
+  const soonCnt=(rows||[]).filter(r=>{const d=equipDday(r);return d!==null&&d>=0&&d<=7;}).length;
+
+  /* ── 이력 화면 ── */
+  if(hist){
+    const r=(rows||[]).find(x=>x._id===hist._id)||hist;
+    return R('div',{className:'pg fa'},
+      R('div',{className:'pg-hdr',style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        R('button',{className:'btn bs',onClick:()=>setHist(null)},'← 목록'),
+        R('button',{className:'btn bp',onClick:()=>{setChk(r);setChkF({date:today2(),result:'정상',note:''});}},'✓ 점검 기록')),
+      R('div',{className:'card',style:{marginBottom:12}},
+        R('h2',{style:{fontSize:16,fontWeight:800,marginBottom:6}},r.name),
+        R('div',{style:{fontSize:12,color:'var(--tm)',display:'flex',gap:10,flexWrap:'wrap'}},
+          r.place&&R('span',null,'📍 ',r.place),
+          R('span',null,'주기 ',r.cycle?(r.cycle+r.unit):'미설정'),
+          R('span',null,'최근 점검 ',r.last||'-'),
+          R('span',{style:{color:equipState(r).c,fontWeight:700}},'다음 ',equipNext(r)||'-',' (',equipState(r).t,')'),
+          r.owner&&R('span',null,'담당 ',r.owner)),
+        r.note&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid var(--bd)',fontSize:13,whiteSpace:'pre-wrap'}},r.note)),
+      R('div',{className:'tw'},
+        R('table',null,
+          R('thead',null,R('tr',null,R('th',{style:{width:110}},'점검일'),R('th',{style:{width:90}},'결과'),R('th',null,'내용'),R('th',{style:{width:110}},'점검자'))),
+          R('tbody',null,
+            (r.history||[]).length===0?R('tr',null,R('td',{colSpan:4,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'점검 이력이 없습니다.')):
+            (r.history||[]).map((h,i)=>R('tr',{key:i},
+              R('td',null,h.date),
+              R('td',null,R(Bdg2,{cls:h.result==='정상'?'b-ok':h.result==='고장'?'b-e':'b-i',txt:h.result||'-'})),
+              R('td',{style:{fontSize:12,whiteSpace:'pre-wrap'}},h.note||'-'),
+              R('td',{style:{fontSize:11,color:'var(--tm)'}},h.by||'-')
+            ))
+          )
+        )
+      ),
+      chk&&checkModal()
+    );
+  }
+
+  function checkModal(){
+    return R(Modal2,{title:'점검 기록 · '+(chk.name||''),onClose:()=>setChk(null),size:480,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>setChk(null),style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:saveCheck,disabled:busy,style:{flex:2}},'기록 저장'))},
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'점검일'),
+          R('input',{type:'date',className:'inp',value:chkF.date,onChange:e=>setChkF(p=>Object.assign({},p,{date:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'결과'),
+          R('select',{className:'inp',value:chkF.result,onChange:e=>setChkF(p=>Object.assign({},p,{result:e.target.value}))},
+            ...['정상','주의','수리','교체','고장'].map(o=>R('option',{key:o,value:o},o))))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'내용/조치'),
+        R('textarea',{className:'inp',value:chkF.note,onChange:e=>setChkF(p=>Object.assign({},p,{note:e.target.value})),placeholder:'점검 내용, 교체 부품 등',style:{minHeight:80}})),
+      R('div',{style:{fontSize:11,color:'var(--tm)'}},'저장하면 최근 점검일이 이 날짜로 바뀌고 다음 점검일이 자동 계산됩니다.')
+    );
+  }
+
+  /* ── 목록 ── */
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🔧 설비 점검'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'점검 주기를 설정하면 다음 점검일이 자동 계산되고, 임박하면 홈 화면에 표시됩니다')),
+      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 설비 등록')
+    ),
+    (overCnt>0||soonCnt>0)&&R('div',{className:'card',style:{marginBottom:12,background:overCnt?'#FEF2F2':'#FFFBEB',border:'1px solid '+(overCnt?'#FECACA':'#FDE68A')}},
+      R('div',{style:{fontSize:12.5,fontWeight:700,color:overCnt?'#B91C1C':'#B45309'}},
+        overCnt>0?('⚠ 점검일이 지난 설비 '+overCnt+'대'):'',
+        overCnt>0&&soonCnt>0?' · ':'',
+        soonCnt>0?('🔔 7일 내 점검 예정 '+soonCnt+'대'):'')),
+    R('div',{style:{marginBottom:10}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 설비명·위치·담당 검색',style:{maxWidth:340}})),
+    R('div',{className:'tw'},
+      R('table',null,
+        R('thead',null,R('tr',null,
+          R('th',null,'설비명'),R('th',{style:{width:120}},'위치'),R('th',{style:{width:90}},'점검 주기'),
+          R('th',{style:{width:110}},'최근 점검일'),R('th',{style:{width:110}},'다음 점검일'),R('th',{style:{width:96}},'상태'),
+          R('th',{style:{width:90}},'담당'),R('th',{style:{width:150}},''))),
+        R('tbody',null,
+          rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 설비가 없습니다. [+ 설비 등록]으로 추가해주세요.')):
+          list.map(r=>{const st=equipState(r);return R('tr',{key:r._id,style:{background:st.k==='over'?'#FFF8F8':(st.k==='soon'||st.k==='today'?'#FFFDF5':'#fff')}},
+            R('td',{style:{fontWeight:600,cursor:'pointer'},onClick:()=>setHist(r),title:'점검 이력 보기'},r.name,
+              (r.history||[]).length>0&&R('span',{style:{fontSize:10,color:'var(--tm)',marginLeft:5}},'이력 ',r.history.length)),
+            R('td',{style:{fontSize:12,color:'var(--tm)'}},r.place||'-'),
+            R('td',{style:{fontSize:12}},r.cycle?(r.cycle+r.unit):R('span',{style:{color:'#CBD5E1'}},'미설정')),
+            R('td',{style:{fontSize:12}},r.last||R('span',{style:{color:'#CBD5E1'}},'-')),
+            R('td',{style:{fontSize:12,fontWeight:600}},equipNext(r)||R('span',{style:{color:'#CBD5E1'}},'-')),
+            R('td',null,R('span',{style:{fontSize:11,fontWeight:800,color:st.c,background:st.bg,padding:'2px 8px',borderRadius:10,whiteSpace:'nowrap'}},st.t)),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)'}},r.owner||'-'),
+            R('td',{style:{whiteSpace:'nowrap'}},
+              R('span',{style:{display:'inline-flex',gap:4}},
+                R('button',{onClick:()=>{setChk(r);setChkF({date:today2(),result:'정상',note:''});},title:'오늘 점검 기록',
+                  style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:6,padding:'3px 8px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 점검'),
+                R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'3px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
+                (isAdmin||r._by===user.id)&&R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'3px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')))
+          );})
+        )
+      )
+    ),
+    showF&&R(Modal2,{title:editId?'설비 수정':'설비 등록',onClose:()=>{setShowF(false);setEditId(null);},size:560,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:save,disabled:busy,style:{flex:2}},editId?'수정 저장':'등록'))},
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'설비명 *'),
+          R('input',{className:'inp',value:form.name,onChange:e=>setForm(p=>Object.assign({},p,{name:e.target.value})),placeholder:'예) 살균기 1호'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'위치'),
+          R('input',{className:'inp',value:form.place,onChange:e=>setForm(p=>Object.assign({},p,{place:e.target.value})),placeholder:'예) 1공장 포장실'}))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'점검 주기'),
+        R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+          R('input',{type:'number',min:'0',className:'inp',value:form.cycle,onChange:e=>setForm(p=>Object.assign({},p,{cycle:e.target.value})),placeholder:'숫자',style:{maxWidth:120}}),
+          R('select',{className:'inp',value:form.unit,onChange:e=>setForm(p=>Object.assign({},p,{unit:e.target.value})),style:{maxWidth:110}},
+            ...EQ_UNITS.map(u=>R('option',{key:u,value:u},u,' 마다'))),
+          R('span',{style:{fontSize:11,color:'var(--tm)'}},'예: 3 개월마다'))),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'최근 점검일'),
+          R('input',{type:'date',className:'inp',value:form.last,onChange:e=>setForm(p=>Object.assign({},p,{last:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'담당'),
+          R('input',{className:'inp',value:form.owner,onChange:e=>setForm(p=>Object.assign({},p,{owner:e.target.value})),placeholder:'담당자'}))),
+      form.last&&+form.cycle>0&&R('div',{style:{fontSize:12,color:'var(--ok)',fontWeight:700,marginBottom:8}},
+        '→ 다음 점검일: ',equipNext({last:form.last,cycle:+form.cycle,unit:form.unit})),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'비고'),
+        R('textarea',{className:'inp',value:form.note,onChange:e=>setForm(p=>Object.assign({},p,{note:e.target.value})),placeholder:'점검 항목, 주의사항 등',style:{minHeight:70}}))
+    ),
+    chk&&checkModal()
+  );
+}
+
 /* ═══ 업무 매뉴얼 ══════════════════════════════════════
    부서/분류별로 업무 지침을 글로 정리하고 파일(사진·PDF·엑셀)을 붙인다.
    app_state.bnf_manuals 에 저장 → 전 직원 공유. */
@@ -2703,23 +2937,6 @@ const SHARED_PAGES={
     {k:'content',l:'내용',type:'textarea'},
     {k:'action',l:'조치/재발방지',type:'textarea'}
   ]},
-  pm_result:{title:'생산 실적',ic:'📈',desc:'일자별 생산 실적을 기록합니다',storeKey:'bnf_pm_result',cols:[
-    {k:'date',l:'생산일',type:'date',w:110},
-    {k:'product',l:'제품',w:180},
-    {k:'lot',l:'로트',w:110},
-    {k:'plan',l:'계획수량',type:'num',w:90},
-    {k:'done',l:'생산수량',type:'num',w:90},
-    {k:'loss',l:'불량/로스',type:'num',w:90},
-    {k:'note',l:'비고',type:'textarea'}
-  ]},
-  pm_equip:{title:'설비 점검',ic:'🔧',desc:'설비 점검·수리 이력',storeKey:'bnf_pm_equip',cols:[
-    {k:'date',l:'점검일',type:'date',w:110},
-    {k:'equip',l:'설비명',w:160},
-    {k:'kind',l:'구분',type:'select',w:100,opts:['일상점검','정기점검','수리','교체']},
-    {k:'checker',l:'담당',w:90},
-    {k:'result',l:'상태',type:'select',w:90,opts:['정상','주의','고장']},
-    {k:'note',l:'내용/조치',type:'textarea'}
-  ]}
 };
 
 /* ═══ 조직도 ══════════════════════════════════════════ */
@@ -3906,10 +4123,13 @@ function PageAdmin({user}){
           const allItems=secs.reduce((a,s)=>a.concat(s.items.map(it=>({...it,adminSec:s.adminSec}))),[]);
           const isOn=id=>uf.menu_perms?(uf.menu_perms[id]!==false):true;
           const setMany=(ids,on)=>setUf(p=>{const m={...(p.menu_perms||{})};ids.forEach(id=>{m[id]=on;});return{...p,menu_perms:m};});
-          /* 그룹 프리셋: 관리직=전부 / 일반직원=관리자 섹션 제외 */
+          /* 그룹 프리셋: 관리직=전부 / 일반직원=관리자 섹션 제외 + 개별 예외 */
+          const STAFF_OFF={dart:1};   /* 일반직원에게 막을 일반 메뉴 (거래처 정보 조회) */
           const applyGroup=kind=>{
             const m={};
-            allItems.forEach(it=>{m[it.id]=kind==='manager'?true:!it.adminSec;});
+            allItems.forEach(it=>{
+              m[it.id]=kind==='manager'?true:(STAFF_OFF[it.id]?false:!it.adminSec);
+            });
             setUf(p=>({...p,menu_perms:m}));
           };
           const onCnt=allItems.filter(it=>isOn(it.id)).length;
@@ -5964,17 +6184,26 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
   const[editMode,setEditMode]=useState(false);
-  const HOME_ALL=['sales','appr','newprod','ongoing','quick','wr','news','lt','stats'];
+  const HOME_ALL=['sales','equip','appr','newprod','ongoing','quick','wr','news','lt','stats'];
   const[sectionOrder,setSectionOrder]=useState(()=>{
     try{
       const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');
       let arr=(Array.isArray(v)&&v.length>0)?v.filter(x=>x!=='ai'):['wr','news','lt','stats'];
       /* 신규 섹션 자동 삽입: 매출 → 전자결재 → 신제품 → 진행업무 → 퀵메뉴 순으로 상단 배치 */
-      ['quick','ongoing','newprod','appr','sales'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
+      ['quick','ongoing','newprod','appr','equip','sales'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
       return arr.filter(x=>HOME_ALL.includes(x));
     }catch(e){return HOME_ALL.slice();}
   });
   const[hiddenSecs,setHiddenSecs]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_home_hidden')||'[]');}catch(e){return[];}});
+  /* 설비 점검 임박 목록 */
+  const[equipList,setEquipList]=useState(null);
+  useEffect(()=>{
+    let dead=false;
+    sbClient.from('app_state').select('v:state_data->bnf_pm_equip').eq('id',1).maybeSingle()
+      .then(({data:d})=>{if(!dead)setEquipList(Array.isArray(d&&d.v)?d.v:[]);})
+      .catch(()=>{if(!dead)setEquipList([]);});
+    return()=>{dead=true;};
+  },[]);
   /* 전자결재 간략 현황 (내가 볼 수 있는 문서만) */
   const[apprStat,setApprStat]=useState(null);
   useEffect(()=>{
@@ -6556,9 +6785,34 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     );
   };
 
-  const SEC_LABELS={sales:'💵 매출 현황',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
+  /* ── 설비 점검 임박 알림 ── */
+  const buildEquip=()=>{
+    if(!equipList)return null;
+    const due=equipList.map(r=>({r,d:equipDday(r)})).filter(x=>x.d!==null&&x.d<=7).sort((a,b)=>a.d-b.d);
+    if(!due.length)return null;
+    const over=due.filter(x=>x.d<0).length;
+    return R('div',{className:'card',style:{cursor:'pointer',border:'1px solid '+(over?'#FECACA':'#FDE68A'),background:over?'#FFF8F8':'#FFFDF5'},
+      onClick:()=>onGoPage('pm_equip')},
+      R('div',{style:{display:'flex',alignItems:'center',marginBottom:8}},
+        R('div',{className:'card-title',style:{margin:0}},'🔧 설비 점검'),
+        R('span',{style:{marginLeft:8,background:over?'#DC2626':'#D97706',color:'#fff',fontSize:10,fontWeight:800,borderRadius:10,padding:'2px 8px'}},
+          over?('지남 '+over+'대'):('임박 '+due.length+'대')),
+        R('span',{style:{marginLeft:'auto',fontSize:11,color:'var(--p)',fontWeight:700}},'바로가기 →')),
+      ...due.slice(0,5).map(x=>{const st=equipState(x.r);
+        return R('div',{key:x.r._id,style:{display:'flex',gap:8,alignItems:'center',padding:'5px 0',borderTop:'1px solid #F3EFEA',fontSize:12.5}},
+          R('span',{style:{fontWeight:700,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},x.r.name),
+          x.r.place&&R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},x.r.place),
+          R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},equipNext(x.r)),
+          R('span',{style:{fontSize:11,fontWeight:800,color:st.c,background:st.bg,padding:'1px 7px',borderRadius:9,flexShrink:0}},st.t));
+      }),
+      due.length>5&&R('div',{style:{fontSize:11,color:'var(--tm)',paddingTop:6}},'외 ',due.length-5,'대')
+    );
+  };
+
+  const SEC_LABELS={sales:'💵 매출 현황',equip:'🔧 설비 점검',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
   const builders={
     sales:buildSales,
+    equip:buildEquip,
     appr:buildAppr,
     newprod:()=>R(NewProductHome,{onGoPage}),
     ongoing:()=>R(OngoingWork,{user,onGoPage}),
@@ -10865,6 +11119,8 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'featreq',l:'추가 기능 요청',ic:'💡'},
     {id:'logins',l:'로그인 정보',ic:'🔑'},
     {id:'manual',l:'업무 매뉴얼',ic:'📚'},
+    {id:'pricelookup',l:'매입단가 조회',ic:'🔎'},
+    {id:'kurly',l:'컬리 리뷰',ic:'💜'},
     {id:'workreq',l:'업무 현황',ic:'📋'},
     {id:'mytasks',l:'나의 업무',ic:'📌'},
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -10873,7 +11129,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'prod',l:'생산계획',ic:'⚙'},
     {id:'sched',l:'생산 스케줄',ic:'📅'},
     {id:'shipsort',l:'출고 계획',ic:'📦'},
-    {id:'dart',l:'거래처 정보 조회',ic:'🔍'},
+    {id:'dart',l:'거래처 정보 조회',ic:'🔍',adminOnly:true},
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
     {id:'files',l:'파일 공유',ic:'📁'},
@@ -10891,15 +11147,12 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🏭 생산관리',type:'dept_pm',items:[
     {id:'pm_workorder',l:'작업지시서',ic:'📋'},
-    {id:'pm_result',l:'생산 실적',ic:'📈'},
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
     {id:'salesStat',l:'매출 현황',ic:'💵'},
     {id:'purchaseStat',l:'매입 현황',ic:'🧾'},
-    {id:'pricelookup',l:'매입단가 조회',ic:'🔎'},
-    {id:'kurly',l:'컬리 리뷰',ic:'💜'},
     {id:'wehago',l:'재무 현황',ic:'🏦'},
     {id:'profit',l:'영업 이익 분석',ic:'📈'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
@@ -11021,7 +11274,7 @@ function loadNavSections(){
               {t:'dept_qc',m:'품질',label:'🧪 품질관리',items:[
                 {id:'qc_incoming',l:'수입 검사',ic:'📥'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
               {t:'dept_pm',m:'생산관리',label:'🏭 생산관리',items:[
-                {id:'pm_workorder',l:'작업지시서',ic:'📋'},{id:'pm_result',l:'생산 실적',ic:'📈'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
+                {id:'pm_workorder',l:'작업지시서',ic:'📋'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
             ];
             const deepHas=(sec,id)=>{
               let f=false;
@@ -11051,6 +11304,29 @@ function loadNavSections(){
             localStorage.setItem('bnf_dept_reorg_v1','1');
           }
         }catch(e){}
+        /* ── 매입단가 조회·컬리 리뷰를 일반 메뉴로 이동, 거래처 조회는 관리자 전용 표시 (1회) ── */
+        try{
+          if(!localStorage.getItem('bnf_open_menus_v1')){
+            const MOVE={pricelookup:{id:'pricelookup',l:'매입단가 조회',ic:'🔎'},kurly:{id:'kurly',l:'컬리 리뷰',ic:'💜'}};
+            const fac=filtered.find(x=>x&&x.type==='factory');
+            filtered.forEach(sec=>{
+              if(!sec||!Array.isArray(sec.items))return;
+              if(sec.type==='admin'){
+                const before=sec.items.length;
+                sec.items=sec.items.filter(i=>!(i&&MOVE[i.id]));
+                if(sec.items.length!==before)changed=true;
+              }
+              sec.items.forEach(i=>{if(i&&i.id==='dart'&&!i.adminOnly){i.adminOnly=true;changed=true;}});
+            });
+            if(fac){
+              if(!Array.isArray(fac.items))fac.items=[];
+              Object.keys(MOVE).forEach(k=>{
+                if(!fac.items.some(i=>i&&i.id===k)){fac.items.push(MOVE[k]);changed=true;}
+              });
+            }
+            localStorage.setItem('bnf_open_menus_v1','1');
+          }
+        }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
       }
@@ -11069,11 +11345,21 @@ function LoginPage({onLogin}){
   const[remem,setRemem]=useState(!!sv.email);
   const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
   const login=async()=>{
-    if(!email||!pw){setErr('이메일과 비밀번호를 입력하세요');return;}
+    if(!email||!pw){setErr('이메일 또는 사번과 비밀번호를 입력하세요');return;}
     setLoading(true);setErr('');
     try{
-      const{data,error}=await db('emp').select('*,depts(name)').eq('email',email.trim()).single();
-      if(error||!data){setErr('이메일이 존재하지 않습니다');setLoading(false);return;}
+      const key=email.trim();
+      /* 이메일로 먼저 찾고, 없으면 사번으로 찾는다 (대소문자 무시) */
+      let data=null;
+      const r1=await db('emp').select('*,depts(name)').eq('email',key).maybeSingle();
+      data=r1.data||null;
+      if(!data){
+        const r2=await db('emp').select('*,depts(name)').ilike('emp_no',key).limit(2);
+        const hits=r2.data||[];
+        if(hits.length>1){setErr('같은 사번의 계정이 여러 개입니다. 이메일로 로그인해주세요');setLoading(false);return;}
+        data=hits[0]||null;
+      }
+      if(!data){setErr('이메일 또는 사번이 존재하지 않습니다');setLoading(false);return;}
       if(data.password!==pw){setErr('비밀번호가 올바르지 않습니다');setLoading(false);return;}
       if(data.status==='inactive'){setErr('비활성화된 계정입니다');setLoading(false);return;}
       if(remem)localStorage.setItem('bnf_cred',JSON.stringify({email:email.trim(),pw}));
@@ -11091,7 +11377,7 @@ function LoginPage({onLogin}){
         R('div',{style:{fontSize:13,color:'#6B6B6B',marginTop:3}},'통합 인트라넷 + MES 시스템')
       ),
       R('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:16}},
-        R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6B6B6B',display:'block',marginBottom:4}},'이메일'),R('input',{className:'inp',value:email,onChange:e=>setEmail(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'이메일 입력',type:'email',autoComplete:'email'})),
+        R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6B6B6B',display:'block',marginBottom:4}},'이메일 또는 사번'),R('input',{className:'inp',value:email,onChange:e=>setEmail(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'이메일 또는 사번 입력',type:'text',autoComplete:'username'})),
         R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6B6B6B',display:'block',marginBottom:4}},'비밀번호'),R('input',{className:'inp',type:'password',value:pw,onChange:e=>setPw(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'비밀번호 입력',autoComplete:'current-password'})),
         err&&R('div',{style:{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',fontSize:13,color:'#991b1b'}},err),
         R('label',{style:{display:'flex',alignItems:'center',gap:7,cursor:'pointer',fontSize:13,color:'#6B6B6B'}},
@@ -11253,7 +11539,7 @@ function XlPreviewModal({preview,onClose,onConfirm}){
 
 /* ─── 🔍 글로벌 검색 모달 (Ctrl+K) ─── */
 /* ═══ 권한: 관리자 전용 페이지 + 관리자가 개별로 끈 메뉴를 어디서든 차단 ═══ */
-const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart','pricelookup','kurly','wehago']);
+const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','data','admin','cats','operation','dart','wehago']);
 function isPageBlockedFor(user,pid){
   if(!user)return false;
   if(['superadmin','admin'].includes(user.role))return false;   /* 관리자 전부 허용 */
@@ -11287,7 +11573,6 @@ const NAV_PAGES_INDEX=[
   {p:'qc_hygiene',title:'위생 점검',ic:'🧼',keys:['위생','점검','청소','품질']},
   {p:'qc_claim',title:'클레임 관리',ic:'⚠',keys:['클레임','불만','컴플레인','품질']},
   {p:'pm_workorder',title:'작업지시서',ic:'📋',keys:['작업','지시서','작업지시','엑셀','workorder']},
-  {p:'pm_result',title:'생산 실적',ic:'📈',keys:['생산','실적','수량']},
   {p:'pm_equip',title:'설비 점검',ic:'🔧',keys:['설비','점검','수리','기계']},
   {p:'files',title:'파일 공유',ic:'📁',keys:['파일','공유','file']},
   {p:'cost',title:'원가분석',ic:'💰',keys:['원가','분석','cost']},
@@ -13776,6 +14061,7 @@ function App(){
     if(page==='autoOrder')return R(PageAutoOrder,{user,mats,onCreateOrder:o=>{
       setOrders(p=>[...p,{id:uid(),matCode:o.matCode,matName:o.matName,qty:o.qty,supplier:o.supplier,unit:o.unit||'kg',step:1,status:STEPS[0],reqDate:getDate(),expDate:addDays(3),memo:'자동발주제안'}]);
     }});
+    if(page==='pm_equip')return R(PageEquipCheck,{user});
     if(page==='manual')return R(PageManual,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
