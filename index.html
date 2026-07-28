@@ -1995,9 +1995,35 @@ function PageOrg({user}){
   );
 }
 
+/* ═══ 전자결재 공용 유틸 (전자결재 페이지 + 홈 위젯이 함께 사용) ═══
+   결재선은 content.__line = [{id,name,status,at,fixed}] 에 저장.
+   예전 문서(step1/step2 컬럼만 있는 것)는 읽을 때 자동 변환한다. */
+function apprLine(d,nameOf){
+  const c=(d&&d.content)||{};
+  if(Array.isArray(c.__line)&&c.__line.length)return c.__line;
+  const nm=id=>nameOf?nameOf(id):'';
+  const L=[];
+  if(d&&d.step1_id)L.push({id:d.step1_id,name:nm(d.step1_id),status:d.step1_status||'대기',at:d.step1_at||null});
+  if(d&&d.step2_id)L.push({id:d.step2_id,name:nm(d.step2_id),status:d.step2_status||'대기',at:d.step2_at||null});
+  return L;
+}
+function apprCurIdx(d){
+  if(!d||d.status!=='결재중')return -1;
+  return apprLine(d).findIndex(s=>s&&s.status!=='승인'&&s.status!=='반려');
+}
+function apprIsMyTurn(d,uid){const i=apprCurIdx(d);return i>=0&&apprLine(d)[i].id===uid;}
+function apprCanView(d,uid){
+  if(!d)return false;
+  if(d.writer_id===uid)return true;
+  if(apprLine(d).some(s=>s&&s.id===uid))return true;
+  const refs=(d.content&&Array.isArray(d.content.__refs))?d.content.__refs:[];
+  return refs.indexOf(uid)>=0;
+}
+
 /* ═══ 전자결재 ══════════════════════════════════════ */
 function PageApproval({user}){
   const[tab,setTab]=useState('mine');const[docs,setDocs]=useState([]);const[sel,setSel]=useState(null);
+  const[allDocs,setAllDocs]=useState([]);   /* 대시보드 집계용 (내가 볼 수 있는 전체) */
   const[showF,setShowF]=useState(false);const[fType,setFType]=useState('leave');const[loading,setLoading]=useState(true);
   const[emps,setEmps]=useState([]);
   const[form,setForm]=useState({title:'',approvers:[],content:{},refs:[],files:[]});
@@ -2037,26 +2063,12 @@ function PageApproval({user}){
   /* ── 결재선(N단계) ──
      content.__line = [{id,name,status,at,fixed:'pre'|'final'}] 로 저장.
      예전 문서(step1/step2만 있는 것)는 읽을 때 자동으로 변환해준다. */
-  const lineOf=d=>{
-    const c=(d&&d.content)||{};
-    if(Array.isArray(c.__line)&&c.__line.length)return c.__line;
-    const L=[];
-    if(d&&d.step1_id)L.push({id:d.step1_id,name:empName(d.step1_id),status:d.step1_status||'대기',at:d.step1_at||null});
-    if(d&&d.step2_id)L.push({id:d.step2_id,name:empName(d.step2_id),status:d.step2_status||'대기',at:d.step2_at||null});
-    return L;
-  };
+  const lineOf=d=>apprLine(d,empName);
   /* ── 열람 권한: 기안자 · 결재선에 포함된 결재자 · 기안자가 지정한 참조자만 ──
      (관리자라도 본인이 관여하지 않은 문서는 볼 수 없다) */
-  const canView=d=>{
-    if(!d)return false;
-    if(d.writer_id===user.id)return true;
-    if(lineOf(d).some(s=>s&&s.id===user.id))return true;
-    const refs=(d.content&&Array.isArray(d.content.__refs))?d.content.__refs:[];
-    return refs.indexOf(user.id)>=0;
-  };
-  /* 지금 결재할 차례인 단계 index (없으면 -1) */
-  const curIdx=d=>{const L=lineOf(d);if(d&&d.status!=='결재중')return -1;return L.findIndex(s=>s.status!=='승인'&&s.status!=='반려');};
-  const isMyTurn=d=>{const i=curIdx(d);return i>=0&&lineOf(d)[i].id===user.id;};
+  const canView=d=>apprCanView(d,user.id);
+  const curIdx=d=>apprCurIdx(d);            /* 지금 결재할 차례인 단계 index (없으면 -1) */
+  const isMyTurn=d=>apprIsMyTurn(d,user.id);
   /* 기안자가 고른 앞단계 + 관리자가 고정한 준최종/최종 을 합쳐 결재선 생성 */
   const buildLine=picked=>{
     const out=[];
@@ -2120,12 +2132,13 @@ function PageApproval({user}){
   const load=async()=>{
     setLoading(true);
     let q=db('approvals').select('*,emp!approvals_writer_id_fkey(name)');
-    if(tab==='mine')q=q.eq('writer_id',user.id);
-    else if(tab==='pending')q=q.eq('status','결재중');   /* N단계라 내 차례 판정은 아래에서 */
     const{data}=await q.order('created_at',{ascending:false});
     /* 기안자·결재자(·참조자)가 아니면 어떤 문서도 보이지 않는다 */
-    let rows=(data||[]).filter(canView);
-    if(tab==='pending')rows=rows.filter(isMyTurn);
+    const mineAll=(data||[]).filter(canView);
+    setAllDocs(mineAll);
+    let rows=mineAll;
+    if(tab==='mine')rows=rows.filter(d=>d.writer_id===user.id);
+    else if(tab==='pending')rows=rows.filter(isMyTurn);
     else if(tab==='involved')rows=rows.filter(d=>d.writer_id!==user.id);
     setDocs(rows);setLoading(false);
   };
@@ -2349,6 +2362,37 @@ function PageApproval({user}){
       (lockedPre||lockedFinal)&&R('div',{style:{marginTop:12,fontSize:12,color:'var(--ok)',fontWeight:600}},
         '🔒 현재 고정 결재선: ',[lockedPre&&empName(lockedPre),lockedFinal&&(empName(lockedFinal)+' (최종)')].filter(Boolean).join(' → '))
     ),
+    /* ── 대시보드: 내 기안 현황 + 내가 결재할 문서 ── */
+    (()=>{
+      const myTurn=allDocs.filter(isMyTurn);
+      const mineDocs=allDocs.filter(d=>d.writer_id===user.id);
+      const cnt=st=>mineDocs.filter(d=>d.status===st).length;
+      const card=(label,value,color,bg,onClick)=>R('div',{key:label,onClick,
+        style:{flex:'1 1 130px',minWidth:120,background:bg,border:'1px solid '+color+'33',borderRadius:12,padding:'12px 14px',cursor:onClick?'pointer':'default'}},
+        R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:700,marginBottom:4}},label),
+        R('div',{style:{fontSize:24,fontWeight:900,color:color,lineHeight:1.1}},value,R('span',{style:{fontSize:12,fontWeight:700,marginLeft:2}},'건'))
+      );
+      return R('div',{style:{marginBottom:14}},
+        R('div',{style:{display:'flex',gap:10,flexWrap:'wrap',marginBottom:myTurn.length?12:0}},
+          card('⏳ 내가 결재할 문서',myTurn.length,'#D94F1E','#FFF7ED',()=>setTab('pending')),
+          card('📤 내 기안 · 결재중',cnt('결재중'),'#2563EB','#EFF6FF',()=>setTab('mine')),
+          card('✅ 내 기안 · 승인',cnt('승인'),'#15803D','#F0FDF4',()=>setTab('mine')),
+          card('❌ 내 기안 · 반려',cnt('반려'),'#DC2626','#FEF2F2',()=>setTab('mine'))
+        ),
+        /* 결재할 문서 바로 보기 */
+        myTurn.length>0&&R('div',{className:'card',style:{border:'1px solid #FED7AA',background:'#FFFBF7'}},
+          R('div',{style:{fontSize:12,fontWeight:800,color:'#9A3412',marginBottom:8}},'⏳ 지금 내 차례인 결재 ',myTurn.length,'건'),
+          ...myTurn.slice(0,5).map(d=>R('div',{key:d.id,onClick:()=>setSel(d),
+            style:{display:'flex',gap:8,alignItems:'center',padding:'7px 0',borderTop:'1px solid #FDE9D9',cursor:'pointer',fontSize:13}},
+            R(Bdg2,{cls:'b-g',txt:fTypes.find(f=>f.v===d.form_type)?.l||'기안'}),
+            R('span',{style:{fontWeight:600,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},d.title),
+            R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},d.emp?.name||'',' · ',fDate(d.created_at)),
+            R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700,flexShrink:0}},'결재 →')
+          )),
+          myTurn.length>5&&R('div',{onClick:()=>setTab('pending'),style:{fontSize:11,color:'var(--p)',fontWeight:700,paddingTop:8,cursor:'pointer',textAlign:'right'}},'전체 ',myTurn.length,'건 보기 →')
+        )
+      );
+    })(),
     R('div',{className:'tab-row'},[['mine','내 기안'],['pending','결재 대기'],['involved','참여 문서']].map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
     R('div',{style:{fontSize:11,color:'var(--tm)',margin:'0 0 8px 2px'}},'🔒 결재 문서는 기안자·결재자·참조자만 볼 수 있습니다.'),
     R('div',{className:'tw'},
@@ -5155,17 +5199,31 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
   const[editMode,setEditMode]=useState(false);
-  const HOME_ALL=['sales','newprod','ongoing','quick','wr','news','lt','stats'];
+  const HOME_ALL=['sales','appr','newprod','ongoing','quick','wr','news','lt','stats'];
   const[sectionOrder,setSectionOrder]=useState(()=>{
     try{
       const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');
       let arr=(Array.isArray(v)&&v.length>0)?v.filter(x=>x!=='ai'):['wr','news','lt','stats'];
-      /* 신규 섹션 자동 삽입: 매출 → 신제품 → 진행업무 → 퀵메뉴 순으로 상단 배치 */
-      ['quick','ongoing','newprod','sales'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
+      /* 신규 섹션 자동 삽입: 매출 → 전자결재 → 신제품 → 진행업무 → 퀵메뉴 순으로 상단 배치 */
+      ['quick','ongoing','newprod','appr','sales'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
       return arr.filter(x=>HOME_ALL.includes(x));
     }catch(e){return HOME_ALL.slice();}
   });
   const[hiddenSecs,setHiddenSecs]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_home_hidden')||'[]');}catch(e){return[];}});
+  /* 전자결재 간략 현황 (내가 볼 수 있는 문서만) */
+  const[apprStat,setApprStat]=useState(null);
+  useEffect(()=>{
+    let dead=false;
+    (async()=>{
+      try{
+        const{data}=await db('approvals').select('*,emp!approvals_writer_id_fkey(name)').order('created_at',{ascending:false}).limit(300);
+        const uid=user&&user.id;
+        const seen=(data||[]).filter(d=>apprCanView(d,uid));
+        if(!dead)setApprStat({myTurn:seen.filter(d=>apprIsMyTurn(d,uid)),mine:seen.filter(d=>d.writer_id===uid)});
+      }catch(e){if(!dead)setApprStat({myTurn:[],mine:[]});}
+    })();
+    return()=>{dead=true;};
+  },[user&&user.id]);
   const toggleHide=(id)=>{setHiddenSecs(p=>{const n=p.includes(id)?p.filter(x=>x!==id):[...p,id];try{localStorage.setItem('bnf_home_hidden',JSON.stringify(n));}catch(e){}return n;});};
   /* 매출 스냅샷 (관리자 전용) - 1분마다 + 화면 복귀 시 자동 갱신 */
   const isBoss=['superadmin','admin'].includes((user&&user.role)||'');
@@ -5703,9 +5761,40 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     );
   };
 
-  const SEC_LABELS={sales:'💵 매출 현황',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
+  /* ── 전자결재 간략 현황 ── */
+  const buildAppr=()=>{
+    if(!apprStat)return R('div',{className:'card'},R('div',{style:{fontSize:12,color:'var(--tm)'}},'📋 전자결재 불러오는 중...'));
+    const{myTurn,mine}=apprStat;
+    const cnt=st=>mine.filter(d=>d.status===st).length;
+    const pill=(label,value,color,bg)=>R('div',{key:label,style:{flex:'1 1 90px',minWidth:84,background:bg,borderRadius:10,padding:'9px 10px',textAlign:'center'}},
+      R('div',{style:{fontSize:19,fontWeight:900,color:color,lineHeight:1.1}},value),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700,marginTop:2}},label));
+    return R('div',{className:'card',style:{cursor:'pointer'},onClick:()=>onGoPage('approval')},
+      R('div',{style:{display:'flex',alignItems:'center',marginBottom:10}},
+        R('div',{className:'card-title',style:{margin:0}},'📋 전자결재'),
+        myTurn.length>0&&R('span',{style:{marginLeft:8,background:'#D94F1E',color:'#fff',fontSize:10,fontWeight:800,borderRadius:10,padding:'2px 8px'}},'내 차례 '+myTurn.length),
+        R('span',{style:{marginLeft:'auto',fontSize:11,color:'var(--p)',fontWeight:700}},'바로가기 →')
+      ),
+      R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:myTurn.length?10:0}},
+        pill('내 차례',myTurn.length,'#D94F1E','#FFF7ED'),
+        pill('내 기안 진행중',cnt('결재중'),'#2563EB','#EFF6FF'),
+        pill('승인',cnt('승인'),'#15803D','#F0FDF4'),
+        pill('반려',cnt('반려'),'#DC2626','#FEF2F2')
+      ),
+      myTurn.length>0&&R('div',{style:{borderTop:'1px solid var(--bd)',paddingTop:8}},
+        ...myTurn.slice(0,3).map(d=>R('div',{key:d.id,style:{display:'flex',gap:6,alignItems:'center',fontSize:12,padding:'3px 0'}},
+          R('span',{style:{color:'#D94F1E',fontWeight:800,flexShrink:0}},'⏳'),
+          R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},d.title),
+          R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},d.emp?.name||'')
+        ))
+      )
+    );
+  };
+
+  const SEC_LABELS={sales:'💵 매출 현황',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
   const builders={
     sales:buildSales,
+    appr:buildAppr,
     newprod:()=>R(NewProductHome,{onGoPage}),
     ongoing:()=>R(OngoingWork,{user,onGoPage}),
     quick:buildQuick,
