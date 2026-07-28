@@ -4321,6 +4321,7 @@ function PageAdmin({user}){
   const[tab,setTab]=useState('users');const[emps,setEmps]=useState([]);const[depts,setDepts]=useState([]);
   const[showUF,setShowUF]=useState(false);const[editU,setEditU]=useState(null);
   const[uf,setUf]=useState({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
+  const[showPw,setShowPw]=useState(false);   /* 직원 수정창 비밀번호 보기 (관리자) */
   /* ── 실시간 접속 현황 + 강제 접속 해제 ── */
   const[pres,setPres]=useState({});
   const loadPres=async()=>{
@@ -4434,7 +4435,11 @@ function PageAdmin({user}){
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'이름 *'),R('input',{className:'inp',value:uf.name,onChange:e=>setUf(p=>({...p,name:e.target.value}))})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'이메일 *'),R('input',{className:'inp',type:'email',value:uf.email,onChange:e=>setUf(p=>({...p,email:e.target.value}))})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'비밀번호'),R('input',{className:'inp',type:'password',value:uf.password,onChange:e=>setUf(p=>({...p,password:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'비밀번호'),
+          R('div',{style:{display:'flex',gap:6}},
+            R('input',{className:'inp',type:showPw?'text':'password',value:uf.password,onChange:e=>setUf(p=>({...p,password:e.target.value})),style:{flex:1}}),
+            R('button',{type:'button',onClick:()=>setShowPw(v=>!v),title:showPw?'가리기':'비밀번호 보기',
+              style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'0 10px',cursor:'pointer',fontSize:13,fontFamily:'inherit'}},showPw?'🙈':'👁'))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'사번'),R('input',{className:'inp',value:uf.emp_no,onChange:e=>setUf(p=>({...p,emp_no:e.target.value})),placeholder:'EMP001'})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'부서'),R('select',{className:'inp',value:uf.dept_id,onChange:e=>setUf(p=>({...p,dept_id:e.target.value}))},R('option',{value:''},'선택'),...depts.map(d=>R('option',{key:d.id,value:d.id},d.name)))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'직위'),R('input',{className:'inp',value:uf.position,onChange:e=>setUf(p=>({...p,position:e.target.value})),placeholder:'사원'})),
@@ -11669,6 +11674,47 @@ function loadNavSections(){
             localStorage.setItem('bnf_open_menus_v1','1');
           }
         }catch(e){}
+        /* ── 항상 실행: 없어진 메뉴 정리 + 부서 폴더 필수 메뉴 보강 ──
+           (1회 플래그 방식은 그 뒤에 추가된 메뉴가 기존 사용자에게 안 생기는 문제가 있어 매번 검사) */
+        try{
+          const GONE={pm_result:1,qc_incoming:1};
+          filtered.forEach(sec=>{
+            if(!sec||!Array.isArray(sec.items))return;
+            const before=JSON.stringify(sec.items);
+            sec.items=sec.items.filter(i=>!(i&&GONE[i.id]));
+            sec.items.forEach(f=>{if(f&&f.kind==='folder')f.items=(f.items||[]).filter(i=>!(i&&GONE[i.id]));});
+            if(JSON.stringify(sec.items)!==before)changed=true;
+          });
+          const deepAny=id=>filtered.some(x=>x&&Array.isArray(x.items)&&x.items.some(i=>i&&(i.kind==='folder'?(i.items||[]).some(c=>c&&c.id===id):i.id===id)));
+          const ensure=(secMatch,items)=>{
+            let sec=filtered.find(x=>x&&(x.type===secMatch.t||String(x.label||'').indexOf(secMatch.m)>=0));
+            if(!sec){
+              filtered.some(x=>(x&&Array.isArray(x.items))&&x.items.some(i=>{
+                if(i&&i.kind==='folder'&&String(i.l||'').indexOf(secMatch.m)>=0){sec=i;return true;}
+                return false;
+              }));
+            }
+            if(!sec){
+              sec={label:secMatch.label,type:secMatch.t,items:[]};
+              const qi=filtered.findIndex(x=>x&&x.type==='quicklinks');
+              if(qi>=0)filtered.splice(qi,0,sec);else filtered.push(sec);
+              changed=true;
+            }
+            if(!Array.isArray(sec.items))sec.items=[];
+            items.forEach(it=>{if(!deepAny(it.id)){
+              /* 같은 폴더의 짝 메뉴 앞에 끼워넣기 */
+              const bi=it.before?sec.items.findIndex(x=>x&&x.id===it.before):-1;
+              const item={id:it.id,l:it.l,ic:it.ic};
+              if(bi>=0)sec.items.splice(bi,0,item);else sec.items.push(item);
+              changed=true;
+            }});
+          };
+          ensure({t:'dept_pm',m:'생산관리',label:'🏭 생산관리'},[
+            {id:'pm_workorder',l:'작업지시서',ic:'📋',before:'pm_equip'},
+            {id:'pm_equip',l:'설비 점검',ic:'🔧'}]);
+          ensure({t:'dept_qc',m:'품질',label:'🧪 품질관리'},[
+            {id:'qc_self',l:'자가품질검사',ic:'🧪',before:'qc_process'}]);
+        }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
       }
@@ -13844,6 +13890,51 @@ function PageShipSort({mats,hqItems}){
   );
 }
 
+/* ═══ 내 정보 · 비밀번호 변경 ═══════════════════════ */
+function MyInfoModal({user,onClose,onUpdated}){
+  const[cur,setCur]=useState('');
+  const[pw1,setPw1]=useState('');
+  const[pw2,setPw2]=useState('');
+  const[show,setShow]=useState(false);
+  const[busy,setBusy]=useState(false);
+  const change=async()=>{
+    if(!cur)return alert('현재 비밀번호를 입력해주세요.');
+    if(cur!==(user.password||''))return alert('현재 비밀번호가 올바르지 않습니다.');
+    if(!pw1||pw1.length<4)return alert('새 비밀번호는 4자 이상으로 입력해주세요.');
+    if(pw1!==pw2)return alert('새 비밀번호가 서로 다릅니다.');
+    if(pw1===cur)return alert('현재 비밀번호와 다른 비밀번호를 입력해주세요.');
+    setBusy(true);
+    try{
+      const{error}=await db('emp').update({password:pw1}).eq('id',user.id);
+      if(error)throw error;
+      /* 저장된 자동로그인 정보도 갱신 */
+      try{
+        const cred=JSON.parse(localStorage.getItem('bnf_cred')||'{}');
+        if(cred&&cred.email)localStorage.setItem('bnf_cred',JSON.stringify({email:cred.email,pw:pw1}));
+      }catch(e){}
+      onUpdated(Object.assign({},user,{password:pw1}));
+      alert('✅ 비밀번호가 변경되었습니다.');
+      onClose();
+    }catch(e){alert('변경 실패: '+e.message);}
+    setBusy(false);
+  };
+  const row=(l,v)=>R('div',{style:{display:'flex',gap:10,fontSize:13,padding:'4px 0'}},
+    R('span',{style:{color:'var(--tm)',width:64,flexShrink:0}},l),R('span',{style:{fontWeight:600}},v||'-'));
+  const pwInp=(v,set,ph)=>R('input',{className:'inp',type:show?'text':'password',value:v,onChange:e=>set(e.target.value),placeholder:ph,autoComplete:'new-password'});
+  return R(Modal2,{title:'👤 내 정보',onClose,size:420,
+    footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+      R('button',{className:'btn bs',onClick:onClose,style:{flex:1}},'닫기'),
+      R('button',{className:'btn bp',onClick:change,disabled:busy,style:{flex:2}},busy?'변경 중...':'비밀번호 변경'))},
+    R('div',{style:{background:'#F9F7FB',borderRadius:10,padding:'10px 14px',marginBottom:14}},
+      row('이름',user.name),row('직위',user.position),row('이메일',user.email),row('사번',user.emp_no)),
+    R('div',{className:'fr'},R('label',{className:'lbl'},'현재 비밀번호'),pwInp(cur,setCur,'현재 비밀번호')),
+    R('div',{className:'fr'},R('label',{className:'lbl'},'새 비밀번호'),pwInp(pw1,setPw1,'4자 이상')),
+    R('div',{className:'fr'},R('label',{className:'lbl'},'새 비밀번호 확인'),pwInp(pw2,setPw2,'한 번 더 입력')),
+    R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--tm)',cursor:'pointer'}},
+      R('input',{type:'checkbox',checked:show,onChange:e=>setShow(e.target.checked)}),'비밀번호 표시')
+  );
+}
+
 function App(){
   const[user,setUser]=useState(null);
   /* ── 접속 상태 하트비트 + 관리자 강제 접속 해제 감지 (app_state id=2 사용) ── */
@@ -14105,6 +14196,9 @@ function App(){
   };
 
   const[page,setPage]=useState('home');
+  /* 로그인(사용자 변경) 시 항상 홈 화면부터 시작 */
+  useEffect(()=>{if(user)setPage('home');},[user&&user.id]);
+  const[myInfoOpen,setMyInfoOpen]=useState(false);
   const[globalSearch,setGlobalSearch]=useState(false); /* Cmd+K 글로벌 검색 모달 */
   const[notifPanel,setNotifPanel]=useState(false); /* 알림 패널 */
   /* Cmd+K / Ctrl+K로 글로벌 검색 열기 */
@@ -14557,6 +14651,7 @@ function App(){
         saveStatus==='error'&&R('span',{style:{fontSize:10,color:'#B91C1C',background:'#FEF2F2',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,cursor:'help'},title:'저장 실패 - 네트워크 확인'},'✕ 저장실패'),
         R('div',{className:'hdr-name',style:{fontSize:12,flexShrink:0}},(user.name||'사용자')+' · '+(user.position||'')),
         (!isInstalled&&R('button',{onClick:installApp,className:'hdr-install',style:{padding:'4px 10px',background:'var(--pb)',border:'1px solid #F3D6C7',borderRadius:6,color:'var(--p)',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'📱 앱설치')),
+        R('button',{onClick:()=>setMyInfoOpen(true),title:'내 정보 · 비밀번호 변경',style:{padding:'4px 10px',background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:6,color:'#6B6B6B',fontSize:11,cursor:'pointer',flexShrink:0,fontFamily:'inherit'}},'👤 내 정보'),
         R('button',{onClick:()=>{localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:6,color:'#6B6B6B',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
       )
     ),
@@ -14764,6 +14859,7 @@ function App(){
     bomModal&&R(BOMModal,{mats,cats,editProd:null,onSave:p=>setProds(pv=>[...pv,p]),onClose:()=>setBomModal(false),onAddMat:addMatQuick}),
     imgModal&&R(ImgModal,{data:imgModal,onClose:()=>setImgModal(null),genImg}),
     xlPreview&&R(XlPreviewModal,{preview:xlPreview,onClose:()=>setXlPreview(null),onConfirm:confirmXlImport}),
+    myInfoOpen&&R(MyInfoModal,{user,onClose:()=>setMyInfoOpen(false),onUpdated:u=>{setUser(u);try{localStorage.setItem('bnf_user',JSON.stringify(u));}catch(e){}}}),
     globalSearch&&R(GlobalSearchModal,{mats,prods,user,onClose:()=>setGlobalSearch(false),onGoPage:(p,extra)=>{setPage(p);setGlobalSearch(false);}}),
     notifPanel&&R(NotifPanel,{mats,user,onClose:()=>setNotifPanel(false),onGoPage:(p)=>{setPage(p);setNotifPanel(false);}})
   );
