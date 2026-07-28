@@ -7722,27 +7722,40 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       R('table',{style:{width:COLS.reduce((a,c)=>a+wOf(c.k),0),minWidth:'100%',fontSize:fontScale,borderCollapse:'collapse',tableLayout:'fixed'}},
         R('colgroup',null,...COLS.map(c=>R('col',{key:c.k,style:{width:wOf(c.k)}}))),
         R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
-          ...COLS.map((c,ci)=>R('th',{key:c.k,style:{padding:'5px 8px',textAlign:c.a||'left',color:'#94a3b8',fontWeight:600,fontSize:'0.92em',borderBottom:'1px solid #F1F5F9',position:'relative',whiteSpace:'nowrap',overflow:'hidden'}},
+          ...COLS.map((c,ci)=>R('th',{key:c.k,style:{padding:'5px 8px',textAlign:c.a||'left',color:'#94a3b8',fontWeight:600,fontSize:'0.92em',borderBottom:'1px solid #E2E8F0',borderRight:ci<COLS.length-1?'1px solid #E2E8F0':'none',position:'relative',whiteSpace:'nowrap',overflow:'hidden'}},
             c.l,
+            /* 칸 너비 조절 손잡이 — 굵은 실선으로 눈에 보이게 */
             ci<COLS.length-1&&R('span',{
               onMouseDown:e=>startResize(c.k,e),
-              title:'끌어서 칸 너비 조절',
-              style:{position:'absolute',top:0,right:0,width:8,height:'100%',cursor:'col-resize',userSelect:'none'}
-            })
+              title:'좌우로 끌어서 칸 너비 조절',
+              style:{position:'absolute',top:0,right:-2,width:14,height:'100%',cursor:'col-resize',userSelect:'none',
+                display:'flex',alignItems:'center',justifyContent:'center',zIndex:2}
+            },
+              R('span',{style:{display:'block',width:3,height:'70%',background:'#94A3B8',borderRadius:2,pointerEvents:'none'}})
+            )
           ))
         )),
         R('tbody',null,
-          ...combined.rows.filter(r=>showAllCombined||r.short>0).map(r=>{const ordered=orderedMats.has(r.code);return R('tr',{key:r.code,style:{background:ordered?'#F0FDF4':(r.short>0?'#FFF7F4':'#fff')}},
-            R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'center'}},
+          /* 매입처별로 묶어서 항상 자동 정렬 (매입처 없는 품목은 맨 뒤) */
+          ...(()=>{
+            const supName=r=>((supOf(r.mat,r.name).name)||'').trim();
+            const _list=combined.rows.filter(r=>showAllCombined||r.short>0).slice().sort((a,b)=>{
+              const sa=supName(a),sb=supName(b);
+              return (sa?0:1)-(sb?0:1)||sa.localeCompare(sb,'ko')||b.short-a.short||a.name.localeCompare(b.name,'ko');
+            });
+            return _list.map((r,_ri)=>{const ordered=orderedMats.has(r.code);
+            const _newGrp=_ri>0&&supName(_list[_ri-1])!==supName(r);
+            return R('tr',{key:r.code,style:{background:ordered?'#F0FDF4':(r.short>0?'#FFF7F4':'#fff'),borderTop:_newGrp?'2px solid #CBD5E1':'none'}},
+            R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'center'}},
               R('input',{type:'checkbox',checked:ordered,onChange:()=>toggleOrdered(r.code),title:ordered?'발주 완료':'발주 체크',style:{width:16,height:16,cursor:'pointer',accentColor:'#16A34A'}})),
-            R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',fontWeight:r.short>0?700:500,color:ordered?'#9CA3AF':(r.short>0?'#991B1B':'#374151'),textDecoration:ordered?'line-through':'none',lineHeight:1.35,wordBreak:'break-all'}},
+            R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',fontWeight:r.short>0?700:500,color:ordered?'#9CA3AF':(r.short>0?'#991B1B':'#374151'),textDecoration:ordered?'line-through':'none',lineHeight:1.35,wordBreak:'break-all'}},
               r.name,
               ordered&&R('span',{style:{fontSize:'0.82em',color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료'),
               !ordered&&r.prods.length>1&&R('span',{style:{fontSize:'0.82em',color:'#94a3b8',fontWeight:500,marginLeft:5}},'('+r.prods.length+'개 제품 공용)')
             ),
             /* 매입처: 재고 관리 입력값 우선, 없으면 이카운트 매입내역의 최근 거래처 */
             (()=>{const s=supOf(r.mat,r.name);
-              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',color:ordered?'#9CA3AF':(s.name?'#475569':'#CBD5E1'),fontSize:'0.96em',lineHeight:1.35,wordBreak:'break-all'},
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',color:ordered?'#9CA3AF':(s.name?'#475569':'#CBD5E1'),fontSize:'0.96em',lineHeight:1.35,wordBreak:'break-all'},
                 title:s.name
                   ?(s.name+(s.contact?(' · '+s.contact):'')+(s.from==='buy'?(' · 매입내역 '+fDate(s.date)+' 기준'):'')+(s.price?(' · 단가 '+s.price.toLocaleString()+'원'):''))
                   :'매입처 정보 없음 (재고 관리에 입력하거나 매입내역이 쌓이면 자동 표시)'},
@@ -7751,17 +7764,17 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             })(),
             /* 최근 매입단가 (+ 부족량 기준 예상 발주금액) */
             (()=>{const s=supOf(r.mat,r.name);const est=s.price>0&&r.short>0?Math.round(s.price*r.short):0;
-              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:ordered?'#9CA3AF':(s.price>0?'#374151':'#CBD5E1'),fontSize:'0.96em',whiteSpace:'nowrap'},
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',color:ordered?'#9CA3AF':(s.price>0?'#374151':'#CBD5E1'),fontSize:'0.96em',whiteSpace:'nowrap'},
                 title:s.price>0?('최근 매입단가 '+s.price.toLocaleString()+'원'+(s.date?(' ('+fDate(s.date)+')'):'')+(est?('\n부족 '+r.short.toFixed(2)+' '+r.unit+' × 단가 ≈ '+est.toLocaleString()+'원'):'')):'매입단가 정보 없음'},
                 s.price>0?R('span',{style:{fontWeight:700}},s.price.toLocaleString(),'원'):'-',
                 est>0&&R('div',{style:{fontSize:'0.82em',color:'#94a3b8',marginTop:1}},'≈ ',est.toLocaleString(),'원'));
             })(),
-            R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:700,color:ordered?'#9CA3AF':'#374151'}},r.needed.toFixed(2),' ',r.unit),
-            R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#64748B'}},(+r.stock).toFixed(2),' ',r.unit),
+            R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:700,color:ordered?'#9CA3AF':'#374151'}},r.needed.toFixed(2),' ',r.unit),
+            R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#64748B'}},(+r.stock).toFixed(2),' ',r.unit),
             r.short>0
-              ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:800,color:ordered?'#9CA3AF':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
-              :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:'0.92em'}},'✓ 충분')
-          );}),
+              ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9CA3AF':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
+              :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#059669',fontWeight:600,fontSize:'0.92em'}},'✓ 충분')
+          );});})(),
           combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:7,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:'1.05em',fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
       )
