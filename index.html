@@ -7685,6 +7685,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
           R('th',{style:{padding:'5px 6px 5px 12px',textAlign:'center',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:38}},'발주'),
           R('th',{style:{padding:'5px 12px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'원재료'),
           R('th',{style:{padding:'5px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:120}},'매입처'),
+          R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:96}},'최근 매입단가'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:80}},'총 필요'),
           R('th',{style:{padding:'5px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'재고'),
           R('th',{style:{padding:'5px 12px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:90}},'부족')
@@ -7705,8 +7706,14 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
                   ?(s.name+(s.contact?(' · '+s.contact):'')+(s.from==='buy'?(' · 매입내역 '+fDate(s.date)+' 기준'):'')+(s.price?(' · 단가 '+s.price.toLocaleString()+'원'):''))
                   :'매입처 정보 없음 (재고 관리에 입력하거나 매입내역이 쌓이면 자동 표시)'},
                 s.name||'-',
-                s.from==='buy'&&R('span',{style:{fontSize:8.5,color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'),
-                s.name&&s.price>0&&R('span',{style:{color:'#94a3b8',marginLeft:4}},s.price.toLocaleString(),'원'));
+                s.from==='buy'&&R('span',{style:{fontSize:8.5,color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'));
+            })(),
+            /* 최근 매입단가 (+ 부족량 기준 예상 발주금액) */
+            (()=>{const s=supOf(r.mat,r.name);const est=s.price>0&&r.short>0?Math.round(s.price*r.short):0;
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:ordered?'#9CA3AF':(s.price>0?'#374151':'#CBD5E1'),fontSize:10.5,whiteSpace:'nowrap'},
+                title:s.price>0?('최근 매입단가 '+s.price.toLocaleString()+'원'+(s.date?(' ('+fDate(s.date)+')'):'')+(est?('\n부족 '+r.short.toFixed(2)+' '+r.unit+' × 단가 ≈ '+est.toLocaleString()+'원'):'')):'매입단가 정보 없음'},
+                s.price>0?R('span',{style:{fontWeight:700}},s.price.toLocaleString(),'원'):'-',
+                est>0&&R('div',{style:{fontSize:9,color:'#94a3b8',marginTop:1}},'≈ ',est.toLocaleString(),'원'));
             })(),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:700,color:ordered?'#9CA3AF':'#374151'}},r.needed.toFixed(2),' ',r.unit),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#64748B'}},(+r.stock).toFixed(2),' ',r.unit),
@@ -7714,7 +7721,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',fontWeight:800,color:ordered?'#9CA3AF':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
               :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:10}},'✓ 충분')
           );}),
-          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:6,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
+          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:7,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:12,fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
       )
     ),
@@ -7791,6 +7798,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
               R('th',{style:{padding:'4px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9'}},'품목'),
               R('th',{style:{padding:'4px 8px',textAlign:'left',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:110}},'매입처'),
+              R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:82}},'최근단가'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'필요'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:70}},'재고'),
               R('th',{style:{padding:'4px 8px',textAlign:'right',color:'#94a3b8',fontWeight:600,fontSize:10,borderBottom:'1px solid #F1F5F9',width:80}},'부족')
@@ -7802,6 +7810,9 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
                 (()=>{const s=supOf(mat,b.name);return R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',color:s.name?'#475569':'#CBD5E1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130},
                   title:s.name?(s.name+(s.from==='buy'?' (매입내역)':'')+(s.price?(' · '+s.price.toLocaleString()+'원'):'')):'매입처 정보 없음'},
                   s.name||'-',s.from==='buy'&&R('span',{style:{fontSize:8,color:'#2563EB',marginLeft:3}},'*'));})(),
+                (()=>{const s=supOf(mat,b.name);return R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:s.price>0?'#374151':'#CBD5E1',fontSize:10,whiteSpace:'nowrap'},
+                  title:s.price>0?('최근 매입단가 '+s.price.toLocaleString()+'원'+(s.date?(' ('+fDate(s.date)+')'):'')):'매입단가 정보 없음'},
+                  s.price>0?(s.price.toLocaleString()+'원'):'-');})(),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:'#64748B'}},needed.toFixed(2),' ',b.unit),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',color:'#64748B'}},mat.s,' ',b.unit),
                 R('td',{style:{padding:'5px 8px',borderTop:'1px solid #FEE2E2',textAlign:'right',fontWeight:800,color:'#DC2626'}},'-',short.toFixed(2),' ',b.unit)
@@ -7810,11 +7821,12 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               showAll?okItems.map(({mat,b,needed,short})=>R('tr',{key:b.c},
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#94a3b8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:200}},b.name||mat.n),
                 (()=>{const s=supOf(mat,b.name);return R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',color:'#cbd5e1',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130},title:s.name||'매입처 정보 없음'},s.name||'-');})(),
+                (()=>{const s=supOf(mat,b.name);return R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1',fontSize:10,whiteSpace:'nowrap'}},s.price>0?(s.price.toLocaleString()+'원'):'-');})(),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1'}},needed.toFixed(2),' ',b.unit),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#cbd5e1'}},mat.s,' ',b.unit),
                 R('td',{style:{padding:'4px 8px',borderTop:'1px solid #F1F5F9',textAlign:'right',color:'#059669',fontWeight:600,fontSize:10}},'✓')
               )):null,
-              shortItems.length===0&&!showAll&&R('tr',null,R('td',{colSpan:5,style:{padding:'10px',textAlign:'center',color:'#059669',fontSize:11,fontWeight:600}},'✓ 모든 원재료가 충분합니다'))
+              shortItems.length===0&&!showAll&&R('tr',null,R('td',{colSpan:6,style:{padding:'10px',textAlign:'center',color:'#059669',fontSize:11,fontWeight:600}},'✓ 모든 원재료가 충분합니다'))
             )
           )
         ),
