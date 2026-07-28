@@ -2014,6 +2014,28 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
   };
   const canEdit=r=>isAdmin||r._by===user.id;
 
+  /* ── 표에서 바로 입력 (Tab=오른쪽 칸, Enter=등록) ── */
+  const[quick,setQuick]=useState(()=>blank());
+  const quickRef=useRef(null);
+  const quickSave=async()=>{
+    const first=cols[0];
+    if(!String(quick[first.k]||'').trim()){
+      alert(first.l+'을(를) 입력해주세요.');
+      if(quickRef.current)quickRef.current.focus();
+      return;
+    }
+    const row=Object.assign({id:'r'+Date.now()+Math.random().toString(36).slice(2,6)},quick,
+      {_by:user.id,_byName:user.name,_at:now2()});
+    await persist([row,...(rows||[])]);
+    setQuick(blank());
+    /* 다음 줄을 바로 이어서 칠 수 있게 첫 칸으로 커서 이동 */
+    setTimeout(()=>{if(quickRef.current)quickRef.current.focus();},30);
+  };
+  const onQuickKey=e=>{
+    if(e.key==='Enter'){e.preventDefault();quickSave();}
+    /* Tab은 브라우저 기본 동작(오른쪽 칸 이동)을 그대로 사용 */
+  };
+
   const list=(rows||[]).filter(r=>{
     const s=q.trim().toLowerCase();
     if(!s)return true;
@@ -2054,8 +2076,30 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
           R('th',{style:{width:84}},'')
         )),
         R('tbody',null,
+          /* ── 빠른 입력 줄: 칸에 바로 치고 Tab으로 오른쪽, Enter로 등록 ── */
+          R('tr',{key:'__quick',style:{background:'#FFFBF7'}},
+            ...cols.map((c,ci)=>R('td',{key:c.k,style:{padding:'4px 6px'}},
+              c.type==='select'
+                ?R('select',{value:quick[c.k]||'',
+                    ref:ci===0?quickRef:null,
+                    onChange:e=>setQuick(p=>Object.assign({},p,{[c.k]:e.target.value})),
+                    onKeyDown:onQuickKey,
+                    style:{width:'100%',padding:'5px 6px',border:'1px solid #FED7AA',borderRadius:6,fontSize:12,background:'#fff',fontFamily:'inherit'}},
+                    R('option',{value:''},'선택'),...(c.opts||[]).map(o=>R('option',{key:o,value:o},o)))
+                :R('input',{value:quick[c.k]||'',
+                    ref:ci===0?quickRef:null,
+                    type:c.type==='date'?'date':(c.type==='num'?'number':'text'),
+                    onChange:e=>setQuick(p=>Object.assign({},p,{[c.k]:e.target.value})),
+                    onKeyDown:onQuickKey,
+                    placeholder:ci===0?(c.l+' 입력 후 Tab'):c.l,
+                    style:{width:'100%',padding:'5px 6px',border:'1px solid #FED7AA',borderRadius:6,fontSize:12,fontFamily:'inherit',outline:'none'}})
+            )),
+            R('td',{style:{fontSize:10.5,color:'#B45309',whiteSpace:'nowrap'}},'Tab → 이동',R('br'),'Enter → 등록'),
+            R('td',null,R('button',{className:'btn bp btn-sm',onClick:quickSave,disabled:busy,
+              style:{padding:'4px 10px',fontSize:11}},'등록'))
+          ),
           rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20}},'로딩 중...')):
-          list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. [+ 추가]로 입력해주세요.')):
+          list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. 위 줄에 바로 입력하거나 [+ 추가]를 눌러주세요.')):
           list.map(r=>R('tr',{key:r.id},
             ...cols.map(c=>R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top'}},cell(r,c))),
             R('td',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap'}},r._byName||'-',R('br'),fDate(r._at)),
@@ -2081,6 +2125,181 @@ function SharedTable({user,title,ic,desc,storeKey,cols}){
             :R('input',{className:'inp',type:c.type==='date'?'date':(c.type==='num'?'number':'text'),
                 value:form[c.k]||'',onChange:e=>setForm(p=>Object.assign({},p,{[c.k]:e.target.value})),placeholder:c.ph||''})
       ))
+    )
+  );
+}
+
+/* ═══ 작업지시서 (엑셀 업로드 · 미리보기) ══════════════ */
+function PageWorkOrder({user}){
+  const[rows,setRows]=useState(null);
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[sel,setSel]=useState(null);        /* 미리보기 중인 문서 */
+  const[sheet,setSheet]=useState(null);    /* {names:[], cur:'', grid:[[..]]} */
+  const[loadingSheet,setLoadingSheet]=useState(false);
+  const[meta,setMeta]=useState({date:today2(),title:'',note:''});
+  const fileRef=useRef(null);
+  const isAdmin=['superadmin','admin'].includes(user.role);
+  const KEY='bnf_pm_workorder';
+
+  useEffect(()=>{load();},[]);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  const persist=async(next)=>{
+    const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+    const existing=(data&&data.state_data)||{};
+    await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+    setRows(next);
+  };
+  const upload=async(fileList)=>{
+    const files=Array.from(fileList||[]).filter(Boolean);
+    if(!files.length)return;
+    setBusy(true);
+    try{
+      const added=[];
+      for(const f of files){
+        if(f.size>50*1024*1024){alert('"'+f.name+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        const safe=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path='workorder/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,f);
+        if(error)throw error;
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+        added.push({id:'w'+Date.now()+Math.random().toString(36).slice(2,6),
+          name:f.name,path,url:(pub&&pub.publicUrl)||'',size:f.size,
+          date:meta.date||today2(),title:(meta.title||'').trim()||f.name.replace(/\.[^.]+$/,''),note:meta.note||'',
+          _by:user.id,_byName:user.name,_at:now2()});
+      }
+      if(added.length){
+        await persist([...added,...(rows||[])]);
+        setMeta({date:today2(),title:'',note:''});
+      }
+    }catch(e){alert('업로드 실패: '+e.message+'\n\n⚠️ Supabase Storage에 "bnf-files" 버킷이 있어야 합니다.');}
+    setBusy(false);
+  };
+  const del=async(r)=>{
+    if(!(isAdmin||r._by===user.id))return alert('올린 사람 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('"'+r.title+'" 을(를) 삭제할까요? 파일도 함께 지워집니다.'))return;
+    try{if(r.path)await sbClient.storage.from('bnf-files').remove([r.path]);}catch(e){}
+    await persist((rows||[]).filter(x=>x.id!==r.id));
+    if(sel&&sel.id===r.id){setSel(null);setSheet(null);}
+  };
+  const isExcel=n=>/\.(xlsx|xlsm|xls|csv)$/i.test(n||'');
+  const preview=async(r)=>{
+    setSel(r);setSheet(null);
+    if(!isExcel(r.name))return;
+    if(typeof XLSX==='undefined'){alert('엑셀 미리보기 라이브러리를 불러오지 못했습니다. 다운로드해서 확인해주세요.');return;}
+    setLoadingSheet(true);
+    try{
+      const res=await fetch(r.url);
+      const buf=await res.arrayBuffer();
+      const wb=XLSX.read(buf,{type:'array'});
+      showSheet(wb,wb.SheetNames[0]);
+      window._woWb=wb;
+    }catch(e){alert('미리보기 실패: '+e.message+'\n다운로드해서 확인해주세요.');}
+    setLoadingSheet(false);
+  };
+  const showSheet=(wb,name)=>{
+    const ws=wb.Sheets[name];
+    const grid=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false}).slice(0,300);
+    setSheet({names:wb.SheetNames,cur:name,grid});
+  };
+  const fSize=b=>{if(!b)return'';const k=b/1024;return k<1024?(k.toFixed(0)+'KB'):((k/1024).toFixed(1)+'MB');};
+
+  /* ── 미리보기 화면 ── */
+  if(sel)return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
+      R('button',{className:'btn bs',onClick:()=>{setSel(null);setSheet(null);}},'← 목록'),
+      R('div',{style:{display:'flex',gap:8}},
+        R('a',{className:'btn bp',href:sel.url,target:'_blank',rel:'noreferrer',download:sel.name,style:{textDecoration:'none'}},'⬇ 다운로드'),
+        (isAdmin||sel._by===user.id)&&R('button',{className:'btn bd2',onClick:()=>del(sel)},'🗑 삭제'))
+    ),
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('h2',{style:{fontSize:16,fontWeight:800,marginBottom:6}},sel.title),
+      R('div',{style:{fontSize:12,color:'var(--tm)',display:'flex',gap:10,flexWrap:'wrap'}},
+        R('span',null,'📅 ',sel.date||'-'),R('span',null,'📄 ',sel.name),R('span',null,fSize(sel.size)),
+        R('span',null,'올린이 ',sel._byName||'-'),R('span',null,fDT(sel._at))),
+      sel.note&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid var(--bd)',fontSize:13,whiteSpace:'pre-wrap'}},sel.note)
+    ),
+    loadingSheet?R('div',{className:'card',style:{textAlign:'center',padding:24,color:'var(--tm)'}},'엑셀 내용을 읽는 중...'):
+    sheet?R('div',{className:'card'},
+      sheet.names.length>1&&R('div',{className:'tab-row',style:{marginBottom:10}},
+        ...sheet.names.map(n=>R('button',{key:n,className:'tab'+(sheet.cur===n?' act':''),
+          onClick:()=>{try{showSheet(window._woWb,n);}catch(e){}}},n))),
+      R('div',{style:{overflow:'auto',maxHeight:'62vh',border:'1px solid var(--bd)',borderRadius:8}},
+        R('table',{style:{borderCollapse:'collapse',fontSize:11.5,width:'100%'}},
+          R('tbody',null,...sheet.grid.map((row,ri)=>R('tr',{key:ri,style:{background:ri===0?'#F8FAFC':'#fff'}},
+            ...row.map((c,ci)=>R('td',{key:ci,style:{border:'1px solid #EEF2F6',padding:'4px 7px',whiteSpace:'pre-wrap',
+              fontWeight:ri===0?700:400,color:ri===0?'#475569':'#1F2937',minWidth:60}},String(c==null?'':c)))
+          )))
+        )
+      ),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:6}},'최대 300줄까지 미리보기 · 전체 내용은 다운로드해서 확인하세요')
+    ):R('div',{className:'card',style:{textAlign:'center',padding:24,color:'var(--tm)'}},
+      isExcel(sel.name)?'미리보기를 만들지 못했습니다. 다운로드해서 확인해주세요.':'엑셀 파일이 아니어서 미리보기를 지원하지 않습니다.')
+  );
+
+  /* ── 목록 ── */
+  const list=(rows||[]).filter(r=>{
+    const s=q.trim().toLowerCase();
+    if(!s)return true;
+    return [r.title,r.name,r.note,r.date,r._byName].some(v=>String(v||'').toLowerCase().includes(s));
+  });
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📋 작업지시서'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'엑셀 작업지시서를 올리고 화면에서 바로 봅니다')),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},list.length+'건')
+    ),
+    /* 업로드 카드 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{className:'card-title',style:{marginBottom:10}},'⬆ 작업지시서 올리기'),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'작업일'),
+          R('input',{type:'date',className:'inp',value:meta.date,onChange:e=>setMeta(p=>Object.assign({},p,{date:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'제목 (비우면 파일명)'),
+          R('input',{className:'inp',value:meta.title,onChange:e=>setMeta(p=>Object.assign({},p,{title:e.target.value})),placeholder:'예) 7/29 라멘 라인 작업지시'}))
+      ),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'비고'),
+        R('input',{className:'inp',value:meta.note,onChange:e=>setMeta(p=>Object.assign({},p,{note:e.target.value})),placeholder:'특이사항 (선택)'})),
+      R('div',{
+        onDragOver:e=>e.preventDefault(),
+        onDrop:e=>{e.preventDefault();upload(e.dataTransfer&&e.dataTransfer.files);},
+        style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:16,textAlign:'center',background:'#FCFCFD',marginTop:4}},
+        R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:busy},busy?'업로드 중...':'📎 엑셀 파일 선택'),
+        R('input',{ref:fileRef,type:'file',multiple:true,accept:'.xlsx,.xlsm,.xls,.csv',style:{display:'none'},
+          onChange:e=>{upload(e.target.files);e.target.value='';}}),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:8}},'또는 파일을 이 영역에 끌어다 놓으세요 · xlsx / xls / csv · 최대 50MB')
+      )
+    ),
+    R('div',{style:{marginBottom:10}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 제목·파일명·비고 검색',style:{maxWidth:340}})),
+    R('div',{className:'tw'},
+      R('table',null,
+        R('thead',null,R('tr',null,
+          R('th',{style:{width:110}},'작업일'),R('th',null,'제목'),R('th',{style:{width:200}},'파일'),
+          R('th',null,'비고'),R('th',{style:{width:96}},'올린이'),R('th',{style:{width:120}},''))),
+        R('tbody',null,
+          rows===null?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          list.length===0?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'올라온 작업지시서가 없습니다.')):
+          list.map(r=>R('tr',{key:r.id,style:{cursor:'pointer'},onClick:()=>preview(r)},
+            R('td',{style:{fontSize:12}},r.date||'-'),
+            R('td',{style:{fontWeight:600,fontSize:12.5}},r.title),
+            R('td',{style:{fontSize:11,color:'var(--tm)',wordBreak:'break-all'}},'📄 ',r.name,' ',R('span',{style:{color:'#CBD5E1'}},fSize(r.size))),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)',whiteSpace:'pre-wrap'}},r.note||''),
+            R('td',{style:{fontSize:11,color:'var(--tm)'}},r._byName||'-',R('br'),fDate(r._at)),
+            R('td',{style:{whiteSpace:'nowrap'}},
+              R('span',{style:{display:'inline-flex',gap:4}},
+                R('a',{href:r.url,target:'_blank',rel:'noreferrer',download:r.name,onClick:e=>e.stopPropagation(),
+                  style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 7px',fontSize:11,textDecoration:'none',color:'var(--t)'}},'⬇'),
+                (isAdmin||r._by===user.id)&&R('button',{onClick:e=>{e.stopPropagation();del(r);},title:'삭제',
+                  style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')))
+          ))
+        )
+      )
     )
   );
 }
@@ -10336,6 +10555,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'qc_claim',l:'클레임 관리',ic:'⚠'},
   ]},
   {label:'🏭 생산관리',type:'dept_pm',items:[
+    {id:'pm_workorder',l:'작업지시서',ic:'📋'},
     {id:'pm_result',l:'생산 실적',ic:'📈'},
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
   ]},
@@ -10465,7 +10685,7 @@ function loadNavSections(){
               {t:'dept_qc',m:'품질',label:'🧪 품질관리',items:[
                 {id:'qc_incoming',l:'수입 검사',ic:'📥'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
               {t:'dept_pm',m:'생산관리',label:'🏭 생산관리',items:[
-                {id:'pm_result',l:'생산 실적',ic:'📈'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
+                {id:'pm_workorder',l:'작업지시서',ic:'📋'},{id:'pm_result',l:'생산 실적',ic:'📈'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
             ];
             const deepHas=(sec,id)=>{
               let f=false;
@@ -10729,6 +10949,7 @@ const NAV_PAGES_INDEX=[
   {p:'qc_process',title:'공정 검사',ic:'⚙',keys:['공정','검사','품질']},
   {p:'qc_hygiene',title:'위생 점검',ic:'🧼',keys:['위생','점검','청소','품질']},
   {p:'qc_claim',title:'클레임 관리',ic:'⚠',keys:['클레임','불만','컴플레인','품질']},
+  {p:'pm_workorder',title:'작업지시서',ic:'📋',keys:['작업','지시서','작업지시','엑셀','workorder']},
   {p:'pm_result',title:'생산 실적',ic:'📈',keys:['생산','실적','수량']},
   {p:'pm_equip',title:'설비 점검',ic:'🔧',keys:['설비','점검','수리','기계']},
   {p:'files',title:'파일 공유',ic:'📁',keys:['파일','공유','file']},
@@ -13218,6 +13439,7 @@ function App(){
     if(page==='autoOrder')return R(PageAutoOrder,{user,mats,onCreateOrder:o=>{
       setOrders(p=>[...p,{id:uid(),matCode:o.matCode,matName:o.matName,qty:o.qty,supplier:o.supplier,unit:o.unit||'kg',step:1,status:STEPS[0],reqDate:getDate(),expDate:addDays(3),memo:'자동발주제안'}]);
     }});
+    if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='files')return R(PageFiles,{user});
