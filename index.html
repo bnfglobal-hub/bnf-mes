@@ -9959,10 +9959,10 @@ function PageFiles({user}){
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📁 파일 공유'),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},files.length+'개 · '+fSize(totalSize)+' 사용 중')),
       R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:uploading},uploading?'⏳ 업로드 중...':'⬆️ 파일 업로드'),
-      R('input',{ref:fileRef,type:'file',style:{display:'none'},onChange:e=>{if(e.target.files[0]){upload(e.target.files[0]);e.target.value='';}}})
+      R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{const fs=Array.from(e.target.files||[]);e.target.value='';(async()=>{for(const f of fs)await upload(f);})();}})
     ),
     R('div',{style:{display:'flex',gap:8,marginBottom:14}},R('input',{className:'inp',value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 파일 검색',style:{maxWidth:300}})),
-    R('div',{className:'card',style:{padding:0,overflow:'hidden'},onDragOver:e=>{e.preventDefault();e.currentTarget.style.background='#FFF8F4';},onDragLeave:e=>{e.currentTarget.style.background='#fff';},onDrop:e=>{e.preventDefault();e.currentTarget.style.background='#fff';const f=e.dataTransfer.files[0];if(f)upload(f);}},
+    R('div',{className:'card',style:{padding:0,overflow:'hidden',cursor:'copy'},title:'빈 곳을 더블클릭하면 파일을 올릴 수 있습니다',onDoubleClick:e=>{if(e.target.closest&&e.target.closest('a,button'))return;if(fileRef.current)fileRef.current.click();},onDragOver:e=>{e.preventDefault();e.currentTarget.style.background='#FFF8F4';},onDragLeave:e=>{e.currentTarget.style.background='#fff';},onDrop:e=>{e.preventDefault();e.currentTarget.style.background='#fff';const f=e.dataTransfer.files[0];if(f)upload(f);}},
       loading?R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'로딩 중...'):
       visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
       R('table',null,
