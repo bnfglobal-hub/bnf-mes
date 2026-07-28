@@ -2000,11 +2000,12 @@ function PageApproval({user}){
   const[tab,setTab]=useState('mine');const[docs,setDocs]=useState([]);const[sel,setSel]=useState(null);
   const[showF,setShowF]=useState(false);const[fType,setFType]=useState('leave');const[loading,setLoading]=useState(true);
   const[emps,setEmps]=useState([]);
-  const[form,setForm]=useState({title:'',step1_id:'',step2_id:'',content:{},refs:[]});
+  const[form,setForm]=useState({title:'',approvers:[],content:{},refs:[],files:[]});
   const[decideComment,setDecideComment]=useState('');
   const[editId,setEditId]=useState(null);          /* 수정 중인 문서 id (null이면 신규 기안) */
   const[upBusy,setUpBusy]=useState(false);         /* 첨부 업로드 중 */
-  const[finalCfg,setFinalCfg]=useState({id:'',lock:false}); /* 관리자 지정 최종 결재자 */
+  /* 관리자 지정 고정 결재자: final=최종, pre=최종 직전 */
+  const[finalCfg,setFinalCfg]=useState({id:'',lock:false,preId:'',preLock:false});
   const[cfgOpen,setCfgOpen]=useState(false);
   const fileRef=useRef(null);
   const isAdmin=['superadmin','admin'].includes(user.role);
@@ -2016,7 +2017,7 @@ function PageApproval({user}){
     try{
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
       const c=data&&data.state_data&&data.state_data.bnf_approval_final;
-      if(c&&typeof c==='object')setFinalCfg({id:c.id||'',lock:!!c.lock});
+      if(c&&typeof c==='object')setFinalCfg({id:c.id||'',lock:!!c.lock,preId:c.preId||'',preLock:!!c.preLock});
     }catch(e){}
   };
   const saveCfg=async(next)=>{
@@ -2025,31 +2026,73 @@ function PageApproval({user}){
       const existing=(data&&data.state_data)||{};
       await sbClient.from('app_state').upsert({id:1,state_data:{...existing,bnf_approval_final:next},updated_at:new Date().toISOString()});
       setFinalCfg(next);
-      alert('✅ 최종 결재자 설정을 저장했습니다.');
+      alert('✅ 결재선 설정을 저장했습니다.');
     }catch(e){alert('저장 실패: '+e.message);}
   };
-  /* 고정이 켜져 있으면 최종(2차) 결재자는 지정된 사람으로 강제 */
+  /* 고정이 켜져 있으면 해당 단계는 지정된 사람으로 강제 */
   const lockedFinal=finalCfg.lock&&finalCfg.id?finalCfg.id:'';
-  const empName=id=>{const e=emps.find(x=>x.id===id);return e?e.name+' '+(e.position||''):'';};
+  const lockedPre=finalCfg.preLock&&finalCfg.preId?finalCfg.preId:'';
+  const empName=id=>{const e=emps.find(x=>x.id===id);return e?(e.name+' '+(e.position||'')).trim():'';};
+
+  /* ── 결재선(N단계) ──
+     content.__line = [{id,name,status,at,fixed:'pre'|'final'}] 로 저장.
+     예전 문서(step1/step2만 있는 것)는 읽을 때 자동으로 변환해준다. */
+  const lineOf=d=>{
+    const c=(d&&d.content)||{};
+    if(Array.isArray(c.__line)&&c.__line.length)return c.__line;
+    const L=[];
+    if(d&&d.step1_id)L.push({id:d.step1_id,name:empName(d.step1_id),status:d.step1_status||'대기',at:d.step1_at||null});
+    if(d&&d.step2_id)L.push({id:d.step2_id,name:empName(d.step2_id),status:d.step2_status||'대기',at:d.step2_at||null});
+    return L;
+  };
+  /* 지금 결재할 차례인 단계 index (없으면 -1) */
+  const curIdx=d=>{const L=lineOf(d);if(d&&d.status!=='결재중')return -1;return L.findIndex(s=>s.status!=='승인'&&s.status!=='반려');};
+  const isMyTurn=d=>{const i=curIdx(d);return i>=0&&lineOf(d)[i].id===user.id;};
+  /* 기안자가 고른 앞단계 + 관리자가 고정한 준최종/최종 을 합쳐 결재선 생성 */
+  const buildLine=picked=>{
+    const out=[];
+    const push=(id,fixed)=>{
+      if(!id)return;
+      if(out.length&&out[out.length-1].id===id)return;   /* 연속 중복 제거 */
+      out.push({id,name:empName(id),status:'대기',at:null,fixed:fixed||null});
+    };
+    (picked||[]).forEach(id=>push(id,null));
+    push(lockedPre,'pre');
+    push(lockedFinal,'final');
+    return out;
+  };
 
   /* ── 첨부: 파일 선택 / 붙여넣기 / 드래그 공용 ── */
   const attachFiles=async(list)=>{
     const files=Array.from(list||[]).filter(Boolean);
     if(!files.length)return;
+    /* ① 붙여넣자마자 화면에 바로 보이도록 로컬 미리보기부터 넣는다 */
+    const temps=files.map(f=>({
+      tmp:'t'+Math.random().toString(36).slice(2),
+      name:f.name||'붙여넣은 이미지.png',
+      url:(window.URL&&URL.createObjectURL)?URL.createObjectURL(f):'',
+      size:f.size,mime:f.type||'',pending:true
+    }));
+    setForm(p=>({...p,files:[...(p.files||[]),...temps]}));
+    const drop=tmp=>setForm(p=>({...p,files:(p.files||[]).filter(f=>f.tmp!==tmp)}));
     setUpBusy(true);
-    const added=[];
-    try{
-      for(const file of files){
-        if(file.size>50*1024*1024){alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+    /* ② 업로드가 끝나면 실제 주소로 교체 */
+    for(let i=0;i<files.length;i++){
+      const file=files[i],t=temps[i];
+      try{
+        if(file.size>50*1024*1024){drop(t.tmp);alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
         const base=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         const path='approval/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+base;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
         if(error)throw error;
         const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
-        added.push({name:file.name||'붙여넣은 이미지.png',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||''});
+        const real={name:file.name||'붙여넣은 이미지.png',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||''};
+        setForm(p=>({...p,files:(p.files||[]).map(f=>f.tmp===t.tmp?real:f)}));
+      }catch(e){
+        drop(t.tmp);
+        alert('첨부 업로드 실패: '+e.message+'\n\n⚠️ Supabase Storage에 "bnf-files" 버킷이 있어야 합니다.');
       }
-      if(added.length)setForm(p=>({...p,files:[...(p.files||[]),...added]}));
-    }catch(e){alert('첨부 업로드 실패: '+e.message+'\n\n⚠️ Supabase Storage에 "bnf-files" 버킷이 있어야 합니다.');}
+    }
     setUpBusy(false);
   };
   const onPaste=e=>{
@@ -2069,8 +2112,11 @@ function PageApproval({user}){
     setLoading(true);
     let q=db('approvals').select('*,emp!approvals_writer_id_fkey(name)');
     if(tab==='mine')q=q.eq('writer_id',user.id);
-    else if(tab==='pending')q=q.or(`step1_id.eq.${user.id},step2_id.eq.${user.id}`).eq('status','결재중');
-    const{data}=await q.order('created_at',{ascending:false});setDocs(data||[]);setLoading(false);
+    else if(tab==='pending')q=q.eq('status','결재중');   /* N단계라 내 차례 판정은 아래에서 */
+    const{data}=await q.order('created_at',{ascending:false});
+    let rows=data||[];
+    if(tab==='pending')rows=rows.filter(isMyTurn);
+    setDocs(rows);setLoading(false);
   };
   const fTypes=[{v:'leave',l:'휴가신청'},{v:'expense',l:'지출결의'},{v:'purchase',l:'구매요청'},{v:'general',l:'일반기안'}];
   const ASTAT={기안중:'b-g',결재중:'b-i',승인:'b-ok',반려:'b-e',취소:'b-g'};
@@ -2079,10 +2125,10 @@ function PageApproval({user}){
   const fBytes=b=>{if(!b)return'';const k=b/1024;if(k<1024)return' · '+k.toFixed(0)+'KB';return' · '+(k/1024).toFixed(1)+'MB';};
   const updC=(k,v)=>setForm(p=>({...p,content:{...p.content,[k]:v}}));
   /* 수정·삭제 권한: 기안자 본인이면서 아직 아무도 결재하지 않았을 때, 또는 관리자 */
-  const untouched=d=>d&&d.step1_status==='대기'&&(!d.step2_id||d.step2_status==='대기')&&d.status==='결재중';
+  const untouched=d=>!!d&&d.status==='결재중'&&lineOf(d).every(s=>s.status!=='승인'&&s.status!=='반려');
   const canEdit=d=>!!d&&(isAdmin||(d.writer_id===user.id&&untouched(d)));
 
-  const resetForm=()=>{setForm({title:'',step1_id:'',step2_id:lockedFinal||'',content:{},refs:[],files:[]});setEditId(null);};
+  const resetForm=()=>{setForm({title:'',approvers:[],content:{},refs:[],files:[]});setEditId(null);};
   const openNew=()=>{resetForm();setFType('leave');setShowF(true);};
   const openEdit=d=>{
     const c={...(d.content||{})};
@@ -2090,7 +2136,9 @@ function PageApproval({user}){
     const files=Array.isArray(c.__files)?c.__files:[];
     Object.keys(c).forEach(k=>{if(k.indexOf('__')===0)delete c[k];});
     setFType(d.form_type||'general');
-    setForm({title:d.title||'',step1_id:d.step1_id||'',step2_id:d.step2_id||'',content:c,refs,files});
+    /* 고정 결재자는 저장할 때 다시 붙으므로, 기안자가 고른 앞단계만 폼에 되살린다 */
+    const picked=lineOf(d).filter(s=>!s.fixed).map(s=>s.id);
+    setForm({title:d.title||'',approvers:picked,content:c,refs,files});
     setEditId(d.id);
     setSel(null);      /* 상세화면에는 모달이 없으므로 목록으로 돌아간 뒤 모달을 띄운다 */
     setShowF(true);
@@ -2107,52 +2155,75 @@ function PageApproval({user}){
     }catch(e){alert('삭제 실패: '+e.message);}
   };
 
+  /* 업로드가 끝난 첨부만 저장 (미리보기용 임시 항목 제외) */
+  const cleanFiles=()=>(form.files||[]).filter(f=>f&&!f.pending&&f.path)
+    .map(f=>({name:f.name,path:f.path,url:f.url,size:f.size,mime:f.mime}));
   const submit=async()=>{
-    if(!form.title||!form.step1_id)return alert('제목과 1차 결재자 필수');
+    if(!form.title)return alert('제목을 입력해주세요.');
     if(upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
-    const step2=lockedFinal||form.step2_id||null;
+    let line=buildLine(form.approvers);
+    if(!line.length)return alert('결재자를 한 명 이상 지정해주세요.');
     try{
       if(editId){
         /* ── 수정 ── 기존 의견 로그는 보존 */
         const prev=docs.find(d=>d.id===editId);
         const keep=(prev&&prev.content&&Array.isArray(prev.content.__opinions))?prev.content.__opinions:[];
-        const content={...form.content,__refs:form.refs||[],__files:form.files||[],__opinions:keep,
+        /* 이미 처리된 단계(관리자가 진행 중 문서를 고친 경우)의 결재 결과는 보존 */
+        const prevLine=prev?lineOf(prev):[];
+        line=line.map((s,i)=>{
+          const old=prevLine[i];
+          return(old&&old.id===s.id&&(old.status==='승인'||old.status==='반려'))?{...s,status:old.status,at:old.at}:s;
+        });
+        const first=line[0].id,last=line[line.length-1].id;
+        const content={...form.content,__refs:form.refs||[],__files:cleanFiles(),__opinions:keep,__line:line,
           __edited:{by:user.name,at:now2()}};
-        await db('approvals').update({form_type:fType,title:form.title,content,step1_id:form.step1_id||null,step2_id:step2,updated_at:now2()}).eq('id',editId);
-        /* 결재자에게 수정 알림 */
-        pushNotif([{to:form.step1_id,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 문서가 수정되었습니다.',page:'approval'}]);
+        await db('approvals').update({form_type:fType,title:form.title,content,step1_id:first,step2_id:line.length>1?last:null,
+          step1_status:line[0].status||'대기',step2_status:line.length>1?(line[line.length-1].status||'대기'):'대기',updated_at:now2()}).eq('id',editId);
+        /* 지금 결재 차례인 사람에게 수정 알림 */
+        const nextStep=line.find(s=>s.status!=='승인'&&s.status!=='반려');
+        if(nextStep)pushNotif([{to:nextStep.id,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 문서가 수정되었습니다.',page:'approval'}]);
         setSel(null);
       }else{
         /* ── 신규 기안 ── */
-        const content={...form.content,__refs:form.refs||[],__files:form.files||[]};
-        await db('approvals').insert({form_type:fType,title:form.title,content,writer_id:user.id,status:'결재중',step1_id:form.step1_id||null,step2_id:step2,step1_status:'대기',step2_status:'대기'});
+        const first=line[0].id,last=line[line.length-1].id;
+        const content={...form.content,__refs:form.refs||[],__files:cleanFiles(),__line:line};
+        await db('approvals').insert({form_type:fType,title:form.title,content,writer_id:user.id,status:'결재중',step1_id:first,step2_id:line.length>1?last:null,step1_status:'대기',step2_status:'대기'});
         pushNotif([
-          {to:form.step1_id,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 결재를 요청했습니다.',page:'approval'},
+          {to:first,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 결재를 요청했습니다.',page:'approval'},
           ...(form.refs||[]).map(rid=>({to:rid,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 문서에 참조로 지정되었습니다.',page:'approval'}))
         ]);
       }
       setShowF(false);resetForm();load();
     }catch(e){alert('저장 실패: '+e.message);}
   };
-  const decide=async(id,step,status)=>{
-    const doc=docs.find(d=>d.id===id);
+  /* N단계 결재 처리: 내 차례 단계를 승인/반려 */
+  const decide=async(doc,status)=>{
+    if(!doc)return;
+    const i=curIdx(doc);
+    if(i<0)return alert('이미 처리된 문서입니다.');
+    const L=lineOf(doc).map(s=>({...s}));
+    if(L[i].id!==user.id)return alert('현재 결재 차례가 아닙니다.');
     const comment=(decideComment||'').trim();
-    let fs='결재중';if(status==='반려')fs='반려';else if(status==='승인'&&(step===2||!doc?.step2_id))fs='승인';
-    /* 의견 로그를 content에 누적 */
-    const content={...(doc?.content||{})};
+    L[i].status=status;L[i].at=now2();
+    const isLast=i===L.length-1;
+    const fs=status==='반려'?'반려':(isLast?'승인':'결재중');
+    const content={...(doc.content||{})};
     const opinions=Array.isArray(content.__opinions)?content.__opinions:[];
-    if(comment)opinions.push({by:user.name,step,status,text:comment,at:now2()});
-    content.__opinions=opinions;
-    await db('approvals').update({[`step${step}_status`]:status,[`step${step}_at`]:now2(),status:fs,content,updated_at:now2()}).eq('id',id);
-    /* 알림: 승인이고 2차 결재자 있으면 다음 결재자, 아니면 기안자에게 결과 통지 */
-    if(doc){
-      if(status==='승인'&&step===1&&doc.step2_id){
-        pushNotif({to:doc.step2_id,from:user.id,fromName:user.name,type:'approval',text:'"'+doc.title+'" 1차 승인됨 · 2차 결재 요청',page:'approval'});
+    if(comment)opinions.push({by:user.name,step:i+1,status,text:comment,at:now2()});
+    content.__opinions=opinions;content.__line=L;
+    try{
+      const patch={status:fs,content,updated_at:now2()};
+      /* 예전 컬럼도 첫/마지막 단계에 한해 같이 갱신 (다른 화면 호환) */
+      if(i===0){patch.step1_status=status;patch.step1_at=now2();}
+      if(isLast&&L.length>1){patch.step2_status=status;patch.step2_at=now2();}
+      await db('approvals').update(patch).eq('id',doc.id);
+      if(status==='승인'&&!isLast){
+        pushNotif({to:L[i+1].id,from:user.id,fromName:user.name,type:'approval',text:'"'+doc.title+'" '+(i+1)+'차 승인됨 · '+(i+2)+'차 결재 요청',page:'approval'});
       }else{
         pushNotif({to:doc.writer_id,from:user.id,fromName:user.name,type:status==='승인'?'done':'approval',text:'"'+doc.title+'" 문서가 '+status+'되었습니다.'+(comment?' ('+comment+')':''),page:'approval'});
       }
-    }
-    setDecideComment('');setSel(null);load();
+      setDecideComment('');setSel(null);load();
+    }catch(e){alert('처리 실패: '+e.message);}
   };
   const renderFields=()=>{
     if(fType==='leave')return R('div',null,
@@ -2160,9 +2231,9 @@ function PageApproval({user}){
         R('div',{className:'fr'},R('label',{className:'lbl'},'휴가 종류'),R('select',{className:'inp',value:form.content.leave_type||'',onChange:e=>updC('leave_type',e.target.value)},R('option',{value:''},'선택'),R('option',{value:'연차'},'연차'),R('option',{value:'오전반차'},'오전반차'),R('option',{value:'오후반차'},'오후반차'),R('option',{value:'병가'},'병가'),R('option',{value:'경조사'},'경조사'))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'기간'),R('input',{type:'date',className:'inp',value:form.content.start||'',onChange:e=>updC('start',e.target.value)}))
       ),
-      R('div',{className:'fr'},R('label',{className:'lbl'},'사유'),R('textarea',{className:'inp',value:form.content.reason||'',onChange:e=>updC('reason',e.target.value),placeholder:'사유 입력'}))
+      R('div',{className:'fr'},R('label',{className:'lbl'},'사유'),R('textarea',{className:'inp',value:form.content.reason||'',onChange:e=>updC('reason',e.target.value),onPaste:onPaste,placeholder:'사유 입력 (이미지 Ctrl+V 가능)'}))
     );
-    return R('div',{className:'fr'},R('label',{className:'lbl'},'내용'),R('textarea',{className:'inp',value:form.content.body||'',onChange:e=>updC('body',e.target.value),placeholder:'내용 입력',style:{minHeight:120}}));
+    return R('div',{className:'fr'},R('label',{className:'lbl'},'내용'),R('textarea',{className:'inp',value:form.content.body||'',onChange:e=>updC('body',e.target.value),onPaste:onPaste,placeholder:'내용 입력 (이미지를 Ctrl+V로 바로 붙여넣을 수 있습니다)',style:{minHeight:120}}));
   };
   if(sel)return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr',style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
@@ -2185,8 +2256,8 @@ function PageApproval({user}){
           R('div',{style:{fontSize:12,fontWeight:700,color:'var(--tm)',marginBottom:8}},'📎 첨부 '+fs.length+'건'),
           R('div',{style:{display:'flex',flexWrap:'wrap',gap:10}},
             ...fs.map((f,i)=>isImg(f)
-              ?R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer',title:f.name},
-                 R('img',{src:f.url,alt:f.name,style:{width:130,height:130,objectFit:'cover',borderRadius:8,border:'1px solid var(--bd)',display:'block'}}))
+              ?R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer',title:f.name+' (클릭하면 원본)',style:{display:'block',flex:'1 1 320px',maxWidth:'100%'}},
+                 R('img',{src:f.url,alt:f.name,style:{width:'100%',maxWidth:520,maxHeight:600,objectFit:'contain',borderRadius:8,border:'1px solid var(--bd)',display:'block',background:'#fff'}}))
               :R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer',download:f.name,
                  style:{display:'flex',alignItems:'center',gap:6,padding:'7px 11px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,color:'var(--t)',textDecoration:'none',background:'#fff'}},
                  '📄 ',f.name,R('span',{style:{color:'var(--tm)',fontSize:10}},fBytes(f.size)))
@@ -2198,11 +2269,22 @@ function PageApproval({user}){
     ),
     R('div',{className:'card',style:{marginBottom:12}},
       R('div',{className:'card-title',style:{marginBottom:12}},'결재 현황'),
-      R('div',{style:{display:'flex',alignItems:'center'}},
-        R('div',{className:'pipe-step'},R('div',{className:'pipe-circle'+(sel.step1_status==='승인'?' done':sel.step1_status==='반려'?' rej':' cur')},'1'),R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3}},'1차결재'),R('div',{style:{fontSize:11,fontWeight:700,color:sel.step1_status==='승인'?'var(--ok)':sel.step1_status==='반려'?'var(--err)':'var(--p)'}},sel.step1_status||'대기')),
-        sel.step2_id&&R('div',{className:'pipe-line'+(sel.step1_status==='승인'?' done':'')}),
-        sel.step2_id&&R('div',{className:'pipe-step'},R('div',{className:'pipe-circle'+(sel.step2_status==='승인'?' done':sel.step2_status==='반려'?' rej':'')},'2'),R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3}},'2차결재'),R('div',{style:{fontSize:11,fontWeight:700,color:sel.step2_status==='승인'?'var(--ok)':sel.step2_status==='반려'?'var(--err)':'var(--tm)'}},sel.step2_status||'대기'))
-      )
+      (()=>{
+        const L=lineOf(sel),ci=curIdx(sel);
+        if(!L.length)return R('div',{style:{fontSize:12,color:'var(--tm)'}},'지정된 결재자가 없습니다.');
+        const out=[];
+        L.forEach((s,i)=>{
+          if(i)out.push(R('div',{key:'l'+i,className:'pipe-line'+(L[i-1].status==='승인'?' done':'')}));
+          const label=s.fixed==='final'?'최종결재':s.fixed==='pre'?'차상위결재':(i+1)+'차결재';
+          out.push(R('div',{key:'s'+i,className:'pipe-step'},
+            R('div',{className:'pipe-circle'+(s.status==='승인'?' done':s.status==='반려'?' rej':(i===ci?' cur':''))},s.fixed==='final'?'★':String(i+1)),
+            R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3,whiteSpace:'nowrap'}},label,s.fixed?' 🔒':''),
+            R('div',{style:{fontSize:11,fontWeight:600,color:'var(--t)',whiteSpace:'nowrap'}},s.name||empName(s.id)||'-'),
+            R('div',{style:{fontSize:11,fontWeight:700,color:s.status==='승인'?'var(--ok)':s.status==='반려'?'var(--err)':(i===ci?'var(--p)':'var(--tm)')}},s.status||'대기')
+          ));
+        });
+        return R('div',{style:{display:'flex',alignItems:'flex-start',overflowX:'auto',paddingBottom:4}},...out);
+      })()
     ),
     /* 의견 로그 */
     (sel.content&&Array.isArray(sel.content.__opinions)&&sel.content.__opinions.length>0)&&R('div',{className:'card',style:{marginBottom:12}},
@@ -2216,10 +2298,12 @@ function PageApproval({user}){
         R('div',{style:{fontSize:13,color:'var(--t)'}},o.text)
       ))
     ),
-    (sel.step1_id===user.id&&sel.step1_status==='대기')||(sel.step2_id===user.id&&sel.step1_status==='승인'&&sel.step2_status==='대기')
-    ?R('div',{className:'card'},R('div',{className:'card-title',style:{marginBottom:10}},'결재 처리'),
+    isMyTurn(sel)
+    ?R('div',{className:'card'},R('div',{className:'card-title',style:{marginBottom:10}},'결재 처리 · ',(curIdx(sel)+1),'차'),
       R('textarea',{className:'inp',value:decideComment,onChange:e=>setDecideComment(e.target.value),placeholder:'의견 입력 (선택)',style:{minHeight:60,marginBottom:10}}),
-      R('div',{style:{display:'flex',gap:8}},R('button',{className:'btn bok',style:{flex:1,justifyContent:'center'},onClick:()=>{const s=sel.step1_id===user.id&&sel.step1_status==='대기'?1:2;decide(sel.id,s,'승인');}},'✅ 승인'),R('button',{className:'btn bd2',style:{flex:1,justifyContent:'center'},onClick:()=>{const s=sel.step1_id===user.id&&sel.step1_status==='대기'?1:2;decide(sel.id,s,'반려');}},'❌ 반려'))):null
+      R('div',{style:{display:'flex',gap:8}},
+        R('button',{className:'btn bok',style:{flex:1,justifyContent:'center'},onClick:()=>decide(sel,'승인')},'✅ 승인'),
+        R('button',{className:'btn bd2',style:{flex:1,justifyContent:'center'},onClick:()=>decide(sel,'반려')},'❌ 반려'))):null
   );
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},R('div',{className:'pg-title'},'📋 전자결재'),
@@ -2230,16 +2314,29 @@ function PageApproval({user}){
     ),
     /* ── 관리자: 최종 결재자 고정 ── */
     (isAdmin&&cfgOpen)&&R('div',{className:'card',style:{marginBottom:12}},
-      R('div',{className:'card-title',style:{marginBottom:10}},'⚙ 최종 결재자 고정'),
-      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:10}},'켜두면 모든 기안의 최종(2차) 결재자가 아래 지정한 사람으로 고정되고, 기안자는 바꿀 수 없습니다.'),
+      R('div',{className:'card-title',style:{marginBottom:10}},'⚙ 고정 결재선 설정'),
+      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:12}},'켜두면 모든 기안의 뒷단계가 아래 지정한 사람으로 고정되고 기안자는 바꿀 수 없습니다. 앞단계(1차, 2차 …)는 기안자가 자유롭게 추가합니다.'),
+      /* 최종 직전(차상위) */
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:8}},
+        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:600,cursor:'pointer',minWidth:150}},
+          R('input',{type:'checkbox',checked:finalCfg.preLock,onChange:e=>setFinalCfg(p=>({...p,preLock:e.target.checked}))}),'차상위 결재자 고정'),
+        R('select',{className:'inp',value:finalCfg.preId,onChange:e=>setFinalCfg(p=>({...p,preId:e.target.value})),style:{maxWidth:240}},
+          R('option',{value:''},'결재자 선택'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||''))))
+      ),
+      /* 최종 */
       R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
-        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:600,cursor:'pointer'}},
-          R('input',{type:'checkbox',checked:finalCfg.lock,onChange:e=>setFinalCfg(p=>({...p,lock:e.target.checked}))}),'고정 사용'),
+        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:600,cursor:'pointer',minWidth:150}},
+          R('input',{type:'checkbox',checked:finalCfg.lock,onChange:e=>setFinalCfg(p=>({...p,lock:e.target.checked}))}),'최종 결재자 고정'),
         R('select',{className:'inp',value:finalCfg.id,onChange:e=>setFinalCfg(p=>({...p,id:e.target.value})),style:{maxWidth:240}},
           R('option',{value:''},'결재자 선택'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||'')))),
-        R('button',{className:'btn bp',onClick:()=>{if(finalCfg.lock&&!finalCfg.id)return alert('고정할 결재자를 선택해주세요.');saveCfg(finalCfg);}},'저장')
+        R('button',{className:'btn bp',onClick:()=>{
+          if(finalCfg.lock&&!finalCfg.id)return alert('고정할 최종 결재자를 선택해주세요.');
+          if(finalCfg.preLock&&!finalCfg.preId)return alert('고정할 차상위 결재자를 선택해주세요.');
+          if(finalCfg.lock&&finalCfg.preLock&&finalCfg.id===finalCfg.preId)return alert('차상위와 최종 결재자를 다른 사람으로 지정해주세요.');
+          saveCfg(finalCfg);}},'저장')
       ),
-      finalCfg.lock&&finalCfg.id&&R('div',{style:{marginTop:10,fontSize:12,color:'var(--ok)',fontWeight:600}},'🔒 현재 최종 결재자: ',empName(finalCfg.id))
+      (lockedPre||lockedFinal)&&R('div',{style:{marginTop:12,fontSize:12,color:'var(--ok)',fontWeight:600}},
+        '🔒 고정 결재선: ',[lockedPre&&('차상위 '+empName(lockedPre)),lockedFinal&&('최종 '+empName(lockedFinal))].filter(Boolean).join(' → '))
     ),
     R('div',{className:'tab-row'},[['mine','내 문서'],['pending','결재 대기'],isAdmin&&['all','전체']].filter(Boolean).map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
     R('div',{className:'tw'},
@@ -2268,12 +2365,33 @@ function PageApproval({user}){
       R('div',{className:'fr'},R('label',{className:'lbl'},'문서 종류'),R('select',{className:'inp',value:fType,onChange:e=>{setFType(e.target.value);setForm(p=>({...p,content:{}}));}},fTypes.map(f=>R('option',{key:f.v,value:f.v},f.l)))),
       R('div',{className:'fr'},R('label',{className:'lbl'},'제목 *'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'문서 제목'})),
       renderFields(),
-      R('div',{className:'fg'},
-        R('div',{className:'fr'},R('label',{className:'lbl'},'1차 결재자 *'),R('select',{className:'inp',value:form.step1_id,onChange:e=>setForm(p=>({...p,step1_id:e.target.value}))},R('option',{value:''},'선택'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+e.position)))),
-        R('div',{className:'fr'},R('label',{className:'lbl'},lockedFinal?'최종 결재자 (고정) 🔒':'2차 결재자'),
-          lockedFinal
-            ?R('input',{className:'inp',value:empName(lockedFinal)||'지정된 결재자',readOnly:true,style:{background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}})
-            :R('select',{className:'inp',value:form.step2_id,onChange:e=>setForm(p=>({...p,step2_id:e.target.value}))},R('option',{value:''},'없음'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+e.position)))
+      /* ── 결재선: 앞단계는 자유 추가, 뒷단계는 관리자가 고정 ── */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'결재선 (순서대로 결재됩니다)'),
+        R('div',{style:{border:'1px solid var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
+          /* 기안자가 고른 단계들 */
+          ...(form.approvers||[]).map((id,i)=>R('div',{key:'a'+i,style:{display:'flex',gap:6,alignItems:'center',marginBottom:6}},
+            R('span',{style:{fontSize:11,fontWeight:800,color:'var(--p)',width:34,flexShrink:0}},(i+1)+'차'),
+            R('select',{className:'inp',value:id,style:{flex:1},
+              onChange:e=>setForm(p=>{const a=[...(p.approvers||[])];a[i]=e.target.value;return{...p,approvers:a};})},
+              R('option',{value:''},'선택'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||'')))),
+            R('button',{type:'button',title:'위로',disabled:i===0,onClick:()=>setForm(p=>{const a=[...(p.approvers||[])];const t=a[i-1];a[i-1]=a[i];a[i]=t;return{...p,approvers:a};}),
+              style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'4px 7px',fontSize:11,cursor:i===0?'not-allowed':'pointer',opacity:i===0?.4:1,fontFamily:'inherit'}},'↑'),
+            R('button',{type:'button',title:'삭제',onClick:()=>setForm(p=>({...p,approvers:(p.approvers||[]).filter((_,x)=>x!==i)})),
+              style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'4px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'×')
+          )),
+          R('button',{type:'button',onClick:()=>setForm(p=>({...p,approvers:[...(p.approvers||[]),'']})),
+            style:{padding:'5px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',border:'1px dashed var(--p)',background:'#fff',color:'var(--p)'}},'+ 결재자 추가'),
+          /* 관리자가 고정한 뒷단계 */
+          (lockedPre||lockedFinal)&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--bd)'}},
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6,fontWeight:700}},'🔒 고정 결재선 (관리자 지정 · 변경 불가)'),
+            lockedPre&&R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:5}},
+              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'차상위'),
+              R('input',{className:'inp',value:empName(lockedPre),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}})),
+            lockedFinal&&R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'최종'),
+              R('input',{className:'inp',value:empName(lockedFinal),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}}))
+          ),
+          (!lockedPre&&!lockedFinal&&!(form.approvers||[]).length)&&R('div',{style:{marginTop:8,fontSize:11,color:'var(--err)'}},'결재자를 한 명 이상 추가해주세요.')
         )
       ),
       /* ── 첨부 (사진·파일 · 붙여넣기 · 드래그) ── */
@@ -2290,11 +2408,12 @@ function PageApproval({user}){
             R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 50MB)')
           ),
           (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
-            ...(form.files||[]).map((f,i)=>R('div',{key:i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden'}},
+            ...(form.files||[]).map((f,i)=>R('div',{key:f.tmp||f.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden',opacity:f.pending?.55:1}},
               isImg(f)
-                ?R('img',{src:f.url,alt:f.name,style:{width:84,height:84,objectFit:'cover',display:'block'}})
+                ?R('img',{src:f.url,alt:f.name,style:{width:110,height:110,objectFit:'cover',display:'block'}})
                 :R('span',{style:{fontSize:11}},'📄 ',f.name.length>18?f.name.slice(0,18)+'…':f.name),
-              R('button',{type:'button',onClick:()=>removeAttach(i),title:'첨부 삭제',
+              f.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
+              !f.pending&&R('button',{type:'button',onClick:()=>removeAttach(i),title:'첨부 삭제',
                 style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
             ))
           )
@@ -2303,7 +2422,7 @@ function PageApproval({user}){
       /* 참조자 (여러명 - 알림만 감, 결재권 없음) */
       R('div',{className:'fr'},R('label',{className:'lbl'},'참조 (선택 · 알림만)'),
         R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
-          ...emps.filter(e=>e.id!==user.id&&e.id!==form.step1_id&&e.id!==form.step2_id).map(e=>{
+          ...emps.filter(e=>e.id!==user.id&&!(form.approvers||[]).includes(e.id)&&e.id!==lockedPre&&e.id!==lockedFinal).map(e=>{
             const on=(form.refs||[]).includes(e.id);
             return R('button',{key:e.id,onClick:()=>setForm(p=>({...p,refs:on?(p.refs||[]).filter(x=>x!==e.id):[...(p.refs||[]),e.id]})),
               style:{padding:'5px 11px',borderRadius:16,fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)'}},
