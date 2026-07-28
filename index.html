@@ -976,6 +976,13 @@ function PageWorkRequest({user}){
   const[expandedRowId,setExpandedRowId]=useState(null);
   const st=useRef(null);
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
+  /* 관리자(대표·관리자)가 요청자이거나 담당자인 업무는 일반직원에게 보이지 않는다 */
+  const adminIds=useMemo(()=>{
+    const set={};
+    (emps||[]).forEach(e=>{if(e&&['superadmin','admin'].includes(e.role))set[e.id]=1;});
+    return set;
+  },[emps]);
+  const involvesAdmin=r=>!!r&&(adminIds[r.requesterId]||adminIds[r.assigneeId]);
 
   useEffect(()=>{localStorage.setItem('bnf_wr_view',viewMode);},[viewMode]);
   useEffect(()=>{localStorage.setItem('bnf_wr_groupBy',groupBy);},[groupBy]);
@@ -1004,7 +1011,7 @@ function PageWorkRequest({user}){
     try{
       const[{data:appData},{data:empData}]=await Promise.all([
         sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle(),
-        sbClient.from('emp').select('id,name,email,position,depts(name)').eq('status','active').order('name')
+        sbClient.from('emp').select('id,name,email,position,role,depts(name)').eq('status','active').order('name')
       ]);
       if(appData&&appData.state_data&&Array.isArray(appData.state_data.work_requests)){
         setRequests(appData.state_data.work_requests);
@@ -1107,6 +1114,8 @@ function PageWorkRequest({user}){
     let arr=requests;
     if(tab==='received')arr=arr.filter(r=>r.assigneeId===user.id);
     else if(tab==='sent')arr=arr.filter(r=>r.requesterId===user.id);
+    else if(tab==='team')arr=arr.filter(r=>!involvesAdmin(r));
+    else if(tab==='all'&&!isAdmin)arr=arr.filter(r=>!involvesAdmin(r));
     /* all은 그대로 (admin) */
     if(statusF==='open')arr=arr.filter(r=>['pending','accepted','doing'].includes(r.status));
     else if(statusF==='done')arr=arr.filter(r=>r.status==='done');
@@ -1129,9 +1138,10 @@ function PageWorkRequest({user}){
   const counts=useMemo(()=>({
     received:requests.filter(r=>r.assigneeId===user.id&&['pending','accepted','doing'].includes(r.status)).length,
     sent:requests.filter(r=>r.requesterId===user.id&&['pending','accepted','doing'].includes(r.status)).length,
+    team:requests.filter(r=>!involvesAdmin(r)).length,
     all:requests.length,
     receivedPending:requests.filter(r=>r.assigneeId===user.id&&r.status==='pending').length
-  }),[requests,user.id]);
+  }),[requests,user.id,adminIds]);
 
   /* 그룹핑 */
   const grouped=useMemo(()=>{
@@ -1174,6 +1184,7 @@ function PageWorkRequest({user}){
     R('div',{className:'tab-row',style:{marginBottom:10}},
       R('button',{className:'tab'+(tab==='received'?' act':''),onClick:()=>setTab('received')},'📥 받은 요청 ',counts.received>0&&R('span',{style:{background:tab==='received'?'#fff':'var(--p)',color:tab==='received'?'var(--p)':'#fff',borderRadius:10,padding:'1px 7px',fontSize:10,marginLeft:4,fontWeight:700}},counts.received)),
       R('button',{className:'tab'+(tab==='sent'?' act':''),onClick:()=>setTab('sent')},'📤 보낸 요청 ',counts.sent>0&&R('span',{style:{background:tab==='sent'?'#fff':'#7C3AED',color:tab==='sent'?'#7C3AED':'#fff',borderRadius:10,padding:'1px 7px',fontSize:10,marginLeft:4,fontWeight:700}},counts.sent)),
+      R('button',{className:'tab'+(tab==='team'?' act':''),onClick:()=>setTab('team')},'👥 직원 공유 ('+counts.team+')'),
       isAdmin&&R('button',{className:'tab'+(tab==='all'?' act':''),onClick:()=>setTab('all')},'📊 전체 ('+counts.all+')')
     ),
     /* 상태 필터 + 뷰 토글 + 새 요청 버튼 */
@@ -2255,6 +2266,283 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   );
 }
 
+/* ═══ 첨부 업로드 공용 훅 (여러 페이지가 같은 방식으로 사용) ═══
+   folder: 저장 경로 폴더명. get/set: 현재 첨부배열을 읽고 쓰는 함수. */
+function useAttach(folder,get,set){
+  const ref=useRef(null);
+  const[upBusy,setUpBusy]=useState(false);
+  const isImg=f=>!!f&&(/^image\//.test(f.mime||'')||/\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(f.name||''));
+  const add=async(listIn)=>{
+    const files=Array.from(listIn||[]).filter(Boolean);
+    if(!files.length)return;
+    const temps=files.map(x=>({tmp:'t'+Math.random().toString(36).slice(2),name:x.name||'붙여넣은 이미지.png',
+      url:(window.URL&&URL.createObjectURL)?URL.createObjectURL(x):'',size:x.size,mime:x.type||'',pending:true}));
+    set([...(get()||[]),...temps]);
+    setUpBusy(true);
+    for(let i=0;i<files.length;i++){
+      const file=files[i],t=temps[i];
+      try{
+        if(file.size>50*1024*1024){set((get()||[]).filter(x=>x.tmp!==t.tmp));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        const safe=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path=folder+'/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
+        if(error)throw error;
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+        const real={name:file.name||'붙여넣은 이미지.png',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||''};
+        set((get()||[]).map(x=>x.tmp===t.tmp?real:x));
+      }catch(e){
+        set((get()||[]).filter(x=>x.tmp!==t.tmp));
+        alert('첨부 업로드 실패: '+e.message);
+      }
+    }
+    setUpBusy(false);
+  };
+  const onPaste=e=>{
+    const items=(e.clipboardData&&e.clipboardData.items)||[];
+    const picked=[];
+    for(const it of items){if(it.kind==='file'){const x=it.getAsFile();if(x)picked.push(x);}}
+    if(picked.length){e.preventDefault();add(picked);}
+  };
+  const remove=async(idx)=>{
+    const x=(get()||[])[idx];if(!x)return;
+    if(!confirm('"'+x.name+'" 첨부를 삭제할까요?'))return;
+    try{if(x.path)await sbClient.storage.from('bnf-files').remove([x.path]);}catch(e){}
+    set((get()||[]).filter((_,i)=>i!==idx));
+  };
+  const clean=()=>(get()||[]).filter(x=>x&&!x.pending&&x.path);
+  const fB=b=>{if(!b)return'';const k=b/1024;return k<1024?(' · '+k.toFixed(0)+'KB'):(' · '+(k/1024).toFixed(1)+'MB');};
+  /* 입력용 첨부 상자 */
+  const Box=(label)=>R('div',{onPaste:onPaste,onDragOver:e=>e.preventDefault(),
+    onDrop:e=>{e.preventDefault();add(e.dataTransfer&&e.dataTransfer.files);},tabIndex:0,
+    style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
+    R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(get()||[]).length?9:0}},
+      R('button',{type:'button',className:'btn bs',onClick:()=>ref.current&&ref.current.click(),disabled:upBusy},'📎 '+(label||'파일 선택')),
+      R('input',{ref:ref,type:'file',multiple:true,style:{display:'none'},onChange:e=>{add(e.target.files);e.target.value='';}}),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 50MB')),
+    (get()||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
+      ...(get()||[]).map((x,i)=>R('div',{key:x.tmp||x.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',overflow:'hidden',opacity:x.pending?.55:1}},
+        isImg(x)?R('img',{src:x.url,alt:x.name,style:{width:100,height:100,objectFit:'cover',display:'block'}})
+                :R('span',{style:{display:'block',padding:'8px 26px 8px 10px',fontSize:11,maxWidth:190,wordBreak:'break-all'}},'📄 ',x.name),
+        x.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
+        !x.pending&&R('button',{type:'button',onClick:()=>remove(i),title:'첨부 삭제',
+          style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
+      )))
+  );
+  return{add,onPaste,remove,clean,upBusy,isImg,fB,Box};
+}
+/* 첨부 보기 (상세화면 공용) */
+function AttachView({files}){
+  const fs=(files||[]).filter(Boolean);
+  if(!fs.length)return null;
+  const isImg=f=>!!f&&(/^image\//.test(f.mime||'')||/\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(f.name||''));
+  const fB=b=>{if(!b)return'';const k=b/1024;return k<1024?(' · '+k.toFixed(0)+'KB'):(' · '+(k/1024).toFixed(1)+'MB');};
+  return R('div',{style:{display:'flex',flexWrap:'wrap',gap:10,marginTop:10}},
+    ...fs.map((f,i)=>isImg(f)
+      ?R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer',title:f.name,style:{display:'block',flex:'1 1 300px',maxWidth:'100%'}},
+          R('img',{src:f.url,alt:f.name,style:{width:'100%',maxWidth:520,borderRadius:8,border:'1px solid var(--bd)',display:'block'}}))
+      :R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer',download:f.name,
+          style:{display:'flex',alignItems:'center',gap:6,padding:'8px 12px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,color:'var(--t)',textDecoration:'none',background:'#fff'}},
+          '📄 ',f.name,R('span',{style:{color:'var(--tm)',fontSize:10}},fB(f.size)))
+    ));
+}
+
+/* ═══ 연구개발 현황 ═══════════════════════════════════
+   거래처 · 개발 제품명 · 내용(이미지/첨부) · 비고 · 담당자(작성자)
+   + 하위 '개선 사항'을 계속 이어서 기록 */
+function PageDevRecord({user,title,ic,desc,storeKey,folder,nameLabel,namePh}){
+  const KEY=storeKey;
+  const[rows,setRows]=useState(null);
+  const[q,setQ]=useState('');
+  const[sel,setSel]=useState(null);
+  const[showF,setShowF]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const[form,setForm]=useState({client:'',product:'',body:'',note:'',files:[]});
+  const[busy,setBusy]=useState(false);
+  /* 개선 사항 입력 */
+  const[imp,setImp]=useState({text:'',files:[]});
+  const isAdmin=['superadmin','admin','manager'].includes(user.role);
+
+  const att=useAttach(folder||'rnd',()=>form.files,v=>setForm(p=>Object.assign({},p,{files:v})));
+  const impAtt=useAttach(folder||'rnd',()=>imp.files,v=>setImp(p=>Object.assign({},p,{files:v})));
+
+  useEffect(()=>{load();},[]);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      const raw=Array.isArray(data&&data.v)?data.v:[];
+      const seen={};
+      setRows(raw.map(r=>{
+        const o=Object.assign({},r);
+        if(!o._id||seen[o._id])o._id='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+        seen[o._id]=1;
+        if(!Array.isArray(o.improves))o.improves=[];
+        if(!Array.isArray(o.files))o.files=[];
+        return o;
+      }));
+    }catch(e){setRows([]);}
+  };
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+      setRows(next);
+      if(sel){const f=next.find(x=>x._id===sel._id);if(f)setSel(f);}
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  const openNew=()=>{setForm({client:'',product:'',body:'',note:'',files:[]});setEditId(null);setShowF(true);};
+  const openEdit=r=>{setForm({client:r.client||'',product:r.product||'',body:r.body||'',note:r.note||'',files:(r.files||[]).slice()});setEditId(r._id);setSel(null);setShowF(true);};
+  const save=async()=>{
+    if(!String(form.product||'').trim())return alert((nameLabel||'개발 제품명')+'을(를) 입력해주세요.');
+    if(att.upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
+    const files=att.clean();
+    const list=(rows||[]).slice();
+    if(editId){
+      const i=list.findIndex(x=>x._id===editId);
+      if(i>=0)list[i]=Object.assign({},list[i],form,{files,_editBy:user.name,_editAt:now2()});
+    }else{
+      list.unshift(Object.assign({},form,{files,improves:[],
+        _id:'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+        owner:user.name,_by:user.id,_byName:user.name,_at:now2()}));
+    }
+    await persist(list);setShowF(false);setEditId(null);
+  };
+  const del=async(r)=>{
+    if(!(isAdmin||r._by===user.id))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('"'+(r.product||'')+'" 항목을 삭제할까요? 개선 사항과 첨부도 함께 지워집니다.'))return;
+    const paths=[].concat((r.files||[]).map(x=>x&&x.path),
+      ...(r.improves||[]).map(im=>(im.files||[]).map(x=>x&&x.path))).filter(Boolean);
+    if(paths.length){try{await sbClient.storage.from('bnf-files').remove(paths);}catch(e){}}
+    await persist((rows||[]).filter(x=>x._id!==r._id));
+    setSel(null);
+  };
+  const addImprove=async()=>{
+    if(!sel)return;
+    if(!String(imp.text||'').trim()&&!(imp.files||[]).length)return alert('개선 내용을 입력해주세요.');
+    if(impAtt.upBusy)return alert('첨부 업로드가 끝난 뒤 등록해주세요.');
+    const entry={id:'i'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      text:imp.text,files:impAtt.clean(),by:user.name,byId:user.id,at:now2()};
+    const list=(rows||[]).map(r=>r._id===sel._id?Object.assign({},r,{improves:[entry,...(r.improves||[])]}):r);
+    await persist(list);
+    setImp({text:'',files:[]});
+  };
+  const delImprove=async(im)=>{
+    if(!(isAdmin||im.byId===user.id))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('이 개선 사항을 삭제할까요?'))return;
+    const paths=(im.files||[]).map(x=>x&&x.path).filter(Boolean);
+    if(paths.length){try{await sbClient.storage.from('bnf-files').remove(paths);}catch(e){}}
+    await persist((rows||[]).map(r=>r._id===sel._id?Object.assign({},r,{improves:(r.improves||[]).filter(x=>x.id!==im.id)}):r));
+  };
+  const canEdit=r=>isAdmin||r._by===user.id;
+
+  /* ── 상세 ── */
+  if(sel)return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
+      R('button',{className:'btn bs',onClick:()=>{setSel(null);setImp({text:'',files:[]});}},'← 목록'),
+      canEdit(sel)&&R('div',{style:{display:'flex',gap:8}},
+        R('button',{className:'btn bs',onClick:()=>openEdit(sel)},'✏️ 수정'),
+        R('button',{className:'btn bd2',onClick:()=>del(sel)},'🗑 삭제'))
+    ),
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',gap:6,marginBottom:8,flexWrap:'wrap'}},
+        sel.client&&R(Bdg2,{cls:'b-i',txt:sel.client}),
+        (sel.improves||[]).length>0&&R(Bdg2,{cls:'b-g',txt:'개선 '+sel.improves.length+'건'})),
+      R('h2',{style:{fontSize:17,fontWeight:800,marginBottom:8}},sel.product||'(제품명 없음)'),
+      R('div',{style:{fontSize:12,color:'var(--tm)',paddingBottom:12,borderBottom:'1px solid var(--bd)',marginBottom:14,display:'flex',gap:10,flexWrap:'wrap'}},
+        R('span',null,'담당 ',sel.owner||sel._byName||'-'),R('span',null,fDT(sel._at)),
+        sel._editAt&&R('span',null,'수정 ',sel._editBy,' ',fDate(sel._editAt))),
+      R('div',{style:{fontSize:13.5,lineHeight:1.85,whiteSpace:'pre-wrap'}},sel.body||'(내용 없음)'),
+      R(AttachView,{files:sel.files}),
+      sel.note&&R('div',{style:{marginTop:14,paddingTop:12,borderTop:'1px solid var(--bd)'}},
+        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:4}},'비고'),
+        R('div',{style:{fontSize:13,whiteSpace:'pre-wrap'}},sel.note))
+    ),
+    /* 개선 사항 */
+    R('div',{className:'card'},
+      R('div',{className:'card-title',style:{marginBottom:10}},'🔧 개선 사항 ',R('span',{style:{fontSize:11,color:'var(--tm)',fontWeight:500}},'('+(sel.improves||[]).length+'건)')),
+      R('div',{style:{border:'1px solid var(--bd)',borderRadius:10,padding:10,marginBottom:14,background:'#FCFCFD'}},
+        R('textarea',{className:'inp',value:imp.text,onChange:e=>setImp(p=>Object.assign({},p,{text:e.target.value})),onPaste:impAtt.onPaste,
+          placeholder:'개선 내용을 적어주세요. (이미지는 Ctrl+V로 바로 붙여넣기)',style:{minHeight:80,marginBottom:8}}),
+        impAtt.Box('사진·파일 첨부'),
+        R('div',{style:{textAlign:'right',marginTop:8}},
+          R('button',{className:'btn bp',onClick:addImprove,disabled:busy||impAtt.upBusy},'+ 개선 사항 등록'))
+      ),
+      (sel.improves||[]).length===0
+        ?R('div',{style:{textAlign:'center',padding:16,color:'var(--tm)',fontSize:12.5}},'등록된 개선 사항이 없습니다.')
+        :R('div',null,...(sel.improves||[]).map((im,i)=>R('div',{key:im.id||i,style:{padding:'10px 0',borderTop:i?'1px solid #F3EFEA':'none'}},
+            R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:5}},
+              R('span',{style:{fontSize:12,fontWeight:700}},im.by||'-'),
+              R('span',{style:{fontSize:10.5,color:'var(--tm)'}},fDT(im.at)),
+              (isAdmin||im.byId===user.id)&&R('button',{onClick:()=>delImprove(im),title:'삭제',
+                style:{marginLeft:'auto',border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'1px 7px',fontSize:10.5,cursor:'pointer',fontFamily:'inherit'}},'삭제')),
+            im.text&&R('div',{style:{fontSize:13,lineHeight:1.7,whiteSpace:'pre-wrap'}},im.text),
+            R(AttachView,{files:im.files})
+          )))
+    )
+  );
+
+  /* ── 목록 ── */
+  const list=(rows||[]).filter(r=>{
+    const s=q.trim().toLowerCase();
+    if(!s)return true;
+    return [r.client,r.product,r.body,r.note,r.owner].some(v=>String(v||'').toLowerCase().includes(s));
+  });
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},(ic||'📊')+' '+title),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},desc||'')),
+      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 새 항목')
+    ),
+    R('div',{style:{marginBottom:10}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 거래처·제품명·내용 검색',style:{maxWidth:340}})),
+    R('div',{className:'tw'},
+      R('table',null,
+        R('thead',null,R('tr',null,
+          R('th',{style:{width:150}},'거래처'),R('th',null,nameLabel||'개발 제품명'),R('th',null,'내용'),
+          R('th',{style:{width:90}},'개선'),R('th',{style:{width:96}},'담당자'),R('th',{style:{width:96}},'등록일'),R('th',{style:{width:84}},''))),
+        R('tbody',null,
+          rows===null?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          list.length===0?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 항목이 없습니다. [+ 새 항목]으로 추가해주세요.')):
+          list.map(r=>R('tr',{key:r._id,style:{cursor:'pointer'},onClick:()=>setSel(r)},
+            R('td',{style:{fontSize:12.5}},r.client||'-'),
+            R('td',{style:{fontWeight:700,fontSize:13}},r.product||'-',
+              (r.files||[]).length>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',marginLeft:5}},'📎',r.files.length)),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)'}},String(r.body||'').slice(0,50)||'-'),
+            R('td',{style:{fontSize:12,fontWeight:700,color:(r.improves||[]).length?'var(--p)':'#CBD5E1'}},(r.improves||[]).length+'건'),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)'}},r.owner||r._byName||'-'),
+            R('td',{style:{fontSize:11,color:'var(--tm)'}},fDate(r._at)),
+            R('td',{style:{whiteSpace:'nowrap'}},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
+              R('button',{onClick:e=>{e.stopPropagation();openEdit(r);},title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
+              R('button',{onClick:e=>{e.stopPropagation();del(r);},title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')))
+          ))
+        )
+      )
+    ),
+    showF&&R(Modal2,{title:title+(editId?' 수정':' 등록'),onClose:()=>{setShowF(false);setEditId(null);},size:620,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:save,disabled:busy||att.upBusy,style:{flex:2}},att.upBusy?'업로드 중...':(editId?'수정 저장':'등록')))},
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'거래처'),
+          R('input',{className:'inp',value:form.client,onChange:e=>setForm(p=>Object.assign({},p,{client:e.target.value})),placeholder:'예) (주)마켓컬리'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},(nameLabel||'개발 제품명')+' *'),
+          R('input',{className:'inp',value:form.product,onChange:e=>setForm(p=>Object.assign({},p,{product:e.target.value})),placeholder:namePh||'예) 매운 돈코츠 라멘'}))
+      ),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'담당자'),
+        R('input',{className:'inp',value:(editId?(form.owner||user.name):user.name)||'',readOnly:true,
+          style:{background:'#F9FAFB',color:'var(--tm)'},title:'작성자로 자동 등록됩니다'})),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'내용'),
+        R('textarea',{className:'inp',value:form.body,onChange:e=>setForm(p=>Object.assign({},p,{body:e.target.value})),onPaste:att.onPaste,
+          placeholder:'개발 내용, 시험 조건, 결과 등 (이미지는 Ctrl+V로 바로 붙여넣기)',style:{minHeight:170}})),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (사진·파일)'),att.Box()),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'비고'),
+        R('textarea',{className:'inp',value:form.note,onChange:e=>setForm(p=>Object.assign({},p,{note:e.target.value})),placeholder:'특이사항',style:{minHeight:70}}))
+    )
+  );
+}
+
 /* ═══ 설비 점검 (주기 관리 · 점검일 기록) ══════════════
    app_state.bnf_pm_equip = [{_id,name,place,cycle,unit,last,owner,note,history:[...]}]
    다음 점검일 = 최근 점검일 + 주기. 홈 대시보드에서도 같은 계산을 쓴다. */
@@ -2284,8 +2572,8 @@ function equipState(r){
   return{k:'ok',t:'D-'+d,c:'#15803D',bg:'#F0FDF4'};
 }
 
-function PageEquipCheck({user}){
-  const KEY='bnf_pm_equip';
+function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel,resultOpts}){
+  const KEY=storeKey||'bnf_pm_equip';
   const[rows,setRows]=useState(null);
   const[q,setQ]=useState('');
   const[busy,setBusy]=useState(false);
@@ -2294,7 +2582,7 @@ function PageEquipCheck({user}){
   const[form,setForm]=useState({name:'',place:'',cycle:'',unit:'개월',last:'',owner:'',note:''});
   const[hist,setHist]=useState(null);     /* 이력 보기 대상 */
   const[chk,setChk]=useState(null);       /* 점검 기록 입력 대상 */
-  const[chkF,setChkF]=useState({date:today2(),result:'정상',note:''});
+  const[chkF,setChkF]=useState({date:today2(),result:(resultOpts&&resultOpts[0])||'정상',note:''});
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
 
   useEffect(()=>{load();},[]);
@@ -2325,7 +2613,7 @@ function PageEquipCheck({user}){
   const openNew=()=>{setForm({name:'',place:'',cycle:'',unit:'개월',last:today2(),owner:'',note:''});setEditId(null);setShowF(true);};
   const openEdit=r=>{setForm({name:r.name||'',place:r.place||'',cycle:r.cycle||'',unit:r.unit||'개월',last:r.last||'',owner:r.owner||'',note:r.note||''});setEditId(r._id);setShowF(true);};
   const save=async()=>{
-    if(!form.name.trim())return alert('설비명을 입력해주세요.');
+    if(!form.name.trim())return alert((nameLabel||'설비명')+'을(를) 입력해주세요.');
     const list=(rows||[]).slice();
     if(editId){
       const i=list.findIndex(x=>x._id===editId);
@@ -2338,7 +2626,7 @@ function PageEquipCheck({user}){
   };
   const del=async(r)=>{
     if(!(isAdmin||r._by===user.id))return alert('등록자 또는 관리자만 삭제할 수 있습니다.');
-    if(!confirm('"'+r.name+'" 설비를 삭제할까요? 점검 이력도 함께 지워집니다.'))return;
+    if(!confirm('"'+r.name+'" 항목을 삭제할까요? 이력도 함께 지워집니다.'))return;
     await persist((rows||[]).filter(x=>x._id!==r._id));
   };
   /* 점검 기록 → 최근 점검일 갱신 + 이력 추가 */
@@ -2350,7 +2638,7 @@ function PageEquipCheck({user}){
       return Object.assign({},r,{last:chkF.date,history:h});
     });
     await persist(list);
-    setChk(null);setChkF({date:today2(),result:'정상',note:''});
+    setChk(null);setChkF({date:today2(),result:(resultOpts&&resultOpts[0])||'정상',note:''});
   };
 
   const list=(rows||[]).filter(r=>{
@@ -2373,7 +2661,7 @@ function PageEquipCheck({user}){
     return R('div',{className:'pg fa'},
       R('div',{className:'pg-hdr',style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
         R('button',{className:'btn bs',onClick:()=>setHist(null)},'← 목록'),
-        R('button',{className:'btn bp',onClick:()=>{setChk(r);setChkF({date:today2(),result:'정상',note:''});}},'✓ 점검 기록')),
+        R('button',{className:'btn bp',onClick:()=>{setChk(r);setChkF({date:today2(),result:(resultOpts&&resultOpts[0])||'정상',note:''});}},'✓ 점검 기록')),
       R('div',{className:'card',style:{marginBottom:12}},
         R('h2',{style:{fontSize:16,fontWeight:800,marginBottom:6}},r.name),
         R('div',{style:{fontSize:12,color:'var(--tm)',display:'flex',gap:10,flexWrap:'wrap'}},
@@ -2411,7 +2699,7 @@ function PageEquipCheck({user}){
           R('input',{type:'date',className:'inp',value:chkF.date,onChange:e=>setChkF(p=>Object.assign({},p,{date:e.target.value}))})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'결과'),
           R('select',{className:'inp',value:chkF.result,onChange:e=>setChkF(p=>Object.assign({},p,{result:e.target.value}))},
-            ...['정상','주의','수리','교체','고장'].map(o=>R('option',{key:o,value:o},o))))),
+            ...(resultOpts||['정상','주의','수리','교체','고장']).map(o=>R('option',{key:o,value:o},o))))),
       R('div',{className:'fr'},R('label',{className:'lbl'},'내용/조치'),
         R('textarea',{className:'inp',value:chkF.note,onChange:e=>setChkF(p=>Object.assign({},p,{note:e.target.value})),placeholder:'점검 내용, 교체 부품 등',style:{minHeight:80}})),
       R('div',{style:{fontSize:11,color:'var(--tm)'}},'저장하면 최근 점검일이 이 날짜로 바뀌고 다음 점검일이 자동 계산됩니다.')
@@ -2421,9 +2709,9 @@ function PageEquipCheck({user}){
   /* ── 목록 ── */
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
-      R('div',null,R('div',{className:'pg-title'},'🔧 설비 점검'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'점검 주기를 설정하면 다음 점검일이 자동 계산되고, 임박하면 홈 화면에 표시됩니다')),
-      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 설비 등록')
+      R('div',null,R('div',{className:'pg-title'},(ic||'🔧')+' '+(title||'설비 점검')),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},desc||'')),
+      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ '+(nameLabel||'설비')+' 등록')
     ),
     (overCnt>0||soonCnt>0)&&R('div',{className:'card',style:{marginBottom:12,background:overCnt?'#FEF2F2':'#FFFBEB',border:'1px solid '+(overCnt?'#FECACA':'#FDE68A')}},
       R('div',{style:{fontSize:12.5,fontWeight:700,color:overCnt?'#B91C1C':'#B45309'}},
@@ -2435,12 +2723,12 @@ function PageEquipCheck({user}){
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,
-          R('th',null,'설비명'),R('th',{style:{width:120}},'위치'),R('th',{style:{width:90}},'점검 주기'),
+          R('th',null,nameLabel||'설비명'),R('th',{style:{width:120}},placeLabel||'위치'),R('th',{style:{width:90}},'점검 주기'),
           R('th',{style:{width:110}},'최근 점검일'),R('th',{style:{width:110}},'다음 점검일'),R('th',{style:{width:96}},'상태'),
           R('th',{style:{width:90}},'담당'),R('th',{style:{width:150}},''))),
         R('tbody',null,
           rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20}},'로딩 중...')):
-          list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 설비가 없습니다. [+ 설비 등록]으로 추가해주세요.')):
+          list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 항목이 없습니다. [+ '+(nameLabel||'설비')+' 등록]으로 추가해주세요.')):
           list.map(r=>{const st=equipState(r);return R('tr',{key:r._id,style:{background:st.k==='over'?'#FFF8F8':(st.k==='soon'||st.k==='today'?'#FFFDF5':'#fff')}},
             R('td',{style:{fontWeight:600,cursor:'pointer'},onClick:()=>setHist(r),title:'점검 이력 보기'},r.name,
               (r.history||[]).length>0&&R('span',{style:{fontSize:10,color:'var(--tm)',marginLeft:5}},'이력 ',r.history.length)),
@@ -2452,7 +2740,7 @@ function PageEquipCheck({user}){
             R('td',{style:{fontSize:11.5,color:'var(--tm)'}},r.owner||'-'),
             R('td',{style:{whiteSpace:'nowrap'}},
               R('span',{style:{display:'inline-flex',gap:4}},
-                R('button',{onClick:()=>{setChk(r);setChkF({date:today2(),result:'정상',note:''});},title:'오늘 점검 기록',
+                R('button',{onClick:()=>{setChk(r);setChkF({date:today2(),result:(resultOpts&&resultOpts[0])||'정상',note:''});},title:'오늘 점검 기록',
                   style:{border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:6,padding:'3px 8px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✓ 점검'),
                 R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'3px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
                 (isAdmin||r._by===user.id)&&R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'3px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')))
@@ -2460,14 +2748,14 @@ function PageEquipCheck({user}){
         )
       )
     ),
-    showF&&R(Modal2,{title:editId?'설비 수정':'설비 등록',onClose:()=>{setShowF(false);setEditId(null);},size:560,
+    showF&&R(Modal2,{title:(nameLabel||'설비')+(editId?' 수정':' 등록'),onClose:()=>{setShowF(false);setEditId(null);},size:560,
       footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
         R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
         R('button',{className:'btn bp',onClick:save,disabled:busy,style:{flex:2}},editId?'수정 저장':'등록'))},
       R('div',{className:'fg'},
-        R('div',{className:'fr'},R('label',{className:'lbl'},'설비명 *'),
-          R('input',{className:'inp',value:form.name,onChange:e=>setForm(p=>Object.assign({},p,{name:e.target.value})),placeholder:'예) 살균기 1호'})),
-        R('div',{className:'fr'},R('label',{className:'lbl'},'위치'),
+        R('div',{className:'fr'},R('label',{className:'lbl'},(nameLabel||'설비명')+' *'),
+          R('input',{className:'inp',value:form.name,onChange:e=>setForm(p=>Object.assign({},p,{name:e.target.value})),placeholder:namePh||'예) 살균기 1호'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},placeLabel||'위치'),
           R('input',{className:'inp',value:form.place,onChange:e=>setForm(p=>Object.assign({},p,{place:e.target.value})),placeholder:'예) 1공장 포장실'}))),
       R('div',{className:'fr'},R('label',{className:'lbl'},'점검 주기'),
         R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
@@ -2887,30 +3175,6 @@ const SHARED_PAGES={
     {k:'writer',l:'담당',w:90},
     {k:'work',l:'실시 내용',type:'textarea',ph:'배합·조건·시험 방법 등'},
     {k:'result',l:'결과/개선점',type:'textarea'}
-  ]},
-  rnd_status:{title:'연구개발 현황',ic:'📊',desc:'진행 중인 개발 과제의 단계와 일정을 관리합니다',storeKey:'bnf_rnd_status',cols:[
-    {k:'name',l:'과제명',w:180},
-    {k:'client',l:'거래처/브랜드',w:140},
-    {k:'stage',l:'단계',type:'select',w:110,opts:['기획','시제품','시험생산','관능평가','규격확정','완료','보류']},
-    {k:'owner',l:'담당',w:90},
-    {k:'due',l:'목표일',type:'date',w:110},
-    {k:'note',l:'비고',type:'textarea'}
-  ]},
-  rnd_recipe:{title:'확정 배합비',ic:'🧾',desc:'양산 확정된 배합비를 보관합니다',storeKey:'bnf_rnd_recipe',cols:[
-    {k:'product',l:'제품명',w:180},
-    {k:'ver',l:'버전',w:70,ph:'v1.0'},
-    {k:'fixed',l:'확정일',type:'date',w:110},
-    {k:'owner',l:'확정자',w:90},
-    {k:'recipe',l:'배합비',type:'textarea',ph:'원료명 / 배합량(g 또는 %) 을 한 줄씩'},
-    {k:'note',l:'비고',type:'textarea'}
-  ]},
-  qc_incoming:{title:'수입 검사',ic:'📥',desc:'입고 원부자재 검사 기록',storeKey:'bnf_qc_incoming',cols:[
-    {k:'date',l:'검사일',type:'date',w:110},
-    {k:'item',l:'품목',w:170},
-    {k:'vendor',l:'매입처',w:140},
-    {k:'lot',l:'로트/유통기한',w:130},
-    {k:'result',l:'판정',type:'select',w:90,opts:['합격','조건부합격','불합격']},
-    {k:'note',l:'특이사항',type:'textarea'}
   ]},
   qc_process:{title:'공정 검사',ic:'⚙',desc:'생산 공정 중 검사 기록',storeKey:'bnf_qc_process',cols:[
     {k:'date',l:'검사일',type:'date',w:110},
@@ -4057,6 +4321,24 @@ function PageAdmin({user}){
   const[tab,setTab]=useState('users');const[emps,setEmps]=useState([]);const[depts,setDepts]=useState([]);
   const[showUF,setShowUF]=useState(false);const[editU,setEditU]=useState(null);
   const[uf,setUf]=useState({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
+  /* ── 직원 목록 정렬 (항목별) ── */
+  const[uSort,setUSort]=useState('name');
+  const[uDir,setUDir]=useState('asc');
+  const toggleUSort=k=>{if(uSort===k)setUDir(d=>d==='asc'?'desc':'asc');else{setUSort(k);setUDir('asc');}};
+  const ROLE_ORDER={superadmin:0,admin:1,manager:2,employee:3};
+  const uKey=(e,k)=>{
+    if(k==='dept')return (e.depts&&e.depts.name)||'';
+    if(k==='role')return String(ROLE_ORDER[e.role]!==undefined?ROLE_ORDER[e.role]:9);
+    if(k==='status')return e.status==='active'?'0':'1';
+    return String(e[k]||'');
+  };
+  const sortedEmps=(emps||[]).slice().sort((a,b)=>{
+    const va=uKey(a,uSort),vb=uKey(b,uSort);
+    if(!va&&vb)return 1;
+    if(va&&!vb)return -1;
+    const c=va.localeCompare(vb,'ko',{numeric:true});
+    return uDir==='asc'?c:-c;
+  });
   useEffect(()=>{load();},[]);
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
   const saveU=async()=>{if(!uf.name||!uf.email)return alert('이름/이메일 필수');if(editU){await db('emp').update({...uf}).eq('id',editU.id);}else{await db('emp').insert({...uf,status:'active',used_leave:0});}setShowUF(false);setEditU(null);load();};
@@ -4070,9 +4352,14 @@ function PageAdmin({user}){
       R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10}},R('button',{className:'btn bp',onClick:()=>{setEditU(null);setShowUF(true);}},'+ 직원 추가')),
       R('div',{className:'tw'},
         R('table',null,
-          R('thead',null,R('tr',null,R('th',null,'이름'),R('th',null,'이메일'),R('th',null,'부서'),R('th',null,'직위'),R('th',null,'권한'),R('th',null,'상태'),R('th',null,'관리'))),
-          R('tbody',null,...emps.map(e=>R('tr',{key:e.id},
+          R('thead',null,R('tr',null,
+            ...[['name','이름'],['emp_no','사번'],['email','이메일'],['dept','부서'],['position','직위'],['role','권한'],['status','상태']]
+              .map(([k,l])=>R('th',{key:k,onClick:()=>toggleUSort(k),title:'클릭하면 이 항목으로 정렬',style:{cursor:'pointer',whiteSpace:'nowrap'}},
+                l,uSort===k&&R('span',{style:{color:'var(--p)',marginLeft:3}},uDir==='asc'?'▲':'▼'))),
+            R('th',null,'관리'))),
+          R('tbody',null,...sortedEmps.map(e=>R('tr',{key:e.id},
             R('td',null,R('div',{style:{display:'flex',gap:8,alignItems:'center'}},R(Av,{name:e.name,size:26}),e.name)),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)',fontFamily:'monospace'}},e.emp_no||'-'),
             R('td',{style:{fontSize:11,color:'var(--tm)'}},[e.email]),
             R('td',{style:{fontSize:12}},e.depts?.name||'-'),
             R('td',{style:{fontSize:12}},e.position),
@@ -6199,8 +6486,13 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[equipList,setEquipList]=useState(null);
   useEffect(()=>{
     let dead=false;
-    sbClient.from('app_state').select('v:state_data->bnf_pm_equip').eq('id',1).maybeSingle()
-      .then(({data:d})=>{if(!dead)setEquipList(Array.isArray(d&&d.v)?d.v:[]);})
+    sbClient.from('app_state').select('eq:state_data->bnf_pm_equip,qs:state_data->bnf_qc_self').eq('id',1).maybeSingle()
+      .then(({data:d})=>{
+        if(dead)return;
+        const eq=(Array.isArray(d&&d.eq)?d.eq:[]).map(x=>Object.assign({},x,{_kind:'설비',_page:'pm_equip'}));
+        const qs=(Array.isArray(d&&d.qs)?d.qs:[]).map(x=>Object.assign({},x,{_kind:'자가품질',_page:'qc_self'}));
+        setEquipList(eq.concat(qs));
+      })
       .catch(()=>{if(!dead)setEquipList([]);});
     return()=>{dead=true;};
   },[]);
@@ -6792,24 +7084,25 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     if(!due.length)return null;
     const over=due.filter(x=>x.d<0).length;
     return R('div',{className:'card',style:{cursor:'pointer',border:'1px solid '+(over?'#FECACA':'#FDE68A'),background:over?'#FFF8F8':'#FFFDF5'},
-      onClick:()=>onGoPage('pm_equip')},
+      onClick:()=>onGoPage((due[0]&&due[0].r._page)||'pm_equip')},
       R('div',{style:{display:'flex',alignItems:'center',marginBottom:8}},
-        R('div',{className:'card-title',style:{margin:0}},'🔧 설비 점검'),
+        R('div',{className:'card-title',style:{margin:0}},'🔧 점검 예정'),
         R('span',{style:{marginLeft:8,background:over?'#DC2626':'#D97706',color:'#fff',fontSize:10,fontWeight:800,borderRadius:10,padding:'2px 8px'}},
-          over?('지남 '+over+'대'):('임박 '+due.length+'대')),
+          over?('지남 '+over+'건'):('임박 '+due.length+'건')),
         R('span',{style:{marginLeft:'auto',fontSize:11,color:'var(--p)',fontWeight:700}},'바로가기 →')),
       ...due.slice(0,5).map(x=>{const st=equipState(x.r);
-        return R('div',{key:x.r._id,style:{display:'flex',gap:8,alignItems:'center',padding:'5px 0',borderTop:'1px solid #F3EFEA',fontSize:12.5}},
+        return R('div',{key:x.r._page+x.r._id,onClick:e=>{e.stopPropagation();onGoPage(x.r._page);},style:{display:'flex',gap:8,alignItems:'center',padding:'5px 0',borderTop:'1px solid #F3EFEA',fontSize:12.5,cursor:'pointer'}},
+          R('span',{style:{fontSize:10,color:'#fff',background:x.r._kind==='자가품질'?'#7C3AED':'#0EA5E9',borderRadius:8,padding:'1px 6px',flexShrink:0}},x.r._kind),
           R('span',{style:{fontWeight:700,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},x.r.name),
           x.r.place&&R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},x.r.place),
           R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},equipNext(x.r)),
           R('span',{style:{fontSize:11,fontWeight:800,color:st.c,background:st.bg,padding:'1px 7px',borderRadius:9,flexShrink:0}},st.t));
       }),
-      due.length>5&&R('div',{style:{fontSize:11,color:'var(--tm)',paddingTop:6}},'외 ',due.length-5,'대')
+      due.length>5&&R('div',{style:{fontSize:11,color:'var(--tm)',paddingTop:6}},'외 ',due.length-5,'건')
     );
   };
 
-  const SEC_LABELS={sales:'💵 매출 현황',equip:'🔧 설비 점검',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
+  const SEC_LABELS={sales:'💵 매출 현황',equip:'🔧 점검 예정',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
   const builders={
     sales:buildSales,
     equip:buildEquip,
@@ -11140,7 +11433,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'rnd_recipe',l:'확정 배합비',ic:'🧾'},
   ]},
   {label:'🧪 품질관리',type:'dept_qc',items:[
-    {id:'qc_incoming',l:'수입 검사',ic:'📥'},
+    {id:'qc_self',l:'자가품질검사',ic:'🧪'},
     {id:'qc_process',l:'공정 검사',ic:'⚙'},
     {id:'qc_hygiene',l:'위생 점검',ic:'🧼'},
     {id:'qc_claim',l:'클레임 관리',ic:'⚠'},
@@ -11272,7 +11565,7 @@ function loadNavSections(){
               {t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서',items:[
                 {id:'rnd_log',l:'연구개발 일지',ic:'📔'},{id:'rnd_status',l:'연구개발 현황',ic:'📊'},{id:'rnd_recipe',l:'확정 배합비',ic:'🧾'}]},
               {t:'dept_qc',m:'품질',label:'🧪 품질관리',items:[
-                {id:'qc_incoming',l:'수입 검사',ic:'📥'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
+                {id:'qc_self',l:'자가품질검사',ic:'🧪'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
               {t:'dept_pm',m:'생산관리',label:'🏭 생산관리',items:[
                 {id:'pm_workorder',l:'작업지시서',ic:'📋'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
             ];
@@ -11568,7 +11861,7 @@ const NAV_PAGES_INDEX=[
   {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
   {p:'rnd_recipe',title:'확정 배합비',ic:'🧾',keys:['배합','레시피','확정','recipe']},
-  {p:'qc_incoming',title:'수입 검사',ic:'📥',keys:['수입','입고','검사','품질']},
+  {p:'qc_self',title:'자가품질검사',ic:'🧪',keys:['자가','품질','검사','자가품질']},
   {p:'qc_process',title:'공정 검사',ic:'⚙',keys:['공정','검사','품질']},
   {p:'qc_hygiene',title:'위생 점검',ic:'🧼',keys:['위생','점검','청소','품질']},
   {p:'qc_claim',title:'클레임 관리',ic:'⚠',keys:['클레임','불만','컴플레인','품질']},
@@ -14061,7 +14354,18 @@ function App(){
     if(page==='autoOrder')return R(PageAutoOrder,{user,mats,onCreateOrder:o=>{
       setOrders(p=>[...p,{id:uid(),matCode:o.matCode,matName:o.matName,qty:o.qty,supplier:o.supplier,unit:o.unit||'kg',step:1,status:STEPS[0],reqDate:getDate(),expDate:addDays(3),memo:'자동발주제안'}]);
     }});
-    if(page==='pm_equip')return R(PageEquipCheck,{user});
+    if(page==='rnd_status')return R(PageDevRecord,{key:'rnd_status',user,title:'연구개발 현황',ic:'📊',
+      desc:'거래처별 개발 제품과 진행 내용을 기록하고 개선 사항을 이어서 남깁니다',storeKey:'bnf_rnd_status',folder:'rnd'});
+    if(page==='rnd_recipe')return R(PageDevRecord,{key:'rnd_recipe',user,title:'확정 배합비',ic:'🧾',
+      desc:'양산 확정된 배합비를 거래처·제품별로 보관합니다',storeKey:'bnf_rnd_recipe',folder:'recipe',
+      nameLabel:'개발 제품명',namePh:'예) 매운 돈코츠 라멘 (v1.0)'});
+    if(page==='qc_self')return R(PageCycleCheck,{key:'qc_self',user,title:'자가품질검사',ic:'🧪',
+      desc:'유형별 검사 주기를 설정하면 다음 검사일이 자동 계산되고, 도래하면 홈 화면에 표시됩니다',
+      storeKey:'bnf_qc_self',nameLabel:'검사 유형',namePh:'예) 세균수 · 대장균군',
+      placeLabel:'대상 제품/구역',resultOpts:['적합','부적합','재검']});
+    if(page==='pm_equip')return R(PageCycleCheck,{key:'pm_equip',user,title:'설비 점검',ic:'🔧',
+      desc:'점검 주기를 설정하면 다음 점검일이 자동 계산되고, 임박하면 홈 화면에 표시됩니다',
+      storeKey:'bnf_pm_equip',nameLabel:'설비명',namePh:'예) 살균기 1호',placeLabel:'위치'});
     if(page==='manual')return R(PageManual,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
