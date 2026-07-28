@@ -2045,6 +2045,15 @@ function PageApproval({user}){
     if(d&&d.step2_id)L.push({id:d.step2_id,name:empName(d.step2_id),status:d.step2_status||'대기',at:d.step2_at||null});
     return L;
   };
+  /* ── 열람 권한: 기안자 · 결재선에 포함된 결재자 · 기안자가 지정한 참조자만 ──
+     (관리자라도 본인이 관여하지 않은 문서는 볼 수 없다) */
+  const canView=d=>{
+    if(!d)return false;
+    if(d.writer_id===user.id)return true;
+    if(lineOf(d).some(s=>s&&s.id===user.id))return true;
+    const refs=(d.content&&Array.isArray(d.content.__refs))?d.content.__refs:[];
+    return refs.indexOf(user.id)>=0;
+  };
   /* 지금 결재할 차례인 단계 index (없으면 -1) */
   const curIdx=d=>{const L=lineOf(d);if(d&&d.status!=='결재중')return -1;return L.findIndex(s=>s.status!=='승인'&&s.status!=='반려');};
   const isMyTurn=d=>{const i=curIdx(d);return i>=0&&lineOf(d)[i].id===user.id;};
@@ -2114,8 +2123,10 @@ function PageApproval({user}){
     if(tab==='mine')q=q.eq('writer_id',user.id);
     else if(tab==='pending')q=q.eq('status','결재중');   /* N단계라 내 차례 판정은 아래에서 */
     const{data}=await q.order('created_at',{ascending:false});
-    let rows=data||[];
+    /* 기안자·결재자(·참조자)가 아니면 어떤 문서도 보이지 않는다 */
+    let rows=(data||[]).filter(canView);
     if(tab==='pending')rows=rows.filter(isMyTurn);
+    else if(tab==='involved')rows=rows.filter(d=>d.writer_id!==user.id);
     setDocs(rows);setLoading(false);
   };
   const fTypes=[{v:'leave',l:'휴가신청'},{v:'expense',l:'지출결의'},{v:'purchase',l:'구매요청'},{v:'general',l:'일반기안'}];
@@ -2126,7 +2137,7 @@ function PageApproval({user}){
   const updC=(k,v)=>setForm(p=>({...p,content:{...p.content,[k]:v}}));
   /* 수정·삭제 권한: 기안자 본인이면서 아직 아무도 결재하지 않았을 때, 또는 관리자 */
   const untouched=d=>!!d&&d.status==='결재중'&&lineOf(d).every(s=>s.status!=='승인'&&s.status!=='반려');
-  const canEdit=d=>!!d&&(isAdmin||(d.writer_id===user.id&&untouched(d)));
+  const canEdit=d=>!!d&&canView(d)&&(isAdmin||(d.writer_id===user.id&&untouched(d)));
 
   const resetForm=()=>{setForm({title:'',approvers:[],content:{},refs:[],files:[]});setEditId(null);};
   const openNew=()=>{resetForm();setFType('leave');setShowF(true);};
@@ -2235,6 +2246,11 @@ function PageApproval({user}){
     );
     return R('div',{className:'fr'},R('label',{className:'lbl'},'내용'),R('textarea',{className:'inp',value:form.content.body||'',onChange:e=>updC('body',e.target.value),onPaste:onPaste,placeholder:'내용 입력 (이미지를 Ctrl+V로 바로 붙여넣을 수 있습니다)',style:{minHeight:120}}));
   };
+  if(sel&&!canView(sel))return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},R('button',{className:'btn bs',onClick:()=>setSel(null)},'← 목록')),
+    R('div',{className:'card',style:{textAlign:'center',padding:30,color:'var(--tm)'}},'🔒 이 문서를 볼 권한이 없습니다.',
+      R('div',{style:{fontSize:12,marginTop:6}},'결재 문서는 기안자·결재자·참조자만 열람할 수 있습니다.'))
+  );
   if(sel)return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr',style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
       R('button',{className:'btn bs',onClick:()=>setSel(null)},'← 목록'),
@@ -2338,7 +2354,8 @@ function PageApproval({user}){
       (lockedPre||lockedFinal)&&R('div',{style:{marginTop:12,fontSize:12,color:'var(--ok)',fontWeight:600}},
         '🔒 고정 결재선: ',[lockedPre&&('차상위 '+empName(lockedPre)),lockedFinal&&('최종 '+empName(lockedFinal))].filter(Boolean).join(' → '))
     ),
-    R('div',{className:'tab-row'},[['mine','내 문서'],['pending','결재 대기'],isAdmin&&['all','전체']].filter(Boolean).map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
+    R('div',{className:'tab-row'},[['mine','내 기안'],['pending','결재 대기'],['involved','참여 문서']].map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
+    R('div',{style:{fontSize:11,color:'var(--tm)',margin:'0 0 8px 2px'}},'🔒 결재 문서는 기안자·결재자·참조자만 볼 수 있습니다.'),
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,R('th',{style:{width:80}},'상태'),R('th',{style:{width:70}},'종류'),R('th',null,'제목'),R('th',null,'기안자'),R('th',null,'기안일'),R('th',{style:{width:96}},''))),
