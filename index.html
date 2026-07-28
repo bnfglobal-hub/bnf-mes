@@ -1813,7 +1813,8 @@ function PageFeatureReq({user}){
     setPosts(data||[]);
   };
   const openNew=()=>{setForm({title:'',body:'',area:'',prio:'보통'});setEditId(null);setShowF(true);};
-  const openEdit=p=>{const{meta,body}=frParse(p.content);setForm({title:p.title||'',body,area:meta.area||'',prio:meta.prio||'보통'});setEditId(p.id);setShowF(true);};
+  /* 상세화면에는 모달이 없으므로 목록으로 돌아간 뒤 모달을 띄운다 */
+  const openEdit=p=>{const{meta,body}=frParse(p.content);setForm({title:p.title||'',body,area:meta.area||'',prio:meta.prio||'보통'});setEditId(p.id);setPost(null);setShowF(true);};
   const save=async()=>{
     if(!form.title.trim())return alert('제목을 입력해주세요.');
     if(!board)return alert('게시판을 준비하지 못했습니다. 새로고침 후 다시 시도해주세요.');
@@ -2090,7 +2091,9 @@ function PageApproval({user}){
     Object.keys(c).forEach(k=>{if(k.indexOf('__')===0)delete c[k];});
     setFType(d.form_type||'general');
     setForm({title:d.title||'',step1_id:d.step1_id||'',step2_id:d.step2_id||'',content:c,refs,files});
-    setEditId(d.id);setShowF(true);
+    setEditId(d.id);
+    setSel(null);      /* 상세화면에는 모달이 없으므로 목록으로 돌아간 뒤 모달을 띄운다 */
+    setShowF(true);
   };
   const delDoc=async(d)=>{
     if(!canEdit(d))return alert('이미 결재가 진행되어 삭제할 수 없습니다.');
@@ -9707,6 +9710,7 @@ function PageData({mats,prods,orders,hqItems,cats,quote,pqty,onImport}){
 const DEFAULT_NAV_SECTIONS=[
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'home',l:'홈',ic:'⊞'},
+    {id:'approval',l:'전자결재',ic:'📋'},
     {id:'newprod',l:'신제품 현황',ic:'🆕'},
     {id:'sampledev',l:'샘플 개발',ic:'🧪'},
     {id:'lab',l:'연구소',ic:'🔬'},
@@ -9722,7 +9726,6 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'dart',l:'거래처 정보 조회',ic:'🔍'},
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
-    {id:'approval',l:'전자결재',ic:'📋'},
     {id:'files',l:'파일 공유',ic:'📁'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
@@ -9751,6 +9754,7 @@ function loadNavSections(){
         const filtered=p.filter(s=>{if(s&&s.type==='hq'){changed=true;return false;}return true;}).map(s=>{
           if(s&&Array.isArray(s.items)){
             const newItems=s.items.filter(it=>!REMOVED_IDS.has(it.id));
+            let secChanged=false;   /* 개수는 그대로고 순서만 바뀐 경우도 저장되도록 */
             /* 관리자 섹션에 영업 이익 분석 없으면 추가 */
             if(s.type==='admin'&&!newItems.find(it=>it.id==='profit')){
               newItems.unshift({id:'profit',l:'영업 이익 분석',ic:'📈'});
@@ -9807,6 +9811,19 @@ function loadNavSections(){
                 {after:'sampledev',item:{id:'lab',l:'연구소',ic:'🔬'}},
                 {after:'lab',item:{id:'featreq',l:'추가 기능 요청',ic:'💡'}}
               ];
+              /* 전자결재를 홈 바로 아래로 이동 (1회만 · 이후 사용자가 바꾼 순서는 존중) */
+              try{
+                if(!localStorage.getItem('bnf_nav_approval_top_v1')){
+                  const ai=newItems.findIndex(it=>it.id==='approval');
+                  const hi=newItems.findIndex(it=>it.id==='home');
+                  if(ai>=0&&hi>=0&&ai!==hi+1){
+                    const[moved]=newItems.splice(ai,1);
+                    newItems.splice(newItems.findIndex(it=>it.id==='home')+1,0,moved);
+                    changed=true;secChanged=true;
+                  }
+                  localStorage.setItem('bnf_nav_approval_top_v1','1');
+                }
+              }catch(e){}
               newMenus.forEach(({after,item})=>{
                 if(!newItems.find(it=>it.id===item.id)){
                   const idx=newItems.findIndex(it=>it.id===after);
@@ -9815,7 +9832,7 @@ function loadNavSections(){
                 }
               });
             }
-            if(newItems.length!==s.items.length){changed=true;return{...s,items:newItems};}
+            if(secChanged||newItems.length!==s.items.length){changed=true;return{...s,items:newItems};}
           }
           return s;
         });
