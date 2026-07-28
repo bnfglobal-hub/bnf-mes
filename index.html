@@ -4321,12 +4321,46 @@ function PageAdmin({user}){
   const[tab,setTab]=useState('users');const[emps,setEmps]=useState([]);const[depts,setDepts]=useState([]);
   const[showUF,setShowUF]=useState(false);const[editU,setEditU]=useState(null);
   const[uf,setUf]=useState({emp_no:'',name:'',email:'',password:'1234',dept_id:'',position:'사원',role:'employee',phone:'',hire_date:today2(),annual_leave:15,menu_perms:{}});
+  /* ── 실시간 접속 현황 + 강제 접속 해제 ── */
+  const[pres,setPres]=useState({});
+  const loadPres=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',2).maybeSingle();
+      setPres((data&&data.state_data)||{});
+    }catch(e){}
+  };
+  useEffect(()=>{loadPres();const t=setInterval(()=>{if(!document.hidden)loadPres();},20000);return()=>clearInterval(t);},[]);
+  /* 최근 2.5분 안에 하트비트가 있으면 접속 중으로 본다 (하트비트 주기 45초) */
+  const presOf=id=>{
+    const x=pres.presence&&pres.presence[id];
+    if(!x||!+x.t)return{online:false,t:0};
+    return{online:(Date.now()-(+x.t))<150000,t:+x.t};
+  };
+  const onlineCnt=(emps||[]).filter(e=>presOf(e.id).online).length;
+  const kickUser=async(e)=>{
+    if(e.id===user.id)return alert('본인 세션은 해제할 수 없습니다. 로그아웃을 사용하세요.');
+    if(!confirm(e.name+' 님의 접속을 강제로 해제할까요?
+
+해당 기기는 최대 45초 안에 자동 로그아웃됩니다.
+(다시 로그인하면 재접속됩니다 — 완전히 막으려면 계정을 비활성으로 바꾸세요)'))return;
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',2).maybeSingle();
+      const sd=(data&&data.state_data)||{};
+      const kicks=Object.assign({},sd.kicks||{});kicks[e.id]=Date.now();
+      const presence=Object.assign({},sd.presence||{});
+      if(presence[e.id])presence[e.id]=Object.assign({},presence[e.id],{t:0});
+      await sbClient.from('app_state').upsert({id:2,state_data:Object.assign({},sd,{kicks,presence}),updated_at:new Date().toISOString()});
+      alert('✅ 접속 해제 신호를 보냈습니다. '+e.name+' 님은 잠시 후 자동 로그아웃됩니다.');
+      loadPres();
+    }catch(err){alert('실패: '+err.message);}
+  };
   /* ── 직원 목록 정렬 (항목별) ── */
   const[uSort,setUSort]=useState('name');
   const[uDir,setUDir]=useState('asc');
   const toggleUSort=k=>{if(uSort===k)setUDir(d=>d==='asc'?'desc':'asc');else{setUSort(k);setUDir('asc');}};
   const ROLE_ORDER={superadmin:0,admin:1,manager:2,employee:3};
   const uKey=(e,k)=>{
+    if(k==='online'){const o=presOf(e.id);return o.online?'0':String(1e13-(o.t||0));}
     if(k==='dept')return (e.depts&&e.depts.name)||'';
     if(k==='role')return String(ROLE_ORDER[e.role]!==undefined?ROLE_ORDER[e.role]:9);
     if(k==='status')return e.status==='active'?'0':'1';
@@ -4349,11 +4383,16 @@ function PageAdmin({user}){
     R('div',{className:'pg-title',style:{marginBottom:14}},'⚙️ 관리자'),
     R('div',{className:'tab-row'},R('button',{className:'tab'+(tab==='users'?' act':''),onClick:()=>setTab('users')},'👥 사용자'),R('button',{className:'tab'+(tab==='depts'?' act':''),onClick:()=>setTab('depts')},'🏢 부서')),
     tab==='users'&&R('div',null,
-      R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10}},R('button',{className:'btn bp',onClick:()=>{setEditU(null);setShowUF(true);}},'+ 직원 추가')),
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8,flexWrap:'wrap'}},
+        R('div',{style:{display:'inline-flex',alignItems:'center',gap:7,background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:16,padding:'4px 12px'}},
+          R('span',{style:{width:8,height:8,borderRadius:'50%',background:'#22C55E',display:'inline-block'}}),
+          R('span',{style:{fontSize:12,fontWeight:800,color:'#15803D'}},'현재 접속 ',onlineCnt,'명'),
+          R('span',{style:{fontSize:10,color:'#4ADE80'}},'· 20초마다 갱신')),
+        R('button',{className:'btn bp',onClick:()=>{setEditU(null);setShowUF(true);}},'+ 직원 추가')),
       R('div',{className:'tw'},
         R('table',null,
           R('thead',null,R('tr',null,
-            ...[['name','이름'],['emp_no','사번'],['email','이메일'],['dept','부서'],['position','직위'],['role','권한'],['status','상태']]
+            ...[['name','이름'],['emp_no','사번'],['email','이메일'],['dept','부서'],['position','직위'],['role','권한'],['status','상태'],['online','접속']]
               .map(([k,l])=>R('th',{key:k,onClick:()=>toggleUSort(k),title:'클릭하면 이 항목으로 정렬',style:{cursor:'pointer',whiteSpace:'nowrap'}},
                 l,uSort===k&&R('span',{style:{color:'var(--p)',marginLeft:3}},uDir==='asc'?'▲':'▼'))),
             R('th',null,'관리'))),
@@ -4365,6 +4404,16 @@ function PageAdmin({user}){
             R('td',{style:{fontSize:12}},e.position),
             R('td',null,R(Bdg2,{cls:RCLS[e.role]||'b-g',txt:ROLES[e.role]||e.role})),
             R('td',null,R(Bdg2,{cls:e.status==='active'?'b-ok':'b-g',txt:e.status==='active'?'재직':'비활성'})),
+            R('td',{style:{whiteSpace:'nowrap'}},(()=>{
+              const o=presOf(e.id);
+              if(o.online)return R('div',{style:{display:'inline-flex',alignItems:'center',gap:6}},
+                R('span',{style:{width:8,height:8,borderRadius:'50%',background:'#22C55E',display:'inline-block',boxShadow:'0 0 0 3px #DCFCE7'}}),
+                R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},'접속 중'),
+                e.id!==user.id&&R('button',{onClick:()=>kickUser(e),title:'강제 접속 해제',
+                  style:{border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',borderRadius:6,padding:'2px 8px',fontSize:10.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'⏻ 해제'));
+              return R('span',{style:{fontSize:10.5,color:'var(--tm)'},title:o.t?('마지막 접속 '+fDT(o.t)):'접속 기록 없음'},
+                o.t?('오프라인 · '+fDate(o.t)):'-');
+            })()),
             R('td',null,R('div',{style:{display:'flex',gap:4}},
               R('button',{className:'btn bs btn-sm',onClick:()=>{setEditU(e);setUf({emp_no:e.emp_no||'',name:e.name,email:e.email,password:e.password||'',dept_id:e.dept_id||'',position:e.position||'',role:e.role,phone:e.phone||'',hire_date:e.hire_date||today2(),annual_leave:e.annual_leave||15,menu_perms:e.menu_perms||{}});setShowUF(true);}},'수정'),
               e.id!==user.id&&R('button',{className:'btn btn-sm',style:{background:e.status==='active'?'#fef3c7':'#f0fdf4',color:e.status==='active'?'#92400e':'#065f46',border:'none'},onClick:()=>toggleStatus(e)},e.status==='active'?'비활성':'활성화')
@@ -13797,6 +13846,37 @@ function PageShipSort({mats,hqItems}){
 
 function App(){
   const[user,setUser]=useState(null);
+  /* ── 접속 상태 하트비트 + 관리자 강제 접속 해제 감지 (app_state id=2 사용) ── */
+  const sessionStartRef=useRef(Date.now());
+  useEffect(()=>{
+    if(!user)return;
+    sessionStartRef.current=Date.now();
+    let dead=false;
+    const beat=async()=>{
+      try{
+        const{data}=await sbClient.from('app_state').select('state_data').eq('id',2).maybeSingle();
+        const sd=(data&&data.state_data)||{};
+        const kicks=sd.kicks||{};
+        /* 내 로그인 이후에 관리자가 해제를 눌렀으면 즉시 로그아웃 */
+        if(kicks[user.id]&&+kicks[user.id]>sessionStartRef.current){
+          if(dead)return;
+          localStorage.removeItem('bnf_user');
+          alert('관리자에 의해 접속이 해제되었습니다.
+다시 사용하려면 로그인해주세요.');
+          location.reload();
+          return;
+        }
+        const presence=Object.assign({},sd.presence||{});
+        presence[user.id]={t:Date.now(),name:user.name||user.email||''};
+        await sbClient.from('app_state').upsert({id:2,state_data:Object.assign({},sd,{presence}),updated_at:new Date().toISOString()});
+      }catch(e){}
+    };
+    beat();
+    const iv=setInterval(()=>{if(!document.hidden)beat();},45000);
+    const onVis=()=>{if(!document.hidden)beat();};
+    document.addEventListener('visibilitychange',onVis);
+    return()=>{dead=true;clearInterval(iv);document.removeEventListener('visibilitychange',onVis);};
+  },[user&&user.id]);
   const[sbOpen,setSbOpen]=useState(false); /* 모바일 사이드바 토글 */
   /* ── 모바일 스와이프 제스처: 왼쪽 가장자리→오른쪽 = 메뉴 열기, 메뉴 열림 상태 왼쪽 스와이프 = 닫기 ── */
   useEffect(()=>{
