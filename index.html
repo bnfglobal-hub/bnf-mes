@@ -2029,9 +2029,9 @@ function PageApproval({user}){
       alert('✅ 결재선 설정을 저장했습니다.');
     }catch(e){alert('저장 실패: '+e.message);}
   };
-  /* 고정이 켜져 있으면 해당 단계는 지정된 사람으로 강제 */
-  const lockedFinal=finalCfg.lock&&finalCfg.id?finalCfg.id:'';
-  const lockedPre=finalCfg.preLock&&finalCfg.preId?finalCfg.preId:'';
+  /* 고정 결재자 2명 (지정되어 있으면 항상 결재선 뒤쪽에 붙는다) */
+  const lockedPre=finalCfg.preId||'';    /* 고정 결재자 1 */
+  const lockedFinal=finalCfg.id||'';     /* 고정 결재자 2 = 최종 */
   const empName=id=>{const e=emps.find(x=>x.id===id);return e?(e.name+' '+(e.position||'')).trim():'';};
 
   /* ── 결재선(N단계) ──
@@ -2291,7 +2291,7 @@ function PageApproval({user}){
         const out=[];
         L.forEach((s,i)=>{
           if(i)out.push(R('div',{key:'l'+i,className:'pipe-line'+(L[i-1].status==='승인'?' done':'')}));
-          const label=s.fixed==='final'?'최종결재':s.fixed==='pre'?'차상위결재':(i+1)+'차결재';
+          const label=s.fixed==='final'?'최종결재':s.fixed==='pre'?'고정결재':(i+1)+'차결재';
           out.push(R('div',{key:'s'+i,className:'pipe-step'},
             R('div',{className:'pipe-circle'+(s.status==='승인'?' done':s.status==='반려'?' rej':(i===ci?' cur':''))},s.fixed==='final'?'★':String(i+1)),
             R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:3,whiteSpace:'nowrap'}},label,s.fixed?' 🔒':''),
@@ -2330,29 +2330,24 @@ function PageApproval({user}){
     ),
     /* ── 관리자: 최종 결재자 고정 ── */
     (isAdmin&&cfgOpen)&&R('div',{className:'card',style:{marginBottom:12}},
-      R('div',{className:'card-title',style:{marginBottom:10}},'⚙ 고정 결재선 설정'),
-      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:12}},'켜두면 모든 기안의 뒷단계가 아래 지정한 사람으로 고정되고 기안자는 바꿀 수 없습니다. 앞단계(1차, 2차 …)는 기안자가 자유롭게 추가합니다.'),
-      /* 최종 직전(차상위) */
+      R('div',{className:'card-title',style:{marginBottom:10}},'⚙ 고정 결재자 설정'),
+      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:12}},'모든 기안의 마지막 두 단계에 항상 들어가는 결재자입니다. 기안자는 바꿀 수 없고, 그 앞 단계만 자유롭게 추가합니다.'),
+      R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)',marginBottom:10}},'기안자 → 결재자 추가(기안자 지정) → 고정 결재자 1 → 고정 결재자 2'),
       R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:8}},
-        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:600,cursor:'pointer',minWidth:150}},
-          R('input',{type:'checkbox',checked:finalCfg.preLock,onChange:e=>setFinalCfg(p=>({...p,preLock:e.target.checked}))}),'차상위 결재자 고정'),
-        R('select',{className:'inp',value:finalCfg.preId,onChange:e=>setFinalCfg(p=>({...p,preId:e.target.value})),style:{maxWidth:240}},
-          R('option',{value:''},'결재자 선택'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||''))))
+        R('span',{style:{fontSize:13,fontWeight:700,minWidth:120}},'고정 결재자 1'),
+        R('select',{className:'inp',value:finalCfg.preId||'',onChange:e=>setFinalCfg(p=>({...p,preId:e.target.value})),style:{maxWidth:260}},
+          R('option',{value:''},'사용 안 함'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||''))))
       ),
-      /* 최종 */
       R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
-        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:600,cursor:'pointer',minWidth:150}},
-          R('input',{type:'checkbox',checked:finalCfg.lock,onChange:e=>setFinalCfg(p=>({...p,lock:e.target.checked}))}),'최종 결재자 고정'),
-        R('select',{className:'inp',value:finalCfg.id,onChange:e=>setFinalCfg(p=>({...p,id:e.target.value})),style:{maxWidth:240}},
-          R('option',{value:''},'결재자 선택'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||'')))),
+        R('span',{style:{fontSize:13,fontWeight:700,minWidth:120}},'고정 결재자 2 (최종)'),
+        R('select',{className:'inp',value:finalCfg.id||'',onChange:e=>setFinalCfg(p=>({...p,id:e.target.value})),style:{maxWidth:260}},
+          R('option',{value:''},'사용 안 함'),...emps.map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||'')))),
         R('button',{className:'btn bp',onClick:()=>{
-          if(finalCfg.lock&&!finalCfg.id)return alert('고정할 최종 결재자를 선택해주세요.');
-          if(finalCfg.preLock&&!finalCfg.preId)return alert('고정할 차상위 결재자를 선택해주세요.');
-          if(finalCfg.lock&&finalCfg.preLock&&finalCfg.id===finalCfg.preId)return alert('차상위와 최종 결재자를 다른 사람으로 지정해주세요.');
-          saveCfg(finalCfg);}},'저장')
+          if(finalCfg.preId&&finalCfg.id&&finalCfg.preId===finalCfg.id)return alert('고정 결재자 1과 2를 다른 사람으로 지정해주세요.');
+          saveCfg({...finalCfg,lock:!!finalCfg.id,preLock:!!finalCfg.preId});}},'저장')
       ),
       (lockedPre||lockedFinal)&&R('div',{style:{marginTop:12,fontSize:12,color:'var(--ok)',fontWeight:600}},
-        '🔒 고정 결재선: ',[lockedPre&&('차상위 '+empName(lockedPre)),lockedFinal&&('최종 '+empName(lockedFinal))].filter(Boolean).join(' → '))
+        '🔒 현재 고정 결재선: ',[lockedPre&&empName(lockedPre),lockedFinal&&(empName(lockedFinal)+' (최종)')].filter(Boolean).join(' → '))
     ),
     R('div',{className:'tab-row'},[['mine','내 기안'],['pending','결재 대기'],['involved','참여 문서']].map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
     R('div',{style:{fontSize:11,color:'var(--tm)',margin:'0 0 8px 2px'}},'🔒 결재 문서는 기안자·결재자·참조자만 볼 수 있습니다.'),
@@ -2400,9 +2395,9 @@ function PageApproval({user}){
             style:{padding:'5px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',border:'1px dashed var(--p)',background:'#fff',color:'var(--p)'}},'+ 결재자 추가'),
           /* 관리자가 고정한 뒷단계 */
           (lockedPre||lockedFinal)&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--bd)'}},
-            R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6,fontWeight:700}},'🔒 고정 결재선 (관리자 지정 · 변경 불가)'),
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6,fontWeight:700}},'🔒 고정 결재자 (관리자 지정 · 변경 불가)'),
             lockedPre&&R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:5}},
-              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'차상위'),
+              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'고정1'),
               R('input',{className:'inp',value:empName(lockedPre),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}})),
             lockedFinal&&R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
               R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'최종'),
