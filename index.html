@@ -2949,15 +2949,68 @@ function PageAdmin({user}){
         R('div',{className:'fr'},R('label',{className:'lbl'},'연락처'),R('input',{className:'inp',value:uf.phone,onChange:e=>setUf(p=>({...p,phone:e.target.value})),placeholder:'010-0000-0000'})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'입사일'),R('input',{type:'date',className:'inp',value:uf.hire_date,onChange:e=>setUf(p=>({...p,hire_date:e.target.value}))})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'연차(일)'),R('input',{type:'number',className:'inp',value:uf.annual_leave,onChange:e=>setUf(p=>({...p,annual_leave:+e.target.value}))})),
-        R('div',{className:'fr',style:{gridColumn:'1/-1'}},
-          R('label',{className:'lbl'},'메뉴 접근 권한 (체크된 메뉴만 표시됨)'),
-          R('div',{style:{background:'#f9f5f2',borderRadius:9,padding:10,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:6}},
-            ...Object.entries({home:'홈',inv:'재고 관리',hq:'본사재고',bom:'제품/BOM',recipes:'레시피',prod:'생산계획',sched:'생산 스케줄',operation:'공장 가동률',orders:'발주현황',autoOrder:'자동발주제안',quote:'견적서',cost:'원가분석',upload:'ERP업로드',notices:'공지사항',board:'게시판',featreq:'추가 기능 요청',org:'조직도',approval:'전자결재',attendance:'근태관리',leave:'휴가관리',files:'파일 공유',links:'바로가기',data:'데이터관리',cats:'카테고리',adminDash:'경영 대시보드',sales_data:'매출 분석',purchase_data:'매입 분석'}).map(([k,v])=>R('label',{key:k,style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',fontSize:12,padding:'3px 5px'}},
-              R('input',{type:'checkbox',checked:uf.menu_perms?(uf.menu_perms[k]!==false):true,onChange:e=>setUf(p=>({...p,menu_perms:{...(p.menu_perms||{}),[k]:e.target.checked}})),style:{accentColor:'var(--p)'}}),
-              R('span',null,v)
-            ))
-          )
-        )
+        (()=>{
+          /* ── 메뉴 접근 권한: 실제 메뉴 정의(DEFAULT_NAV_SECTIONS)에서 자동 생성 ──
+             메뉴를 추가/삭제하면 이 목록도 자동으로 따라온다 (수동 관리 불필요) */
+          const secs=[];const seen=new Set();
+          (DEFAULT_NAV_SECTIONS||[]).forEach(s=>{
+            const items=(s.items||[]).filter(it=>it&&it.id&&!seen.has(it.id)&&seen.add(it.id));
+            if(items.length)secs.push({label:s.label||'메뉴',adminSec:!!s.adminOnly,items});
+          });
+          /* 사이드바엔 없지만 검색(Ctrl+K)으로 들어갈 수 있는 페이지도 막을 수 있게 포함 */
+          try{
+            const extra=(NAV_PAGES_INDEX||[]).filter(x=>x&&x.p&&!seen.has(x.p)&&!ADMIN_ONLY_PAGES.has(x.p)&&seen.add(x.p))
+              .map(x=>({id:x.p,l:x.title,ic:x.ic}));
+            if(extra.length)secs.push({label:'🔍 검색으로만 접근',adminSec:false,items:extra});
+          }catch(e){}
+          const allItems=secs.reduce((a,s)=>a.concat(s.items.map(it=>({...it,adminSec:s.adminSec}))),[]);
+          const isOn=id=>uf.menu_perms?(uf.menu_perms[id]!==false):true;
+          const setMany=(ids,on)=>setUf(p=>{const m={...(p.menu_perms||{})};ids.forEach(id=>{m[id]=on;});return{...p,menu_perms:m};});
+          /* 그룹 프리셋: 관리직=전부 / 일반직원=관리자 섹션 제외 */
+          const applyGroup=kind=>{
+            const m={};
+            allItems.forEach(it=>{m[it.id]=kind==='manager'?true:!it.adminSec;});
+            setUf(p=>({...p,menu_perms:m}));
+          };
+          const onCnt=allItems.filter(it=>isOn(it.id)).length;
+          return R('div',{className:'fr',style:{gridColumn:'1/-1'}},
+            R('label',{className:'lbl'},'메뉴 접근 권한 (체크된 메뉴만 표시됨) · ',onCnt,'/',allItems.length),
+            /* 그룹 일괄 설정 */
+            R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:8}},
+              R('span',{style:{fontSize:11,color:'var(--tm)',fontWeight:700}},'그룹 지정:'),
+              R('button',{type:'button',onClick:()=>applyGroup('staff'),
+                style:{padding:'5px 12px',borderRadius:16,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',border:'1px solid var(--bd)',background:'#fff',color:'var(--t)'}},'👥 일반직원'),
+              R('button',{type:'button',onClick:()=>applyGroup('manager'),
+                style:{padding:'5px 12px',borderRadius:16,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',border:'1px solid var(--p)',background:'var(--pb)',color:'var(--p)'}},'⭐ 관리직'),
+              R('span',{style:{width:1,height:16,background:'var(--bd)',margin:'0 2px'}}),
+              R('button',{type:'button',onClick:()=>setMany(allItems.map(i=>i.id),true),
+                style:{padding:'5px 10px',borderRadius:16,fontSize:11,cursor:'pointer',fontFamily:'inherit',border:'1px solid var(--bd)',background:'#fff',color:'var(--tm)'}},'전체 선택'),
+              R('button',{type:'button',onClick:()=>setMany(allItems.map(i=>i.id),false),
+                style:{padding:'5px 10px',borderRadius:16,fontSize:11,cursor:'pointer',fontFamily:'inherit',border:'1px solid var(--bd)',background:'#fff',color:'var(--tm)'}},'전체 해제')
+            ),
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:8}},'💡 일반직원 = 관리자 메뉴(매출·매입·원가·경영 등)를 뺀 나머지 전부 · 관리직 = 전체 메뉴'),
+            /* 섹션별 체크박스 */
+            R('div',{style:{background:'#f9f5f2',borderRadius:9,padding:10}},
+              ...secs.map((s,si)=>{
+                const ids=s.items.map(i=>i.id);
+                const allOn=ids.every(isOn);
+                return R('div',{key:si,style:{marginTop:si?12:0}},
+                  R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6,paddingBottom:4,borderBottom:'1px solid #e8e0da'}},
+                    R('span',{style:{fontSize:11,fontWeight:800,color:s.adminSec?'var(--p)':'var(--tm)'}},s.label),
+                    R('button',{type:'button',onClick:()=>setMany(ids,!allOn),
+                      style:{marginLeft:'auto',padding:'2px 8px',borderRadius:10,fontSize:10,cursor:'pointer',fontFamily:'inherit',border:'1px solid var(--bd)',background:'#fff',color:'var(--tm)'}},allOn?'모두 해제':'모두 선택')
+                  ),
+                  R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:6}},
+                    ...s.items.map(it=>R('label',{key:it.id,style:{display:'flex',alignItems:'center',gap:5,cursor:'pointer',fontSize:12,padding:'3px 5px'}},
+                      R('input',{type:'checkbox',checked:isOn(it.id),onChange:e=>setMany([it.id],e.target.checked),style:{accentColor:'var(--p)'}}),
+                      R('span',null,(it.ic?it.ic+' ':'')+it.l)
+                    ))
+                  )
+                );
+              })
+            )
+          );
+        })()
       )
     )
   );
