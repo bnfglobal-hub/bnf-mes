@@ -4340,10 +4340,7 @@ function PageAdmin({user}){
   const onlineCnt=(emps||[]).filter(e=>presOf(e.id).online).length;
   const kickUser=async(e)=>{
     if(e.id===user.id)return alert('본인 세션은 해제할 수 없습니다. 로그아웃을 사용하세요.');
-    if(!confirm(e.name+' 님의 접속을 강제로 해제할까요?
-
-해당 기기는 최대 45초 안에 자동 로그아웃됩니다.
-(다시 로그인하면 재접속됩니다 — 완전히 막으려면 계정을 비활성으로 바꾸세요)'))return;
+    if(!confirm(e.name+' 님의 접속을 강제로 해제할까요?\n\n해당 기기는 최대 45초 안에 자동 로그아웃됩니다.\n(다시 로그인하면 재접속됩니다 — 완전히 막으려면 계정을 비활성으로 바꾸세요)'))return;
     try{
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',2).maybeSingle();
       const sd=(data&&data.state_data)||{};
@@ -13952,8 +13949,7 @@ function App(){
         if(kicks[user.id]&&+kicks[user.id]>sessionStartRef.current){
           if(dead)return;
           localStorage.removeItem('bnf_user');
-          alert('관리자에 의해 접속이 해제되었습니다.
-다시 사용하려면 로그인해주세요.');
+          alert('관리자에 의해 접속이 해제되었습니다.\n다시 사용하려면 로그인해주세요.');
           location.reload();
           return;
         }
