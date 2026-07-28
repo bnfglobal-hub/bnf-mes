@@ -1962,6 +1962,213 @@ function PageFeatureReq({user}){
   );
 }
 
+/* ═══ 공용 공유 표 (여러 메뉴가 같은 구조를 씀) ═══════════
+   app_state.state_data[storeKey] 에 배열로 저장 → 모든 기기·직원이 함께 봄.
+   cols: [{k,l,w,type:'text'|'date'|'num'|'link'|'pw'|'textarea'|'select',opts,ph}] */
+function SharedTable({user,title,ic,desc,storeKey,cols}){
+  const[rows,setRows]=useState(null);
+  const[q,setQ]=useState('');
+  const[showF,setShowF]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const[form,setForm]=useState({});
+  const[busy,setBusy]=useState(false);
+  const isAdmin=['superadmin','admin'].includes(user.role);
+  const blank=()=>{const o={};cols.forEach(c=>{o[c.k]=c.type==='date'?today2():'';});return o;};
+
+  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},60000);return()=>clearInterval(t);},[storeKey]);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+storeKey).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[storeKey]:next}),updated_at:new Date().toISOString()});
+      setRows(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  const openNew=()=>{setForm(blank());setEditId(null);setShowF(true);};
+  const openEdit=r=>{const o={};cols.forEach(c=>{o[c.k]=r[c.k]||'';});setForm(o);setEditId(r.id);setShowF(true);};
+  const save=async()=>{
+    const first=cols[0];
+    if(!String(form[first.k]||'').trim())return alert(first.l+'을(를) 입력해주세요.');
+    const list=(rows||[]).slice();
+    if(editId){
+      const i=list.findIndex(x=>x.id===editId);
+      if(i>=0)list[i]=Object.assign({},list[i],form,{_editBy:user.name,_editAt:now2()});
+    }else{
+      list.unshift(Object.assign({id:'r'+Date.now()+Math.random().toString(36).slice(2,6)},form,{_by:user.id,_byName:user.name,_at:now2()}));
+    }
+    await persist(list);
+    setShowF(false);setEditId(null);
+  };
+  const del=async(r)=>{
+    if(!(isAdmin||r._by===user.id))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('삭제할까요? 되돌릴 수 없습니다.'))return;
+    await persist((rows||[]).filter(x=>x.id!==r.id));
+  };
+  const canEdit=r=>isAdmin||r._by===user.id;
+
+  const list=(rows||[]).filter(r=>{
+    const s=q.trim().toLowerCase();
+    if(!s)return true;
+    return cols.some(c=>String(r[c.k]||'').toLowerCase().includes(s));
+  });
+  const cell=(r,c)=>{
+    const v=r[c.k]||'';
+    if(!v)return R('span',{style:{color:'#CBD5E1'}},'-');
+    if(c.type==='link'){
+      const href=/^https?:\/\//i.test(v)?v:('https://'+v);
+      return R('a',{href,target:'_blank',rel:'noreferrer',style:{color:'var(--p)',textDecoration:'none',wordBreak:'break-all'}},v);
+    }
+    if(c.type==='num')return R('span',null,(+v||0).toLocaleString());
+    if(c.k==='id'||c.type==='pw')
+      return R('span',{style:{display:'inline-flex',alignItems:'center',gap:5}},
+        R('span',{style:{fontFamily:'monospace',wordBreak:'break-all'}},v),
+        R('button',{onClick:e=>{e.stopPropagation();try{navigator.clipboard.writeText(v);}catch(err){}},title:'복사',
+          style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:5,padding:'1px 5px',fontSize:10,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'복사'));
+    return R('span',{style:{whiteSpace:'pre-wrap',wordBreak:'break-word'}},v);
+  };
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},(ic||'📄')+' '+title),
+        desc&&R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},desc)),
+      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 추가')
+    ),
+    R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:10,flexWrap:'wrap'}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 검색',style:{flex:1,minWidth:160,maxWidth:340}}),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},list.length+'건'),
+      busy&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'저장 중...')
+    ),
+    R('div',{className:'tw'},
+      R('table',null,
+        R('thead',null,R('tr',null,
+          ...cols.map(c=>R('th',{key:c.k,style:c.w?{width:c.w}:null},c.l)),
+          R('th',{style:{width:96}},'등록'),
+          R('th',{style:{width:84}},'')
+        )),
+        R('tbody',null,
+          rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. [+ 추가]로 입력해주세요.')):
+          list.map(r=>R('tr',{key:r.id},
+            ...cols.map(c=>R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top'}},cell(r,c))),
+            R('td',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap'}},r._byName||'-',R('br'),fDate(r._at)),
+            R('td',{style:{whiteSpace:'nowrap'}},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
+              R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
+              R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')
+            ))
+          ))
+        )
+      )
+    ),
+    showF&&R(Modal2,{title:(editId?'수정':'추가')+' · '+title,onClose:()=>{setShowF(false);setEditId(null);},size:560,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:save,disabled:busy,style:{flex:2}},editId?'수정 저장':'등록'))},
+      ...cols.map(c=>R('div',{key:c.k,className:'fr'},
+        R('label',{className:'lbl'},c.l+(c===cols[0]?' *':'')),
+        c.type==='textarea'
+          ?R('textarea',{className:'inp',value:form[c.k]||'',onChange:e=>setForm(p=>Object.assign({},p,{[c.k]:e.target.value})),placeholder:c.ph||'',style:{minHeight:90}})
+          :c.type==='select'
+            ?R('select',{className:'inp',value:form[c.k]||'',onChange:e=>setForm(p=>Object.assign({},p,{[c.k]:e.target.value}))},
+                R('option',{value:''},'선택'),...(c.opts||[]).map(o=>R('option',{key:o,value:o},o)))
+            :R('input',{className:'inp',type:c.type==='date'?'date':(c.type==='num'?'number':'text'),
+                value:form[c.k]||'',onChange:e=>setForm(p=>Object.assign({},p,{[c.k]:e.target.value})),placeholder:c.ph||''})
+      ))
+    )
+  );
+}
+
+/* 각 메뉴별 표 정의 */
+const SHARED_PAGES={
+  logins:{title:'로그인 정보',ic:'🔑',desc:'업무용 사이트 계정을 함께 관리합니다',storeKey:'bnf_logins',cols:[
+    {k:'site',l:'사이트 이름',w:150,ph:'예) 이카운트'},
+    {k:'url',l:'링크',type:'link',w:220,ph:'https://...'},
+    {k:'id',l:'아이디',w:150},
+    {k:'pw',l:'비밀번호',type:'pw',w:150},
+    {k:'note',l:'비고',type:'textarea',ph:'용도, 담당자, 만료일 등'}
+  ]},
+  rnd_log:{title:'연구개발 일지',ic:'📔',desc:'일자별 연구·시험 내용을 기록합니다',storeKey:'bnf_rnd_log',cols:[
+    {k:'date',l:'일자',type:'date',w:110},
+    {k:'subject',l:'과제/제품',w:160},
+    {k:'writer',l:'담당',w:90},
+    {k:'work',l:'실시 내용',type:'textarea',ph:'배합·조건·시험 방법 등'},
+    {k:'result',l:'결과/개선점',type:'textarea'}
+  ]},
+  rnd_status:{title:'연구개발 현황',ic:'📊',desc:'진행 중인 개발 과제의 단계와 일정을 관리합니다',storeKey:'bnf_rnd_status',cols:[
+    {k:'name',l:'과제명',w:180},
+    {k:'client',l:'거래처/브랜드',w:140},
+    {k:'stage',l:'단계',type:'select',w:110,opts:['기획','시제품','시험생산','관능평가','규격확정','완료','보류']},
+    {k:'owner',l:'담당',w:90},
+    {k:'due',l:'목표일',type:'date',w:110},
+    {k:'note',l:'비고',type:'textarea'}
+  ]},
+  rnd_recipe:{title:'확정 배합비',ic:'🧾',desc:'양산 확정된 배합비를 보관합니다',storeKey:'bnf_rnd_recipe',cols:[
+    {k:'product',l:'제품명',w:180},
+    {k:'ver',l:'버전',w:70,ph:'v1.0'},
+    {k:'fixed',l:'확정일',type:'date',w:110},
+    {k:'owner',l:'확정자',w:90},
+    {k:'recipe',l:'배합비',type:'textarea',ph:'원료명 / 배합량(g 또는 %) 을 한 줄씩'},
+    {k:'note',l:'비고',type:'textarea'}
+  ]},
+  qc_incoming:{title:'수입 검사',ic:'📥',desc:'입고 원부자재 검사 기록',storeKey:'bnf_qc_incoming',cols:[
+    {k:'date',l:'검사일',type:'date',w:110},
+    {k:'item',l:'품목',w:170},
+    {k:'vendor',l:'매입처',w:140},
+    {k:'lot',l:'로트/유통기한',w:130},
+    {k:'result',l:'판정',type:'select',w:90,opts:['합격','조건부합격','불합격']},
+    {k:'note',l:'특이사항',type:'textarea'}
+  ]},
+  qc_process:{title:'공정 검사',ic:'⚙',desc:'생산 공정 중 검사 기록',storeKey:'bnf_qc_process',cols:[
+    {k:'date',l:'검사일',type:'date',w:110},
+    {k:'product',l:'제품',w:170},
+    {k:'lot',l:'생산 로트',w:110},
+    {k:'point',l:'검사 항목',w:130,ph:'중량/온도/살균 등'},
+    {k:'value',l:'측정값',w:100},
+    {k:'result',l:'판정',type:'select',w:90,opts:['적합','부적합']},
+    {k:'note',l:'조치',type:'textarea'}
+  ]},
+  qc_hygiene:{title:'위생 점검',ic:'🧼',desc:'작업장·설비·개인 위생 점검 기록',storeKey:'bnf_qc_hygiene',cols:[
+    {k:'date',l:'점검일',type:'date',w:110},
+    {k:'area',l:'구역/설비',w:160},
+    {k:'checker',l:'점검자',w:90},
+    {k:'result',l:'결과',type:'select',w:90,opts:['양호','보통','불량']},
+    {k:'action',l:'조치 내용',type:'textarea'}
+  ]},
+  qc_claim:{title:'클레임 관리',ic:'⚠',desc:'고객 클레임 접수와 처리 경과',storeKey:'bnf_qc_claim',cols:[
+    {k:'date',l:'접수일',type:'date',w:110},
+    {k:'client',l:'거래처',w:140},
+    {k:'product',l:'제품',w:160},
+    {k:'kind',l:'유형',type:'select',w:110,opts:['이물','변질','포장불량','중량부족','표시사항','기타']},
+    {k:'status',l:'처리상태',type:'select',w:100,opts:['접수','조사중','조치완료','종결']},
+    {k:'content',l:'내용',type:'textarea'},
+    {k:'action',l:'조치/재발방지',type:'textarea'}
+  ]},
+  pm_result:{title:'생산 실적',ic:'📈',desc:'일자별 생산 실적을 기록합니다',storeKey:'bnf_pm_result',cols:[
+    {k:'date',l:'생산일',type:'date',w:110},
+    {k:'product',l:'제품',w:180},
+    {k:'lot',l:'로트',w:110},
+    {k:'plan',l:'계획수량',type:'num',w:90},
+    {k:'done',l:'생산수량',type:'num',w:90},
+    {k:'loss',l:'불량/로스',type:'num',w:90},
+    {k:'note',l:'비고',type:'textarea'}
+  ]},
+  pm_equip:{title:'설비 점검',ic:'🔧',desc:'설비 점검·수리 이력',storeKey:'bnf_pm_equip',cols:[
+    {k:'date',l:'점검일',type:'date',w:110},
+    {k:'equip',l:'설비명',w:160},
+    {k:'kind',l:'구분',type:'select',w:100,opts:['일상점검','정기점검','수리','교체']},
+    {k:'checker',l:'담당',w:90},
+    {k:'result',l:'상태',type:'select',w:90,opts:['정상','주의','고장']},
+    {k:'note',l:'내용/조치',type:'textarea'}
+  ]}
+};
+
 /* ═══ 조직도 ══════════════════════════════════════════ */
 function PageOrg({user}){
   const[emps,setEmps]=useState([]);const[depts,setDepts]=useState([]);
@@ -10102,10 +10309,8 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'🏭 비엔에프글로벌 이천공장',type:'factory',items:[
     {id:'home',l:'홈',ic:'⊞'},
     {id:'approval',l:'전자결재',ic:'📋'},
-    {id:'newprod',l:'신제품 현황',ic:'🆕'},
-    {id:'sampledev',l:'샘플 개발',ic:'🧪'},
-    {id:'lab',l:'연구소',ic:'🔬'},
     {id:'featreq',l:'추가 기능 요청',ic:'💡'},
+    {id:'logins',l:'로그인 정보',ic:'🔑'},
     {id:'workreq',l:'업무 현황',ic:'📋'},
     {id:'mytasks',l:'나의 업무',ic:'📌'},
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -10118,6 +10323,21 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'board',l:'게시판',ic:'💬'},
     {id:'org',l:'조직도',ic:'👥'},
     {id:'files',l:'파일 공유',ic:'📁'},
+  ]},
+  {label:'🔬 연구개발부서',type:'dept_rnd',items:[
+    {id:'rnd_log',l:'연구개발 일지',ic:'📔'},
+    {id:'rnd_status',l:'연구개발 현황',ic:'📊'},
+    {id:'rnd_recipe',l:'확정 배합비',ic:'🧾'},
+  ]},
+  {label:'🧪 품질관리',type:'dept_qc',items:[
+    {id:'qc_incoming',l:'수입 검사',ic:'📥'},
+    {id:'qc_process',l:'공정 검사',ic:'⚙'},
+    {id:'qc_hygiene',l:'위생 점검',ic:'🧼'},
+    {id:'qc_claim',l:'클레임 관리',ic:'⚠'},
+  ]},
+  {label:'🏭 생산관리',type:'dept_pm',items:[
+    {id:'pm_result',l:'생산 실적',ic:'📈'},
+    {id:'pm_equip',l:'설비 점검',ic:'🔧'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -10200,10 +10420,8 @@ function loadNavSections(){
               const newMenus=[
                 {after:'sched',item:{id:'shipsort',l:'출고 계획',ic:'📦'}},
                 {after:'shipsort',item:{id:'dart',l:'거래처 정보 조회',ic:'🔍'}},
-                {after:'home',item:{id:'newprod',l:'신제품 현황',ic:'🆕'}},
-                {after:'newprod',item:{id:'sampledev',l:'샘플 개발',ic:'🧪'}},
-                {after:'sampledev',item:{id:'lab',l:'연구소',ic:'🔬'}},
-                {after:'lab',item:{id:'featreq',l:'추가 기능 요청',ic:'💡'}}
+                {after:'approval',item:{id:'featreq',l:'추가 기능 요청',ic:'💡'}},
+                {after:'featreq',item:{id:'logins',l:'로그인 정보',ic:'🔑'}}
               ];
               /* 전자결재를 홈 바로 아래로 이동 (1회만 · 이후 사용자가 바꾼 순서는 존중) */
               try{
@@ -10230,6 +10448,53 @@ function loadNavSections(){
           }
           return s;
         });
+        /* ── 2026-07-28: 신제품현황·샘플개발·연구소 메뉴 제거 + 부서 폴더 신설 (각 1회) ── */
+        try{
+          if(!localStorage.getItem('bnf_dept_reorg_v1')){
+            const RM={newprod:1,sampledev:1,lab:1};
+            filtered.forEach(sec=>{
+              if(!sec||!Array.isArray(sec.items))return;
+              const before=JSON.stringify(sec.items);
+              sec.items=sec.items.filter(i=>!(i&&RM[i.id]));
+              sec.items.forEach(f=>{if(f&&f.kind==='folder')f.items=(f.items||[]).filter(i=>!(i&&RM[i.id]));});
+              if(JSON.stringify(sec.items)!==before)changed=true;
+            });
+            const DEPTS=[
+              {t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서',items:[
+                {id:'rnd_log',l:'연구개발 일지',ic:'📔'},{id:'rnd_status',l:'연구개발 현황',ic:'📊'},{id:'rnd_recipe',l:'확정 배합비',ic:'🧾'}]},
+              {t:'dept_qc',m:'품질',label:'🧪 품질관리',items:[
+                {id:'qc_incoming',l:'수입 검사',ic:'📥'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
+              {t:'dept_pm',m:'생산관리',label:'🏭 생산관리',items:[
+                {id:'pm_result',l:'생산 실적',ic:'📈'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
+            ];
+            const deepHas=(sec,id)=>{
+              let f=false;
+              (sec.items||[]).forEach(i=>{if(!i)return;if(i.kind==='folder'){if((i.items||[]).some(c=>c&&c.id===id))f=true;}else if(i.id===id)f=true;});
+              return f;
+            };
+            /* 이 메뉴가 다른 폴더 어딘가에 이미 있으면 새로 만들지 않는다 */
+            const anywhere=id=>filtered.some(x=>x&&Array.isArray(x.items)&&deepHas(x,id));
+            DEPTS.forEach(d=>{
+              /* 사용자가 이미 비슷한 이름으로 만든 폴더가 있으면 거기에 넣는다 (하위 폴더 포함) */
+              let sec=filtered.find(x=>x&&(x.type===d.t||String(x.label||'').indexOf(d.m)>=0));
+              if(!sec){
+                filtered.some(x=>(x&&Array.isArray(x.items))&&x.items.some(i=>{
+                  if(i&&i.kind==='folder'&&String(i.l||'').indexOf(d.m)>=0){sec=i;return true;}
+                  return false;
+                }));
+              }
+              if(!sec){
+                sec={label:d.label,type:d.t,items:[]};
+                const qi=filtered.findIndex(x=>x&&x.type==='quicklinks');
+                if(qi>=0)filtered.splice(qi,0,sec);else filtered.push(sec);
+                changed=true;
+              }
+              if(!Array.isArray(sec.items))sec.items=[];
+              d.items.forEach(it=>{if(!anywhere(it.id)){sec.items.push(it);changed=true;}});
+            });
+            localStorage.setItem('bnf_dept_reorg_v1','1');
+          }
+        }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
       }
@@ -10456,6 +10721,16 @@ const NAV_PAGES_INDEX=[
   {p:'org',title:'조직도',ic:'👥',keys:['조직','조직도','org','people']},
   {p:'approval',title:'전자결재',ic:'📋',keys:['결재','승인','approval']},
   {p:'featreq',title:'추가 기능 요청',ic:'💡',keys:['기능','요청','건의','개선','featreq']},
+  {p:'logins',title:'로그인 정보',ic:'🔑',keys:['로그인','계정','비밀번호','아이디','login']},
+  {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
+  {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
+  {p:'rnd_recipe',title:'확정 배합비',ic:'🧾',keys:['배합','레시피','확정','recipe']},
+  {p:'qc_incoming',title:'수입 검사',ic:'📥',keys:['수입','입고','검사','품질']},
+  {p:'qc_process',title:'공정 검사',ic:'⚙',keys:['공정','검사','품질']},
+  {p:'qc_hygiene',title:'위생 점검',ic:'🧼',keys:['위생','점검','청소','품질']},
+  {p:'qc_claim',title:'클레임 관리',ic:'⚠',keys:['클레임','불만','컴플레인','품질']},
+  {p:'pm_result',title:'생산 실적',ic:'📈',keys:['생산','실적','수량']},
+  {p:'pm_equip',title:'설비 점검',ic:'🔧',keys:['설비','점검','수리','기계']},
   {p:'files',title:'파일 공유',ic:'📁',keys:['파일','공유','file']},
   {p:'cost',title:'원가분석',ic:'💰',keys:['원가','분석','cost']},
   {p:'operation',title:'공장 가동률',ic:'📊',keys:['가동률','operation','utilization']},
@@ -12943,6 +13218,7 @@ function App(){
     if(page==='autoOrder')return R(PageAutoOrder,{user,mats,onCreateOrder:o=>{
       setOrders(p=>[...p,{id:uid(),matCode:o.matCode,matName:o.matName,qty:o.qty,supplier:o.supplier,unit:o.unit||'kg',step:1,status:STEPS[0],reqDate:getDate(),expDate:addDays(3),memo:'자동발주제안'}]);
     }});
+    if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='files')return R(PageFiles,{user});
     if(page==='links')return R(PageLinks,{user});
