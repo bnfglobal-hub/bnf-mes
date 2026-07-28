@@ -1331,6 +1331,7 @@ function PageWorkRequest({user}){
                   R('span',{title:'요청자'},'👤 ',r.requesterName),
                   R('span',{style:{color:'#cbd5e1'}},'→'),
                   R('span',{title:'담당자',style:{fontWeight:700,color:isMyTask?'var(--p)':'#374151'}},'🎯 ',r.assigneeName||'미지정'),
+                  (r.files&&r.files.length>0)&&R('span',{title:'첨부파일 '+r.files.length+'건'},'📎 ',r.files.length),
                   r.dueDate&&R('span',{title:'마감일'},'📅 ',r.dueDate),
                   newCommentCount>0&&R('span',{title:'댓글'},'💬 ',newCommentCount)
                 ),
@@ -1364,6 +1365,8 @@ function WorkReqModal({item,emps,user,onClose,onSave,onDelete,onStatus,onComment
   const save=()=>{
     if(!f.title||!f.title.trim()){alert('제목을 입력해주세요');return;}
     if(!f.assigneeId){alert('담당자를 선택해주세요');return;}
+    if(upBusy){alert('첨부 업로드가 끝난 뒤 저장해주세요.');return;}
+    f.files=(f.files||[]).filter(x=>x&&!x.pending&&x.path);
     /* assigneeName 자동 채움 */
     if(!f.assigneeName||f.assigneeId){const emp=emps.find(e=>e.id===f.assigneeId);if(emp)f.assigneeName=emp.name;}
     onSave(f);
@@ -1373,6 +1376,50 @@ function WorkReqModal({item,emps,user,onClose,onSave,onDelete,onStatus,onComment
     if(!commentText.trim())return;
     onComment(commentText);setCommentText('');
   };
+
+  /* ── 첨부파일 (사진·문서 · 붙여넣기 · 드래그) ── */
+  const fileRef=useRef(null);
+  const[upBusy,setUpBusy]=useState(false);
+  const isImgF=f=>!!f&&(/^image\//.test(f.mime||'')||/\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(f.name||''));
+  const addFiles=async(listIn)=>{
+    const files=Array.from(listIn||[]).filter(Boolean);
+    if(!files.length)return;
+    const temps=files.map(x=>({tmp:'t'+Math.random().toString(36).slice(2),name:x.name||'붙여넣은 이미지.png',
+      url:(window.URL&&URL.createObjectURL)?URL.createObjectURL(x):'',size:x.size,mime:x.type||'',pending:true}));
+    setF(p=>({...p,files:[...(p.files||[]),...temps]}));
+    setUpBusy(true);
+    for(let i=0;i<files.length;i++){
+      const file=files[i],t=temps[i];
+      try{
+        if(file.size>50*1024*1024){setF(p=>({...p,files:(p.files||[]).filter(x=>x.tmp!==t.tmp)}));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        const safe=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path='workreq/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
+        if(error)throw error;
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+        const real={name:file.name||'붙여넣은 이미지.png',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||''};
+        setF(p=>({...p,files:(p.files||[]).map(x=>x.tmp===t.tmp?real:x)}));
+      }catch(e){
+        setF(p=>({...p,files:(p.files||[]).filter(x=>x.tmp!==t.tmp)}));
+        alert('첨부 업로드 실패: '+e.message);
+      }
+    }
+    setUpBusy(false);
+  };
+  const onPasteFiles=e=>{
+    const items=(e.clipboardData&&e.clipboardData.items)||[];
+    const picked=[];
+    for(const it of items){if(it.kind==='file'){const x=it.getAsFile();if(x)picked.push(x);}}
+    if(picked.length){e.preventDefault();addFiles(picked);}
+  };
+  const rmFile=async(idx)=>{
+    const x=(f.files||[])[idx];
+    if(!x)return;
+    if(!confirm('"'+x.name+'" 첨부를 삭제할까요?'))return;
+    try{if(x.path)await sbClient.storage.from('bnf-files').remove([x.path]);}catch(e){}
+    setF(p=>({...p,files:(p.files||[]).filter((_,i)=>i!==idx)}));
+  };
+  const fBytes2=b=>{if(!b)return'';const k=b/1024;return k<1024?(' · '+k.toFixed(0)+'KB'):(' · '+(k/1024).toFixed(1)+'MB');};
 
   return R('div',{className:'mbg',onClick:e=>e.stopPropagation(),style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:10005,padding:16}},
     R('div',{style:{background:'#fff',borderRadius:14,maxWidth:640,width:'100%',maxHeight:'92vh',overflow:'auto'}},
@@ -1405,7 +1452,35 @@ function WorkReqModal({item,emps,user,onClose,onSave,onDelete,onStatus,onComment
         /* 제목 */
         R('div',{className:'fr'},R('label',{className:'lbl'},'제목 *'),R('input',{className:'inp',value:f.title,onChange:e=>upd('title',e.target.value),placeholder:'업무 제목',disabled:!canEdit,autoFocus:isNew})),
         /* 내용 */
-        R('div',{className:'fr'},R('label',{className:'lbl'},'요청 내용'),R('textarea',{className:'inp',value:f.content,onChange:e=>upd('content',e.target.value),placeholder:'업무 상세 내용, 요구사항...',disabled:!canEdit,style:{minHeight:90}})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'요청 내용'),R('textarea',{className:'inp',value:f.content,onChange:e=>upd('content',e.target.value),onPaste:onPasteFiles,placeholder:'업무 상세 내용, 요구사항... (이미지는 Ctrl+V로 바로 붙여넣기)',disabled:!canEdit,style:{minHeight:90}})),
+      /* ── 첨부파일 ── */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부파일'),
+        R('div',{
+          onPaste:onPasteFiles,
+          onDragOver:e=>e.preventDefault(),
+          onDrop:e=>{e.preventDefault();if(canEdit||isAssignee)addFiles(e.dataTransfer&&e.dataTransfer.files);},
+          tabIndex:0,
+          style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
+          R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(f.files||[]).length?9:0}},
+            R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
+            R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{addFiles(e.target.files);e.target.value='';}}),
+            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 50MB')
+          ),
+          (f.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
+            ...(f.files||[]).map((x,i)=>R('div',{key:x.tmp||x.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',overflow:'hidden',opacity:x.pending?.55:1}},
+              isImgF(x)
+                ?R('a',{href:x.pending?undefined:x.url,target:'_blank',rel:'noreferrer',title:x.name},
+                    R('img',{src:x.url,alt:x.name,style:{width:96,height:96,objectFit:'cover',display:'block'}}))
+                :R('a',{href:x.pending?undefined:x.url,target:'_blank',rel:'noreferrer',download:x.name,
+                    style:{display:'block',padding:'8px 26px 8px 10px',fontSize:11,color:'var(--t)',textDecoration:'none',maxWidth:190,wordBreak:'break-all'}},
+                    '📄 ',x.name,R('span',{style:{color:'#94a3b8'}},fBytes2(x.size))),
+              x.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
+              !x.pending&&R('button',{type:'button',onClick:()=>rmFile(i),title:'첨부 삭제',
+                style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
+            ))
+          )
+        )
+      ),
         /* 마감일 + 우선순위 */
         R('div',{className:'fg',style:{marginBottom:12}},
           R('div',null,R('label',{className:'lbl'},'마감일'),R('input',{type:'date',className:'inp',value:f.dueDate||'',onChange:e=>upd('dueDate',e.target.value),disabled:!canEdit})),
@@ -1460,7 +1535,7 @@ const TASK_STATUSES=[
   {v:'hold',label:'보류',color:'#92400E',bg:'#FEF3C7'}
 ];
 
-function PageMyTasks({user}){
+function PageMyTasks({user,onGoPage}){
   const uid=user.id||user.email||'guest';
   const storageKey='bnf_mytasks_'+uid;
   const[tasks,setTasks]=useState(()=>{try{return JSON.parse(localStorage.getItem(storageKey)||'[]');}catch(e){return[];}});
@@ -1581,6 +1656,8 @@ function PageMyTasks({user}){
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
         R('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 검색',style:{padding:'6px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,minWidth:120}}),
+        onGoPage&&R('button',{className:'btn bs btn-sm',onClick:()=>onGoPage('workreq'),
+          title:'다른 직원에게 업무를 요청합니다 (업무 현황)'},'👤 업무 요청하기'),
         R('button',{className:'btn bp btn-sm',onClick:()=>openNew(catF==='all'?'todo':catF)},'+ 새 항목')
       )
     ),
@@ -2147,7 +2224,9 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
           ),
           rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20}},'로딩 중...')):
           list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. 위 줄에 바로 입력하거나 [+ 추가]를 눌러주세요.')):
-          list.map(r=>R('tr',{key:r._id},
+          list.map(r=>R('tr',{key:r._id,
+            onDoubleClick:()=>{if(canEdit(r))openEdit(r);else alert('작성자 또는 관리자만 수정할 수 있습니다.');},
+            title:'더블클릭하면 수정',style:{cursor:'default'}},
             ...cols.map(c=>R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top'}},cell(r,c))),
             R('td',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap'}},r._byName||'-',R('br'),fDate(r._at)),
             R('td',{style:{whiteSpace:'nowrap'}},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
@@ -13469,7 +13548,7 @@ function App(){
     if(page==='newprod')return R(PageNewProduct,{key:'np',user,mats});
     if(page==='lab')return R(PageNewProduct,{key:'lab',user,mats,mode:'lab'});
     if(page==='sampledev')return R(PageSampleDev,{user});
-    if(page==='mytasks')return R(PageMyTasks,{user});
+    if(page==='mytasks')return R(PageMyTasks,{user,onGoPage:setPage});
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
     if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true),onAddMat:addMatQuick});
