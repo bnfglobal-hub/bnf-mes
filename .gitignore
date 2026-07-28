@@ -1,0 +1,5 @@
+.agents/
+.claude/skills/
+skills-lock.json
+데이터 파일/
+node_modules/
