@@ -3084,6 +3084,217 @@ function PageManual({user}){
   );
 }
 
+/* ═══ 업계 동향 (일일 자동 리포트 · app_state id=3) ═══ */
+function PageTrend({user}){
+  const[reports,setReports]=useState(null);
+  const[selDate,setSelDate]=useState('');
+  useEffect(()=>{
+    let dead=false;
+    sbClient.from('app_state').select('v:state_data->reports').eq('id',3).maybeSingle()
+      .then(({data:d})=>{
+        if(dead)return;
+        const rs=Array.isArray(d&&d.v)?d.v:[];
+        setReports(rs);
+        if(rs.length)setSelDate(rs[0].date);
+      }).catch(()=>{if(!dead)setReports([]);});
+    return()=>{dead=true;};
+  },[]);
+  const rep=(reports||[]).find(r=>r.date===selDate)||null;
+  const ago=t=>{
+    if(!t)return'';
+    const h=Math.floor((Date.now()-new Date(t).getTime())/3600000);
+    if(h<1)return'방금';
+    if(h<24)return h+'시간 전';
+    return Math.floor(h/24)+'일 전';
+  };
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📈 업계 동향'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'매일 아침 7:40 자동 수집 · 간편식·컬리·우리 품목·K푸드 뉴스')),
+      rep&&R('span',{style:{fontSize:11,color:'var(--tm)'}},rep.total+'건')
+    ),
+    R('div',{className:'tab-row',style:{overflowX:'auto',flexWrap:'nowrap'}},
+      ...(reports||[]).slice(0,14).map(r=>{
+        const d=new Date(r.date+'T00:00:00');
+        const lbl=(d.getMonth()+1)+'/'+d.getDate();
+        return R('button',{key:r.date,className:'tab'+(selDate===r.date?' act':''),onClick:()=>setSelDate(r.date),style:{flexShrink:0}},lbl);
+      })
+    ),
+    reports===null?R('div',{className:'card',style:{textAlign:'center',padding:24,color:'var(--tm)'}},'로딩 중...'):
+    !rep?R('div',{className:'card',style:{textAlign:'center',padding:28,color:'var(--tm)'}},
+      '아직 수집된 리포트가 없습니다. 매일 아침 7:40에 자동으로 만들어집니다 (회사 PC 켜져 있어야 함).'):
+    R('div',null,
+      ...(rep.cats||[]).map((c,ci)=>R('div',{key:ci,className:'card',style:{marginBottom:12}},
+        R('div',{className:'card-title',style:{marginBottom:10}},(c.icon||'📰')+' '+c.name,
+          R('span',{style:{fontSize:11,color:'var(--tm)',fontWeight:500,marginLeft:6}},'('+(c.items||[]).length+'건)')),
+        (c.items||[]).length===0
+          ?R('div',{style:{fontSize:12,color:'var(--tm)'}},'오늘은 새 기사가 없습니다.')
+          :R('div',null,...(c.items||[]).map((it,i)=>R('a',{key:i,href:it.u,target:'_blank',rel:'noreferrer',
+              style:{display:'flex',gap:10,alignItems:'baseline',padding:'8px 0',borderTop:i?'1px solid #F4EFEA':'none',textDecoration:'none'}},
+              R('span',{style:{flex:1,minWidth:0,fontSize:13.5,color:'var(--t)',lineHeight:1.55}},it.t),
+              R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0,whiteSpace:'nowrap'}},(it.src||'')+(it.at?(' · '+ago(it.at)):''))
+            )))
+      ))
+    )
+  );
+}
+
+/* ═══ 거래처 CRM (이카운트 자동 + 수동 메모 병합 · app_state id=4/1) ═══ */
+const CRM_KINDS=['전체','매출처','매입처','양쪽','기타'];
+function crmNorm(s){return String(s||'').replace(/\\s+/g,'').replace(/\\(주\\)|\\(유\\)|㈜/g,'').toLowerCase();}
+function PageCRM({user}){
+  const[ec,setEc]=useState(null);
+  const[manual,setManual]=useState([]);
+  const[kind,setKind]=useState('전체');
+  const[q,setQ]=useState('');
+  const[sel,setSel]=useState(null);
+  const[form,setForm]=useState({});
+  const[busy,setBusy]=useState(false);
+  const nf=n=>(+n||0).toLocaleString();
+
+  useEffect(()=>{load();},[]);
+  const load=async()=>{
+    try{
+      const[{data:a},{data:b}]=await Promise.all([
+        sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle(),
+        sbClient.from('app_state').select('v:state_data->bnf_crm').eq('id',1).maybeSingle()
+      ]);
+      setEc((a&&a.v)||{list:[]});
+      setManual(Array.isArray(b&&b.v)?b.v:[]);
+    }catch(e){setEc({list:[]});}
+  };
+  const saveManual=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{bnf_crm:next}),updated_at:new Date().toISOString()});
+      setManual(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  const merged=useMemo(()=>{
+    const mmap={};
+    (manual||[]).forEach(m=>{const k=crmNorm(m.name);if(k)mmap[k]=m;});
+    const out=[];const used={};
+    ((ec&&ec.list)||[]).forEach(c=>{
+      const k=crmNorm(c.name);
+      const m=mmap[k];if(m)used[k]=1;
+      out.push(Object.assign({},c,{
+        person:(m&&m.person)||'',email:(m&&m.email)||'',grade:(m&&m.grade)||'',
+        next:(m&&m.next)||'',note:(m&&m.note)||'',_manualId:m?m._id:null,_src:'ecount'
+      }));
+    });
+    (manual||[]).forEach(m=>{
+      const k=crmNorm(m.name);
+      if(k&&!used[k])out.push({code:'',name:m.name,ceo:'',tel:m.phone||'',mobile:'',bank:'',acct:'',holder:'',
+        kind:m.kind||'기타',salesAmt:0,buyAmt:0,person:m.person||'',email:m.email||'',grade:m.grade||'',
+        next:m.next||'',note:m.note||'',_manualId:m._id,_src:'manual'});
+    });
+    return out;
+  },[ec,manual]);
+
+  const cnt=k=>merged.filter(c=>k==='전체'||c.kind===k).length;
+  const list=merged.filter(c=>{
+    if(kind!=='전체'&&c.kind!==kind)return false;
+    const sq=q.trim().toLowerCase();
+    if(!sq)return true;
+    return [c.name,c.ceo,c.tel,c.mobile,c.code,c.person,c.note].some(v=>String(v||'').toLowerCase().includes(sq));
+  }).sort((a,b)=>((b.salesAmt+b.buyAmt)-(a.salesAmt+a.buyAmt))||String(a.name).localeCompare(String(b.name),'ko'));
+
+  const openDetail=c=>{setSel(c);setForm({person:c.person,email:c.email,grade:c.grade,next:c.next,note:c.note});};
+  const saveDetail=async()=>{
+    if(!sel)return;
+    const k=crmNorm(sel.name);
+    const next=(manual||[]).slice();
+    const i=next.findIndex(m=>crmNorm(m.name)===k);
+    const row=Object.assign({},i>=0?next[i]:{_id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:sel.name,kind:sel.kind,_by:user.id,_byName:user.name,_at:now2()},
+      {person:form.person||'',email:form.email||'',grade:form.grade||'',next:form.next||'',note:form.note||'',_editAt:now2(),_editBy:user.name});
+    if(i>=0)next[i]=row;else next.push(row);
+    await saveManual(next);
+    setSel(null);
+  };
+  const[isMobile,setIsMobile]=useState(()=>window.innerWidth<=768);
+  useEffect(()=>{const on=()=>setIsMobile(window.innerWidth<=768);window.addEventListener('resize',on);return()=>window.removeEventListener('resize',on);},[]);
+  const KBDG={매출처:'b-ok',매입처:'b-i',양쪽:'b-e',기타:'b-g'};
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🤝 거래처 CRM'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},
+          '이카운트 거래처 자동 연동',ec&&ec.at?(' · 갱신 '+fDT(ec.at)):'',' · 행을 누르면 상세·메모')),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},merged.length+'곳')
+    ),
+    R('div',{className:'tab-row'},
+      ...CRM_KINDS.map(k=>R('button',{key:k,className:'tab'+(kind===k?' act':''),onClick:()=>setKind(k)},k+' '+cnt(k)))),
+    R('div',{style:{margin:'0 0 10px'}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 거래처명·대표자·전화·사업자번호 검색',style:{maxWidth:360}})),
+    ec===null?R('div',{className:'card',style:{textAlign:'center',padding:24,color:'var(--tm)'}},'로딩 중...'):
+    merged.length===0?R('div',{className:'card',style:{textAlign:'center',padding:28,color:'var(--tm)'}},
+      '거래처 데이터가 아직 없습니다. 아침 7:50 자동 수집 후 나타납니다.'):
+    isMobile
+      ?R('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+        ...list.slice(0,200).map((c,i)=>R('div',{key:i,className:'card',style:{padding:'12px 14px',cursor:'pointer'},onClick:()=>openDetail(c)},
+          R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:4}},
+            R('div',{style:{fontWeight:700,flex:1,minWidth:0,wordBreak:'break-all'}},c.name),
+            R(Bdg2,{cls:KBDG[c.kind]||'b-g',txt:c.kind})),
+          R('div',{style:{fontSize:11.5,color:'var(--tm)'}},
+            (c.ceo?c.ceo+' · ':'')+(c.mobile||c.tel||'-')),
+          (c.salesAmt>0||c.buyAmt>0)&&R('div',{style:{fontSize:11.5,marginTop:4}},
+            c.salesAmt>0&&R('span',{style:{color:'#15803D',fontWeight:700,marginRight:10}},'매출 '+nf(c.salesAmt)),
+            c.buyAmt>0&&R('span',{style:{color:'#2563EB',fontWeight:700}},'매입 '+nf(c.buyAmt)))
+        )))
+      :R('div',{className:'tw'},
+        R('table',null,
+          R('thead',null,R('tr',null,
+            R('th',null,'거래처명'),R('th',{style:{width:66}},'구분'),R('th',{style:{width:90}},'대표자'),
+            R('th',{style:{width:120}},'전화'),R('th',{style:{width:110}},'사업자번호'),
+            R('th',{style:{width:110,textAlign:'right'}},'누적 매출'),R('th',{style:{width:110,textAlign:'right'}},'누적 매입'),
+            R('th',{style:{width:56}},'등급'),R('th',{style:{width:96}},'다음 연락'))),
+          R('tbody',null,...list.slice(0,500).map((c,i)=>R('tr',{key:i,style:{cursor:'pointer'},onClick:()=>openDetail(c)},
+            R('td',{style:{fontWeight:600,fontSize:12.5}},c.name,
+              c._src==='manual'&&R('span',{style:{fontSize:9.5,color:'var(--tm)',marginLeft:5}},'(수동)')),
+            R('td',null,R(Bdg2,{cls:KBDG[c.kind]||'b-g',txt:c.kind})),
+            R('td',{style:{fontSize:12}},c.ceo||'-'),
+            R('td',{style:{fontSize:11.5}},c.mobile||c.tel||'-'),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)'}},c.code||'-'),
+            R('td',{style:{textAlign:'right',fontSize:12,color:c.salesAmt?'#15803D':'#CBD5E1',fontWeight:c.salesAmt?700:400}},c.salesAmt?nf(c.salesAmt):'-'),
+            R('td',{style:{textAlign:'right',fontSize:12,color:c.buyAmt?'#2563EB':'#CBD5E1',fontWeight:c.buyAmt?700:400}},c.buyAmt?nf(c.buyAmt):'-'),
+            R('td',{style:{fontSize:12,fontWeight:700,color:c.grade?'var(--p)':'#CBD5E1'}},c.grade||'-'),
+            R('td',{style:{fontSize:11.5,color:c.next&&c.next<=today2()?'#DC2626':'var(--tm)',fontWeight:c.next&&c.next<=today2()?700:400}},c.next||'-')
+          )))
+        )
+      ),
+    sel&&R(Modal2,{title:'🤝 '+sel.name,onClose:()=>setSel(null),size:560,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>setSel(null),style:{flex:1}},'닫기'),
+        R('button',{className:'btn bp',onClick:saveDetail,disabled:busy,style:{flex:2}},busy?'저장 중...':'메모 저장'))},
+      R('div',{style:{background:'#F9F7FB',borderRadius:10,padding:'12px 14px',marginBottom:14,fontSize:13}},
+        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:8}},'이카운트 등록 정보 (자동)'),
+        ...[['구분',sel.kind],['사업자번호',sel.code],['대표자',sel.ceo],['전화',sel.tel],['모바일',sel.mobile],
+           ['은행',sel.bank],['계좌',sel.acct],['예금주',sel.holder],
+           ['누적 매출',sel.salesAmt?nf(sel.salesAmt)+'원':''],['누적 매입',sel.buyAmt?nf(sel.buyAmt)+'원':'']]
+          .filter(x=>x[1]).map(x=>R('div',{key:x[0],style:{display:'flex',gap:10,padding:'2px 0'}},
+            R('span',{style:{color:'var(--tm)',width:80,flexShrink:0}},x[0]),R('span',{style:{fontWeight:600}},x[1])))),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'담당자'),
+          R('input',{className:'inp',value:form.person||'',onChange:e=>setForm(p=>Object.assign({},p,{person:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'이메일'),
+          R('input',{className:'inp',value:form.email||'',onChange:e=>setForm(p=>Object.assign({},p,{email:e.target.value}))}))),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'등급'),
+          R('select',{className:'inp',value:form.grade||'',onChange:e=>setForm(p=>Object.assign({},p,{grade:e.target.value}))},
+            R('option',{value:''},'없음'),...['A','B','C','신규','휴면'].map(g=>R('option',{key:g,value:g},g)))),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'다음 연락일'),
+          R('input',{type:'date',className:'inp',value:form.next||'',onChange:e=>setForm(p=>Object.assign({},p,{next:e.target.value}))}))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'메모'),
+        R('textarea',{className:'inp',value:form.note||'',onChange:e=>setForm(p=>Object.assign({},p,{note:e.target.value})),
+          placeholder:'거래 조건, 히스토리, 특이사항',style:{minHeight:90}}))
+    )
+  );
+}
+
+
 /* ═══ 작업지시서 (엑셀 업로드 · 미리보기) ══════════════ */
 function PageWorkOrder({user}){
   const[rows,setRows]=useState(null);
@@ -3261,16 +3472,6 @@ function PageWorkOrder({user}){
 
 /* 각 메뉴별 표 정의 */
 const SHARED_PAGES={
-  crm:{title:'거래처 CRM',ic:'🤝',desc:'거래처 담당자·연락처·팔로우업을 함께 관리합니다 · 거래처명 가나다순',storeKey:'bnf_crm',sort:{k:'name',dir:'asc'},cols:[
-    {k:'name',l:'거래처명',w:160,ph:'예) 주식회사 컬리'},
-    {k:'kind',l:'구분',type:'select',w:90,opts:['매출처','매입처','양쪽','기타']},
-    {k:'person',l:'담당자',w:100,ph:'이름/직함'},
-    {k:'phone',l:'연락처',w:130,ph:'010-'},
-    {k:'email',l:'이메일',w:170},
-    {k:'grade',l:'등급',type:'select',w:80,opts:['A','B','C','신규','휴면']},
-    {k:'next',l:'다음 연락일',type:'date',w:110},
-    {k:'note',l:'메모',type:'textarea',ph:'거래 조건, 히스토리, 특이사항'}
-  ]},
   logins:{title:'로그인 정보',ic:'🔑',desc:'업무용 사이트 계정을 함께 관리합니다 · 사이트 이름 가나다순',storeKey:'bnf_logins',sort:{k:'site',dir:'asc'},cols:[
     {k:'site',l:'사이트 이름',w:150,ph:'예) 이카운트'},
     {k:'url',l:'링크',type:'link',w:220,ph:'https://...'},
@@ -11572,6 +11773,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'featreq',l:'추가 기능 요청',ic:'💡'},
     {id:'logins',l:'로그인 정보',ic:'🔑'},
     {id:'manual',l:'업무 매뉴얼',ic:'📚'},
+    {id:'trend',l:'업계 동향',ic:'📈'},
     {id:'pricelookup',l:'매입단가 조회',ic:'🔎'},
     {id:'kurly',l:'컬리 리뷰',ic:'💜'},
     {id:'workreq',l:'업무 현황',ic:'📋'},
@@ -11822,7 +12024,8 @@ function loadNavSections(){
           ensure({t:'dept_qc',m:'품질',label:'🧪 품질관리'},[
             {id:'qc_self',l:'자가품질검사',ic:'🧪',before:'qc_process'}]);
           ensure({t:'factory',m:'이천공장',label:'🏭 비엔에프글로벌 이천공장'},[
-            {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'}]);
+            {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'},
+            {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'}]);
         }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
@@ -12062,6 +12265,7 @@ const NAV_PAGES_INDEX=[
   {p:'featreq',title:'추가 기능 요청',ic:'💡',keys:['기능','요청','건의','개선','featreq']},
   {p:'logins',title:'로그인 정보',ic:'🔑',keys:['로그인','계정','비밀번호','아이디','login']},
   {p:'crm',title:'거래처 CRM',ic:'🤝',keys:['거래처','crm','고객','담당자','영업']},
+  {p:'trend',title:'업계 동향',ic:'📈',keys:['동향','트렌드','뉴스','업계','리포트']},
   {p:'manual',title:'업무 매뉴얼',ic:'📚',keys:['매뉴얼','메뉴얼','업무','지침','manual','sop']},
   {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
@@ -14650,6 +14854,8 @@ function App(){
       desc:'점검 주기를 설정하면 다음 점검일이 자동 계산되고, 임박하면 홈 화면에 표시됩니다',
       storeKey:'bnf_pm_equip',nameLabel:'설비명',namePh:'예) 살균기 1호',placeLabel:'위치'});
     if(page==='manual')return R(PageManual,{user});
+    if(page==='crm')return R(PageCRM,{user});
+    if(page==='trend')return R(PageTrend,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
