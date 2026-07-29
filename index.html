@@ -13594,12 +13594,15 @@ function PageShipSort({mats,hqItems}){
       arr.forEach(o=>{
         const center=normCenter2(o.center);
         const name=String(o.name||'').replace(/\s+/g,' ').trim();
-        const box=parseInt(String(o.box==null?'':o.box).replace(/[^\d]/g,''))||0;
-        const total=parseInt(String(o.total==null?'':o.total).replace(/[^\d]/g,''))||0;
+        const rawBox=parseInt(String(o.box==null?'':o.box).replace(/[^\d]/g,''))||0;
+        const rawTotal=parseInt(String(o.total==null?'':o.total).replace(/[^\d]/g,''))||0;
         if(o.date&&!gdate)gdate=o.date;
-        if(!name||total<=0)return;
+        if(!name)return;
+        /* 입수×박스수=총수량 규칙으로 AI 오인식 자동 교정 */
+        const fx=fixAiItem(name,rawBox,rawTotal);
+        if(fx.total<=0)return;
         if(!byC[center])byC[center]=[];
-        byC[center].push({name,total,box,exp:gdate});
+        byC[center].push({name,total:fx.total,box:fx.box,exp:gdate});
       });
       const orders=Object.entries(byC).map(([center,items])=>({center,date:gdate,items}));
       const cnt=orders.reduce((s,o)=>s+o.items.length,0);
@@ -13625,12 +13628,15 @@ function PageShipSort({mats,hqItems}){
     arr.forEach(o=>{
       const center=normCenter2(o.center);
       const name=String(o.name||'').replace(/\s+/g,' ').trim();
-      const box=parseInt(String(o.box==null?'':o.box).replace(/[^\d]/g,''))||0;
-      const total=parseInt(String(o.total==null?'':o.total).replace(/[^\d]/g,''))||0;
+      const rawBox=parseInt(String(o.box==null?'':o.box).replace(/[^\d]/g,''))||0;
+      const rawTotal=parseInt(String(o.total==null?'':o.total).replace(/[^\d]/g,''))||0;
       if(o.date&&!gdate)gdate=o.date;
-      if(!name||total<=0)return;
+      if(!name)return;
+      /* 입수×박스수=총수량 규칙으로 AI 오인식(입수를 박스수로) 자동 교정 */
+      const fx=fixAiItem(name,rawBox,rawTotal);
+      if(fx.total<=0)return;
       if(!byC[center])byC[center]=[];
-      byC[center].push({name,total,box,exp:gdate});
+      byC[center].push({name,total:fx.total,box:fx.box,pack:fx.pack,exp:gdate});
     });
     return {orders:Object.entries(byC).map(([center,items])=>({center,date:gdate,items})),raw:arr,gdate};
   };
@@ -13646,6 +13652,22 @@ function PageShipSort({mats,hqItems}){
     [/소고기\s*쌀국수/,12],
   ];
   const packOf=(name)=>{const s=String(name||'').replace(/\s+/g,' ');for(const[re,p]of PACK_MAP){if(re.test(s))return p;}return 0;};
+  /* ── AI 인식값 자동 교정 (2026-07-29) ──
+     발주서 규칙: 박스당입수 × 발주수량(박스수) = 총 발주수량.
+     AI가 표의 첫 숫자열(박스당입수)을 박스수로 잘못 읽는 문제를 수학으로 교정:
+     ① 입수표(PACK_MAP)에 있는 품목 → 박스수 = 총수량 ÷ 입수 (확정)
+     ② 입수 미등록 품목 → AI가 읽은 숫자를 입수로 보고 박스수 = 총수량 ÷ 그 값 */
+  const fixAiItem=(name,box,total)=>{
+    let pack=packOf(name);box=parseInt(box)||0;total=parseInt(total)||0;
+    if(total>0&&pack>0&&total%pack===0){
+      box=total/pack;                                  /* ① 확정 교정 */
+    }else if(total>0&&box>0&&total%box===0){
+      pack=box;box=total/box;                          /* ② AI box=입수 가정 교정 */
+    }else if(total<=0&&pack>0&&box>0){
+      total=box*pack;                                  /* 총수량 누락 시 계산 */
+    }
+    return {box,pack,total};
+  };
   /* ── 이미지 파일(캡처 png/jpg) 발주서 → AI 인식 → 검토표 (2026-07-29) ── */
   const handleImageFiles=async(imgFiles)=>{
     setLoading(true);
@@ -13661,9 +13683,8 @@ function PageShipSort({mats,hqItems}){
         if(r.orders&&r.orders.length){
           if(r.gdate&&!foundDate)foundDate=r.gdate;
           r.orders.forEach(o=>o.items.forEach(it=>{
-            const pack=packOf(it.name);
-            aiRows.push({center:o.center,name:it.name,box:it.box||0,pack,
-              total:it.total>0?it.total:(pack>0?(it.box||0)*pack:0)});
+            /* recognizeShipImage에서 입수×박스수=총수량 교정 완료된 값 사용 */
+            aiRows.push({center:o.center,name:it.name,box:it.box||0,pack:it.pack||packOf(it.name),total:it.total||0});
           }));
           dbg+='\n\n===== '+(f.name||('이미지'+(i+1)))+' (AI 인식) =====\n'+JSON.stringify(r.raw,null,1);
         }
@@ -13753,8 +13774,8 @@ function PageShipSort({mats,hqItems}){
               if(r.orders&&r.orders.length){
                 if(r.gdate&&!foundDate)foundDate=r.gdate;
                 r.orders.forEach(o=>o.items.forEach(it=>{
-                  const pack=packOf(it.name);
-                  aiRows.push({center:o.center,name:it.name,box:it.box||0,pack,total:pack>0?(it.box||0)*pack:0});
+                  /* recognizeShipImage에서 입수×박스수=총수량 교정 완료된 값 사용 */
+                  aiRows.push({center:o.center,name:it.name,box:it.box||0,pack:it.pack||packOf(it.name),total:it.total||0});
                 }));
                 dbg+='\n\n===== '+fname+' '+p+'p (AI 인식) =====\n'+JSON.stringify(r.raw,null,1);
               }
