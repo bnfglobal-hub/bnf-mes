@@ -13669,10 +13669,11 @@ function PageShipSort({mats,hqItems}){
     let pack=packOf(name);a=parseInt(a)||0;b=parseInt(b)||0;
     let box=0,total=0;
     if(pack>0){
-      if(b>0&&b%pack===0&&b>pack){box=b/pack;total=b;}       /* b=총수량 */
+      /* 총수량(맨 오른쪽 열)을 최우선 신뢰: 박스수 = 총수량 ÷ 입수 */
+      if(b>0&&b%pack===0&&b>pack){box=b/pack;total=b;}        /* b=총수량 */
+      else if(a>0&&a%pack===0&&a>pack&&(b<=0||b===pack)){box=a/pack;total=a;} /* 순서 뒤바뀜: a=총수량 */
       else if(b>0){box=b;total=b*pack;}                       /* b=발주수량 */
       else if(a>0&&a!==pack){box=a;total=a*pack;}             /* b누락, a=발주수량 */
-      else if(a>0&&a%pack===0&&a>pack){box=a/pack;total=a;}   /* b누락, a=총수량 */
     }else if(a>0&&b>0){
       if(b%a===0&&b>a){pack=a;box=b/a;total=b;}               /* (입수,총수량) */
       else{pack=a;box=b;total=a*b;}                            /* (입수,발주수량) */
