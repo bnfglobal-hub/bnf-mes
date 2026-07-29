@@ -13646,6 +13646,52 @@ function PageShipSort({mats,hqItems}){
     [/소고기\s*쌀국수/,12],
   ];
   const packOf=(name)=>{const s=String(name||'').replace(/\s+/g,' ');for(const[re,p]of PACK_MAP){if(re.test(s))return p;}return 0;};
+  /* ── 이미지 파일(캡처 png/jpg) 발주서 → AI 인식 → 검토표 (2026-07-29) ── */
+  const handleImageFiles=async(imgFiles)=>{
+    setLoading(true);
+    const aiRows=[];let foundDate='';let dbg='';
+    for(let i=0;i<imgFiles.length;i++){
+      const f=imgFiles[i];
+      setProgress('이미지 AI 인식 중... ('+(i+1)+'/'+imgFiles.length+')');
+      try{
+        const dataUrl=await new Promise((ok,no)=>{const rd=new FileReader();rd.onload=e=>ok(e.target.result);rd.onerror=no;rd.readAsDataURL(f);});
+        const parts=String(dataUrl).split(',');
+        const mt=((parts[0]||'').match(/data:(.*?);/)||[])[1]||'image/png';
+        const r=await recognizeShipImage(parts[1]||'',mt);
+        if(r.orders&&r.orders.length){
+          if(r.gdate&&!foundDate)foundDate=r.gdate;
+          r.orders.forEach(o=>o.items.forEach(it=>{
+            const pack=packOf(it.name);
+            aiRows.push({center:o.center,name:it.name,box:it.box||0,pack,
+              total:it.total>0?it.total:(pack>0?(it.box||0)*pack:0)});
+          }));
+          dbg+='\n\n===== '+(f.name||('이미지'+(i+1)))+' (AI 인식) =====\n'+JSON.stringify(r.raw,null,1);
+        }
+      }catch(e){dbg+='\n\n===== 이미지 인식 오류: '+String((e&&e.message)||e);}
+    }
+    setRawDbg(prev=>String(prev||'')+dbg);
+    setLoading(false);setProgress('');
+    if(aiRows.length>0)setReview({date:foundDate,rows:aiRows});
+    else alert('이미지에서 발주 표를 읽지 못했습니다. 더 선명한 캡처로 다시 시도해주세요.');
+  };
+  /* 출고 계획 화면 어디서든 Ctrl+V로 캡처 이미지 붙여넣기 → 바로 AI 인식(검토표) */
+  useEffect(()=>{
+    const onWinPaste=(e)=>{
+      const items=(e.clipboardData&&e.clipboardData.items)||[];
+      const imgs=[];
+      for(let i=0;i<items.length;i++){
+        if(items[i].type&&items[i].type.indexOf('image/')===0){
+          const f=items[i].getAsFile();if(f)imgs.push(f);
+        }
+      }
+      if(!imgs.length)return;              /* 텍스트 붙여넣기는 건드리지 않음 */
+      e.preventDefault();
+      handleImageFiles(imgs);
+    };
+    window.addEventListener('paste',onWinPaste);
+    return()=>window.removeEventListener('paste',onWinPaste);
+  },[]);
+
   /* PDF 페이지를 고해상도 이미지(jpeg base64)로 렌더 - 이미지 PDF의 AI 인식용 */
   const renderPdfPageToB64=async(pdf,pageNo)=>{
     const page=await pdf.getPage(pageNo);
@@ -13661,8 +13707,14 @@ function PageShipSort({mats,hqItems}){
   /* 여러 PDF 파일 처리 */
   const handleFiles=async(fileList)=>{
     /* 이름이 없는 공유 파일(카톡 등)도 받도록 MIME 타입까지 허용 */
-    const files=Array.from(fileList).filter(f=>String(f.name||'').toLowerCase().endsWith('.pdf')||String(f.type||'')==='application/pdf');
-    if(files.length===0){alert('PDF 파일을 선택하세요');return;}
+    const all=Array.from(fileList);
+    const files=all.filter(f=>String(f.name||'').toLowerCase().endsWith('.pdf')||String(f.type||'')==='application/pdf');
+    /* 이미지 파일(캡처 png/jpg 등)도 허용 → AI 인식 후 검토표 경로 */
+    const imgFiles=all.filter(f=>String(f.type||'').indexOf('image/')===0
+      ||/\.(png|jpe?g|webp|bmp|heic)$/i.test(String(f.name||'')));
+    if(files.length===0&&imgFiles.length===0){alert('PDF 또는 이미지 파일을 선택하세요');return;}
+    if(files.length===0){await handleImageFiles(imgFiles);return;}
+    if(imgFiles.length)await handleImageFiles(imgFiles);
     if(typeof pdfjsLib==='undefined'&&typeof window.pdfjsLib==='undefined'){alert('PDF 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.');return;}
     const lib=window.pdfjsLib||pdfjsLib;
     lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -13914,10 +13966,10 @@ function PageShipSort({mats,hqItems}){
       R('div',{onDragOver:e=>e.preventDefault(),onDrop:onDrop,onClick:()=>fileRef.current&&fileRef.current.click(),
         style:{border:'2px dashed var(--p)',borderRadius:12,padding:'28px 16px',textAlign:'center',cursor:'pointer',background:'#FFF8F4'}},
         R('div',{style:{fontSize:36,marginBottom:8}},'📄'),
-        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:4}},loading?progress:'거래명세서 PDF 올리기'),
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'📱 휴대폰: 여기를 탭 → 파일 앱/다운로드에서 PDF 선택 · 💻 PC: 클릭 또는 드래그 · 여러 개 가능, 올릴 때마다 누적됩니다')
+        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:4}},loading?progress:'거래명세서 PDF·이미지 올리기'),
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'📱 휴대폰: 여기를 탭 → PDF·사진 선택 · 💻 PC: 클릭 또는 캡처 후 화면 아무 데서나 Ctrl+V또는 드래그 · 여러 개 가능, 올릴 때마다 누적됩니다')
       ),
-      R('input',{ref:fileRef,type:'file',accept:'application/pdf,.pdf',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
+      R('input',{ref:fileRef,type:'file',accept:'application/pdf,.pdf,image/*',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
       /* 발주서 붙여넣기 토글 */
       R('div',{style:{marginTop:12,borderTop:'1px dashed var(--bd)',paddingTop:12}},
         R('button',{onClick:()=>setShowPaste(v=>!v),style:{background:'none',border:'none',cursor:'pointer',fontSize:12,fontWeight:700,color:'var(--p)',fontFamily:'inherit',padding:0}},
