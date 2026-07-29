@@ -9408,12 +9408,22 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
           ...(()=>{
             const supName=r=>((supOf(r.mat,r.name).name)||'').trim();
             const _list=combined.rows.filter(r=>showAllCombined||r.short>0).slice().sort((a,b)=>{
+              /* 발주 체크한 품목은 즉시 맨 아래 '발주 완료' 구역으로 */
+              const oa=orderedMats.has(a.code)?1:0, ob=orderedMats.has(b.code)?1:0;
+              if(oa!==ob)return oa-ob;
               const sa=supName(a),sb=supName(b);
               return (sa?0:1)-(sb?0:1)||sa.localeCompare(sb,'ko')||b.short-a.short||a.name.localeCompare(b.name,'ko');
             });
-            return _list.map((r,_ri)=>{const ordered=orderedMats.has(r.code);
-            const _newGrp=_ri>0&&supName(_list[_ri-1])!==supName(r);
-            return R('tr',{key:r.code,style:{background:ordered?'#F0FDF4':(r.short>0?'#FFF7F4':'#fff'),borderTop:_newGrp?'2px solid #CBD5E1':'none'}},
+            const _out=[];
+            _list.forEach((r,_ri)=>{const ordered=orderedMats.has(r.code);
+            const _prev=_ri>0?_list[_ri-1]:null;
+            const _prevOrdered=_prev?orderedMats.has(_prev.code):false;
+            /* 발주 완료 구역 시작 헤더 */
+            if(ordered&&(!_prev||!_prevOrdered)){
+              _out.push(R('tr',{key:'__done_hdr'},R('td',{colSpan:7,style:{padding:'8px 12px',background:'#DCFCE7',color:'#15803D',fontWeight:800,fontSize:'0.95em',borderTop:'2px solid #86EFAC'}},'✓ 발주 완료 ('+_list.filter(x=>orderedMats.has(x.code)).length+'건)')));
+            }
+            const _newGrp=_prev&&_prevOrdered===ordered&&supName(_prev)!==supName(r);
+            _out.push(R('tr',{key:r.code,style:{background:ordered?'#F0FDF4':(r.short>0?'#FFF7F4':'#fff'),borderTop:_newGrp?'2px solid #CBD5E1':'none'}},
             R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'center'}},
               R('input',{type:'checkbox',checked:ordered,onChange:()=>toggleOrdered(r.code),title:ordered?'발주 완료':'발주 체크',style:{width:16,height:16,cursor:'pointer',accentColor:'#16A34A'}})),
             R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',fontWeight:r.short>0?700:500,color:ordered?'#9CA3AF':(r.short>0?'#991B1B':'#374151'),textDecoration:ordered?'line-through':'none',lineHeight:1.35,wordBreak:'break-all'}},
@@ -9442,7 +9452,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             r.short>0
               ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9CA3AF':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
               :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F1F5F9',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#059669',fontWeight:600,fontSize:'0.92em'}},'✓ 충분')
-          );});})(),
+          ));});return _out;})(),
           combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:7,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:'1.05em',fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
       )
