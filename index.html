@@ -13663,21 +13663,21 @@ function PageShipSort({mats,hqItems}){
      ① 입수표(PACK_MAP)에 있는 품목 → 박스수 = 총수량 ÷ 입수 (확정)
      ② 입수 미등록 품목 → AI가 읽은 숫자를 입수로 보고 박스수 = 총수량 ÷ 그 값 */
   const fixAiItem=(name,a,b)=>{
-    /* AI가 (box,total)로 돌려주는 두 숫자의 정체가 표마다 다름:
-       (입수,총수량) 또는 (입수,발주수량) — 총 발주수량(맨 오른쪽)=입수×발주수량 규칙으로 판별.
-       b가 입수로 나누어떨어지고 입수보다 크면 총수량, 아니면 발주수량으로 해석. */
+    /* 확정 규칙(2026-07-29 사장 지시): AI가 읽은 수량 = 발주수량 = 박스수.
+       총수량(제품수량) = 박스당입수 × 발주수량 으로 계산.
+       입수와 같은 값이 섞여 오면 그 값은 입수로 제외하고 나머지를 박스수로. */
     let pack=packOf(name);a=parseInt(a)||0;b=parseInt(b)||0;
     let box=0,total=0;
     if(pack>0){
-      /* 총수량(맨 오른쪽 열)을 최우선 신뢰: 박스수 = 총수량 ÷ 입수 */
-      if(b>0&&b%pack===0&&b>pack){box=b/pack;total=b;}        /* b=총수량 */
-      else if(a>0&&a%pack===0&&a>pack&&(b<=0||b===pack)){box=a/pack;total=a;} /* 순서 뒤바뀜: a=총수량 */
-      else if(b>0){box=b;total=b*pack;}                       /* b=발주수량 */
-      else if(a>0&&a!==pack){box=a;total=a*pack;}             /* b누락, a=발주수량 */
+      if(a===pack&&b>0){box=b;total=b*pack;}            /* a=입수, b=발주수량(박스수) */
+      else if(b===pack&&a>0){box=a;total=a*pack;}       /* 순서 반대 */
+      else if(a>0&&b>0&&a*pack===b){box=a;total=b;}     /* (발주수량,총수량) 곱 일치 */
+      else if(a>0&&b>0&&b*pack===a){box=b;total=a;}     /* (총수량,발주수량) */
+      else if(b>0){box=b;total=b*pack;}                 /* b=발주수량 */
+      else if(a>0){box=a;total=a*pack;}
     }else if(a>0&&b>0){
-      if(b%a===0&&b>a){pack=a;box=b/a;total=b;}               /* (입수,총수량) */
-      else{pack=a;box=b;total=a*b;}                            /* (입수,발주수량) */
-    }else if(b>0){box=0;total=b;}                              /* a누락: 총수량만 신뢰, 박스는 검토표에서 */
+      pack=a;box=b;total=a*b;                            /* (입수,발주수량) — 박스수=b */
+    }else if(b>0){box=b;total=0;}                        /* 입수 미상: 검토표에서 입수 입력 시 자동계산 */
     return {box,pack,total};
   };
   /* ── 이미지 파일(캡처 png/jpg) 발주서 → AI 인식 → 검토표 (2026-07-29) ── */
