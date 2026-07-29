@@ -13650,6 +13650,11 @@ function PageShipSort({mats,hqItems}){
     [/짜조/,35],
     [/똠얌\s*쌀국수/,20],
     [/소고기\s*쌀국수/,12],
+    /* 2026-07-29 발주서 관측값 추가 */
+    [/김치\s*청국장/,25],
+    [/청국장/,30],
+    [/털레기\s*수제비/,15],
+    [/맑은\s*곰탕/,20],
   ];
   const packOf=(name)=>{const s=String(name||'').replace(/\s+/g,' ');for(const[re,p]of PACK_MAP){if(re.test(s))return p;}return 0;};
   /* ── AI 인식값 자동 교정 (2026-07-29) ──
