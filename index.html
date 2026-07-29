@@ -14634,9 +14634,35 @@ function App(){
       try{
         /* 기존 state_data 먼저 가져와서 merge */
         const{data:cur}=await db('app_state').select('state_data').eq('id',1).maybeSingle();
-        const existingExtras=cur&&cur.state_data?cur.state_data:{};
+        /* 읽기 실패 시 절대 저장하지 않음 — {}에 merge하면 다른 키 전체가 날아간다 (2026-07-29 BOM 소실 사고) */
+        if(!cur||!cur.state_data){setSaveStatus('error');console.warn('자동저장 중단: 서버 상태를 읽지 못함');setTimeout(()=>{isSavingRef.current=false;},1500);return;}
+        const existingExtras=cur.state_data;
+        /* 대량 소실 가드: 서버에 5개 이상 있는 목록을 로컬 빈 배열로 덮어쓰지 않는다
+           (기기에서 로드가 꼬인 채 자동저장되면 prods/BOM·본사재고·발주가 통째로 지워지던 사고 방지) */
+        const guard=(k,lv)=>{
+          const sv=existingExtras[k];
+          if(Array.isArray(lv)&&lv.length===0&&Array.isArray(sv)&&sv.length>=5){
+            console.warn('자동저장 가드: '+k+' 로컬 0개 vs 서버 '+sv.length+'개 → 서버 값 유지');
+            return sv;
+          }
+          return lv;
+        };
         /* bnf_favorites, bnf_semi_items, bnf_prod_semi_map 등 PageInv가 관리하는 키는 보존 */
-        const merged={...existingExtras,mats,prods,orders,hqItems,cats,quote,pqty};
+        const merged={...existingExtras,mats:guard('mats',mats),prods:guard('prods',prods),
+          orders:guard('orders',orders),hqItems:guard('hqItems',hqItems),cats:guard('cats',cats),quote,pqty};
+        /* 일일 자동 백업: 하루 1회, 최근 7일 보관 */
+        try{
+          const today=new Date().toISOString().slice(0,10);
+          const bk=Object.assign({},merged._backups||{});
+          if(!bk[today]){
+            bk[today]={mats:merged.mats,prods:merged.prods,orders:merged.orders,hqItems:merged.hqItems,cats:merged.cats,
+              bnf_favorites:merged.bnf_favorites,bnf_semi_items:merged.bnf_semi_items,
+              bnf_fav_folders:merged.bnf_fav_folders,bnf_fav_item_folder:merged.bnf_fav_item_folder,
+              bnf_crm:merged.bnf_crm,bnf_logins:merged.bnf_logins};
+            Object.keys(bk).sort().slice(0,-7).forEach(k=>{delete bk[k];});
+            merged._backups=bk;
+          }
+        }catch(e){}
         await db('app_state').upsert({id:1,state_data:merged,updated_at:new Date().toISOString()});
         setSaveStatus('saved');setTimeout(()=>setSaveStatus(''),2000);
       }catch(e){setSaveStatus('error');console.warn('자동저장 실패:',e);}
