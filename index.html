@@ -586,6 +586,84 @@ body{font-variant-numeric:tabular-nums}
 /* 빈 상태: 아이콘 펄스 제거 (장식 모션 금지) */
 .empty-ic{animation:none;opacity:.75}
 
+/* ═══ 로그인 3D — "김이 오르는 한 그릇" (식품회사 브랜드 순간) ═══ */
+.lg3-stage{display:flex;height:100vh;height:100dvh;overflow:hidden;position:relative;
+  background:radial-gradient(1100px 700px at 38% 40%, #3D1A0E 0%, #1A0C07 62%, #120803 100%)}
+.lg3-hero{flex:1.1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  perspective:1000px;position:relative;min-width:0}
+.lg3-side{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;position:relative;z-index:2}
+@media(max-width:900px){.lg3-hero{display:none}.lg3-side{flex:1}}
+
+/* 무대 바닥 글로우 */
+.lg3-floor{position:absolute;left:0;right:0;bottom:-140px;height:340px;pointer-events:none;
+  background:radial-gradient(ellipse 55% 100% at 45% 100%, rgba(240,112,64,.20), rgba(0,0,0,0) 70%)}
+
+/* ── 그릇 (CSS 3D) ── */
+.lg3-scene{position:relative;width:320px;height:300px;transform-style:preserve-3d;
+  animation:lg3Float 7s ease-in-out infinite}
+@keyframes lg3Float{0%,100%{transform:translateY(0) rotateX(4deg)}50%{transform:translateY(-14px) rotateX(7deg)}}
+.lg3-bowl{position:absolute;left:30px;right:30px;bottom:40px;height:150px}
+.lg3-bowl-body{position:absolute;inset:28px 0 0 0;border-radius:0 0 999px 999px/0 0 150px 150px;
+  background:linear-gradient(165deg,#F07040 4%,#D94F1E 38%,#8A2F10 82%,#5E1F0A);
+  box-shadow:inset -22px -16px 44px rgba(0,0,0,.32), inset 16px 8px 30px rgba(255,255,255,.13),
+    0 34px 60px rgba(0,0,0,.5)}
+.lg3-bowl-foot{position:absolute;left:34%;right:34%;bottom:-12px;height:20px;border-radius:50%;
+  background:linear-gradient(180deg,#6E2410,#3E1206)}
+.lg3-bowl-rim{position:absolute;left:-8px;right:-8px;top:0;height:56px;border-radius:50%;
+  background:linear-gradient(180deg,#FFEFE4,#E9C8B4 72%,#CFA890)}
+.lg3-broth{position:absolute;left:2px;right:2px;top:7px;height:42px;border-radius:50%;
+  background:radial-gradient(ellipse at 46% 38%, #7A3013 0%, #571F0B 46%, #3B1407 100%);
+  box-shadow:inset 0 6px 14px rgba(0,0,0,.5)}
+.lg3-noodle{position:absolute;border-radius:50%;border:3px solid rgba(255,214,170,.85);border-bottom-color:transparent;border-right-color:transparent;filter:blur(.4px)}
+.lg3-nd1{left:24%;top:16px;width:74px;height:22px;transform:rotate(-8deg)}
+.lg3-nd2{left:44%;top:22px;width:58px;height:18px;transform:rotate(14deg);opacity:.8}
+.lg3-egg{position:absolute;right:22%;top:15px;width:30px;height:19px;border-radius:50%;
+  background:radial-gradient(circle at 50% 52%, #F5A623 0 34%, #FFF4E4 38%)}
+.lg3-scallion{position:absolute;width:9px;height:5px;border-radius:3px;background:#7CB342;opacity:.9}
+.lg3-sc1{left:32%;top:14px;transform:rotate(20deg)}
+.lg3-sc2{left:56%;top:30px;transform:rotate(-30deg)}
+.lg3-sc3{left:65%;top:16px;transform:rotate(64deg)}
+/* 젓가락 */
+.lg3-chop{position:absolute;width:200px;height:4px;border-radius:3px;
+  background:linear-gradient(90deg,#8A5A3B,#5E3A22);box-shadow:0 3px 8px rgba(0,0,0,.4)}
+.lg3-ch1{right:-52px;top:2px;transform:rotate(-12deg)}
+.lg3-ch2{right:-56px;top:14px;transform:rotate(-9deg)}
+
+/* ── 김(스팀) ── */
+.lg3-steam{position:absolute;bottom:190px;width:30px;height:130px;border-radius:50%;
+  background:linear-gradient(to top, rgba(255,245,238,0), rgba(255,245,238,.5) 45%, rgba(255,245,238,0));
+  filter:blur(7px);opacity:0;animation:lg3Steam 4.6s ease-in-out infinite}
+.lg3-st1{left:96px;animation-delay:0s}
+.lg3-st2{left:150px;animation-delay:1.5s;height:150px}
+.lg3-st3{left:200px;animation-delay:2.9s;height:115px}
+@keyframes lg3Steam{
+  0%{transform:translateY(26px) translateX(0) scaleX(1);opacity:0}
+  25%{opacity:.55}
+  60%{transform:translateY(-60px) translateX(-10px) scaleX(1.35);opacity:.35}
+  100%{transform:translateY(-120px) translateX(8px) scaleX(1.7);opacity:0}
+}
+/* 그릇 그림자 */
+.lg3-shadow{position:absolute;left:70px;right:70px;bottom:16px;height:26px;border-radius:50%;
+  background:rgba(0,0,0,.5);filter:blur(12px);animation:lg3Shadow 7s ease-in-out infinite}
+@keyframes lg3Shadow{0%,100%{transform:scaleX(1);opacity:.55}50%{transform:scaleX(.9);opacity:.4}}
+
+/* 히어로 카피 */
+.lg3-copy{margin-top:34px;text-align:center;position:relative;z-index:2}
+.lg3-copy b{display:block;color:#F3EAE2;font-size:21px;font-weight:800;letter-spacing:-0.01em}
+.lg3-copy span{display:block;color:#9C8B7E;font-size:12.5px;margin-top:7px;letter-spacing:.04em}
+
+/* 떠다니는 엠버 입자 */
+.lg3-ember{position:absolute;border-radius:50%;background:#F07040;opacity:0;pointer-events:none;
+  animation:lg3Ember 9s ease-in-out infinite}
+@keyframes lg3Ember{0%{transform:translateY(0);opacity:0}20%{opacity:.4}80%{opacity:.15}100%{transform:translateY(-320px);opacity:0}}
+
+/* ── 카드(3D 틸트) ── */
+.lg3-card{transform-style:preserve-3d;will-change:transform;transition:transform .16s ease-out;
+  animation:lg3CardIn .8s cubic-bezier(.2,.7,.2,1) backwards;
+  background:#fff;border-radius:20px;padding:42px 36px;width:100%;max-width:390px;
+  box-shadow:0 34px 80px rgba(0,0,0,.5), 0 10px 26px rgba(0,0,0,.35)}
+@keyframes lg3CardIn{from{opacity:0;transform:translateY(46px) rotateX(-12deg) scale(.95)}to{opacity:1;transform:none}}
+
 /* 모션 최소화 설정 존중 */
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
@@ -12078,8 +12156,53 @@ function LoginPage({onLogin}){
       onLogin(data);
     }catch(e){setErr('오류: '+e.message);setLoading(false);}
   };
-  return R('div',{style:{display:'flex',height:'100vh',background:'linear-gradient(135deg,#1A0C07 0%,#3D1A0E 100%)'}},
-    R('div',{style:{margin:'auto',background:'#fff',borderRadius:20,padding:'42px 36px',width:'100%',maxWidth:390,boxShadow:'0 20px 60px rgba(0,0,0,.35)'}},
+  /* 카드 3D 틸트 (마우스 전용 — 터치기기 무시) */
+  const cardRef=React.useRef(null);
+  const onTilt=e=>{
+    const c=cardRef.current;if(!c)return;
+    const r=c.getBoundingClientRect();
+    const dx=(e.clientX-(r.left+r.width/2))/r.width;
+    const dy=(e.clientY-(r.top+r.height/2))/r.height;
+    c.style.transform='perspective(900px) rotateY('+(dx*6).toFixed(2)+'deg) rotateX('+(-dy*5).toFixed(2)+'deg)';
+  };
+  const resetTilt=()=>{const c=cardRef.current;if(c)c.style.transform='';};
+  return R('div',{className:'lg3-stage'},
+    /* ── 왼쪽: 김이 오르는 한 그릇 (3D 히어로) ── */
+    R('div',{className:'lg3-hero'},
+      R('div',{className:'lg3-floor'}),
+      /* 떠다니는 엠버 입자 */
+      [[12,'18%','62%',0],[8,'30%','76%',3],[10,'72%',"70%",1.6],[7,'82%','58%',4.5],[6,'54%','82%',6]].map((p,i)=>
+        R('div',{key:'em'+i,className:'lg3-ember',style:{width:p[0],height:p[0],left:p[1],top:p[2],animationDelay:p[3]+'s'}})),
+      R('div',{className:'lg3-scene'},
+        R('div',{className:'lg3-steam lg3-st1'}),
+        R('div',{className:'lg3-steam lg3-st2'}),
+        R('div',{className:'lg3-steam lg3-st3'}),
+        R('div',{className:'lg3-shadow'}),
+        R('div',{className:'lg3-bowl'},
+          R('div',{className:'lg3-bowl-body'}),
+          R('div',{className:'lg3-bowl-foot'}),
+          R('div',{className:'lg3-bowl-rim'},
+            R('div',{className:'lg3-broth'},
+              R('div',{className:'lg3-noodle lg3-nd1'}),
+              R('div',{className:'lg3-noodle lg3-nd2'}),
+              R('div',{className:'lg3-egg'}),
+              R('div',{className:'lg3-scallion lg3-sc1'}),
+              R('div',{className:'lg3-scallion lg3-sc2'}),
+              R('div',{className:'lg3-scallion lg3-sc3'})
+            )
+          ),
+          R('div',{className:'lg3-chop lg3-ch1'}),
+          R('div',{className:'lg3-chop lg3-ch2'})
+        )
+      ),
+      R('div',{className:'lg3-copy'},
+        R('b',null,'한 그릇의 정성을 만드는 사람들'),
+        R('span',null,'B&F GLOBAL · 식품제조 통합 시스템')
+      )
+    ),
+    /* ── 오른쪽: 로그인 카드 ── */
+    R('div',{className:'lg3-side',onMouseMove:onTilt,onMouseLeave:resetTilt},
+    R('div',{ref:cardRef,className:'lg3-card'},
       R('div',{style:{textAlign:'center',marginBottom:30}},
         R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{width:200,maxWidth:'80%',objectFit:'contain',margin:'0 auto 14px',display:'block'},onError:e=>{e.currentTarget.style.display='none';}}),
         R('div',{style:{fontSize:22,fontWeight:900,color:'#1A1A1A',letterSpacing:-0.5}},'B&F Global'),
@@ -12096,6 +12219,7 @@ function LoginPage({onLogin}){
         ),
         R('button',{onClick:login,disabled:loading,style:{width:'100%',padding:13,background:loading?'#ccc':'#D94F1E',color:'#fff',border:'none',borderRadius:9,cursor:loading?'default':'pointer',fontWeight:700,fontSize:15,fontFamily:'inherit'}},loading?'로그인 중...':'로그인')
       )
+    )
     )
   );
 }
