@@ -13637,7 +13637,7 @@ function PageShipSort({mats,hqItems}){
     let gdate='';const byC={};
     arr.forEach(o=>{
       const center=normCenter2(o.center);
-      const name=String(o.name||'').replace(/\s+/g,' ').trim();
+      const name=fixAiName(o.name);
       const rawBox=parseInt(String(o.box==null?'':o.box).replace(/[^\d]/g,''))||0;
       const rawTotal=parseInt(String(o.total==null?'':o.total).replace(/[^\d]/g,''))||0;
       const rawPack=parseInt(String(o.pack==null?'':o.pack).replace(/[^\d]/g,''))||0;
@@ -13656,9 +13656,22 @@ function PageShipSort({mats,hqItems}){
       }
       if(fx.total<=0)return;
       if(!byC[center])byC[center]=[];
-      byC[center].push({name,total:fx.total,box:fx.box,pack:fx.pack,exp:gdate});
+      byC[center].push({name,total:fx.total,box:fx.box,pack:fx.pack,exp:String(o.exp||'').trim()||gdate});
     });
     return {orders:Object.entries(byC).map(([center,items])=>({center,date:gdate,items})),raw:arr,gdate};
+  };
+  /* AI OCR 품목명 교정 (한글 오독 보정) */
+  const NAME_FIX=[
+    [/렐레기|털래기|텔레기|틸레기/g,'털레기'],
+    [/외할머니택|외할머니덱/g,'외할머니댁'],
+    [/엄마밥성|엄마밥싱/g,'엄마밥상'],
+    [/맑은콤탕|맑은곰당/g,'맑은곰탕'],
+    [/청국징|정국장/g,'청국장'],
+  ];
+  const fixAiName=(raw)=>{
+    let s=String(raw||'').replace(/\s+/g,' ').trim();
+    NAME_FIX.forEach(([re,to])=>{s=s.replace(re,to);});
+    return s;
   };
   /* 제품 박스입수 (총수량 = 박스수 × 입수). 명세서 관측값 기준, 미등록은 0(=검토표에서 입력) */
   const PACK_MAP=[
@@ -13716,7 +13729,7 @@ function PageShipSort({mats,hqItems}){
           if(r.gdate&&!foundDate)foundDate=r.gdate;
           r.orders.forEach(o=>o.items.forEach(it=>{
             /* recognizeShipImage에서 입수×박스수=총수량 교정 완료된 값 사용 */
-            aiRows.push({center:o.center,name:it.name,box:it.box||0,pack:it.pack||packOf(it.name),total:it.total||0});
+            aiRows.push({center:o.center,name:it.name,box:it.box||0,pack:it.pack||packOf(it.name),total:it.total||0,exp:it.exp||''});
           }));
           dbg+='\n\n===== '+(f.name||('이미지'+(i+1)))+' (AI 인식) =====\n'+JSON.stringify(r.raw,null,1);
         }
@@ -13807,7 +13820,7 @@ function PageShipSort({mats,hqItems}){
                 if(r.gdate&&!foundDate)foundDate=r.gdate;
                 r.orders.forEach(o=>o.items.forEach(it=>{
                   /* recognizeShipImage에서 입수×박스수=총수량 교정 완료된 값 사용 */
-                  aiRows.push({center:o.center,name:it.name,box:it.box||0,pack:it.pack||packOf(it.name),total:it.total||0});
+                  aiRows.push({center:o.center,name:it.name,box:it.box||0,pack:it.pack||packOf(it.name),total:it.total||0,exp:it.exp||''});
                 }));
                 dbg+='\n\n===== '+fname+' '+p+'p (AI 인식) =====\n'+JSON.stringify(r.raw,null,1);
               }
@@ -13842,7 +13855,7 @@ function PageShipSort({mats,hqItems}){
       if(!r.name||!(r.box>0)||!(r.total>0))return;
       const center=normCenter2(r.center);
       if(!byC[center])byC[center]=[];
-      byC[center].push({name:r.name,total:r.total,box:r.box,exp:''});
+      byC[center].push({name:r.name,total:r.total,box:r.box,exp:r.exp||''});
     });
     const orders=Object.entries(byC).map(([center,items])=>({center,date:review.date,items}));
     if(!orders.length){alert('반영할 항목이 없습니다.');return;}
@@ -14083,15 +14096,15 @@ function PageShipSort({mats,hqItems}){
         ),
         R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
           R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 12px',fontSize:12,color:'#92400E',marginBottom:10,lineHeight:1.6}},
-            '⚠ AI가 읽은 값입니다. ',R('b',null,'박스수는 정확'),'하지만 총수량은 확인이 필요합니다.',R('br'),
-            '총수량 = 박스수 × 박스입수. ',R('b',null,'노란 칸(입수 미등록)은 직접 입력'),'하면 총수량이 자동 계산됩니다. 실제 명세서와 대조 후 반영하세요.'),
+            '⚠ AI가 읽은 값입니다. ',R('b',null,'✅ 표시는 총수량 = 박스수 × 입수 검산이 맞은 행'),'입니다.',R('br'),
+            R('b',null,'노란 칸(입수 미등록)은 직접 입력'),'하면 총수량이 자동 계산됩니다. 실제 명세서와 대조 후 반영하세요.'),
           R('div',{style:{marginBottom:8}},
             R('span',{style:{fontSize:12,color:'var(--tm)'}},'입고일 '),
             R('input',{value:review.date||'',onChange:e=>setReview(rv=>({...rv,date:e.target.value})),placeholder:'YYYY-MM-DD',style:{border:'1px solid var(--bd)',borderRadius:6,padding:'4px 8px',fontSize:12,width:120,fontFamily:'inherit'}})),
           R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
             R('thead',null,R('tr',null,
               R('th',{style:{textAlign:'left'}},'센터'),R('th',{style:{textAlign:'left'}},'품목'),
-              R('th',{style:{width:64,textAlign:'right'}},'박스수'),R('th',{style:{width:64,textAlign:'right'}},'입수'),R('th',{style:{width:80,textAlign:'right'}},'총수량'),R('th',{style:{width:32}},''))),
+              R('th',{style:{width:64,textAlign:'right'}},'박스수'),R('th',{style:{width:64,textAlign:'right'}},'입수'),R('th',{style:{width:88,textAlign:'right'}},'총수량'),R('th',{style:{width:92,textAlign:'center'}},'소비기한'),R('th',{style:{width:32}},''))),
             R('tbody',null,...review.rows.map((r,i)=>{
               const need=r.box>0&&!(r.total>0);
               const inp=(key,w)=>R('input',{value:r[key]||'',onChange:e=>updReviewRow(i,key,e.target.value),
@@ -14101,7 +14114,9 @@ function PageShipSort({mats,hqItems}){
                 R('td',{style:{fontSize:11.5,fontWeight:600}},r.name),
                 R('td',{style:{textAlign:'right'}},inp('box',48)),
                 R('td',{style:{textAlign:'right'}},inp('pack',48)),
-                R('td',{style:{textAlign:'right',fontWeight:800,color:need?'#B45309':'var(--p)'}},need?'입력필요':(r.total||0).toLocaleString()),
+                R('td',{style:{textAlign:'right',fontWeight:800,color:need?'#B45309':'var(--p)'}},
+                  need?'입력필요':((r.total||0).toLocaleString()+(r.pack>0&&r.box>0&&r.box*r.pack===r.total?' ✅':''))),
+                R('td',{style:{textAlign:'center',fontSize:11,color:'var(--tm)'}},r.exp||'-'),
                 R('td',{style:{textAlign:'center'}},R('button',{onClick:()=>delReviewRow(i),title:'이 행 삭제(가짜/오류)',style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:14,padding:2}},'✕')));
             }))
           ))
