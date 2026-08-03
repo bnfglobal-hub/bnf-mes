@@ -3304,7 +3304,8 @@ function PageWorkOrder({user}){
   const[sel,setSel]=useState(null);        /* 미리보기 중인 문서 */
   const[sheet,setSheet]=useState(null);    /* {names:[], cur:'', grid:[[..]]} */
   const[loadingSheet,setLoadingSheet]=useState(false);
-  const[meta,setMeta]=useState({date:today2(),title:'',note:''});
+  const[meta,setMeta]=useState({date:today2(),client:'',title:'',note:''});
+  const[fCli,setFCli]=useState('');   /* 거래처 필터 */
   const fileRef=useRef(null);
   const isAdmin=['superadmin','admin'].includes(user.role);
   const KEY='bnf_pm_workorder';
@@ -3337,12 +3338,12 @@ function PageWorkOrder({user}){
         const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
         added.push({id:'w'+Date.now()+Math.random().toString(36).slice(2,6),
           name:f.name,path,url:(pub&&pub.publicUrl)||'',size:f.size,
-          date:meta.date||today2(),title:(meta.title||'').trim()||f.name.replace(/\.[^.]+$/,''),note:meta.note||'',
+          date:meta.date||today2(),client:(meta.client||'').trim(),title:(meta.title||'').trim()||f.name.replace(/\.[^.]+$/,''),note:meta.note||'',
           _by:user.id,_byName:user.name,_at:now2()});
       }
       if(added.length){
         await persist([...added,...(rows||[])]);
-        setMeta({date:today2(),title:'',note:''});
+        setMeta(p=>({date:today2(),client:p.client,title:'',note:''}));
       }
     }catch(e){alert('업로드 실패: '+e.message+'\n\n⚠️ Supabase Storage에 "bnf-files" 버킷이 있어야 합니다.');}
     setBusy(false);
@@ -3375,6 +3376,8 @@ function PageWorkOrder({user}){
     setSheet({names:wb.SheetNames,cur:name,grid});
   };
   const fSize=b=>{if(!b)return'';const k=b/1024;return k<1024?(k.toFixed(0)+'KB'):((k/1024).toFixed(1)+'MB');};
+  /* 등록된 거래처 목록 (지금까지 올린 것에서 수집) */
+  const clients=(()=>{const out=[];(rows||[]).forEach(r=>{const c=String(r.client||'').trim()||'미지정';if(out.indexOf(c)<0)out.push(c);});return out.sort((a,b)=>a.localeCompare(b,'ko'));})();
 
   /* ── 미리보기 화면 ── */
   if(sel)return R('div',{className:'pg fa'},
@@ -3387,7 +3390,7 @@ function PageWorkOrder({user}){
     R('div',{className:'card',style:{marginBottom:12}},
       R('h2',{style:{fontSize:16,fontWeight:800,marginBottom:6}},sel.title),
       R('div',{style:{fontSize:12,color:'var(--tm)',display:'flex',gap:10,flexWrap:'wrap'}},
-        R('span',null,'📅 ',sel.date||'-'),R('span',null,'📄 ',sel.name),R('span',null,fSize(sel.size)),
+        R('span',null,'📅 ',sel.date||'-'),sel.client&&R('span',{style:{fontWeight:700,color:'var(--p)'}},'🏢 ',sel.client),R('span',null,'📄 ',sel.name),R('span',null,fSize(sel.size)),
         R('span',null,'올린이 ',sel._byName||'-'),R('span',null,fDT(sel._at))),
       sel.note&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid var(--bd)',fontSize:13,whiteSpace:'pre-wrap'}},sel.note)
     ),
@@ -3411,14 +3414,16 @@ function PageWorkOrder({user}){
 
   /* ── 목록 ── */
   const list=(rows||[]).filter(r=>{
+    if(fCli&&(String(r.client||'').trim()||'미지정')!==fCli)return false;
     const s=q.trim().toLowerCase();
     if(!s)return true;
-    return [r.title,r.name,r.note,r.date,r._byName].some(v=>String(v||'').toLowerCase().includes(s));
+    return [r.title,r.name,r.note,r.date,r._byName,r.client].some(v=>String(v||'').toLowerCase().includes(s));
   });
+  const cliCount=(c)=>(rows||[]).filter(r=>(String(r.client||'').trim()||'미지정')===c).length;
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📋 작업지시서'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'엑셀 작업지시서를 올리고 화면에서 바로 봅니다')),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'거래처별로 작업지시서를 올리고 화면에서 바로 봅니다')),
       R('span',{style:{fontSize:11,color:'var(--tm)'}},list.length+'건')
     ),
     /* 업로드 카드 */
@@ -3427,6 +3432,9 @@ function PageWorkOrder({user}){
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'작업일'),
           R('input',{type:'date',className:'inp',value:meta.date,onChange:e=>setMeta(p=>Object.assign({},p,{date:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'거래처'),
+          R('input',{className:'inp',list:'wo-clients',value:meta.client,onChange:e=>setMeta(p=>Object.assign({},p,{client:e.target.value})),placeholder:'예) 컬리, 압구정푸드'}),
+          R('datalist',{id:'wo-clients'},...clients.map(c=>R('option',{key:c,value:c})))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'제목 (비우면 파일명)'),
           R('input',{className:'inp',value:meta.title,onChange:e=>setMeta(p=>Object.assign({},p,{title:e.target.value})),placeholder:'예) 7/29 라멘 라인 작업지시'}))
       ),
@@ -3442,18 +3450,31 @@ function PageWorkOrder({user}){
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:8}},'또는 파일을 이 영역에 끌어다 놓으세요 · xlsx / xls / csv · 최대 50MB')
       )
     ),
+    /* 거래처별 보기 */
+    clients.length>0&&R('div',{className:'card',style:{marginBottom:10,padding:'10px 12px'}},
+      R('div',{style:{fontSize:12,fontWeight:800,marginBottom:8}},'🏢 거래처별 보기'),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        R('button',{onClick:()=>setFCli(''),
+          style:{border:'1px solid '+(fCli===''?'var(--p)':'var(--bd)'),background:fCli===''?'var(--p)':'#fff',color:fCli===''?'#fff':'var(--t)',
+            borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'전체 '+(rows||[]).length),
+        ...clients.map(c=>R('button',{key:c,onClick:()=>setFCli(c),
+          style:{border:'1px solid '+(fCli===c?'var(--p)':'var(--bd)'),background:fCli===c?'var(--p)':'#fff',color:fCli===c?'#fff':'var(--t)',
+            borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:fCli===c?700:600,cursor:'pointer',fontFamily:'inherit'}},c+' '+cliCount(c)))
+      )
+    ),
     R('div',{style:{marginBottom:10}},
-      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 제목·파일명·비고 검색',style:{maxWidth:340}})),
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 거래처·제목·파일명·비고 검색',style:{maxWidth:340}})),
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,
-          R('th',{style:{width:110}},'작업일'),R('th',null,'제목'),R('th',{style:{width:200}},'파일'),
+          R('th',{style:{width:110}},'작업일'),R('th',{style:{width:120}},'거래처'),R('th',null,'제목'),R('th',{style:{width:200}},'파일'),
           R('th',null,'비고'),R('th',{style:{width:96}},'올린이'),R('th',{style:{width:120}},''))),
         R('tbody',null,
-          rows===null?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20}},'로딩 중...')):
-          list.length===0?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'올라온 작업지시서가 없습니다.')):
+          rows===null?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          list.length===0?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'올라온 작업지시서가 없습니다.')):
           list.map(r=>R('tr',{key:r.id,style:{cursor:'pointer'},onClick:()=>preview(r)},
             R('td',{style:{fontSize:12}},r.date||'-'),
+            R('td',{style:{fontSize:11.5,fontWeight:700,color:'var(--p)'}},String(r.client||'').trim()||'-'),
             R('td',{style:{fontWeight:600,fontSize:12.5}},r.title),
             R('td',{style:{fontSize:11,color:'var(--tm)',wordBreak:'break-all'}},'📄 ',r.name,' ',R('span',{style:{color:'#CBD5E1'}},fSize(r.size))),
             R('td',{style:{fontSize:11.5,color:'var(--tm)',whiteSpace:'pre-wrap'}},r.note||''),
@@ -10285,17 +10306,56 @@ function PageOperation({user}){
 }
 
 /* ═══ 파일 공유 ═══════════════════════════════════ */
+const FILE_CATS_DEFAULT=['회사 서류','거래처 자료','인증·성적서','계약서','제품 자료','기타'];
+const FILE_CAT_KEY='bnf_file_cats';
+const fileCatOf=(f)=>{const v=String((f&&f.folder)||'').trim();return(!v||v==='/')?'미분류':v;};
 function PageFiles({user}){
   const[files,setFiles]=useState([]);
-  const[currentFolder,setCurrentFolder]=useState('/');
+  const[cat,setCat]=useState('');            /* '' = 전체 */
+  const[customCats,setCustomCats]=useState([]);
   const[loading,setLoading]=useState(true);
   const[uploading,setUploading]=useState(false);
   const[search,setSearch]=useState('');
   const fileRef=useRef();
-  
-  useEffect(()=>{load();},[]);
+  const isAdmin=['superadmin','admin'].includes(user.role);
+
+  useEffect(()=>{load();loadCats();},[]);
   const load=async()=>{setLoading(true);try{const{data}=await sbClient.from('shared_files').select('*').order('created_at',{ascending:false});setFiles(data||[]);}catch(e){}setLoading(false);};
-  
+  const loadCats=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+FILE_CAT_KEY).eq('id',1).maybeSingle();
+      setCustomCats(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){}
+  };
+  const saveCats=async(next)=>{
+    setCustomCats(next);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{[FILE_CAT_KEY]:next}),updated_at:new Date().toISOString()});
+    }catch(e){}
+  };
+  const addCat=async()=>{
+    const n=(prompt('새 분류 이름을 입력하세요\n예) 사업자등록증, 컬리 자료, 보험')||'').trim();
+    if(!n)return;
+    if(allCats.includes(n)){setCat(n);return;}
+    await saveCats([...customCats,n]);
+    setCat(n);
+  };
+  const delCat=async(name)=>{
+    if(!isAdmin)return alert('관리자만 분류를 지울 수 있습니다.');
+    const cnt=files.filter(f=>fileCatOf(f)===name).length;
+    if(cnt>0)return alert('"'+name+'" 안에 파일 '+cnt+'개가 있습니다.\n먼저 파일을 다른 분류로 옮기거나 삭제해주세요.');
+    await saveCats(customCats.filter(c=>c!==name));
+    if(cat===name)setCat('');
+  };
+  const moveFile=async(f,to)=>{
+    try{
+      await sbClient.from('shared_files').update({folder:to}).eq('id',f.id);
+      setFiles(p=>p.map(x=>x.id===f.id?{...x,folder:to}:x));
+    }catch(e){alert('분류 변경 실패: '+(e.message||e));}
+  };
+
   const upload=async(file)=>{
     if(!file)return;
     if(file.size>50*1024*1024){alert('파일 크기는 50MB 이하만 가능합니다');return;}
@@ -10305,7 +10365,7 @@ function PageFiles({user}){
       const path=Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safeName;
       const{error:upErr}=await sbClient.storage.from('bnf-files').upload(path,file);
       if(upErr)throw upErr;
-      await sbClient.from('shared_files').insert({name:file.name,storage_path:path,size_bytes:file.size,mime_type:file.type||'',folder:currentFolder,uploader_id:user.id,uploader_name:user.name});
+      await sbClient.from('shared_files').insert({name:file.name,storage_path:path,size_bytes:file.size,mime_type:file.type||'',folder:cat||'미분류',uploader_id:user.id,uploader_name:user.name});
       load();
     }catch(e){
       const m=String(e.message||e);
@@ -10336,7 +10396,23 @@ function PageFiles({user}){
     }catch(e){alert('삭제 실패: '+e.message);}
   };
   
-  const visibleFiles=files.filter(f=>{if(f.folder!==currentFolder)return false;if(search&&!String(f.name||'').toLowerCase().includes(search.toLowerCase()))return false;return true;});
+  /* 분류 목록: 기본 + 사용자가 만든 것 + 실제 파일이 들어있는 것 */
+  const allCats=(()=>{
+    const used=files.map(fileCatOf);
+    const set=[];
+    [...FILE_CATS_DEFAULT,...customCats,...used].forEach(c=>{if(c&&set.indexOf(c)<0)set.push(c);});
+    if(used.indexOf('미분류')>=0&&set.indexOf('미분류')<0)set.push('미분류');
+    return set;
+  })();
+  const catCount=(c)=>files.filter(f=>fileCatOf(f)===c).length;
+  const visibleFiles=files.filter(f=>{
+    if(cat&&fileCatOf(f)!==cat)return false;
+    if(search){
+      const s=search.toLowerCase();
+      if(!String(f.name||'').toLowerCase().includes(s)&&!fileCatOf(f).toLowerCase().includes(s))return false;
+    }
+    return true;
+  });
   const fSize=b=>{if(!b)return'-';const k=b/1024;if(k<1024)return k.toFixed(1)+' KB';const m=k/1024;if(m<1024)return m.toFixed(1)+' MB';return(m/1024).toFixed(2)+' GB';};
   const fIcon=(f)=>{const ext=(f.name.split('.').pop()||'').toLowerCase();if(['jpg','jpeg','png','gif','webp'].includes(ext))return'🖼️';if(['xlsx','xls','csv'].includes(ext))return'📊';if(['pptx','ppt'].includes(ext))return'📽️';if(['doc','docx','hwp'].includes(ext))return'📝';if(ext==='pdf')return'📕';if(['zip','rar'].includes(ext))return'🗜️';return'📄';};
   const totalSize=files.reduce((s,f)=>s+(+f.size_bytes||0),0);
@@ -10344,18 +10420,47 @@ function PageFiles({user}){
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📁 파일 공유'),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},files.length+'개 · '+fSize(totalSize)+' 사용 중')),
-      R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:uploading},uploading?'⏳ 업로드 중...':'⬆️ 파일 업로드'),
+      R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:uploading},uploading?'⏳ 업로드 중...':('⬆️ 파일 업로드'+(cat?' → '+cat:''))),
       R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{const fs=Array.from(e.target.files||[]);e.target.value='';(async()=>{for(const f of fs)await upload(f);})();}})
     ),
-    R('div',{style:{display:'flex',gap:8,marginBottom:14}},R('input',{className:'inp',value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 파일 검색',style:{maxWidth:300}})),
+    /* ── 분류(카테고리) ── */
+    R('div',{className:'card',style:{marginBottom:12,padding:'10px 12px'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:8,flexWrap:'wrap'}},
+        R('div',{style:{fontSize:12,fontWeight:800}},'🗂 분류'),
+        R('div',{style:{fontSize:10.5,color:'var(--tm)'}},'분류를 고르고 업로드하면 그 분류로 저장됩니다 · 표에서 분류를 바꿀 수 있습니다')
+      ),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}},
+        R('button',{onClick:()=>setCat(''),
+          style:{border:'1px solid '+(cat===''?'var(--p)':'var(--bd)'),background:cat===''?'var(--p)':'#fff',color:cat===''?'#fff':'var(--t)',
+            borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
+          '전체 '+files.length),
+        ...allCats.map(c=>{
+          const on=cat===c;const n=catCount(c);
+          return R('span',{key:c,style:{display:'inline-flex',alignItems:'center'}},
+            R('button',{onClick:()=>setCat(c),
+              style:{border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--p)':'#fff',color:on?'#fff':'var(--t)',
+                borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:on?700:600,cursor:'pointer',fontFamily:'inherit'}},
+              c+' '+n),
+            isAdmin&&n===0&&customCats.indexOf(c)>=0&&R('button',{onClick:()=>delCat(c),title:'이 분류 지우기',
+              style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:12,padding:'0 2px'}},'✕')
+          );
+        }),
+        R('button',{onClick:addCat,style:{border:'1px dashed var(--p)',background:'#fff',color:'var(--p)',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'＋ 새 분류')
+      )
+    ),
+    R('div',{style:{display:'flex',gap:8,marginBottom:14}},R('input',{className:'inp',value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 파일·분류 검색',style:{maxWidth:300}})),
     R('div',{className:'card',style:{padding:0,overflow:'hidden',cursor:'copy'},title:'빈 곳을 더블클릭하면 파일을 올릴 수 있습니다',onDoubleClick:e=>{if(e.target.closest&&e.target.closest('a,button'))return;if(fileRef.current)fileRef.current.click();},onDragOver:e=>{e.preventDefault();e.currentTarget.style.background='#FFF8F4';},onDragLeave:e=>{e.currentTarget.style.background='#fff';},onDrop:e=>{e.preventDefault();e.currentTarget.style.background='#fff';const f=e.dataTransfer.files[0];if(f)upload(f);}},
       loading?R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'로딩 중...'):
-      visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
+      visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},(cat?'"'+cat+'" 분류에 ':'')+'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
       R('table',null,
-        R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:50}}))),
+        R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:140}},'분류'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:50}}))),
         R('tbody',null,...visibleFiles.map(f=>R('tr',{key:f.id},
           R('td',{style:{fontSize:18}},fIcon(f)),
           R('td',null,R('div',{style:{fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:280}},f.name)),
+          R('td',null,R('select',{value:fileCatOf(f),onChange:e=>moveFile(f,e.target.value),title:'분류 바꾸기',
+            style:{border:'1px solid var(--bd)',borderRadius:6,padding:'3px 6px',fontSize:11,fontFamily:'inherit',background:'#fff',maxWidth:130}},
+            ...(allCats.indexOf(fileCatOf(f))<0?[R('option',{key:'_cur',value:fileCatOf(f)},fileCatOf(f))]:[]),
+            ...allCats.map(c=>R('option',{key:c,value:c},c)))),
           R('td',{style:{fontSize:11,color:'var(--tm)'}},fSize(f.size_bytes)),
           R('td',{style:{fontSize:11,color:'var(--tm)'}},f.uploader_name||'-',R('div',{style:{fontSize:10}},fDate(f.created_at))),
           R('td',{style:{textAlign:'center'}},R('button',{className:'btn bp btn-sm',onClick:()=>download(f),style:{padding:'4px 10px'}},'⬇️')),
@@ -10363,7 +10468,7 @@ function PageFiles({user}){
         )))
       )
     ),
-    R('div',{style:{marginTop:10,fontSize:11,color:'var(--tm)'}},'💡 영역에 파일 드래그&드롭으로 업로드 · 50MB 이하 · Supabase Storage 1GB 무료')
+    R('div',{style:{marginTop:10,fontSize:11,color:'var(--tm)'}},'💡 분류를 먼저 고른 뒤 업로드하면 그 분류로 저장됩니다 · 표의 [분류] 칸에서 언제든 옮길 수 있습니다 · 드래그&드롭 업로드 · 50MB 이하')
   );
 }
 
