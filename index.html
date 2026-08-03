@@ -13758,6 +13758,78 @@ function PageShipSort({mats,hqItems}){
     return()=>window.removeEventListener('paste',onWinPaste);
   },[]);
 
+  /* ── 컬리 파트너포털 '발주 내역 다운로드' 엑셀 처리 (2026-08-03) ──
+     컬럼이 정해져 있어 AI 없이 100% 정확하게 읽는다.
+     입고지+입고지상세 → 센터, 발주수량=박스수, 박스당입수=입수, 총 발주수량=총수량 */
+  const XL_CENTER=(ji,detail)=>{
+    const s=String(ji||'')+' '+String(detail||'');
+    return normCenter2(s);
+  };
+  const handleXlsxFiles=async(files)=>{
+    if(typeof XLSX==='undefined'){alert('엑셀 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.');return false;}
+    setLoading(true);setProgress('엑셀 발주서 읽는 중...');
+    const rows=[];let foundDate='';let dbg='';
+    for(let fi=0;fi<files.length;fi++){
+      const fname=files[fi].name||('엑셀'+(fi+1));
+      try{
+        const buf=await files[fi].arrayBuffer();
+        const wb=XLSX.read(buf,{type:'array'});
+        /* '발주 내역' 시트 우선, 없으면 첫 시트 */
+        const shName=wb.SheetNames.find(n=>/발주\s*내역/.test(n))||wb.SheetNames[0];
+        const ws=wb.Sheets[shName];
+        /* 컬리 엑셀은 시트 범위(!ref)가 1행으로 잘못 기재돼 있어 실제 셀에서 범위를 다시 계산 */
+        try{
+          const keys=Object.keys(ws).filter(k=>k.charAt(0)!=='!');
+          if(keys.length){
+            let mr=0,mc=0;
+            keys.forEach(k=>{const d=XLSX.utils.decode_cell(k);if(d.r>mr)mr=d.r;if(d.c>mc)mc=d.c;});
+            ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:mr,c:mc}});
+          }
+        }catch(e){}
+        const grid=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+        if(!grid.length)continue;
+        const hdr=(grid[0]||[]).map(c=>String(c||'').replace(/\s+/g,''));
+        const col=(...names)=>{
+          for(const nm of names){const i=hdr.indexOf(nm);if(i>=0)return i;}
+          return -1;
+        };
+        const cDate=col('입고예정일'),cName=col('상품명'),cJi=col('입고지'),cJid=col('입고지상세'),
+              cPack=col('박스당입수'),cBox=col('발주수량'),cTot=col('총발주수량'),cExp=col('소비기한/유통기한','소비기한','유통기한');
+        if(cName<0||cBox<0){dbg+='\n\n===== '+fname+': 컬럼(상품명/발주수량)을 찾지 못했습니다';continue;}
+        let cnt=0;
+        for(let r=1;r<grid.length;r++){
+          const row=grid[r]||[];
+          const name=fixAiName(row[cName]);
+          if(!name)continue;
+          const num=(v)=>{const n=parseFloat(String(v==null?'':v).replace(/[,\s]/g,''));return isNaN(n)?0:Math.round(n);};
+          const box=num(row[cBox]);
+          const pack=cPack>=0?num(row[cPack]):0;
+          let total=cTot>=0?num(row[cTot]):0;
+          if(!(total>0)&&pack>0&&box>0)total=box*pack;
+          if(!(box>0)&&!(total>0))continue;
+          const dt=String(row[cDate]||'').slice(0,10).replace(/\./g,'-');
+          if(dt&&!foundDate)foundDate=dt;
+          rows.push({center:XL_CENTER(row[cJi],cJid>=0?row[cJid]:''),name,box,pack,total,
+                     exp:String(cExp>=0?(row[cExp]||''):'').slice(0,10)});
+          cnt++;
+        }
+        dbg+='\n\n===== '+fname+' (엑셀 정밀 인식) =====\n시트: '+shName+' / 품목 '+cnt+'행';
+      }catch(e){dbg+='\n\n===== '+fname+' 엑셀 오류: '+String(e.message||e);}
+    }
+    setRawDbg(prev=>String(prev||'')+dbg);
+    setLoading(false);setProgress('');
+    if(!rows.length){alert('엑셀에서 발주 행을 찾지 못했습니다.\n컬리 파트너포털 [발주 내역 다운로드] 파일인지 확인해주세요.');return true;}
+    /* 같은 센터·품목은 합산 */
+    const merged={};
+    rows.forEach(r=>{
+      const k=r.center+'|'+r.name;
+      if(!merged[k])merged[k]={...r};
+      else{merged[k].box+=r.box;merged[k].total+=r.total;if(!merged[k].exp&&r.exp)merged[k].exp=r.exp;}
+    });
+    setReview({date:foundDate,rows:Object.values(merged),src:'xlsx'});
+    return true;
+  };
+
   /* PDF 페이지를 고해상도 이미지(jpeg base64)로 렌더 - 이미지 PDF의 AI 인식용 */
   const renderPdfPageToB64=async(pdf,pageNo)=>{
     const page=await pdf.getPage(pageNo);
@@ -13778,7 +13850,10 @@ function PageShipSort({mats,hqItems}){
     /* 이미지 파일(캡처 png/jpg 등)도 허용 → AI 인식 후 검토표 경로 */
     const imgFiles=all.filter(f=>String(f.type||'').indexOf('image/')===0
       ||/\.(png|jpe?g|webp|bmp|heic)$/i.test(String(f.name||'')));
-    if(files.length===0&&imgFiles.length===0){alert('PDF 또는 이미지 파일을 선택하세요');return;}
+    /* 컬리 파트너포털 엑셀(발주 내역 다운로드) — AI 없이 정밀 인식 */
+    const xlFiles=all.filter(f=>/\.(xlsx|xls)$/i.test(String(f.name||'')));
+    if(xlFiles.length){await handleXlsxFiles(xlFiles);if(files.length===0&&imgFiles.length===0)return;}
+    if(files.length===0&&imgFiles.length===0){alert('엑셀·PDF 또는 이미지 파일을 선택하세요');return;}
     if(files.length===0){await handleImageFiles(imgFiles);return;}
     if(imgFiles.length)await handleImageFiles(imgFiles);
     if(typeof pdfjsLib==='undefined'&&typeof window.pdfjsLib==='undefined'){alert('PDF 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.');return;}
@@ -14031,11 +14106,11 @@ function PageShipSort({mats,hqItems}){
     R('div',{className:'card',style:{marginBottom:14}},
       R('div',{onDragOver:e=>e.preventDefault(),onDrop:onDrop,onClick:()=>fileRef.current&&fileRef.current.click(),
         style:{border:'2px dashed var(--p)',borderRadius:12,padding:'28px 16px',textAlign:'center',cursor:'pointer',background:'#FFF8F4'}},
-        R('div',{style:{fontSize:36,marginBottom:8}},'📄'),
-        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:4}},loading?progress:'거래명세서 PDF·이미지 올리기'),
-        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'📱 휴대폰: 여기를 탭 → PDF·사진 선택 · 💻 PC: 클릭 또는 캡처 후 화면 아무 데서나 Ctrl+V또는 드래그 · 여러 개 가능, 올릴 때마다 누적됩니다')
+        R('div',{style:{fontSize:36,marginBottom:8}},'📗'),
+        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:4}},loading?progress:'발주 엑셀 · 거래명세서 PDF · 이미지 올리기'),
+        R('div',{style:{fontSize:11,color:'var(--tm)'}},loading?'잠시만 기다려주세요':'⭐ 컬리 [발주 내역 다운로드] 엑셀이 가장 정확합니다 · PDF·캡처 이미지도 가능 · 💻 PC: 클릭 또는 Ctrl+V·드래그 · 여러 개 누적')
       ),
-      R('input',{ref:fileRef,type:'file',accept:'application/pdf,.pdf,image/*',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
+      R('input',{ref:fileRef,type:'file',accept:'.xlsx,.xls,application/pdf,.pdf,image/*',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
       /* 발주서 붙여넣기 토글 */
       R('div',{style:{marginTop:12,borderTop:'1px dashed var(--bd)',paddingTop:12}},
         R('button',{onClick:()=>setShowPaste(v=>!v),style:{background:'none',border:'none',cursor:'pointer',fontSize:12,fontWeight:700,color:'var(--p)',fontFamily:'inherit',padding:0}},
@@ -14091,13 +14166,15 @@ function PageShipSort({mats,hqItems}){
     review&&R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)setReview(null);}},
       R('div',{className:'mbox',style:{maxWidth:760,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
         R('div',{className:'mhdr'},
-          R('span',{style:{fontSize:15,fontWeight:800}},'🔎 그림 PDF 인식 결과 확인'),
+          R('span',{style:{fontSize:15,fontWeight:800}},review.src==='xlsx'?'📗 엑셀 발주서 인식 결과 확인':'🔎 그림 PDF 인식 결과 확인'),
           R('button',{onClick:()=>setReview(null),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#64748b'}},'×')
         ),
         R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
           R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 12px',fontSize:12,color:'#92400E',marginBottom:10,lineHeight:1.6}},
-            '⚠ AI가 읽은 값입니다. ',R('b',null,'✅ 표시는 총수량 = 박스수 × 입수 검산이 맞은 행'),'입니다.',R('br'),
-            R('b',null,'노란 칸(입수 미등록)은 직접 입력'),'하면 총수량이 자동 계산됩니다. 실제 명세서와 대조 후 반영하세요.'),
+            review.src==='xlsx'
+              ?R(React.Fragment,null,'📗 엑셀에서 ',R('b',null,'정확히 읽은 값'),'입니다 (AI 추측 아님). 센터·박스수·입수·총수량을 그대로 가져왔습니다.',R('br'),'같은 센터·품목은 자동 합산했습니다. 확인 후 반영하세요.')
+              :R(React.Fragment,null,'⚠ AI가 읽은 값입니다. ',R('b',null,'✅ 표시는 총수량 = 박스수 × 입수 검산이 맞은 행'),'입니다.',R('br'),
+                R('b',null,'노란 칸(입수 미등록)은 직접 입력'),'하면 총수량이 자동 계산됩니다. 실제 명세서와 대조 후 반영하세요.')),
           R('div',{style:{marginBottom:8}},
             R('span',{style:{fontSize:12,color:'var(--tm)'}},'입고일 '),
             R('input',{value:review.date||'',onChange:e=>setReview(rv=>({...rv,date:e.target.value})),placeholder:'YYYY-MM-DD',style:{border:'1px solid var(--bd)',borderRadius:6,padding:'4px 8px',fontSize:12,width:120,fontFamily:'inherit'}})),
