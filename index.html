@@ -10793,84 +10793,6 @@ function PageWehago({user}){
   );
 }
 
-/* ═══ 컬리 리뷰 모니터링 ═══════════════════════════ */
-function PageKurly({user}){
-  const[data,setData]=useState(null);
-  const[loading,setLoading]=useState(true);
-  const[tab,setTab]=useState('all'); /* all | neg */
-  const nf=(n)=>(+n||0).toLocaleString();
-  const load=()=>{
-    sbClient.from('app_state').select('kr:state_data->kurly_reviews').eq('id',1).maybeSingle()
-      .then(({data:d})=>{setData(d&&d.kr?d.kr:null);setLoading(false);})
-      .catch(()=>setLoading(false));
-  };
-  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},60000);return()=>clearInterval(t);},[]);
-
-  const prods=(data&&data.products)||[];
-  const negs=(data&&data.negatives)||[];
-  const totCnt=prods.reduce((a,p)=>a+(+p.count||0),0);
-  const totDiff=prods.reduce((a,p)=>a+(p.diff||0),0);
-  const hasDiff=prods.some(p=>p.diff!==null&&p.diff!==undefined);
-  const badge=(v)=>{
-    if(v===null||v===undefined)return R('span',{style:{fontSize:10,color:'#CBD5E1'}},'-');
-    if(v===0)return R('span',{style:{fontSize:10,color:'var(--tm)'}},'0');
-    return R('span',{style:{fontSize:11,fontWeight:800,color:v>0?'#15803D':'#B91C1C'}},(v>0?'+':'')+nf(v));
-  };
-  return R('div',{className:'pg fa'},
-    R('div',{className:'pg-hdr'},
-      R('div',null,R('div',{className:'pg-title'},'💜 컬리 리뷰'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'마켓컬리 제품 리뷰 증감 · 부정후기 감지 · 매일 06:30 자동 수집',
-          data&&data.date&&R('span',{style:{marginLeft:8,color:'#15803D',fontWeight:600}},'· '+data.date+' 수집'))
-      )
-    ),
-    loading?R('div',{className:'empty'},'불러오는 중...'):
-    !data?R('div',{className:'empty'},R('div',{className:'empty-ic'},'📭'),'수집된 리뷰 데이터가 없습니다',
-      R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'문서 → bnf-kurly → "컬리리뷰-수집.bat" 실행')):
-    R('div',{style:{maxWidth:860}},
-      /* KPI */
-      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:14}},
-        R('div',{className:'card',style:{padding:'13px 15px'}},
-          R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)'}},'총 리뷰'),
-          R('div',{style:{fontSize:21,fontWeight:800,color:'#7C3AED',marginTop:3}},nf(totCnt))),
-        R('div',{className:'card',style:{padding:'13px 15px'}},
-          R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)'}},'전일 대비'),
-          R('div',{style:{fontSize:21,fontWeight:800,marginTop:3,color:totDiff>0?'#15803D':totDiff<0?'#B91C1C':'var(--t)'}},hasDiff?(totDiff>0?'+':'')+nf(totDiff):'수집 1일차')),
-        R('div',{className:'card',style:{padding:'13px 15px'}},
-          R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)'}},'부정후기'),
-          R('div',{style:{fontSize:21,fontWeight:800,marginTop:3,color:negs.length?'#B91C1C':'#15803D'}},negs.length?negs.length+'건':'없음'))
-      ),
-      /* 부정후기 */
-      R('div',{className:'card',style:{marginBottom:14}},
-        R('div',{className:'card-title',style:{marginBottom:8}},'⚠️ 부정후기'),
-        R('div',{style:{fontSize:10,color:'var(--tm)',marginBottom:8}},'제품별 최근 후기 30건을 매일 분석 · 이물/변질/환불 등 강한 신호와 별로/싱거움 등 약한 신호를 점수로 합산해 감지'),
-        negs.length===0
-          ?R('div',{style:{fontSize:12,color:'var(--tm)',padding:'4px 0'}},'감지된 부정후기가 없습니다 👍')
-          :R('div',{style:{display:'flex',flexDirection:'column',gap:8}},
-            ...negs.slice(0,20).map((n,i)=>R('div',{key:i,style:{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'9px 12px'}},
-              R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,marginBottom:3,flexWrap:'wrap'}},
-                R('span',{style:{fontSize:11.5,fontWeight:800}},n.name),
-                R('span',{style:{fontSize:10,color:'var(--tm)',flexShrink:0}},n.date)),
-              R('div',{style:{fontSize:11.5,color:'#7F1D1D',lineHeight:1.5}},n.text),
-              n.hits&&n.hits.length>0&&R('div',{style:{marginTop:5,display:'flex',gap:4,flexWrap:'wrap'}},
-                ...n.hits.map((h,j)=>R('span',{key:j,style:{fontSize:9,fontWeight:700,background:'#FEE2E2',color:'#B91C1C',borderRadius:6,padding:'2px 7px'}},h)))
-            )))
-      ),
-      /* 제품별 */
-      R('div',{className:'card'},
-        R('div',{className:'card-title',style:{marginBottom:8}},'📋 제품별 리뷰 ('+prods.length+'개)'),
-        R('div',{className:'tw'},R('table',{style:{tableLayout:'fixed',width:'100%'}},
-          R('thead',null,R('tr',null,R('th',null,'제품'),R('th',{style:{width:80,textAlign:'right'}},'리뷰수'),R('th',{style:{width:60,textAlign:'right'}},'전일'),R('th',{style:{width:60,textAlign:'right'}},'7일'))),
-          R('tbody',null,...prods.map((p,i)=>R('tr',{key:i},
-            R('td',{style:{fontSize:11.5,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},p.name),
-            R('td',{style:{textAlign:'right',fontWeight:800,color:'#7C3AED'}},nf(p.count)),
-            R('td',{style:{textAlign:'right'}},badge(p.diff)),
-            R('td',{style:{textAlign:'right'}},badge(p.weekDiff))
-          )))
-        ))
-      )
-    )
-  );
-}
 
 function PagePriceLookup({user}){
   const[data,setData]=useState(null);
@@ -11905,7 +11827,6 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'manual',l:'업무 매뉴얼',ic:'📚'},
     {id:'trend',l:'업계 동향',ic:'📈'},
     {id:'pricelookup',l:'매입단가 조회',ic:'🔎'},
-    {id:'kurly',l:'컬리 리뷰',ic:'💜'},
     {id:'workreq',l:'업무 현황',ic:'📋'},
     {id:'mytasks',l:'나의 업무',ic:'📌'},
     {id:'inv',l:'재고 관리',ic:'📦'},
@@ -11970,15 +11891,9 @@ function loadNavSections(){
             }
             /* 관리자 섹션에 매출/매입 현황 없으면 맨 앞에 추가 */
             if(s.type==='admin'&&!hasItem('wehago')){
-              const wi=newItems.findIndex(it=>it.id==='kurly');
+              const wi=newItems.findIndex(it=>it.id==='pricelookup');
               const wItem={id:'wehago',l:'재무 현황',ic:'🏦'};
               if(wi>=0)newItems.splice(wi+1,0,wItem);else newItems.unshift(wItem);
-              changed=true;
-            }
-            if(s.type==='admin'&&!hasItem('kurly')){
-              const ki=newItems.findIndex(it=>it.id==='pricelookup');
-              const kItem={id:'kurly',l:'컬리 리뷰',ic:'💜'};
-              if(ki>=0)newItems.splice(ki+1,0,kItem);else newItems.unshift(kItem);
               changed=true;
             }
             if(s.type==='admin'&&!hasItem('pricelookup')){
@@ -12090,10 +12005,10 @@ function loadNavSections(){
             localStorage.setItem('bnf_dept_reorg_v1','1');
           }
         }catch(e){}
-        /* ── 매입단가 조회·컬리 리뷰를 일반 메뉴로 이동, 거래처 조회는 관리자 전용 표시 (1회) ── */
+        /* ── 매입단가 조회를 일반 메뉴로 이동, 거래처 조회는 관리자 전용 표시 (1회) ── */
         try{
           if(!localStorage.getItem('bnf_open_menus_v1')){
-            const MOVE={pricelookup:{id:'pricelookup',l:'매입단가 조회',ic:'🔎'},kurly:{id:'kurly',l:'컬리 리뷰',ic:'💜'}};
+            const MOVE={pricelookup:{id:'pricelookup',l:'매입단가 조회',ic:'🔎'}};
             const fac=filtered.find(x=>x&&x.type==='factory');
             filtered.forEach(sec=>{
               if(!sec||!Array.isArray(sec.items))return;
@@ -12165,6 +12080,23 @@ function loadNavSections(){
   return DEFAULT_NAV_SECTIONS;
 }
 function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(arr));}catch(e){}}
+/* 메뉴 편집용 이름 입력칸 — 글자마다 전체 화면을 다시 그리면 타이핑이 끊기므로
+   입력 중에는 이 칸만 갱신하고, 잠시 멈추거나 칸을 벗어날 때 저장한다 */
+function NavNameInput({value,onCommit,style,title}){
+  const[v,setV]=useState(value||'');
+  const tm=useRef(null);
+  useEffect(()=>{setV(value||'');},[value]);
+  useEffect(()=>()=>{if(tm.current)clearTimeout(tm.current);},[]);
+  const change=(nv)=>{
+    setV(nv);
+    if(tm.current)clearTimeout(tm.current);
+    tm.current=setTimeout(()=>onCommit(nv),600);
+  };
+  const flush=()=>{if(tm.current){clearTimeout(tm.current);tm.current=null;}onCommit(v);};
+  return R('input',{value:v,onChange:e=>change(e.target.value),onBlur:flush,
+    onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();flush();e.target.blur();}},
+    onClick:e=>e.stopPropagation(),style:style,title:title});
+}
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
 
 /* ═══ 로그인 ══════════════════════════════════════════ */
@@ -12411,7 +12343,6 @@ const NAV_PAGES_INDEX=[
   {p:'operation',title:'공장 가동률',ic:'📊',keys:['가동률','operation','utilization']},
   {p:'purchase_data',title:'매입 자료',ic:'🛒',keys:['매입','구매','purchase']},
   {p:'pricelookup',title:'매입단가 조회',ic:'🔎',keys:['매입단가','단가','가격','원가','price','매입가']},
-  {p:'kurly',title:'컬리 리뷰',ic:'💜',keys:['컬리','리뷰','후기','부정후기','kurly','review']},
   {p:'wehago',title:'재무 현황',ic:'🏦',keys:['재무','위하고','손익','재무상태표','회계','wehago','finance']},
   {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']}
 ];
@@ -14845,8 +14776,8 @@ function App(){
                   style:{width:30,background:'#fff',border:'1px solid #DDD5E3',padding:'3px',borderRadius:5,fontSize:11,textAlign:'center',outline:'none'},title:'아이콘'})
               : R('span',{style:{fontSize:12}},n.ic||'📁'),
             navEditMode
-              ? R('input',{value:n.l||'',onClick:e=>e.stopPropagation(),onChange:e=>updNavAt(path,realIdx,{l:e.target.value}),
-                  style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',padding:'3px 7px',borderRadius:5,fontSize:11.5,outline:'none'},title:'하위 폴더 이름'})
+              ? R(NavNameInput,{value:n.l||'',onCommit:(v)=>{if(v!==(n.l||''))updNavAt(path,realIdx,{l:v});},
+                  style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',padding:'3px 7px',borderRadius:5,fontSize:11.5,outline:'none',fontFamily:'inherit'},title:'하위 폴더 이름'})
               : R('span',{style:{flex:1,fontSize:12,fontWeight:600,color:'#6B6B6B',letterSpacing:-0.2}},n.l),
             navEditMode&&R('button',{onClick:e=>{
               e.stopPropagation();
@@ -14889,8 +14820,8 @@ function App(){
           R('span',{style:{fontSize:9,opacity:.4,cursor:'grab'}},'⋮⋮'),
           R('input',{value:n.ic||'',onChange:e=>updNavAt(path,realIdx,{ic:e.target.value}),
             style:{width:34,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px',borderRadius:6,fontSize:12,textAlign:'center',outline:'none'},title:'아이콘'}),
-          R('input',{value:n.l||'',onChange:e=>updNavAt(path,realIdx,{l:e.target.value}),
-            style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,outline:'none'},title:'메뉴 이름'}),
+          R(NavNameInput,{value:n.l||'',onCommit:(v)=>{if(v!==(n.l||''))updNavAt(path,realIdx,{l:v});},
+            style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,outline:'none',fontFamily:'inherit'},title:'메뉴 이름'}),
           R('button',{onClick:()=>{
             if(!confirm('"'+n.l+'" 메뉴를 삭제할까요?'))return;
             setNavSections(p=>{
@@ -15340,7 +15271,6 @@ function App(){
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
     if(page==='pricelookup')return R(PagePriceLookup,{user});
-    if(page==='kurly')return R(PageKurly,{user});
     if(page==='wehago')return R(PageWehago,{user});
     if(page==='cost')return R(PageCost,{prods,mats});
         if(page==='data')return R(PageData,{mats,prods,orders,hqItems,cats,quote,pqty,onImport:handleImport});
@@ -15521,16 +15451,16 @@ function App(){
               navEditMode&&R('span',{style:{fontSize:11,opacity:.5,cursor:'grab'}},'⋮⋮'),
               !navEditMode&&R('span',{style:{fontSize:9,opacity:.7,transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)',display:'inline-block',width:10}},'▶'),
               navEditMode
-                ? R('input',{value:sec.label,
-                    onChange:e=>{
-                      const v=e.target.value;
+                ? R(NavNameInput,{value:sec.label,
+                    onCommit:(v)=>{
                       setNavSections(p=>{
+                        if((p[secIdx]||{}).label===v)return p;
                         const next=p.map((s,i)=>i===secIdx?{...s,label:v}:s);
                         saveNavSections(next);
                         return next;
                       });
                     },
-                    onClick:e=>e.stopPropagation(),
+                    title:'폴더 이름',
                     style:{flex:1,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit',outline:'none'}
                   })
                 : R('span',{style:{flex:1,letterSpacing:-0.2}},sec.label),
