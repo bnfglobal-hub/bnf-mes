@@ -10307,7 +10307,12 @@ function PageFiles({user}){
       if(upErr)throw upErr;
       await sbClient.from('shared_files').insert({name:file.name,storage_path:path,size_bytes:file.size,mime_type:file.type||'',folder:currentFolder,uploader_id:user.id,uploader_name:user.name});
       load();
-    }catch(e){alert('업로드 실패: '+e.message+'\n\n⚠️ Supabase Storage에서 "bnf-files" 버킷을 먼저 만들어주세요!');}
+    }catch(e){
+      const m=String(e.message||e);
+      if(/row-level security|Unauthorized|403/i.test(m))alert('업로드 권한이 아직 열리지 않았습니다.\n\n관리자가 Supabase SQL Editor에서 storage 접근 정책(bnf_files_*)을 한 번 실행하면 바로 됩니다.');
+      else if(/Bucket not found/i.test(m))alert('업로드 실패: 저장소(bnf-files)가 없습니다. 관리자에게 알려주세요.');
+      else alert('업로드 실패: '+m);
+    }
     setUploading(false);
   };
   
