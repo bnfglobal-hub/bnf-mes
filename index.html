@@ -6025,7 +6025,8 @@ function OngoingWork({user,onGoPage}){
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
       const sd=data&&data.state_data?data.state_data:{};
       if(Array.isArray(sd.work_requests))setReqs(sd.work_requests);
-      if(Array.isArray(sd.work_categories)&&sd.work_categories.length)setWcats(sd.work_categories);
+      /* 분류 관리 모달을 쓰는 중에는 서버 값으로 덮지 않는다 (확인창 닫힐 때 되돌아가던 문제) */
+      if(Array.isArray(sd.work_categories)&&sd.work_categories.length&&!catMgrRef.current)setWcats(sd.work_categories);
       if(Array.isArray(sd.daily_tasks))setDaily(sd.daily_tasks);
       setLoaded(true);
     }).catch(()=>setLoaded(true));
@@ -6051,31 +6052,41 @@ function OngoingWork({user,onGoPage}){
   };
 
   /* 분류 목록 저장 (merge) */
+  const catMgrRef=useRef(false);
+  useEffect(()=>{catMgrRef.current=catMgr;},[catMgr]);
+  const wcTimer=useRef(null);
   const persistWcats=(next)=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
       const ex=cur&&cur.state_data?cur.state_data:{};
       return sbClient.from('app_state').upsert({id:1,state_data:{...ex,work_categories:next},updated_at:new Date().toISOString()});
     }).catch(()=>{});
   };
+  /* 화면 반영 + 서버 저장 함께 (닫을 때만 저장하면 새로고침에 되돌아감) */
+  const applyCats=(next,immediate)=>{
+    setWcats(next);
+    if(wcTimer.current)clearTimeout(wcTimer.current);
+    if(immediate)persistWcats(next);
+    else wcTimer.current=setTimeout(()=>persistWcats(next),500);
+  };
   const addCat=()=>{
     const l=(mgrName||'').trim();if(!l)return;
     if(wcats.some(c=>c.l===l)){alert('같은 이름의 분류가 있습니다');return;}
     const col=WCAT_PALETTE[wcats.length%WCAT_PALETTE.length];
     const v='cat_'+Date.now().toString(36);
-    setWcats([...wcats,{v,l,...col}]);setMgrName('');
+    applyCats([...wcats,{v,l,...col}],true);setMgrName('');
   };
-  const renameCat=(v,l)=>setWcats(wcats.map(c=>c.v===v?{...c,l}:c));
-  const cycleColor=(v)=>setWcats(wcats.map(c=>{
+  const renameCat=(v,l)=>applyCats(wcats.map(c=>c.v===v?{...c,l}:c));
+  const cycleColor=(v)=>applyCats(wcats.map(c=>{
     if(c.v!==v)return c;
     const i=WCAT_PALETTE.findIndex(p=>p.c===c.c);
     const np=WCAT_PALETTE[(i+1)%WCAT_PALETTE.length];
     return{...c,...np};
-  }));
+  }),true);
   const deleteCat=(v)=>{
     if(wcats.length<=1){alert('분류는 최소 1개는 있어야 합니다');return;}
     const c=wcats.find(x=>x.v===v);
     if(!confirm('"'+(c&&c.l)+'" 분류를 삭제할까요?\n(이 분류의 업무는 삭제되지 않고 "기타 업무"로 표시됩니다)'))return;
-    setWcats(wcats.filter(x=>x.v!==v));
+    applyCats(wcats.filter(x=>x.v!==v),true);
   };
   const closeCatMgr=()=>{
     /* 빈 이름 정리 후 저장 */
@@ -10324,7 +10335,10 @@ function PageFiles({user}){
   const loadCats=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+FILE_CAT_KEY).eq('id',1).maybeSingle();
-      setCustomCats(Array.isArray(data&&data.v)?data.v:[]);
+      const v=data&&data.v;
+      if(Array.isArray(v)&&v.length){setCustomCats(v);return;}
+      setCustomCats(FILE_CATS_DEFAULT.slice());
+      saveCats(FILE_CATS_DEFAULT.slice());
     }catch(e){}
   };
   const saveCats=async(next)=>{
@@ -10339,15 +10353,36 @@ function PageFiles({user}){
     const n=(prompt('새 분류 이름을 입력하세요\n예) 사업자등록증, 컬리 자료, 보험')||'').trim();
     if(!n)return;
     if(allCats.includes(n)){setCat(n);return;}
-    await saveCats([...customCats,n]);
+    await saveCats([...(customCats.length?customCats:FILE_CATS_DEFAULT),n]);
     setCat(n);
   };
   const delCat=async(name)=>{
-    if(!isAdmin)return alert('관리자만 분류를 지울 수 있습니다.');
-    const cnt=files.filter(f=>fileCatOf(f)===name).length;
-    if(cnt>0)return alert('"'+name+'" 안에 파일 '+cnt+'개가 있습니다.\n먼저 파일을 다른 분류로 옮기거나 삭제해주세요.');
-    await saveCats(customCats.filter(c=>c!==name));
+    if(name==='미분류')return alert('"미분류"는 지울 수 없습니다.');
+    const inCat=files.filter(f=>fileCatOf(f)===name);
+    const msg=inCat.length>0
+      ? '"'+name+'" 분류를 지울까요?\n안에 있는 파일 '+inCat.length+'개는 삭제되지 않고 "미분류"로 옮겨집니다.'
+      : '"'+name+'" 분류를 지울까요?';
+    if(!confirm(msg))return;
+    for(const f of inCat){
+      try{await sbClient.from('shared_files').update({folder:'미분류'}).eq('id',f.id);}catch(e){}
+    }
+    if(inCat.length)setFiles(p=>p.map(x=>fileCatOf(x)===name?{...x,folder:'미분류'}:x));
+    const base=customCats.length?customCats:FILE_CATS_DEFAULT;
+    await saveCats(base.filter(c=>c!==name));
     if(cat===name)setCat('');
+  };
+  const renameCat=async(name)=>{
+    const n=(prompt('분류 이름 바꾸기',name)||'').trim();
+    if(!n||n===name)return;
+    const base=customCats.length?customCats:FILE_CATS_DEFAULT;
+    if(base.indexOf(n)>=0)return alert('같은 이름의 분류가 이미 있습니다.');
+    const inCat=files.filter(f=>fileCatOf(f)===name);
+    for(const f of inCat){
+      try{await sbClient.from('shared_files').update({folder:n}).eq('id',f.id);}catch(e){}
+    }
+    if(inCat.length)setFiles(p=>p.map(x=>fileCatOf(x)===name?{...x,folder:n}:x));
+    await saveCats(base.map(c=>c===name?n:c));
+    if(cat===name)setCat(n);
   };
   const moveFile=async(f,to)=>{
     try{
@@ -10400,7 +10435,8 @@ function PageFiles({user}){
   const allCats=(()=>{
     const used=files.map(fileCatOf);
     const set=[];
-    [...FILE_CATS_DEFAULT,...customCats,...used].forEach(c=>{if(c&&set.indexOf(c)<0)set.push(c);});
+    const base=customCats.length?customCats:FILE_CATS_DEFAULT;
+    [...base,...used].forEach(c=>{if(c&&set.indexOf(c)<0)set.push(c);});
     if(used.indexOf('미분류')>=0&&set.indexOf('미분류')<0)set.push('미분류');
     return set;
   })();
@@ -10441,7 +10477,9 @@ function PageFiles({user}){
               style:{border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--p)':'#fff',color:on?'#fff':'var(--t)',
                 borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:on?700:600,cursor:'pointer',fontFamily:'inherit'}},
               c+' '+n),
-            isAdmin&&n===0&&customCats.indexOf(c)>=0&&R('button',{onClick:()=>delCat(c),title:'이 분류 지우기',
+            isAdmin&&c!=='미분류'&&R('button',{onClick:()=>renameCat(c),title:'이름 바꾸기',
+              style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:11,padding:'0 1px'}},'✎'),
+            isAdmin&&c!=='미분류'&&R('button',{onClick:()=>delCat(c),title:'이 분류 지우기 (파일은 미분류로 이동)',
               style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:12,padding:'0 2px'}},'✕')
           );
         }),
@@ -12083,18 +12121,29 @@ function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v3',JSO
 /* 메뉴 편집용 이름 입력칸 — 글자마다 전체 화면을 다시 그리면 타이핑이 끊기므로
    입력 중에는 이 칸만 갱신하고, 잠시 멈추거나 칸을 벗어날 때 저장한다 */
 function NavNameInput({value,onCommit,style,title}){
-  const[v,setV]=useState(value||'');
+  /* 한글 입력(IME) 중에 React가 값을 되돌리면 글자가 깨지므로
+     입력칸은 브라우저에 맡기고(비제어), 다 치고 난 뒤에만 저장한다 */
+  const ref=useRef(null);
   const tm=useRef(null);
-  useEffect(()=>{setV(value||'');},[value]);
+  const composing=useRef(false);
+  useEffect(()=>{
+    const el=ref.current;
+    if(el&&document.activeElement!==el&&el.value!==(value||''))el.value=value||'';
+  },[value]);
   useEffect(()=>()=>{if(tm.current)clearTimeout(tm.current);},[]);
-  const change=(nv)=>{
-    setV(nv);
+  const schedule=()=>{
     if(tm.current)clearTimeout(tm.current);
-    tm.current=setTimeout(()=>onCommit(nv),600);
+    tm.current=setTimeout(()=>{
+      if(composing.current||!ref.current)return;
+      onCommit(ref.current.value);
+    },800);
   };
-  const flush=()=>{if(tm.current){clearTimeout(tm.current);tm.current=null;}onCommit(v);};
-  return R('input',{value:v,onChange:e=>change(e.target.value),onBlur:flush,
-    onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();flush();e.target.blur();}},
+  return R('input',{ref:ref,defaultValue:value||'',
+    onCompositionStart:()=>{composing.current=true;},
+    onCompositionEnd:()=>{composing.current=false;schedule();},
+    onChange:schedule,
+    onBlur:()=>{if(tm.current){clearTimeout(tm.current);tm.current=null;}if(ref.current)onCommit(ref.current.value);},
+    onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();e.target.blur();}},
     onClick:e=>e.stopPropagation(),style:style,title:title});
 }
 const NAV_SECTIONS=DEFAULT_NAV_SECTIONS;
@@ -14772,8 +14821,8 @@ function App(){
             navEditMode&&R('span',{style:{fontSize:9,opacity:.4}},'⋮⋮'),
             R('span',{style:{fontSize:9,opacity:.7,width:9,display:'inline-block',transform:fOpen?'rotate(90deg)':'none',transition:'transform .2s'}},'▶'),
             navEditMode
-              ? R('input',{value:n.ic||'📁',onClick:e=>e.stopPropagation(),onChange:e=>updNavAt(path,realIdx,{ic:e.target.value}),
-                  style:{width:30,background:'#fff',border:'1px solid #DDD5E3',padding:'3px',borderRadius:5,fontSize:11,textAlign:'center',outline:'none'},title:'아이콘'})
+              ? R(NavNameInput,{value:n.ic||'📁',onCommit:(v)=>{if(v!==(n.ic||'📁'))updNavAt(path,realIdx,{ic:v});},
+                  style:{width:30,background:'#fff',border:'1px solid #DDD5E3',padding:'3px',borderRadius:5,fontSize:11,textAlign:'center',outline:'none',fontFamily:'inherit'},title:'아이콘'})
               : R('span',{style:{fontSize:12}},n.ic||'📁'),
             navEditMode
               ? R(NavNameInput,{value:n.l||'',onCommit:(v)=>{if(v!==(n.l||''))updNavAt(path,realIdx,{l:v});},
@@ -14818,8 +14867,8 @@ function App(){
           style:{display:'flex',alignItems:'center',gap:5,padding:'5px 8px 5px 20px',background:'#F6F3F9',border:'1px solid #EBE5EF',borderRadius:8,marginBottom:3,cursor:'grab'}
         }),
           R('span',{style:{fontSize:9,opacity:.4,cursor:'grab'}},'⋮⋮'),
-          R('input',{value:n.ic||'',onChange:e=>updNavAt(path,realIdx,{ic:e.target.value}),
-            style:{width:34,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px',borderRadius:6,fontSize:12,textAlign:'center',outline:'none'},title:'아이콘'}),
+          R(NavNameInput,{value:n.ic||'',onCommit:(v)=>{if(v!==(n.ic||''))updNavAt(path,realIdx,{ic:v});},
+            style:{width:34,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px',borderRadius:6,fontSize:12,textAlign:'center',outline:'none',fontFamily:'inherit'},title:'아이콘'}),
           R(NavNameInput,{value:n.l||'',onCommit:(v)=>{if(v!==(n.l||''))updNavAt(path,realIdx,{l:v});},
             style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,outline:'none',fontFamily:'inherit'},title:'메뉴 이름'}),
           R('button',{onClick:()=>{
