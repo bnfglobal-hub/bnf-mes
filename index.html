@@ -843,7 +843,8 @@ function PageProdSchedule(){
   const loadImg=async()=>{
     setLoading(true);setImg(null);
     try{
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      /* 전송량 절감: 스케줄 이미지는 별도 행(id=6)에 보관 */
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
       const sd=data&&data.state_data?data.state_data:{};
       const imgs=sd.sched_images||{};
       setImg(imgs[weekStart]||null);
@@ -856,11 +857,11 @@ function PageProdSchedule(){
   const saveImg=async(dataUrl)=>{
     setUploading(true);
     try{
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
       const sd=data&&data.state_data?data.state_data:{};
       const imgs=sd.sched_images||{};
       imgs[weekStart]=dataUrl;
-      await sbClient.from('app_state').upsert({id:1,state_data:{...sd,sched_images:imgs},updated_at:new Date().toISOString()});
+      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs},updated_at:new Date().toISOString()});
       setImg(dataUrl);
     }catch(err){alert('저장 실패: '+err.message);}
     setUploading(false);
@@ -897,11 +898,11 @@ function PageProdSchedule(){
   const delImg=async()=>{
     if(!confirm('이 주차의 스케줄 이미지를 삭제할까요?'))return;
     try{
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
       const sd=data&&data.state_data?data.state_data:{};
       const imgs=sd.sched_images||{};
       delete imgs[weekStart];
-      await sbClient.from('app_state').upsert({id:1,state_data:{...sd,sched_images:imgs},updated_at:new Date().toISOString()});
+      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs},updated_at:new Date().toISOString()});
       setImg(null);
     }catch(err){alert('삭제 실패: '+err.message);}
   };
@@ -9195,7 +9196,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   const[buyHist,setBuyHist]=useState(null);
   useEffect(()=>{
     let dead=false;
-    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',1).maybeSingle()
+    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',5).maybeSingle()
       .then(({data:d})=>{
         if(dead)return;
         const items=(d&&d.pp&&d.pp.items)||[];
@@ -10770,7 +10771,7 @@ function PagePriceLookup({user}){
   const[cat,setCat]=useState('all'); /* 품목 분류 필터 */
   const nf=(n)=>(+n||0).toLocaleString();
   const load=()=>{
-    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',1).maybeSingle()
+    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',5).maybeSingle()
       .then(({data:d})=>{setData(d&&d.pp?d.pp:{items:[]});setLoading(false);})
       .catch(()=>setLoading(false));
   };
@@ -14804,17 +14805,23 @@ function App(){
         /* bnf_favorites, bnf_semi_items, bnf_prod_semi_map 등 PageInv가 관리하는 키는 보존 */
         const merged={...existingExtras,mats:guard('mats',mats),prods:guard('prods',prods),
           orders:guard('orders',orders),hqItems:guard('hqItems',hqItems),cats:guard('cats',cats),quote,pqty};
-        /* 일일 자동 백업: 하루 1회, 최근 7일 보관 */
+        /* 일일 자동 백업: 하루 1회, 별도 행(id=7)에 보관 — 메인 행을 키우면 모든 읽기가 무거워져 전송량 초과 재발 */
         try{
           const today=new Date().toISOString().slice(0,10);
-          const bk=Object.assign({},merged._backups||{});
-          if(!bk[today]){
-            bk[today]={mats:merged.mats,prods:merged.prods,orders:merged.orders,hqItems:merged.hqItems,cats:merged.cats,
-              bnf_favorites:merged.bnf_favorites,bnf_semi_items:merged.bnf_semi_items,
-              bnf_fav_folders:merged.bnf_fav_folders,bnf_fav_item_folder:merged.bnf_fav_item_folder,
-              bnf_crm:merged.bnf_crm,bnf_logins:merged.bnf_logins};
-            Object.keys(bk).sort().slice(0,-7).forEach(k=>{delete bk[k];});
-            merged._backups=bk;
+          if(merged._backups)delete merged._backups; /* 구버전 잔재 제거 */
+          if(localStorage.getItem('bnf_bk_date')!==today){
+            localStorage.setItem('bnf_bk_date',today);
+            db('app_state').select('state_data').eq('id',7).maybeSingle().then(async r=>{
+              const bks=(r&&r.data&&r.data.state_data)||{};
+              if(bks[today])return;
+              bks[today]={mats:merged.mats,prods:merged.prods,orders:merged.orders,hqItems:merged.hqItems,cats:merged.cats,
+                pqty:merged.pqty,quote:merged.quote,work_requests:merged.work_requests,
+                bnf_favorites:merged.bnf_favorites,bnf_semi_items:merged.bnf_semi_items,
+                bnf_fav_folders:merged.bnf_fav_folders,bnf_fav_item_folder:merged.bnf_fav_item_folder,
+                bnf_crm:merged.bnf_crm,bnf_logins:merged.bnf_logins};
+              Object.keys(bks).sort().slice(0,-7).forEach(k=>{delete bks[k];});
+              await db('app_state').upsert({id:7,state_data:bks,updated_at:new Date().toISOString()});
+            }).catch(()=>{});
           }
         }catch(e){}
         await db('app_state').upsert({id:1,state_data:merged,updated_at:new Date().toISOString()});
