@@ -13220,6 +13220,7 @@ function PageShipSort({mats,hqItems}){
   const[imgErr,setImgErr]=useState('');
   const[review,setReview]=useState(null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
+  const[dayMsg,setDayMsg]=useState(''); /* 일자별 복사 알림 {date,msg} */
   const[ajBridge,setAjBridge]=useState(null);   /* null=확인중 true=연결됨 false=꺼짐 */
   const[ajRun,setAjRun]=useState(null);         /* {dry,lines,done,code} */
   const AJ_BRIDGE='http://127.0.0.1:8777';
@@ -14348,8 +14349,44 @@ function PageShipSort({mats,hqItems}){
           const centers=groups[date].slice().sort((a,b)=>a.center.localeCompare(b.center,'ko'));
           const pt={};
           centers.forEach(({d})=>Object.entries(d.items).forEach(([n,v])=>{pt[n]=(pt[n]||0)+v.total;}));
+          /* ── 이 날짜분 복사용 텍스트 만들기 ── */
+          const dLabel=(date||'미정');
+          const dayText=(()=>{
+            const L=['📅 '+dLabel+' 출고 예정',''];
+            centers.forEach(({center,d})=>{
+              L.push('■ '+center+'  ('+d.totalBox+'박스 / '+(d.totalBox/30).toFixed(2)+'파레트)');
+              Object.entries(d.items).forEach(([n,v])=>{
+                L.push('  · '+n+'  '+v.box+'박스 / '+fN(v.total)+'개'+(v.exp?'  (소비기한 '+v.exp+')':''));
+              });
+              L.push('');
+            });
+            L.push('[제품 총수량 · 전 센터 합계]');
+            Object.entries(pt).forEach(([n,t])=>{L.push('  · '+n+'  '+fN(t)+'개');});
+            return L.join('\n');
+          })();
+          const dayTsv=(()=>{
+            const L=['출고일\t센터\t제품명\t박스\t제품수량\t소비기한'];
+            centers.forEach(({center,d})=>{
+              Object.entries(d.items).forEach(([n,v])=>{
+                L.push([dLabel,center,n,v.box,v.total,v.exp||''].join('\t'));
+              });
+            });
+            return L.join('\n');
+          })();
+          const copyDay=(txt,msg)=>{
+            const done=()=>{setDayMsg(date+'|'+msg);setTimeout(()=>setDayMsg(''),2000);};
+            if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done).catch(()=>done());}
+            else{const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(t);done();}
+          };
           return R('div',{key:date,style:{marginBottom:26}},
-            R('div',{style:{textAlign:'left',fontSize:15,fontWeight:800,color:'var(--p)',marginBottom:12,paddingBottom:6,borderBottom:'2px solid var(--p)'}},'📅 '+(date||'미정')+' 출고 예정'),
+            R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:12,paddingBottom:6,borderBottom:'2px solid var(--p)'}},
+              R('div',{style:{fontSize:15,fontWeight:800,color:'var(--p)'}},'📅 '+dLabel+' 출고 예정'),
+              R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+                dayMsg.indexOf(date+'|')===0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},dayMsg.split('|')[1]),
+                R('button',{className:'btn bp btn-sm',onClick:()=>copyDay(dayText,'✓ 복사됨'),title:'이 날짜 출고계획을 글로 복사 (카톡·메모용)'},'📋 이 날짜 복사'),
+                R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayTsv,'✓ 표 복사됨'),title:'엑셀에 붙여넣을 수 있는 표로 복사'},'📊 엑셀용')
+              )
+            ),
             ...centers.map(({key,center,d})=>{
               const pallet=d.totalBox/30;
               const c=colorMap[center]||{hdr:'#64748B',hdrD:'#475569',sum:'#F8FAFC',sumT:'#475569'};
