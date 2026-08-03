@@ -13225,7 +13225,8 @@ function PageShipSort({mats,hqItems}){
   const[imgErr,setImgErr]=useState('');
   const[review,setReview]=useState(null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
-  const[dayMsg,setDayMsg]=useState(''); /* 일자별 복사 알림 {date,msg} */
+  const[dayMsg,setDayMsg]=useState(''); /* 일자별 복사 알림 "날짜|메시지" */
+  const dayRefs=useRef({});             /* 날짜별 섹션 DOM (이미지 캡처용) */
   const[ajBridge,setAjBridge]=useState(null);   /* null=확인중 true=연결됨 false=꺼짐 */
   const[ajRun,setAjRun]=useState(null);         /* {dry,lines,done,code} */
   const AJ_BRIDGE='http://127.0.0.1:8777';
@@ -14383,12 +14384,36 @@ function PageShipSort({mats,hqItems}){
             if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done).catch(()=>done());}
             else{const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(t);done();}
           };
-          return R('div',{key:date,style:{marginBottom:26}},
+          /* 이 날짜 섹션만 이미지로 캡처 → 클립보드 (버튼은 제외) */
+          const copyDayImage=async()=>{
+            const node=dayRefs.current[date];
+            if(!node||typeof html2canvas==='undefined'){alert('이미지 캡처를 준비하지 못했습니다. 잠시 후 다시 시도해주세요.');return;}
+            setDayMsg(date+'|이미지 만드는 중...');
+            try{
+              const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff',useCORS:true,
+                ignoreElements:(el)=>!!(el.classList&&el.classList.contains('no-capture'))});
+              const fin=(m)=>{setDayMsg(date+'|'+m);setTimeout(()=>setDayMsg(''),2500);};
+              canvas.toBlob(async(blob)=>{
+                try{
+                  await navigator.clipboard.write([new window.ClipboardItem({'image/png':blob})]);
+                  fin('✓ 이미지 복사됨');
+                }catch(err){
+                  /* 복사 미지원 브라우저 → 파일로 저장 */
+                  const a=document.createElement('a');
+                  a.download='출고계획_'+(date||'미정')+'.png';
+                  a.href=canvas.toDataURL('image/png');a.click();
+                  fin('✓ 이미지 저장됨');
+                }
+              },'image/png');
+            }catch(e){setDayMsg(date+'|이미지 실패');setTimeout(()=>setDayMsg(''),2500);}
+          };
+          return R('div',{key:date,ref:el=>{if(el)dayRefs.current[date]=el;else delete dayRefs.current[date];},style:{marginBottom:26}},
             R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:12,paddingBottom:6,borderBottom:'2px solid var(--p)'}},
               R('div',{style:{fontSize:15,fontWeight:800,color:'var(--p)'}},'📅 '+dLabel+' 출고 예정'),
-              R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+              R('div',{className:'no-capture',style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
                 dayMsg.indexOf(date+'|')===0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},dayMsg.split('|')[1]),
-                R('button',{className:'btn bp btn-sm',onClick:()=>copyDay(dayText,'✓ 복사됨'),title:'이 날짜 출고계획을 글로 복사 (카톡·메모용)'},'📋 이 날짜 복사'),
+                R('button',{className:'btn bp btn-sm',onClick:copyDayImage,title:'이 날짜 출고계획을 화면 그대로 이미지로 복사 (카톡에 붙여넣기)'},'🖼 이미지 복사'),
+                R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayText,'✓ 복사됨'),title:'이 날짜 출고계획을 글로 복사 (카톡·메모용)'},'📋 글 복사'),
                 R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayTsv,'✓ 표 복사됨'),title:'엑셀에 붙여넣을 수 있는 표로 복사'},'📊 엑셀용')
               )
             ),
@@ -14398,7 +14423,7 @@ function PageShipSort({mats,hqItems}){
               return R('div',{key:key,className:'card',style:{marginBottom:12,padding:0,overflow:'hidden',maxWidth:720}},
                 R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,'+c.hdr+','+c.hdrD+')',color:'#fff',fontWeight:800,fontSize:14,display:'flex',justifyContent:'space-between',alignItems:'center'}},
                   R('span',null,center),
-                  R('button',{onClick:()=>removeCenter(key),title:'이 센터 빼기',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'✕ 빼기')
+                  R('button',{onClick:()=>removeCenter(key),title:'이 센터 빼기',className:'no-capture',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'✕ 빼기')
                 ),
                 R('div',{className:'hscroll'},R('div',{style:{minWidth:540}},
                 R('div',{style:{...rowSty,padding:'5px 12px',background:'#FAFAFA',fontSize:10,color:'#64748b',fontWeight:600}},
@@ -14448,7 +14473,7 @@ function PageShipSort({mats,hqItems}){
                         R('span',{style:{marginLeft:6,padding:'2px 8px',borderRadius:10,background:enough?'#DCFCE7':'#FEE2E2',color:enough?'#15803D':'#B91C1C',fontWeight:700,fontSize:10}},enough?'✓ 충분':'⚠ 부족 '+fN(t-st.stock))
                       )
                     : R('span',{style:{fontSize:10,color:'#94A3B8'}},'재고정보없음'),
-                  R('button',{onClick:()=>{setLinkSearch(String(name).replace(/\[[^\]]*\]/g,'').trim());setLinkTarget(name);},
+                  R('button',{className:'no-capture',onClick:()=>{setLinkSearch(String(name).replace(/\[[^\]]*\]/g,'').trim());setLinkTarget(name);},
                     style:{border:'1px solid #E5E7EB',background:st?'#fff':'#FFF7ED',color:st?'#94A3B8':'var(--p)',borderRadius:8,padding:'2px 8px',fontSize:10,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'},
                     title:'재고 항목 직접 연결'},st?'재연결':'🔗 연결')
                 );
