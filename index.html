@@ -5986,7 +5986,9 @@ function NewProductHome({onGoPage}){
   );
 }
 
-function OngoingWork({user,onGoPage}){
+function OngoingWork({user,onGoPage,storeKey,personal}){
+  /* storeKey를 주면 그 키(예: 나의 업무)로 저장·조회한다. personal이면 본인 것만 보관 */
+  const WKEY=storeKey||'work_requests';
   const[reqs,setReqs]=useState([]);
   const[loaded,setLoaded]=useState(false);
   const[openId,setOpenId]=useState(null);
@@ -6024,7 +6026,7 @@ function OngoingWork({user,onGoPage}){
   const load=()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
       const sd=data&&data.state_data?data.state_data:{};
-      if(Array.isArray(sd.work_requests))setReqs(sd.work_requests);
+      if(Array.isArray(sd[WKEY]))setReqs(sd[WKEY]);else if(!sd[WKEY])setReqs([]);
       /* 분류 관리 모달을 쓰는 중에는 서버 값으로 덮지 않는다 (확인창 닫힐 때 되돌아가던 문제) */
       if(Array.isArray(sd.work_categories)&&sd.work_categories.length&&!catMgrRef.current)setWcats(sd.work_categories);
       if(Array.isArray(sd.daily_tasks))setDaily(sd.daily_tasks);
@@ -6046,7 +6048,7 @@ function OngoingWork({user,onGoPage}){
     tRef.current=setTimeout(()=>{
       sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
         const ex=cur&&cur.state_data?cur.state_data:{};
-        return sbClient.from('app_state').upsert({id:1,state_data:{...ex,work_requests:next},updated_at:new Date().toISOString()});
+        return sbClient.from('app_state').upsert({id:1,state_data:{...ex,[WKEY]:next},updated_at:new Date().toISOString()});
       }).then(()=>setSaving(false)).catch(()=>setSaving(false));
     },250);
   };
@@ -6098,15 +6100,15 @@ function OngoingWork({user,onGoPage}){
   const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
   const isDone=(r)=>r.status==='done';
   const isOpen=(r)=>r.status!=='done'&&r.status!=='cancelled'&&r.status!=='rejected';
-  const mineFilter=(r)=>isAdmin||r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id);
+  const mineFilter=(r)=>personal||isAdmin||r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id);
   const catOf=(r)=>r.category||'etc';
   const catMatch=(r)=>catF==='all'||catOf(r)===catF;
   const mineAll=reqs.filter(mineFilter);
   /* 좌: 진행 중(미완료) / 우: 완료 (선택한 분류로 필터) */
   const ongoing=mineAll.filter(isOpen).filter(catMatch).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const completed=mineAll.filter(isDone).filter(catMatch).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
-  const ongoingShow=ongoing.slice(0,30);
-  const completedShow=completed.slice(0,20);
+  const ongoingShow=personal?ongoing:ongoing.slice(0,30);
+  const completedShow=personal?completed:completed.slice(0,20);
   const openCntByCat=(v)=>mineAll.filter(isOpen).filter(r=>v==='all'||catOf(r)===v).length;
 
   /* 제목만으로 즉시 추가 (담당자 지정 없이) */
@@ -6192,7 +6194,7 @@ function OngoingWork({user,onGoPage}){
     }
     return R('div',null,
       taskGrid(shown),
-      moreCount>0&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+moreCount+'개 더 보기')
+      moreCount>0&&onGoPage&&!personal&&R('button',{onClick:()=>onGoPage('workreq'),style:moreBtn},'+ '+moreCount+'개 더 보기')
     );
   };
 
@@ -6215,7 +6217,7 @@ function OngoingWork({user,onGoPage}){
           R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'🔥 진행 중인 업무'),
           ongoing.length>0&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'var(--pb)',padding:'2px 9px',borderRadius:999}},ongoing.length)
         ),
-        R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}},'전체 →')
+        !personal&&onGoPage&&R('button',{onClick:()=>onGoPage('workreq'),style:{fontSize:11,fontWeight:700,color:'var(--p)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}},'전체 →')
       ),
       /* 빠른 추가: 분류 선택 + 제목 입력 후 Enter */
       R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:12,flexWrap:'wrap'}},
@@ -15265,7 +15267,16 @@ function App(){
     if(page==='newprod')return R(PageNewProduct,{key:'np',user,mats});
     if(page==='lab')return R(PageNewProduct,{key:'lab',user,mats,mode:'lab'});
     if(page==='sampledev')return R(PageSampleDev,{user});
-    if(page==='mytasks')return R(PageMyTasks,{user,onGoPage:setPage});
+    if(page==='mytasks')return R('div',{className:'pg fa'},
+      R('div',{className:'pg-hdr'},
+        R('div',null,
+          R('div',{className:'pg-title'},'📌 나의 업무'),
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},(user.name||user.email)+' · 본인만 볼 수 있는 개인 영역')
+        ),
+        R('button',{className:'btn bs btn-sm',onClick:()=>setPage('workreq'),title:'다른 직원에게 업무를 요청합니다'},'👤 업무 요청하기')
+      ),
+      R(OngoingWork,{user,personal:true,storeKey:'mytasks_'+(user.id||user.email||'guest')})
+    );
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
     if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true),onAddMat:addMatQuick});
