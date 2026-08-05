@@ -1110,7 +1110,10 @@ function PageWorkRequest({user}){
     document.addEventListener('visibilitychange',onVis);
     const onFocus=()=>{if(canReloadRef.current())loadAll(true);};
     window.addEventListener('focus',onFocus);
-    const poll=setInterval(()=>{if(!document.hidden&&canReloadRef.current())loadAll(true);},3000);
+    const poll=setInterval(async()=>{
+      if(document.hidden||!canReloadRef.current())return;
+      if(await appStateChanged(wrTsRef))loadAll(true);
+    },3000);
     return()=>{
       if(channel)try{sbClient.removeChannel(channel);}catch(e){}
       document.removeEventListener('visibilitychange',onVis);
@@ -1121,6 +1124,7 @@ function PageWorkRequest({user}){
 
   /* 편집 중(모달·입력칸)이거나 저장이 대기 중이면 배경 새로고침을 멈춘다
      — 저장 직전 값이 서버의 옛 값으로 되돌아가던 문제 */
+  const wrTsRef=useRef('');
   const canReloadRef=useRef(()=>true);
   canReloadRef.current=()=>{
     if(modalItem)return false;
@@ -1681,6 +1685,7 @@ function PageMyTasks({user,onGoPage}){
   const[saving,setSaving]=useState('');
   const st=useRef(null);
 
+  const mtTsRef=useRef('');
   /* Supabase에서 동기화 - 사용자별 user_state row 사용 */
   useEffect(()=>{loadFromSupabase();
     let channel=null;
@@ -1692,7 +1697,10 @@ function PageMyTasks({user,onGoPage}){
     const onVis=()=>{if(!document.hidden)loadFromSupabase();};
     document.addEventListener('visibilitychange',onVis);
     window.addEventListener('focus',loadFromSupabase);
-    const poll=setInterval(()=>{if(!document.hidden)loadFromSupabase();},3000);
+    const poll=setInterval(async()=>{
+      if(document.hidden)return;
+      if(await appStateChanged(mtTsRef))loadFromSupabase();
+    },3000);
     return()=>{
       if(channel)try{sbClient.removeChannel(channel);}catch(e){}
       document.removeEventListener('visibilitychange',onVis);
@@ -2217,7 +2225,11 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
     if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return false;
     return true;
   };
-  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden&&canReload())load();},60000);return()=>clearInterval(t);},[storeKey]);
+  const stTsRef=useRef('');
+  useEffect(()=>{load();const t=setInterval(async()=>{
+    if(document.hidden||!canReload())return;
+    if(await appStateChanged(stTsRef))load();
+  },8000);return()=>clearInterval(t);},[storeKey]);
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+storeKey).eq('id',1).maybeSingle();
@@ -4942,6 +4954,18 @@ const db=t=>sbClient.from(t);
 /* ═══ 알림 시스템 (협업 태그·완료 통지) ═══
    app_state.notifications = [{id,to,from,fromName,type,text,page,ts,read}]
    pushNotif로 특정 직원에게 알림 생성. NotifPanel(🔔)이 읽음. */
+/* 메인 데이터가 바뀌었는지 가볍게 확인 (updated_at만 조회 — 전송량 절감 + 즉시 동기화)
+   ref.current에 마지막으로 본 updated_at을 보관한다 */
+async function appStateChanged(ref){
+  try{
+    const{data}=await sbClient.from('app_state').select('updated_at').eq('id',1).maybeSingle();
+    const ts=data&&data.updated_at;
+    if(!ts)return true;
+    if(ref.current===ts)return false;
+    ref.current=ts;
+    return true;
+  }catch(e){return false;}
+}
 async function pushNotif(list){
   /* list: [{to, from, fromName, type, text, page}] - 여러명 한번에 */
   const items=(Array.isArray(list)?list:[list]).filter(n=>n&&n.to&&n.to!==n.from);
@@ -13627,19 +13651,34 @@ function PageShipSort({mats,hqItems}){
     }catch(e){alert('복사 실패: '+e.message);}
   };
 
-  /* 저장된 출고계획 불러오기 (페이지 열 때) */
+  /* 저장된 출고계획 불러오기 + 다른 기기 변경 실시간 반영 */
+  const shipTsRef=useRef('');
+  const loadShipsort=()=>sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+    const sd=data&&data.state_data?data.state_data:{};
+    if(sd.shipsort_data&&sd.shipsort_data.byCenter){
+      const migrated={...sd.shipsort_data,byCenter:migrateByCenter(sd.shipsort_data.byCenter,sd.shipsort_date||'')};
+      setParsed(prev=>JSON.stringify(prev)!==JSON.stringify(migrated)?migrated:prev);
+      if(sd.shipsort_date)setShipDate(sd.shipsort_date);
+    }
+    if(sd.shipsort_namemap&&typeof sd.shipsort_namemap==='object')setNameMap(sd.shipsort_namemap);
+    setLoadedFromDB(true);
+  }).catch(()=>setLoadedFromDB(true));
   useEffect(()=>{
-    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
-      const sd=data&&data.state_data?data.state_data:{};
-      if(sd.shipsort_data&&sd.shipsort_data.byCenter){
-        const migrated={...sd.shipsort_data,byCenter:migrateByCenter(sd.shipsort_data.byCenter,sd.shipsort_date||'')};
-        setParsed(migrated);
-        if(sd.shipsort_date)setShipDate(sd.shipsort_date);
-      }
-      if(sd.shipsort_namemap&&typeof sd.shipsort_namemap==='object')setNameMap(sd.shipsort_namemap);
-      setLoadedFromDB(true);
-    }).catch(()=>setLoadedFromDB(true));
-  },[]);
+    loadShipsort();
+    const canReload=()=>{
+      if(review||loading)return false;                       /* 검토표·인식 중엔 덮지 않음 */
+      const ae=document.activeElement;
+      if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return false;
+      return true;
+    };
+    const t=setInterval(async()=>{
+      if(document.hidden||!canReload())return;
+      if(await appStateChanged(shipTsRef))loadShipsort();
+    },5000);
+    const onF=async()=>{if(!document.hidden&&canReload()&&await appStateChanged(shipTsRef))loadShipsort();};
+    document.addEventListener('visibilitychange',onF);
+    return()=>{clearInterval(t);document.removeEventListener('visibilitychange',onF);};
+  },[review,loading]);
 
   /* parsed 변경 시 Supabase에 자동 저장 (불러온 직후 제외) - await + 에러 표시 */
   const saveShipsort=async(data,date)=>{
@@ -15119,6 +15158,7 @@ function App(){
 
   /* DB 로드 + 양방향 동기화 (PC↔모바일) */
   const isSavingRef=useRef(false);
+  const lastSyncTsRef=useRef('');
   const reloadFromDB=async(silent=false)=>{
     /* 자동저장 진행 중이면 reloadFromDB 차단 (race condition 방지) */
     if(isSavingRef.current){console.log('[Sync] 저장 중 - reload 스킵');return;}
@@ -15175,8 +15215,11 @@ function App(){
     const onFocus=()=>reloadFromDB(true);
     document.addEventListener('visibilitychange',onVis);
     window.addEventListener('focus',onFocus);
-    /* 3. 백업 폴링 (Realtime이 실패해도 동기화 보장) - 3초마다 */
-    const poll=setInterval(()=>{if(!document.hidden)reloadFromDB(true);},3000);
+    /* 3. 백업 폴링 - 3초마다 '바뀌었는지'만 확인하고, 바뀐 경우에만 전체를 내려받는다 */
+    const poll=setInterval(async()=>{
+      if(document.hidden)return;
+      if(await appStateChanged(lastSyncTsRef))reloadFromDB(true);
+    },3000);
     return()=>{
       if(channel)try{sbClient.removeChannel(channel);}catch(e){}
       document.removeEventListener('visibilitychange',onVis);
