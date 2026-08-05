@@ -4775,7 +4775,23 @@ function PageAdmin({user}){
   });
   useEffect(()=>{load();},[]);
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
-  const saveU=async()=>{if(!uf.name||!uf.email)return alert('이름/이메일 필수');if(editU){await db('emp').update({...uf}).eq('id',editU.id);}else{await db('emp').insert({...uf,status:'active',used_leave:0});}setShowUF(false);setEditU(null);load();};
+  const saveU=async()=>{
+    if(!uf.name||!uf.email)return alert('이름/이메일 필수');
+    const pwChanged=editU&&uf.password&&uf.password!==(editU.password||'');
+    if((pwChanged||!editU)&&uf.password&&uf.password.length<6)return alert('비밀번호는 6자 이상이어야 합니다 (보안 규격)');
+    if(editU){await db('emp').update({...uf}).eq('id',editU.id);}
+    else{await db('emp').insert({...uf,status:'active',used_leave:0});}
+    /* 비밀번호가 바뀌면 서버 인증(Auth) 계정도 함께 갱신 — 로그인 이중화 동기화 */
+    if(pwChanged){
+      try{
+        const me=JSON.parse(localStorage.getItem('bnf_cred')||'{}');
+        await fetch(SB_URL+'/functions/v1/auth-bridge',{method:'POST',
+          headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},
+          body:JSON.stringify({action:'reset_pw',adminEmail:me.email||user.email||user.emp_no,adminPw:me.pw||'',targetEmpId:editU.id,newPw:uf.password})});
+      }catch(e){console.warn('Auth 동기화 실패(다음 로그인 시 자동 보정)',e);}
+    }
+    setShowUF(false);setEditU(null);load();
+  };
   const toggleStatus=async e=>{await db('emp').update({status:e.status==='active'?'inactive':'active'}).eq('id',e.id);load();};
   const ROLES={superadmin:'최고관리자',admin:'관리자',manager:'부서장',employee:'직원',readonly:'읽기전용'};
   const RCLS={superadmin:'b-e',admin:'b-o',manager:'b-i',employee:'b-g',readonly:'b-g'};
