@@ -1236,7 +1236,7 @@ function PageWorkRequest({user}){
   /* 필터링 */
   const visible=useMemo(()=>{
     let arr=requests;
-    if(tab==='received')arr=arr.filter(r=>r.assigneeId===user.id);
+    if(tab==='received')arr=arr.filter(r=>r.assigneeId===user.id||(Array.isArray(r.sharedIds)&&r.sharedIds.indexOf(user.id)>=0));
     else if(tab==='sent')arr=arr.filter(r=>r.requesterId===user.id);
     else if(tab==='team')arr=arr.filter(r=>!involvesAdmin(r));
     else if(tab==='all'&&!isAdmin)arr=arr.filter(r=>!involvesAdmin(r));
@@ -6067,6 +6067,7 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
   const[wcats,setWcats]=useState(DEFAULT_WCATS); /* 분류 목록 (편집 가능) */
   const[catMgr,setCatMgr]=useState(false); /* 분류 관리 모달 */
   const[mgrName,setMgrName]=useState(''); /* 분류 추가 입력 */
+  const[emps,setEmps]=useState([]); /* 태그 공유 대상 직원 목록 */
   const[daily,setDaily]=useState([]); /* 일일 업무 체크리스트 */
   const[dailyInput,setDailyInput]=useState('');
   /* 완료된 업무 접기 (기본 접힘, 선택 기억) */
@@ -6112,6 +6113,7 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
   };
   useEffect(()=>{
     load();
+    if(!personal||true)sbClient.from('emp').select('id,name,position').eq('status','active').order('name').then(({data})=>setEmps(data||[])).catch(()=>{});
     const onF=()=>{if(!document.hidden&&canReloadRef.current())load();};
     window.addEventListener('focus',onF);
     document.addEventListener('visibilitychange',onF);
@@ -6177,7 +6179,8 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
   const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
   const isDone=(r)=>r.status==='done';
   const isOpen=(r)=>r.status!=='done'&&r.status!=='cancelled'&&r.status!=='rejected';
-  const mineFilter=(r)=>personal||isAdmin||r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id);
+  const mineFilter=(r)=>personal||isAdmin||r.assigneeId===(user&&user.id)||r.requesterId===(user&&user.id)
+    ||(Array.isArray(r.sharedIds)&&r.sharedIds.indexOf(user&&user.id)>=0);
   const catOf=(r)=>r.category||'etc';
   const catMatch=(r)=>catF==='all'||catOf(r)===catF;
   const mineAll=reqs.filter(mineFilter);
@@ -6218,6 +6221,21 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
     const next=reqs.map(x=>x.id===r.id?{...x,title:t,content:d.content||'',category:d.category||x.category||'etc',updatedAt:Date.now()}:x);
     saveReqs(next);setOpenId(null);setDraft(null);
   };
+  /* ── 태그 공유: 동료를 태그하면 그 사람 화면에도 보이고 알림이 간다 ── */
+  const toggleShare=(r,emp)=>{
+    const ids=Array.isArray(r.sharedIds)?r.sharedIds.slice():[];
+    const names=Array.isArray(r.sharedNames)?r.sharedNames.slice():[];
+    const i=ids.indexOf(emp.id);
+    if(i>=0){ids.splice(i,1);names.splice(i,1);}
+    else{
+      ids.push(emp.id);names.push(emp.name);
+      if(emp.id!==(user&&user.id)){
+        try{pushNotif({to:emp.id,from:user.id,fromName:user.name||'',type:'mention',
+          text:(user.name||'동료')+'님이 업무를 공유했습니다: "'+(r.title||'')+'"',page:personal?'mytasks':'workreq'});}catch(e){}
+      }
+    }
+    saveReqs(reqs.map(x=>x.id===r.id?{...x,sharedIds:ids,sharedNames:names,updatedAt:Date.now()}:x));
+  };
   const markDone=(r)=>{
     saveReqs(reqs.map(x=>x.id===r.id?{...x,status:'done',progress:100,updatedAt:Date.now()}:x));
     setOpenId(null);setDraft(null);
@@ -6240,7 +6258,11 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
       style:{display:'flex',flexDirection:'column',gap:5,padding:'10px 11px',borderRadius:12,border:'1px solid '+(sel?'var(--p)':'#EEF1F5'),background:sel?'var(--pb)':'#fff',cursor:'pointer',minHeight:72,transition:'border-color .15s,background .15s'},
       onMouseEnter:e=>{if(!sel)e.currentTarget.style.background='#FAFAFA';},
       onMouseLeave:e=>{if(!sel)e.currentTarget.style.background='#fff';}},
-      R('span',{style:{alignSelf:'flex-start',fontSize:9,fontWeight:700,color:cm.c,background:cm.bg,border:'1px solid '+cm.bd,padding:'2px 7px',borderRadius:999,whiteSpace:'nowrap',opacity:done?0.6:1}},cm.l),
+      R('div',{style:{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap'}},
+        R('span',{style:{fontSize:9,fontWeight:700,color:cm.c,background:cm.bg,border:'1px solid '+cm.bd,padding:'2px 7px',borderRadius:999,whiteSpace:'nowrap',opacity:done?0.6:1}},cm.l),
+        Array.isArray(r.sharedNames)&&r.sharedNames.length>0&&R('span',{title:'공유: '+r.sharedNames.join(', '),
+          style:{fontSize:9,fontWeight:700,color:'#7C3AED',background:'#F5F3FF',border:'1px solid #DDD6FE',padding:'2px 7px',borderRadius:999,whiteSpace:'nowrap'}},'👥 '+r.sharedNames.length)
+      ),
       R('div',{style:{fontSize:12,fontWeight:700,color:done?'var(--tm)':'var(--t)',textDecoration:done?'line-through':'none',lineHeight:1.3,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}},r.title||'(제목 없음)'),
       R('div',{style:{fontSize:11,color:'var(--tm)',lineHeight:1.35,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}},pv||(done?'내용 없음':'눌러서 작성'))
     );
@@ -6337,6 +6359,18 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
             R('select',{value:draft.category||'etc',onChange:e=>setDraft({...draft,category:e.target.value}),
               style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit',cursor:'pointer',background:'#fff'}},
               ...CATS.map(c=>R('option',{key:c.v,value:c.v},c.l)))
+          ),
+          !personal&&R('div',{style:{marginBottom:12}},
+            R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:6}},'👥 공유 (태그한 동료의 화면에도 보이고 알림이 갑니다)'),
+            R('div',{style:{display:'flex',gap:5,flexWrap:'wrap'}},
+              ...emps.filter(e2=>e2.id!==editTask.requesterId).map(e2=>{
+                const on=Array.isArray(editTask.sharedIds)&&editTask.sharedIds.indexOf(e2.id)>=0;
+                return R('button',{key:e2.id,onClick:()=>toggleShare(editTask,e2),
+                  style:{border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)',
+                    borderRadius:999,padding:'4px 11px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
+                  (on?'✓ ':'')+e2.name);
+              })
+            )
           ),
           R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:5}},'제목'),
           R('input',{value:draft.title,onChange:e=>setDraft({...draft,title:e.target.value}),autoFocus:true,
