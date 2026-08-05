@@ -1106,16 +1106,29 @@ function PageWorkRequest({user}){
         .on('postgres_changes',{event:'*',schema:'public',table:'app_state',filter:'id=eq.1'},()=>loadAll(true))
         .subscribe();
     }catch(e){}
-    const onVis=()=>{if(!document.hidden)loadAll(true);};
+    const onVis=()=>{if(!document.hidden&&canReloadRef.current())loadAll(true);};
     document.addEventListener('visibilitychange',onVis);
-    window.addEventListener('focus',()=>loadAll(true));
-    const poll=setInterval(()=>{if(!document.hidden)loadAll(true);},3000);
+    const onFocus=()=>{if(canReloadRef.current())loadAll(true);};
+    window.addEventListener('focus',onFocus);
+    const poll=setInterval(()=>{if(!document.hidden&&canReloadRef.current())loadAll(true);},3000);
     return()=>{
       if(channel)try{sbClient.removeChannel(channel);}catch(e){}
       document.removeEventListener('visibilitychange',onVis);
+      window.removeEventListener('focus',onFocus);
       clearInterval(poll);
     };
   },[]);
+
+  /* 편집 중(모달·입력칸)이거나 저장이 대기 중이면 배경 새로고침을 멈춘다
+     — 저장 직전 값이 서버의 옛 값으로 되돌아가던 문제 */
+  const canReloadRef=useRef(()=>true);
+  canReloadRef.current=()=>{
+    if(modalItem)return false;
+    if(st.current)return false;
+    const ae=document.activeElement;
+    if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return false;
+    return true;
+  };
 
   const loadAll=async(silent=false)=>{
     if(!silent)setLoading(true);
@@ -2192,7 +2205,19 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   const setFS=v=>{const n=Math.min(20,Math.max(9,v));setFs(n);try{localStorage.setItem(FSKEY,String(n));}catch(e){}};
   const FBTN={background:'#fff',border:'1px solid #E2E8F0',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11,fontWeight:700,color:'#64748b',fontFamily:'inherit'};
 
-  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},60000);return()=>clearInterval(t);},[storeKey]);
+  /* 사용자가 입력/편집 중이거나 저장이 진행 중이면 배경 새로고침을 건너뛴다
+     (배경 로드가 입력 중인 값을 서버 값으로 되돌리던 문제) */
+  const busyRef=useRef(false);
+  const isEditingRef=useRef(false);
+  useEffect(()=>{isEditingRef.current=!!(showF||editId);},[showF,editId]);
+  useEffect(()=>{busyRef.current=!!busy;},[busy]);
+  const canReload=()=>{
+    if(busyRef.current||isEditingRef.current)return false;
+    const ae=document.activeElement;
+    if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return false;
+    return true;
+  };
+  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden&&canReload())load();},60000);return()=>clearInterval(t);},[storeKey]);
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+storeKey).eq('id',1).maybeSingle();
@@ -5807,7 +5832,13 @@ function PageSampleDev({user}){
     }).catch(()=>setLoaded(true));
   };
   useEffect(()=>{load();sbClient.from('emp').select('id,name,position,depts(name)').eq('status','active').order('name').then(({data})=>setEmps(data||[]));
-    const t=setInterval(()=>{if(!document.hidden)load();},8000);return()=>clearInterval(t);},[]);
+    const t=setInterval(()=>{
+      if(document.hidden)return;
+      const ae=document.activeElement;
+      if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return; /* 입력 중이면 덮어쓰지 않음 */
+      if(tRef.current)return;                                     /* 저장 대기 중이면 건너뜀 */
+      load();
+    },8000);return()=>clearInterval(t);},[]);
   const save=(next)=>{
     setDevs(next);
     if(tRef.current)clearTimeout(tRef.current);
@@ -6069,9 +6100,19 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
       setLoaded(true);
     }).catch(()=>setLoaded(true));
   };
+  /* 편집 중이거나 저장이 대기 중이면 배경 새로고침으로 값을 덮지 않는다
+     (확인창·다른 창을 다녀오면 방금 한 수정이 되돌아가던 문제) */
+  const canReloadRef=useRef(()=>true);
+  canReloadRef.current=()=>{
+    if(catMgrRef.current||openId)return false;
+    if(tRef.current||dRef.current)return false;
+    const ae=document.activeElement;
+    if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))return false;
+    return true;
+  };
   useEffect(()=>{
     load();
-    const onF=()=>{if(!document.hidden)load();};
+    const onF=()=>{if(!document.hidden&&canReloadRef.current())load();};
     window.addEventListener('focus',onF);
     document.addEventListener('visibilitychange',onF);
     return()=>{window.removeEventListener('focus',onF);document.removeEventListener('visibilitychange',onF);};
@@ -6330,7 +6371,7 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
           R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:10}},'색 동그라미를 누르면 색이 바뀝니다. 이름을 눌러 바로 수정할 수 있어요.'),
           ...wcats.map(c=>R('div',{key:c.v,style:{display:'flex',alignItems:'center',gap:10,marginBottom:8}},
             R('button',{onClick:()=>cycleColor(c.v),title:'색 변경',style:{flexShrink:0,width:22,height:22,borderRadius:'50%',background:c.c,border:'2px solid '+c.bd,cursor:'pointer'}}),
-            R('input',{value:c.l,onChange:e=>renameCat(c.v,e.target.value),
+            R(NavNameInput,{value:c.l,onCommit:(v)=>{if(v!==c.l)renameCat(c.v,v);},title:'분류 이름',
               style:{flex:1,minWidth:0,border:'1px solid var(--bd)',borderRadius:8,padding:'7px 10px',fontSize:13,fontWeight:600,fontFamily:'inherit'}}),
             R('button',{onClick:()=>deleteCat(c.v),title:'삭제',style:{flexShrink:0,border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:8,padding:'7px 11px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
           )),
