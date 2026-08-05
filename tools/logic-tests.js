@@ -1,0 +1,78 @@
+#!/usr/bin/env node
+/* 핵심 업무 로직 자동 테스트 (커밋 전 자동 실행)
+   index.html에서 순수 함수를 추출해 실제 배포될 코드 그대로 검증한다.
+   사용: node tools/logic-tests.js */
+const fs = require('fs');
+const path = require('path');
+
+const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8').replace(/\r\n/g, '\n');
+
+/* index.html 안의 특정 선언 블록을 추출 */
+function extract(startMarker, endMarker) {
+  const s = html.indexOf(startMarker);
+  if (s < 0) throw new Error('추출 실패(시작): ' + startMarker.slice(0, 40));
+  const e = html.indexOf(endMarker, s);
+  if (e < 0) throw new Error('추출 실패(끝): ' + endMarker.slice(0, 40));
+  return html.slice(s, e + endMarker.length);
+}
+
+let failures = 0;
+let passes = 0;
+function eq(name, actual, expected) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  if (a === b) { passes++; }
+  else { failures++; console.error('  ✗ ' + name + '\n      결과: ' + a + '\n      기대: ' + b); }
+}
+
+/* ── 1) 출고계획: PACK_MAP / packOf / fixAiItem ── */
+{
+  const code = extract('const NAME_FIX=[', 'return {box,pack,total};\n  };');
+  const fn = new Function(code + '\nreturn {fixAiItem, packOf, fixAiName};');
+  const { fixAiItem, packOf, fixAiName } = fn();
+
+  eq('packOf 청국장=30', packOf('[엄마밥상] 청국장'), 30);
+  eq('packOf 김치청국장=25', packOf('[엄마밥상] 김치청국장'), 25);
+  eq('packOf 털레기=15', packOf('[외할머니댁] 일산 털레기 수제비'), 15);
+  eq('packOf 돈코츠라멘=20', packOf('[리틀 후쿠오카] 돈코츠 라멘'), 20);
+  eq('packOf 쌀국수2인분=12', packOf('[리틀 비엣남] 소고기 쌀국수 2인분'), 12);
+
+  /* 확정 규칙: AI가 읽은 수량 = 발주수량(박스수), 총수량 = 입수×박스 */
+  eq('fixAiItem 청국장 (30,125)', fixAiItem('[엄마밥상] 청국장', 30, 125), { box: 125, pack: 30, total: 3750 });
+  eq('fixAiItem 청국장 (125,3750)', fixAiItem('[엄마밥상] 청국장', 125, 3750), { box: 125, pack: 30, total: 3750 });
+  eq('fixAiItem 털레기 (15,10)', fixAiItem('[외할머니댁] 일산 털레기 수제비', 15, 10), { box: 10, pack: 15, total: 150 });
+  eq('fixAiItem 맑은곰탕 (20,6)', fixAiItem('[엄마밥상] 맑은곰탕', 20, 6), { box: 6, pack: 20, total: 120 });
+  eq('fixAiItem 미등록품목 (24,7)', fixAiItem('신제품X', 24, 7), { box: 7, pack: 24, total: 168 });
+  eq('fixAiItem 빈값', fixAiItem('청국장', 0, 0), { box: 0, pack: 30, total: 0 });
+
+  /* OCR 오타 교정 */
+  eq('fixAiName 렐레기→털레기', fixAiName('[외할머니댁] 일산 렐레기 수제비'), '[외할머니댁] 일산 털레기 수제비');
+  eq('fixAiName 외할머니맥→댁', fixAiName('[외할머니맥] 일산 털레기 수제비'), '[외할머니댁] 일산 털레기 수제비');
+  eq('fixAiName 공백정리', fixAiName('  [엄마밥상]   청국장  '), '[엄마밥상] 청국장');
+}
+
+/* ── 2) 출고계획: 센터 이름 정규화 ── */
+{
+  const code = extract('const normCenter2=', ';};');
+  const fn = new Function(code + '\nreturn normCenter2;');
+  const normCenter2 = fn();
+  eq('센터 김포냉동(삼우)', normCenter2('김포냉동 (삼우)'), '김포(삼우)');
+  eq('센터 켄달 2층', normCenter2('김포냉동 켄달 2층'), '김포(켄달)');
+  eq('센터 평택냉동 4층', normCenter2('평택냉동 4층'), '평택컬리');
+  eq('센터 창원냉동 3층', normCenter2('창원냉동 3층'), '창원물류대행');
+  eq('센터 빈값', normCenter2(''), '기타');
+}
+
+/* ── 3) 가동률: 근무일 계산 ── */
+{
+  const code = extract('const HOLIDAYS=', 'return count;\n}');
+  const fn = new Function(code + '\nreturn calcWorkingDays;');
+  const calcWorkingDays = fn();
+  const wd = calcWorkingDays(2026, 8);
+  if (wd >= 18 && wd <= 23) passes++; else { failures++; console.error('  ✗ 2026-08 근무일 ' + wd + ' (18~23 기대)'); }
+  eq('2026-01 근무일(공휴일 1/1 제외)', calcWorkingDays(2026, 1) <= 22, true);
+}
+
+console.log(failures === 0
+  ? '✅ 로직 테스트 통과 (' + passes + '건)'
+  : '❌ 로직 테스트 실패 ' + failures + '건 / 통과 ' + passes + '건');
+process.exit(failures === 0 ? 0 : 1);
