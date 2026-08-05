@@ -12250,8 +12250,25 @@ function LoginPage({onLogin}){
         data=hits[0]||null;
       }
       if(!data){setErr('이메일 또는 사번이 존재하지 않습니다');setLoading(false);return;}
-      if(data.password!==pw){setErr('비밀번호가 올바르지 않습니다');setLoading(false);return;}
       if(data.status==='inactive'){setErr('비활성화된 계정입니다');setLoading(false);return;}
+      /* ── 2단계 전환: Supabase Auth 로그인 우선, 실패 시 기존 방식 폴백 ──
+         Auth 계정 이메일 규칙: emp.email이 정상 이메일이면 그대로, 아니면 사번@bnf-mes.app */
+      const authEmail=(()=>{
+        const em=String(data.email||'').trim().toLowerCase();
+        if(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)&&!/\.local$/.test(em))return em;
+        const no=String(data.emp_no||'').trim().toLowerCase()||('emp-'+String(data.id).slice(0,8));
+        return no.replace(/[^a-z0-9._-]/g,'')+'@bnf-mes.app';
+      })();
+      let authOk=false;
+      try{
+        const{data:ar,error:ae}=await sbClient.auth.signInWithPassword({email:authEmail,password:pw});
+        authOk=!ae&&!!(ar&&ar.session);
+      }catch(e){}
+      if(!authOk){
+        /* 폴백(전환기 한정): 기존 평문 비교 — 3단계에서 제거 예정 */
+        if(data.password!==pw){setErr('비밀번호가 올바르지 않습니다');setLoading(false);return;}
+      }
+      try{localStorage.setItem('bnf_auth_mode',authOk?'auth':'legacy');}catch(e){}
       if(remem)localStorage.setItem('bnf_cred',JSON.stringify({email:email.trim(),pw}));
       else localStorage.removeItem('bnf_cred');
       localStorage.setItem('bnf_user',JSON.stringify(data));
@@ -15495,7 +15512,7 @@ function App(){
         R('div',{className:'hdr-name',style:{fontSize:12,flexShrink:0}},(user.name||'사용자')+' · '+(user.position||'')),
         (!isInstalled&&R('button',{onClick:installApp,className:'hdr-install',style:{padding:'4px 10px',background:'var(--pb)',border:'1px solid #F3D6C7',borderRadius:6,color:'var(--p)',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'📱 앱설치')),
         R('button',{onClick:()=>setMyInfoOpen(true),title:'내 정보 · 비밀번호 변경',style:{padding:'4px 10px',background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:6,color:'#6B6B6B',fontSize:11,cursor:'pointer',flexShrink:0,fontFamily:'inherit'}},'👤 내 정보'),
-        R('button',{onClick:()=>{localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:6,color:'#6B6B6B',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
+        R('button',{onClick:()=>{try{sbClient.auth.signOut();}catch(e){}localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:6,color:'#6B6B6B',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
       )
     ),
     /* 바디 */
