@@ -41,7 +41,7 @@ kbd{font-family:inherit;font-size:.9em}
 .hdr-search-btn span{color:#6B6B6B !important}
 .hdr-search-btn:hover{background:#EAE3F0 !important;border-color:var(--p) !important;color:var(--p) !important;box-shadow:none}
 .body{flex:1;display:flex;overflow:hidden}
-.sb{width:210px;flex-shrink:0;background:var(--sb);border-right:1px solid #ECE6EE;display:flex;flex-direction:column;overflow-y:auto;user-select:none}
+.sb{width:210px;flex-shrink:0;background:var(--sb);border-right:1px solid #ECE6EE;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;user-select:none}
 .sb-sec{padding:3px 7px;margin-top:2px}
 .sb-lbl{font-size:9px;font-weight:700;color:var(--sbt);padding:7px 11px 3px;letter-spacing:1.5px;text-transform:uppercase}
 .ni{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;cursor:pointer;color:#4A4A4A;font-size:12px;transition:all .1s;margin-bottom:1px}
@@ -600,6 +600,42 @@ window._isStandalone=window.matchMedia('(display-mode: standalone)').matches||wi
 </head>
 <body>
 <div id="root"></div>
+<script>
+/* 화면이 하얗게만 나올 때 원인을 보여준다 (구형 브라우저·스크립트 오류 진단용).
+   구형 브라우저에서도 실행돼야 하므로 옛날 문법(ES5)으로만 작성한다. */
+(function(){
+  var shown=false;
+  function show(msg,extra){
+    if(shown)return;shown=true;
+    try{
+      var d=document.createElement('div');
+      d.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;background:#fff;color:#1F2937;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;padding:22px;overflow:auto';
+      var h=document.createElement('div');
+      h.style.cssText='font-size:18px;font-weight:800;margin-bottom:6px';
+      h.appendChild(document.createTextNode('화면을 불러오지 못했습니다'));
+      var p=document.createElement('div');
+      p.style.cssText='color:#6B7280;margin-bottom:14px';
+      p.appendChild(document.createTextNode('아래 내용을 사진 찍어 관리자에게 보여주세요.'));
+      var pre=document.createElement('pre');
+      pre.style.cssText='white-space:pre-wrap;word-break:break-all;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:12px;font-size:12px;margin:0';
+      pre.appendChild(document.createTextNode(String(msg||'')+'\n'+String(extra||'')+'\n'+navigator.userAgent));
+      var tip=document.createElement('div');
+      tip.style.cssText='margin-top:14px;font-size:13px';
+      tip.innerHTML='· <b>크롬(Chrome) 최신 버전</b>으로 접속해 주세요. 인터넷 익스플로러나 오래된 브라우저에서는 열리지 않습니다.<br>· 또는 <b>Ctrl+F5</b>로 새로고침해 보세요.';
+      d.appendChild(h);d.appendChild(p);d.appendChild(pre);d.appendChild(tip);
+      (document.body||document.documentElement).appendChild(d);
+    }catch(e){}
+  }
+  window.addEventListener('error',function(e){
+    show((e&&e.message)||'스크립트 오류',((e&&e.filename)||'')+' '+((e&&e.lineno)||''));
+  },true);
+  /* 스크립트가 아예 실행되지 않은 경우(문법 오류 등)도 잡는다 */
+  setTimeout(function(){
+    var root=document.getElementById('root');
+    if(root&&!root.firstChild)show('화면 구성 요소가 실행되지 않았습니다.','브라우저 버전이 낮거나 파일을 다 받지 못했을 수 있습니다.');
+  },12000);
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -14872,7 +14908,7 @@ function App(){
           R(NavNameInput,{value:n.ic||'',onCommit:(v)=>{if(v!==(n.ic||''))updNavAt(path,realIdx,{ic:v});},
             style:{width:34,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px',borderRadius:6,fontSize:12,textAlign:'center',outline:'none',fontFamily:'inherit'},title:'아이콘'}),
           R(NavNameInput,{value:n.l||'',onCommit:(v)=>{if(v!==(n.l||''))updNavAt(path,realIdx,{l:v});},
-            style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,outline:'none',fontFamily:'inherit'},title:'메뉴 이름'}),
+            style:{flex:1,minWidth:0,width:'100%',background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,outline:'none',fontFamily:'inherit'},title:'메뉴 이름'}),
           R('button',{onClick:()=>{
             if(!confirm('"'+n.l+'" 메뉴를 삭제할까요?'))return;
             setNavSections(p=>{
@@ -15432,7 +15468,8 @@ function App(){
         onDrop:stopSbScroll,
         onDragEnd:()=>{stopSbScroll();setDraggedItem(null);setDropFolder(null);}},
         /* 편집 모드 토글 */
-        isAdmin&&R('div',{style:{padding:'8px 12px',borderBottom:'1px solid #EEE8F0',display:'flex',gap:6,alignItems:'center'}},
+        isAdmin&&R('div',{style:{padding:'8px 12px',borderBottom:'1px solid #EEE8F0',display:'flex',gap:6,alignItems:'center',
+          position:'sticky',top:0,zIndex:20,background:'var(--sb)'}},
           R('button',{
             onClick:()=>setNavEditMode(!navEditMode),
             style:{flex:1,padding:'5px 8px',background:navEditMode?'var(--p)':'#F2EEF6',color:navEditMode?'#fff':'#6B6B6B',border:'none',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600}
@@ -15521,7 +15558,7 @@ function App(){
                       });
                     },
                     title:'폴더 이름',
-                    style:{flex:1,background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit',outline:'none'}
+                    style:{flex:1,minWidth:0,width:'100%',background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit',outline:'none'}
                   })
                 : R('span',{style:{flex:1,letterSpacing:-0.2}},sec.label),
               navEditMode&&!sec.adminOnly&&R('button',{
