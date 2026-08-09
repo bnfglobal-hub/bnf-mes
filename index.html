@@ -627,7 +627,13 @@ window._isStandalone=window.matchMedia('(display-mode: standalone)').matches||wi
     }catch(e){}
   }
   window.addEventListener('error',function(e){
-    show((e&&e.message)||'스크립트 오류',((e&&e.filename)||'')+' '+((e&&e.lineno)||''));
+    var msg=(e&&e.message)||'';
+    /* 외부 스크립트의 상세 없는 오류("Script error.")나 리소스 로드 오류는 무시 —
+       앱이 정상 실행 중인데 안내가 덮어버리던 문제. 화면이 실제로 비었을 때만 표시 */
+    if(!msg||msg==='Script error.'||/ResizeObserver|Loading chunk/.test(msg))return;
+    var root=document.getElementById('root');
+    if(root&&root.firstChild)return; /* 앱이 이미 떠 있으면 표시하지 않음 */
+    show(msg,((e&&e.filename)||'')+' '+((e&&e.lineno)||''));
   },true);
   /* 스크립트가 아예 실행되지 않은 경우(문법 오류 등)도 잡는다 */
   setTimeout(function(){
@@ -6134,6 +6140,8 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
   const[mgrName,setMgrName]=useState(''); /* 분류 추가 입력 */
   const[emps,setEmps]=useState([]); /* 태그 공유 대상 직원 목록 */
   const[daily,setDaily]=useState([]); /* 일일 업무 체크리스트 */
+  const[recur,setRecur]=useState([]); /* 주기 업무 (서류·소모품 등) */
+  const[recurForm,setRecurForm]=useState(null); /* {id?,title,intervalDays,nextDue} */
   const[dailyInput,setDailyInput]=useState('');
   /* 완료된 업무 접기 (기본 접힘, 선택 기억) */
   const[doneOpen,setDoneOpen]=useState(()=>localStorage.getItem('bnf_done_open')==='1');
@@ -6154,6 +6162,40 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
       }).catch(()=>{});
     },300);
   };
+  const saveRecur=(next)=>{
+    setRecur(next);
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:cur})=>{
+      const ex=cur&&cur.state_data?cur.state_data:{};
+      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,recurring_tasks:next},updated_at:new Date().toISOString()});
+    }).catch(()=>{});
+  };
+  const recurDday=(r)=>{
+    const t=new Date();t.setHours(0,0,0,0);
+    const d=new Date((r.nextDue||'')+'T00:00:00');
+    if(isNaN(d))return 9999;
+    return Math.round((d-t)/86400000);
+  };
+  const addDays=(dateStr,n)=>{
+    const d=dateStr?new Date(dateStr+'T00:00:00'):new Date();
+    d.setDate(d.getDate()+n);
+    return d.toISOString().slice(0,10);
+  };
+  const recurDone=(r)=>{
+    const today=new Date().toISOString().slice(0,10);
+    /* 다음 예정일 = 오늘 + 주기 */
+    saveRecur(recur.map(x=>x.id===r.id?{...x,lastDone:today,nextDue:addDays(today,+x.intervalDays||30)}:x));
+  };
+  const saveRecurForm=()=>{
+    const f=recurForm||{};
+    const title=(f.title||'').trim();
+    const iv=Math.max(1,parseInt(f.intervalDays)||0);
+    if(!title)return alert('업무 이름을 입력하세요');
+    if(!iv)return alert('주기(일)를 입력하세요');
+    const nd=f.nextDue||addDays(new Date().toISOString().slice(0,10),iv);
+    if(f.id)saveRecur(recur.map(x=>x.id===f.id?{...x,title,intervalDays:iv,nextDue:nd}:x));
+    else saveRecur([...recur,{id:'rc'+Date.now().toString(36),title,intervalDays:iv,nextDue:nd,lastDone:''}]);
+    setRecurForm(null);
+  };
   const addDaily=()=>{const t=(dailyInput||'').trim();if(!t)return;saveDaily([...daily,{id:'d'+Date.now().toString(36),text:t,done:false}]);setDailyInput('');};
 
   const load=()=>{
@@ -6163,6 +6205,7 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
       /* 분류 관리 모달을 쓰는 중에는 서버 값으로 덮지 않는다 (확인창 닫힐 때 되돌아가던 문제) */
       if(Array.isArray(sd.work_categories)&&sd.work_categories.length&&!catMgrRef.current)setWcats(sd.work_categories);
       if(Array.isArray(sd.daily_tasks))setDaily(sd.daily_tasks);
+      if(Array.isArray(sd.recurring_tasks))setRecur(sd.recurring_tasks);
       setLoaded(true);
     }).catch(()=>setLoaded(true));
   };
@@ -6397,6 +6440,58 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
       !loaded?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...')
       :ongoing.length===0?R('div',{style:{padding:'14px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},catF==='all'?'위에 업무를 입력하면 바로 추가됩니다':'이 분류의 진행 업무가 없습니다')
       :sectionBody(ongoing,ongoingShow,ongoing.length-ongoingShow.length)
+    ),
+    /* ── 주기 업무 (서류·소모품 등 반복 업무) ── */
+    !personal&&R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:12}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8,flexWrap:'wrap'}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'🔄 주기 업무'),
+          R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'서류 갱신·소모품 주문처럼 반복되는 업무 · 기한이 다가오면 위로 올라옵니다')
+        ),
+        R('button',{onClick:()=>setRecurForm({title:'',intervalDays:30,nextDue:''}),
+          style:{border:'1px dashed var(--p)',background:'#fff',color:'var(--p)',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'＋ 주기 업무 추가')
+      ),
+      recur.length===0
+        ?R('div',{style:{padding:'10px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'등록된 주기 업무가 없습니다. 예) 소모품 주문(30일), 서류 갱신(90일)')
+        :R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))',gap:8}},
+          ...recur.slice().sort((x,y)=>recurDday(x)-recurDday(y)).map(r0=>{
+            const dd=recurDday(r0);
+            const late=dd<0,soon=dd>=0&&dd<=3;
+            const col=late?{bg:'#FEF2F2',bd:'#FECACA',c:'#B91C1C',t:(-dd)+'일 지남'}
+                     :soon?{bg:'#FFFBEB',bd:'#FDE68A',c:'#B45309',t:dd===0?'오늘':'D-'+dd}
+                     :{bg:'#fff',bd:'#EEF1F5',c:'#64748B',t:'D-'+dd};
+            return R('div',{key:r0.id,style:{border:'1px solid '+col.bd,background:col.bg,borderRadius:12,padding:'10px 12px',display:'flex',flexDirection:'column',gap:6}},
+              R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6}},
+                R('span',{style:{fontSize:12.5,fontWeight:800,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r0.title),
+                R('span',{style:{fontSize:10,fontWeight:800,color:col.c,flexShrink:0}},col.t)
+              ),
+              R('div',{style:{fontSize:10.5,color:'var(--tm)'}},
+                (+r0.intervalDays||0)+'일마다 · 다음 '+(r0.nextDue||'-')+(r0.lastDone?' · 최근 '+r0.lastDone:'')),
+              R('div',{style:{display:'flex',gap:5}},
+                R('button',{onClick:()=>recurDone(r0),title:'지금 처리함 → 다음 예정일이 주기만큼 미뤄집니다',
+                  style:{flex:1,border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:8,padding:'5px 0',fontSize:11.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},'✓ 처리 완료'),
+                R('button',{onClick:()=>setRecurForm({id:r0.id,title:r0.title,intervalDays:r0.intervalDays,nextDue:r0.nextDue}),
+                  style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'5px 9px',fontSize:11,cursor:'pointer',fontFamily:'inherit',color:'var(--tm)'}},'수정'),
+                R('button',{onClick:()=>{if(confirm('"'+r0.title+'" 주기 업무를 삭제할까요?'))saveRecur(recur.filter(x=>x.id!==r0.id));},
+                  style:{border:'1px solid #FECACA',background:'#fff',borderRadius:8,padding:'5px 9px',fontSize:11,cursor:'pointer',fontFamily:'inherit',color:'#DC2626'}},'삭제')
+              )
+            );
+          })
+        ),
+      /* 추가/수정 입력줄 */
+      recurForm&&R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginTop:10,paddingTop:10,borderTop:'1px dashed var(--bd)'}},
+        R('input',{value:recurForm.title,onChange:e=>setRecurForm(p=>({...p,title:e.target.value})),placeholder:'업무 이름 (예: 장갑·위생모 주문)',autoFocus:true,
+          onKeyDown:e=>{if(e.key==='Enter')saveRecurForm();},
+          style:{flex:2,minWidth:150,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 11px',fontSize:12.5,fontFamily:'inherit'}}),
+        R('span',{style:{fontSize:11.5,color:'var(--tm)',flexShrink:0}},'주기'),
+        R('input',{type:'number',min:1,value:recurForm.intervalDays,onChange:e=>setRecurForm(p=>({...p,intervalDays:e.target.value})),
+          style:{width:64,border:'1px solid var(--bd)',borderRadius:9,padding:'8px 8px',fontSize:12.5,fontFamily:'inherit',textAlign:'right'}}),
+        R('span',{style:{fontSize:11.5,color:'var(--tm)',flexShrink:0}},'일마다 · 다음 예정일'),
+        R('input',{type:'date',value:recurForm.nextDue,onChange:e=>setRecurForm(p=>({...p,nextDue:e.target.value})),
+          style:{border:'1px solid var(--bd)',borderRadius:9,padding:'7px 8px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{onClick:saveRecurForm,style:{border:'none',background:'var(--p)',color:'#fff',borderRadius:9,padding:'8px 16px',fontSize:12.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},recurForm.id?'수정 저장':'추가'),
+        R('button',{onClick:()=>setRecurForm(null),style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:9,padding:'8px 12px',fontSize:12,cursor:'pointer',fontFamily:'inherit',color:'var(--tm)'}},'취소')
+      )
     ),
     /* ── 완료된 업무 (전체 폭, 접기 가능) ── */
     R('div',{className:'card',style:{borderRadius:16,padding:doneOpen?'16px 18px':'12px 18px'}},
@@ -15144,6 +15239,35 @@ function App(){
   const[page,setPage]=useState('home');
   /* 로그인(사용자 변경) 시 항상 홈 화면부터 시작 */
   useEffect(()=>{if(user)setPage('home');},[user&&user.id]);
+  /* ── 뒤로가기 지원: 페이지 이동을 브라우저 히스토리에 쌓아
+     브라우저/마우스/안드로이드 뒤로가기 + 키보드(Alt+←, Backspace)로 이전 화면 복귀 ── */
+  const popNavRef=useRef(false);
+  useEffect(()=>{
+    if(popNavRef.current){popNavRef.current=false;return;}
+    try{
+      if(history.state&&history.state.bnfPage===page)return;
+      if(history.state&&history.state.bnfPage!==undefined)history.pushState({bnfPage:page},'');
+      else history.replaceState({bnfPage:page},'');
+    }catch(e){}
+  },[page]);
+  useEffect(()=>{
+    const onPop=(e)=>{
+      const p=e.state&&e.state.bnfPage;
+      if(p){popNavRef.current=true;setPage(p);}
+    };
+    const onKey=(e)=>{
+      /* 입력 중이 아닐 때 Backspace = 뒤로 */
+      if(e.key==='Backspace'){
+        const ae=document.activeElement;
+        if(ae&&(/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)||ae.isContentEditable))return;
+        if(document.querySelector('.mbg'))return; /* 모달 열림 시 제외 */
+        e.preventDefault();history.back();
+      }
+    };
+    window.addEventListener('popstate',onPop);
+    window.addEventListener('keydown',onKey);
+    return()=>{window.removeEventListener('popstate',onPop);window.removeEventListener('keydown',onKey);};
+  },[]);
   const[myInfoOpen,setMyInfoOpen]=useState(false);
   const[globalSearch,setGlobalSearch]=useState(false); /* Cmd+K 글로벌 검색 모달 */
   const[notifPanel,setNotifPanel]=useState(false); /* 알림 패널 */
