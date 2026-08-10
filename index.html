@@ -4971,6 +4971,24 @@ const db=t=>sbClient.from(t);
 /* ═══ 알림 시스템 (협업 태그·완료 통지) ═══
    app_state.notifications = [{id,to,from,fromName,type,text,page,ts,read}]
    pushNotif로 특정 직원에게 알림 생성. NotifPanel(🔔)이 읽음. */
+/* 이카운트 자동 동기화 시각 배지 — 재고 관련 화면 공용 */
+function EcountSyncBadge(){
+  const[info,setInfo]=useState(null);
+  const load=()=>sbClient.from('app_state').select('v:state_data->ecount_sync').eq('id',1).maybeSingle()
+    .then(({data})=>{if(data&&data.v)setInfo(data.v);}).catch(()=>{});
+  useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},60000);return()=>clearInterval(t);},[]);
+  useBnfSyncReload(load);
+  if(!info||!info.at)return null;
+  const d=new Date(info.at);
+  const mins=Math.max(0,Math.round((Date.now()-d.getTime())/60000));
+  const fresh=mins<=15;
+  return R('span',{title:'이카운트 재고를 10분마다 자동으로 가져옵니다. 마지막 동기화 기준 시각입니다.',
+    style:{display:'inline-flex',alignItems:'center',gap:5,fontSize:10.5,fontWeight:700,
+      color:fresh?'#15803D':'#B45309',background:fresh?'#F0FDF4':'#FFFBEB',
+      border:'1px solid '+(fresh?'#BBF7D0':'#FDE68A'),borderRadius:999,padding:'3px 10px',whiteSpace:'nowrap'}},
+    '🔄 이카운트 연동 ',(d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'),
+    fresh?' · 최신':' · '+mins+'분 전');
+}
 /* 메인 데이터가 바뀌었는지 가볍게 확인 (updated_at만 조회 — 전송량 절감 + 즉시 동기화)
    ref.current에 마지막으로 본 updated_at을 보관한다 */
 /* 모든 화면 공용: 중앙 동기화 신호(bnf-sync)가 오면 다시 불러온다.
@@ -8067,7 +8085,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
 
   return R('div',{className:'pg fa'},
     R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}},
-      R('div',{className:'pg-title',style:{margin:0}},'🏢 본사재고 관리'),
+      R('div',{className:'pg-title',style:{margin:0,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},'🏢 본사재고 관리',R(EcountSyncBadge,null)),
       R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
         R('button',{onClick:printStockForm,style:{padding:'6px 12px',background:'#fff',color:'#374151',border:'1px solid var(--bd)',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},'🖨 재고조사 양식 인쇄'),
         R('button',{onClick:()=>{if(invPhoto)setInvPhoto(null);else photoRef.current&&photoRef.current.click();},style:{padding:'6px 12px',background:invPhoto?'#FEF2F2':'#fff',color:invPhoto?'#B91C1C':'#374151',border:'1px solid '+(invPhoto?'#FECACA':'var(--bd)'),borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:700,fontFamily:'inherit'}},invPhoto?'✕ 사진 닫기':'📷 재고 사진'),
@@ -8638,7 +8656,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   if(invTab==='erp'){
     return R('div',{className:'pg fa'},
       R('div',{className:'pg-hdr'},
-        R('div',null,R('div',{className:'pg-title'},'📦 재고 관리'),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},'이카운트 ERP 재고 관리 업로드')),
+        R('div',null,R('div',{className:'pg-title',style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},'📦 재고 관리',R(EcountSyncBadge,null)),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},'이카운트 재고 10분마다 자동 동기화 · 엑셀 업로드도 가능')),
         R('div',{className:'tab-row',style:{margin:0}},
           R('button',{className:'tab',onClick:()=>setInvTab('list')},'재고목록'),
           R('button',{className:'tab act'},'ERP 업로드')
@@ -9894,7 +9912,17 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
 }
 
 /* ────── PAGE: 발주현황 ────── */
-function PageOrders({orders,isAdmin,onSetOrders}){
+function PageOrders({orders,isAdmin,onSetOrders,mats}){
+  /* 발주 품목의 현재고(이카운트 연동)를 코드→이름 순으로 찾는다 */
+  const stockOf=(o)=>{
+    const list=mats||[];
+    let m=o.matCode?list.find(x=>String(x.c)===String(o.matCode)):null;
+    if(!m&&o.matName){
+      const key=String(o.matName).replace(/\s/g,'');
+      m=list.find(x=>String(x.n).replace(/\s/g,'')===key)||list.find(x=>String(x.n).replace(/\s/g,'').indexOf(key)>=0);
+    }
+    return m?{s:+m.s||0,u:m.u||''}:null;
+  };
   const[showForm,setShowForm]=useState(false);
   const[nO,setNO]=useState({matName:'',amt:'',unit:'kg',supplier:'',contact:'',total:'',memo:''});
   const addO=()=>{
@@ -9907,6 +9935,7 @@ function PageOrders({orders,isAdmin,onSetOrders}){
   const stepIcons=['📋','✅','🚚','📦'];
   return R('div',{className:'pg fa'},
     isAdmin&&R('div',{style:{marginBottom:14}},
+      R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:8}},R(EcountSyncBadge,null)),
       R('button',{className:'btn bp',style:{marginBottom:showForm?10:0,width:'100%',padding:10},onClick:()=>setShowForm(v=>!v)},showForm?'▲ 닫기':'+ 발주 등록'),
       showForm&&R('div',{className:'card',style:{marginTop:8}},
         R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}},
@@ -9931,6 +9960,7 @@ function PageOrders({orders,isAdmin,onSetOrders}){
               R('div',{style:{fontWeight:700,fontSize:13,color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},o.matName),
               R('div',{style:{display:'flex',gap:8,marginTop:4,fontSize:11,color:'#64748b',flexWrap:'wrap'}},
                 o.amt>0&&R('span',null,'📦 ',o.amt+o.unit),
+                (()=>{const st=stockOf(o);return st?R('span',{title:'이카운트 실시간 재고 (10분마다 자동 동기화)',style:{color:'#15803D',fontWeight:700}},'🔄 현재고 ',fN(st.s),st.u):null;})(),
                 o.supplier&&R('span',null,'🏢 ',o.supplier),
                 o.total>0&&R('span',null,'💰 ₩',fN(o.total))
               )
@@ -15678,7 +15708,7 @@ function App(){
     if(page==='profit'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageProfit,{});}
     if(page==='salesStat'||page==='purchaseStat'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageTrade,{kind:page==='salesStat'?'sales':'purchase'});}
     if(page==='purchase_data'||page==='adm_purchase'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PagePurchaseAnalysis,{mats,variant:'adm'});}
-    if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
+    if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders,mats});
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
     if(page==='dart')return R(PageDartLookup,{});
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
