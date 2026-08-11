@@ -1915,7 +1915,7 @@ function PageNotices({user}){
   const[search,setSearch]=useState('');
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{setLoading(true);const{data}=await db('notices').select('*,emp(name)').order('is_pinned',{ascending:false}).order('created_at',{ascending:false});setNotices(data||[]);setLoading(false);};
   const save=async()=>{if(!form.title.trim())return;await db('notices').insert({...form,author_id:user.id});setShowF(false);setForm({title:'',content:'',is_important:false,is_pinned:false});load();};
   const del=async id=>{if(!confirm('삭제?'))return;await db('notices').delete().eq('id',id);setSel(null);load();};
@@ -2547,7 +2547,7 @@ function PageDevRecord({user,title,ic,desc,storeKey,folder,nameLabel,namePh}){
   const impAtt=useAttach(folder||'rnd',()=>imp.files,v=>setImp(p=>Object.assign({},p,{files:v})));
 
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
@@ -2768,7 +2768,7 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
 
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
@@ -2979,7 +2979,7 @@ function PageManual({user}){
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
 
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
@@ -3238,7 +3238,7 @@ function PageCRM({user}){
   const nf=n=>(+n||0).toLocaleString();
 
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
       const[{data:a},{data:b}]=await Promise.all([
@@ -3396,7 +3396,7 @@ function PageWorkOrder({user}){
   const KEY='bnf_pm_workorder';
 
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
@@ -3626,7 +3626,7 @@ function PageOrg({user}){
   const[emps,setEmps]=useState([]);const[depts,setDepts]=useState([]);
   const[selDept,setSelDept]=useState(null);const[selEmp,setSelEmp]=useState(null);const[search,setSearch]=useState('');
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{
     const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').eq('status','active').order('name'),db('depts').select('*').order('sort_order')]);
     setEmps(e||[]);setDepts(d||[]);
@@ -3701,7 +3701,7 @@ function PageApproval({user}){
   const fileRef=useRef(null);
   const isAdmin=['superadmin','admin'].includes(user.role);
   useEffect(()=>{load();loadEmps();},[tab]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   useEffect(()=>{const t=setInterval(()=>{if(!document.hidden&&!document.querySelector('.mbg'))load();},10000);return()=>clearInterval(t);},[tab]);
   useEffect(()=>{loadCfg();},[]);
   const loadEmps=async()=>{const{data}=await db('emp').select('id,name,position').eq('status','active').order('name');setEmps(data||[]);};
@@ -4802,7 +4802,7 @@ function PageAdmin({user}){
     return uDir==='asc'?c:-c;
   });
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
   const saveU=async()=>{
     if(!uf.name||!uf.email)return alert('이름/이메일 필수');
@@ -4977,7 +4977,7 @@ function EcountSyncBadge(){
   const load=()=>sbClient.from('app_state').select('v:state_data->ecount_sync').eq('id',1).maybeSingle()
     .then(({data})=>{if(data&&data.v)setInfo(data.v);}).catch(()=>{});
   useEffect(()=>{load();const t=setInterval(()=>{if(!document.hidden)load();},60000);return()=>clearInterval(t);},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   if(!info||!info.at)return null;
   const d=new Date(info.at);
   const mins=Math.max(0,Math.round((Date.now()-d.getTime())/60000));
@@ -6621,7 +6621,7 @@ function PageProfit(){
     setLoaded(true);
   }).catch(()=>setLoaded(true));
   useEffect(()=>{loadProfit();},[]);
-  useBnfSyncReload(loadProfit);
+  useBnfSyncReload(()=>loadProfit());
   const saveData=(next)=>{
     setData(next);setSaving(true);
     if(tRef.current)clearTimeout(tRef.current);
@@ -10499,7 +10499,7 @@ function PageOperation({user}){
   const[form,setForm]=useState({year:now.getFullYear(),month:now.getMonth()+1,total_days:22,actual_days:0,target_rate:80,notes:''});
   
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{setLoading(true);try{const{data}=await sbClient.from('operation_rate').select('*').order('year',{ascending:false}).order('month',{ascending:false});setRecords(data||[]);}catch(e){}setLoading(false);};
   
   const save=async()=>{
@@ -10831,7 +10831,7 @@ function PageLinks({user}){
   const isAdmin=['superadmin','admin'].includes(user.role);
 
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
 
   const load=async()=>{
     setLoading(true);
@@ -10965,7 +10965,7 @@ function PageAutoOrder({user,mats,onCreateOrder}){
   const[search,setSearch]=useState('');
   
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{setLoading(true);try{const{data}=await sbClient.from('auto_order_rules').select('*');setRules(data||[]);}catch(e){}setLoading(false);};
   
   const suggestions=useMemo(()=>{
@@ -11997,7 +11997,7 @@ function PageRecipes({user,mats,prods}){
   function blankRecipe(){return{product_code:'',product_name:'',version:1,status:'active',category:'국/탕류',net_weight:0,total_weight:0,cooking_method:'',cooking_time:0,cooking_temp:'',packaging:'',shelf_life_days:30,storage_temp:'냉장',ingredients:[],nutrition:{calories:0,carbs:0,protein:0,fat:0,sodium:0,sugar:0},allergens:[],notes:''};}
   
   useEffect(()=>{load();},[]);
-  useBnfSyncReload(load);
+  useBnfSyncReload(()=>load());
   const load=async()=>{setLoading(true);try{const{data}=await sbClient.from('recipes').select('*').order('updated_at',{ascending:false});setRecipes(data||[]);}catch(e){}setLoading(false);};
   
   const detectAllergens=(ingredients)=>{
