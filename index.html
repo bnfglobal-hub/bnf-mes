@@ -10450,17 +10450,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
 }
 
 /* ────── PAGE: 발주현황 ────── */
-function PageOrders({orders,isAdmin,onSetOrders,mats}){
-  /* 발주 품목의 현재고(이카운트 연동)를 코드→이름 순으로 찾는다 */
-  const stockOf=(o)=>{
-    const list=mats||[];
-    let m=o.matCode?list.find(x=>String(x.c)===String(o.matCode)):null;
-    if(!m&&o.matName){
-      const key=String(o.matName).replace(/\s/g,'');
-      m=list.find(x=>String(x.n).replace(/\s/g,'')===key)||list.find(x=>String(x.n).replace(/\s/g,'').indexOf(key)>=0);
-    }
-    return m?{s:+m.s||0,u:m.u||''}:null;
-  };
+function PageOrders({orders,isAdmin,onSetOrders}){
   const[showForm,setShowForm]=useState(false);
   const[nO,setNO]=useState({matName:'',amt:'',unit:'kg',supplier:'',contact:'',total:'',memo:''});
   const addO=()=>{
@@ -10473,7 +10463,6 @@ function PageOrders({orders,isAdmin,onSetOrders,mats}){
   const stepIcons=['📋','✅','🚚','📦'];
   return R('div',{className:'pg fa'},
     isAdmin&&R('div',{style:{marginBottom:14}},
-      R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:8}},R(EcountSyncBadge,null)),
       R('button',{className:'btn bp',style:{marginBottom:showForm?10:0,width:'100%',padding:10},onClick:()=>setShowForm(v=>!v)},showForm?'▲ 닫기':'+ 발주 등록'),
       showForm&&R('div',{className:'card',style:{marginTop:8}},
         R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}},
@@ -10498,7 +10487,6 @@ function PageOrders({orders,isAdmin,onSetOrders,mats}){
               R('div',{style:{fontWeight:700,fontSize:13,color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},o.matName),
               R('div',{style:{display:'flex',gap:8,marginTop:4,fontSize:11,color:'#64748b',flexWrap:'wrap'}},
                 o.amt>0&&R('span',null,'📦 ',o.amt+o.unit),
-                (()=>{const st=stockOf(o);return st?R('span',{title:'이카운트 실시간 재고 (10분마다 자동 동기화)',style:{color:'#15803D',fontWeight:700}},'🔄 현재고 ',fN(st.s),st.u):null;})(),
                 o.supplier&&R('span',null,'🏢 ',o.supplier),
                 o.total>0&&R('span',null,'💰 ₩',fN(o.total))
               )
@@ -16387,7 +16375,7 @@ function App(){
     if(page==='profit'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageProfit,{});}
     if(page==='salesStat'||page==='purchaseStat'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageTrade,{kind:page==='salesStat'?'sales':'purchase'});}
     if(page==='purchase_data'||page==='adm_purchase'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PagePurchaseAnalysis,{mats,variant:'adm'});}
-    if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders,mats});
+    if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
     if(page==='dart')return R(PageDartLookup,{});
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
