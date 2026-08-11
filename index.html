@@ -12475,13 +12475,23 @@ function loadNavSections(){
 }
 function saveNavSections(arr){
   try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(arr));}catch(e){}
-  /* 메뉴 구성은 회사 공통 — 서버에도 저장해 모든 직원이 같은 순서로 본다 */
+  /* 메뉴 구성은 회사 공통 — 서버에도 저장해 모든 직원이 같은 순서로 본다.
+     안전장치(2026-08-11 구성 소실 사고): 서버 구성보다 항목 수가 크게 적으면 덮어쓰지 않는다. */
   if(saveNavSections._t)clearTimeout(saveNavSections._t);
   saveNavSections._t=setTimeout(()=>{
     sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
       const ex=data&&data.state_data?data.state_data:null;
-      if(!ex)return; /* 읽기 실패 시 저장 중단 (다른 키 보호) */
-      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,bnf_nav_sections:arr,bnf_nav_sections_at:new Date().toISOString()},updated_at:new Date().toISOString()});
+      if(!ex)return;                                  /* 읽기 실패 시 저장 중단 */
+      const cnt=(x)=>(Array.isArray(x)?x:[]).reduce((n,s)=>n+1+((s&&s.items||[]).length),0);
+      const prev=ex.bnf_nav_sections;
+      if(Array.isArray(prev)&&prev.length&&cnt(arr)<cnt(prev)*0.6){
+        console.warn('메뉴 구성 저장 보류: 서버',cnt(prev),'개 → 이 기기',cnt(arr),'개 (실수 방지)');
+        return;
+      }
+      /* 직전 구성을 되돌리기용으로 1벌 보관 */
+      const patch={bnf_nav_sections:arr,bnf_nav_sections_at:new Date().toISOString()};
+      if(Array.isArray(prev)&&prev.length)patch.bnf_nav_sections_prev=prev;
+      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,...patch},updated_at:new Date().toISOString()});
     }).catch(()=>{});
   },600);
 }
@@ -15131,13 +15141,9 @@ function App(){
     if(navEditRef.current)return;
     sbClient.from('app_state').select('v:state_data->bnf_nav_sections').eq('id',1).maybeSingle().then(({data})=>{
       const v=data&&data.v;
-      if(!Array.isArray(v)||!v.length){
-        /* 서버에 공통 구성이 아직 없으면, 관리자의 현재 구성을 한 번 올려 기준으로 삼는다 */
-        const u=user||{};
-        if(['superadmin','admin'].includes(u.role)&&Array.isArray(navSectionsRef.current)&&navSectionsRef.current.length)
-          saveNavSections(navSectionsRef.current);
-        return;
-      }
+      /* 서버 구성이 없으면 아무것도 하지 않는다.
+         (기기의 '기본 메뉴'가 회사 공통 구성을 덮어쓰던 사고 방지 — 2026-08-11) */
+      if(!Array.isArray(v)||!v.length)return;
       const cur=JSON.stringify(navSectionsRef.current||[]);
       if(cur===JSON.stringify(v))return;
       setNavSections(v);
