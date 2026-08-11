@@ -12472,7 +12472,18 @@ function loadNavSections(){
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
 }
-function saveNavSections(arr){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(arr));}catch(e){}}
+function saveNavSections(arr){
+  try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(arr));}catch(e){}
+  /* 메뉴 구성은 회사 공통 — 서버에도 저장해 모든 직원이 같은 순서로 본다 */
+  if(saveNavSections._t)clearTimeout(saveNavSections._t);
+  saveNavSections._t=setTimeout(()=>{
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const ex=data&&data.state_data?data.state_data:null;
+      if(!ex)return; /* 읽기 실패 시 저장 중단 (다른 키 보호) */
+      return sbClient.from('app_state').upsert({id:1,state_data:{...ex,bnf_nav_sections:arr,bnf_nav_sections_at:new Date().toISOString()},updated_at:new Date().toISOString()});
+    }).catch(()=>{});
+  },600);
+}
 /* 메뉴 편집용 이름 입력칸 — 글자마다 전체 화면을 다시 그리면 타이핑이 끊기므로
    입력 중에는 이 칸만 갱신하고, 잠시 멈추거나 칸을 벗어날 때 저장한다 */
 function NavNameInput({value,onCommit,style,title}){
@@ -15113,7 +15124,31 @@ function App(){
     };
   },[sbOpen]);
   const[navSections,setNavSections]=useState(()=>loadNavSections());
+  /* 서버에 저장된 회사 공통 메뉴 구성을 받아온다 (관리자가 편집 중이면 건너뜀) */
+  const navEditRef=useRef(false);
+  const pullNavSections=()=>{
+    if(navEditRef.current)return;
+    sbClient.from('app_state').select('v:state_data->bnf_nav_sections').eq('id',1).maybeSingle().then(({data})=>{
+      const v=data&&data.v;
+      if(!Array.isArray(v)||!v.length){
+        /* 서버에 공통 구성이 아직 없으면, 관리자의 현재 구성을 한 번 올려 기준으로 삼는다 */
+        const u=user||{};
+        if(['superadmin','admin'].includes(u.role)&&Array.isArray(navSectionsRef.current)&&navSectionsRef.current.length)
+          saveNavSections(navSectionsRef.current);
+        return;
+      }
+      const cur=JSON.stringify(navSectionsRef.current||[]);
+      if(cur===JSON.stringify(v))return;
+      setNavSections(v);
+      try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(v));}catch(e){}
+    }).catch(()=>{});
+  };
+  const navSectionsRef=useRef(null);
   const[navEditMode,setNavEditMode]=useState(false);
+  useEffect(()=>{navEditRef.current=navEditMode;},[navEditMode]);
+  useEffect(()=>{navSectionsRef.current=navSections;},[navSections]);
+  useEffect(()=>{if(user)pullNavSections();},[user&&user.id]);
+  useBnfSyncReload(()=>pullNavSections());
   const[dropFolder,setDropFolder]=useState(null);   /* 지금 메뉴를 떨어뜨릴 폴더 (하이라이트용) */
   /* 드래그 중에는 브라우저가 휠 스크롤을 막으므로, 사이드바 위/아래 끝에 오면 자동 스크롤 */
   const sbRef=useRef(null);
@@ -15863,7 +15898,14 @@ function App(){
         isAdmin&&R('div',{style:{padding:'8px 12px',borderBottom:'1px solid #EEE8F0',display:'flex',gap:6,alignItems:'center',
           position:'sticky',top:0,zIndex:20,background:'var(--sb)'}},
           R('button',{
-            onClick:()=>setNavEditMode(!navEditMode),
+            onClick:()=>{
+              const leaving=navEditMode;
+              setNavEditMode(!navEditMode);
+              if(leaving){
+                navEditRef.current=false;
+                saveNavSections(navSectionsRef.current||[]);   /* 편집 완료 즉시 전 직원에게 공유 */
+              }
+            },
             style:{flex:1,padding:'5px 8px',background:navEditMode?'var(--p)':'#F2EEF6',color:navEditMode?'#fff':'#6B6B6B',border:'none',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600}
           },navEditMode?'✓ 편집 완료':'✎ 메뉴 편집'),
           navEditMode&&R('button',{
