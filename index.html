@@ -2447,6 +2447,67 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   );
 }
 
+/* ═══ 위하고(Smart A) 재무 데이터 요약 — 통장잔고·매출채권 ═══
+   wehago_finance.companies[].bs 에 '현금/보통예금/정기예.적금/외상매출금/대손충당금'이 들어온다. */
+function useWehagoFinance(){
+  const[fin,setFin]=useState(null);
+  const load=()=>sbClient.from('app_state').select('v:state_data->wehago_finance').eq('id',1).maybeSingle()
+    .then(({data})=>{if(data&&data.v)setFin(data.v);}).catch(()=>{});
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+  return fin;
+}
+function wfPick(fin,names){
+  /* 회사별로 해당 계정 금액을 더한다 (당기 c 기준) */
+  const out={total:0,byCompany:[]};
+  ((fin&&fin.companies)||[]).forEach(c=>{
+    let v=0;
+    (c.bs||[]).forEach(r=>{
+      const n=String(r.n||'').replace(/\s/g,'');
+      if(names.some(k=>n===k))v+=(+r.c||0);
+    });
+    out.byCompany.push({name:c.name||c.label||'회사',amt:v});
+    out.total+=v;
+  });
+  return out;
+}
+const WF_CASH=['현금','보통예금','정기예.적금','정기예적금','당좌예금'];
+function FinanceCards({fin,mode}){
+  if(!fin)return null;
+  const cash=wfPick(fin,WF_CASH);
+  const ar=wfPick(fin,['외상매출금']);
+  const allow=wfPick(fin,['대손충당금']);
+  const at=fin.at?new Date(fin.at):null;
+  const label=at?((at.getMonth()+1)+'/'+at.getDate()+' 기준'):'';
+  const card=(l,v,c,bg,bd,sub)=>R('div',{style:{flex:'1 1 170px',minWidth:150,background:bg,border:'1px solid '+bd,borderRadius:12,padding:'12px 14px'}},
+    R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},l),
+    R('div',{style:{fontSize:19,fontWeight:900,color:c,marginTop:2,fontVariantNumeric:'tabular-nums'}},fMoney(v)),
+    sub&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},sub));
+  const rows=(g)=>g.byCompany.filter(x=>x.amt).map(x=>x.name+' '+fMoney(x.amt)).join(' · ');
+  return R('div',{style:{marginBottom:12}},
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+      mode!=='ar'&&card('통장잔고(현금+예금)',cash.total,'#1D4ED8','#EFF6FF','#BFDBFE',rows(cash)||label),
+      card('매출채권(외상매출금)',ar.total,'#B45309','#FFFBEB','#FDE68A',rows(ar)||label),
+      mode==='ar'&&card('대손충당금',allow.total,'#DC2626','#FEF2F2','#FECACA',rows(allow)||''),
+      mode==='ar'&&card('회수 가능 추정',ar.total-allow.total,'#15803D','#F0FDF4','#BBF7D0','매출채권 - 대손충당금')
+    ),
+    R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:6}},
+      '※ 위하고(Smart A) 재무제표에서 자동 수집 — '+(at?at.toLocaleString('ko-KR'):'수집 이력 없음')+' 기준. 일별 잔고가 아니라 결산 시점 잔액입니다.')
+  );
+}
+function PageReceivablesWrap({user}){
+  const fin=useWehagoFinance();
+  return R('div',null,
+    R('div',{className:'pg fa',style:{paddingBottom:0}},
+      R('div',{className:'pg-hdr',style:{marginBottom:10}},
+        R('div',null,R('div',{className:'pg-title'},'💳 미수금 관리'),
+          R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'회사 전체 매출채권은 위하고에서 자동으로 가져오고, 거래처별 상세는 아래에 기록합니다'))),
+      R(FinanceCards,{fin,mode:'ar'})
+    ),
+    R(SharedTable,Object.assign({key:'receivables',user},SHARED_PAGES.receivables))
+  );
+}
+
 /* ═══ 매입/매출 전표 입력 (경영지원부) ═══════════════
    app_state.trade_entries = [{id,kind:'sales'|'purchase',date,cust,prodCd,prodName,qty,price,vatType,memo,by,at,sent}]
    입력 → 목록 관리 → 이카운트 업로드용 엑셀 생성 (API 검증 후 자동전송으로 교체 예정) */
@@ -2630,6 +2691,7 @@ function PageTradeEntry({user,mats}){
 /* ═══ 일계표 · 월말 원장 대사 (경영지원부) ═══════════════ */
 function fMoney(n){return Math.round(+n||0).toLocaleString();}
 function PageDailyReport({user,mats,orders}){
+  const fin=useWehagoFinance();
   const[sd,setSd]=useState(null);
   const[memo,setMemo]=useState('');
   const[date,setDate]=useState(today2());
@@ -2687,6 +2749,7 @@ function PageDailyReport({user,mats,orders}){
         R('input',{type:'date',value:date,onChange:e=>setDate(e.target.value),style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
         R('button',{className:'btn bp btn-sm',onClick:copy},'📋 복사'))
     ),
+    R(FinanceCards,{fin}),
     R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
       card('이번 달 매출',fMoney(sales),'#1D4ED8','#EFF6FF','#BFDBFE',ym+' 누계(이카운트)'),
       card('이번 달 매입',fMoney(purch),'#B45309','#FFFBEB','#FDE68A',ym+' 누계'),
@@ -16308,6 +16371,7 @@ function App(){
     if(page==='crm')return R(PageCRM,{user});
     if(page==='trend')return R(PageTrend,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
+    if(page==='receivables')return R(PageReceivablesWrap,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='files')return R(PageFiles,{user});
