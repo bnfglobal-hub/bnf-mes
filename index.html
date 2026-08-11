@@ -14010,10 +14010,10 @@ function PageShipSort({mats,hqItems}){
       const h=(hqItems||[]).find(x=>x.matCode===mapped);
       if(h){
         const mt=(mats||[]).find(m=>m.c===h.matCode)||{};
-        return{stock:(+h.hqStock||0)+(+mt.s||0),unit:mt.u||h.unit||'ea',source:'본사(수동)',matchedName:h.matName||mt.n||mapped};
+        return{stock:(+h.hqStock||0)+(+mt.s||0),unit:mt.u||h.unit||'ea',source:'본사(수동)',matchedName:h.matName||mt.n||mapped,code:h.matCode||mt.c||''};
       }
       const m=(mats||[]).find(x=>x.c===mapped);
-      if(m)return{stock:+(m.s||0),unit:m.u||'ea',source:'재고(수동)',matchedName:m.n||mapped};
+      if(m)return{stock:+(m.s||0),unit:m.u||'ea',source:'재고(수동)',matchedName:m.n||mapped,code:m.c||''};
     }
     /* ── 자동 매칭 점수 ──
        출고 제품명은 "[브랜드] 제품명", 재고 품목명은 "브랜드/제품명[규격]" 형태라
@@ -14060,7 +14060,7 @@ function PageShipSort({mats,hqItems}){
     });
     if(best&&bestScore>=60){
       const mt=(mats||[]).find(m=>m.c===best.matCode)||{};
-      return{stock:(+best.hqStock||0)+(+mt.s||0),unit:mt.u||best.unit||'ea',source:'본사',matchedName:best.matName||mt.n||''};
+      return{stock:(+best.hqStock||0)+(+mt.s||0),unit:mt.u||best.unit||'ea',source:'본사',matchedName:best.matName||mt.n||'',code:best.matCode||mt.c||''};
     }
     /* 2) 원재료/완제품 mats에서 */
     const allMats=(mats||[]);
@@ -14069,7 +14069,7 @@ function PageShipSort({mats,hqItems}){
       const s=score(m.n||'');
       if(s>bestScore){bestScore=s;best=m;}
     });
-    if(best&&bestScore>=60)return{stock:+(best.s||0),unit:best.u||'ea',source:'재고',matchedName:best.n||''};
+    if(best&&bestScore>=60)return{stock:+(best.s||0),unit:best.u||'ea',source:'재고',matchedName:best.n||'',code:best.c||''};
     return null;
   };
 
@@ -14758,6 +14758,51 @@ function PageShipSort({mats,hqItems}){
   };
 
   /* 센터별 집계 - 기존 데이터에 누적, 중복 파일은 자동 제외 */
+  /* ── 이카운트 '판매 전표' 업로드용 엑셀 만들기 ──
+     API 검증 전까지 사용하는 방식: 파일을 만들어 이카운트 [엑셀 자료 올리기]에 올리면 전표가 등록된다.
+     센터명 → 이카운트 거래처명 매핑은 화면에서 확인·수정할 수 있게 미리보기를 먼저 띄운다. */
+  const ECOUNT_CUST={
+    '김포(삼우)':'주식회사 컬리',
+    '김포(켄달)':'주식회사 컬리',
+    '평택컬리':'주식회사 컬리',
+    '창원물류대행':'주식회사 컬리'
+  };
+  const[xlPrev,setXlPrev]=useState(null);   /* 이카운트 전표 미리보기 */
+  const buildEcountRows=()=>{
+    const out=[];
+    if(!parsed||!parsed.byCenter)return out;
+    Object.entries(parsed.byCenter).forEach(([k,d])=>{
+      const{date,center}=parseCkey(k);
+      const cust=ECOUNT_CUST[center]||center;
+      Object.entries(d.items||{}).forEach(([name,v])=>{
+        const st=findStock(name);
+        out.push({
+          date:(date||shipDate||today2()).replace(/-/g,''),
+          cust:cust, center:center,
+          prodCd:(st&&st.code)||'', prodName:name,
+          qty:+v.total||0, box:+v.box||0, exp:v.exp||'',
+          price:0
+        });
+      });
+    });
+    out.sort((a,b)=>(a.date+a.cust+a.prodName).localeCompare(b.date+b.cust+b.prodName,'ko'));
+    return out;
+  };
+  const downloadEcountXl=(rows)=>{
+    if(typeof XLSX==='undefined'){alert('엑셀 라이브러리를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
+    /* 이카운트 판매입력 엑셀 업로드 표준 열 구성 */
+    const head=['일자','순번','거래처명','품목코드','품목명','수량','단가','공급가액','부가세','적요'];
+    const body=rows.map((r,i)=>[
+      r.date, i+1, r.cust, r.prodCd, r.prodName, r.qty, r.price||'', '', '',
+      (r.center||'')+(r.exp?(' / 소비기한 '+r.exp):'')
+    ]);
+    const ws=XLSX.utils.aoa_to_sheet([head,...body]);
+    ws['!cols']=[{wch:10},{wch:6},{wch:18},{wch:12},{wch:34},{wch:9},{wch:10},{wch:12},{wch:10},{wch:26}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'판매입력');
+    XLSX.writeFile(wb,'이카운트_판매전표_'+(shipDate||today2())+'.xlsx');
+  };
+
   const aggregate=(orders,dateStr)=>{
     const hasExisting=parsed&&parsed.byCenter;
     const prevSources=(hasExisting&&Array.isArray(parsed.sources))?parsed.sources:[];
@@ -14952,6 +14997,47 @@ function PageShipSort({mats,hqItems}){
         R('div',{className:'mfoot'},
           R('button',{className:'btn bs',onClick:()=>setReview(null),style:{flex:1,padding:10}},'취소'),
           R('button',{className:'btn bp',onClick:applyReview,style:{flex:2,padding:10,fontSize:14}},'✓ 확인했습니다 · 출고계획 반영')
+        )
+      )
+    )),
+    /* ── 이카운트 판매전표 엑셀 ── */
+    parsed&&parsed.byCenter&&R('div',{className:'card',style:{marginBottom:14,padding:'12px 14px'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        R('div',null,
+          R('div',{style:{fontSize:13,fontWeight:800}},'🧾 이카운트 판매 전표 만들기'),
+          R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'확인 후 엑셀로 받아 이카운트 [엑셀 자료 올리기]에 올리면 전표가 등록됩니다')
+        ),
+        R('button',{className:'btn bp btn-sm',onClick:()=>setXlPrev(buildEcountRows())},'전표 미리보기')
+      )
+    ),
+    /* 미리보기 모달 */
+    xlPrev&&R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)setXlPrev(null);}},
+      R('div',{className:'mbox',style:{maxWidth:900,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
+        R('div',{className:'mhdr'},
+          R('span',{style:{fontSize:15,fontWeight:800}},'🧾 이카운트 판매 전표 미리보기'),
+          R('button',{onClick:()=>setXlPrev(null),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#64748b'}},'×')
+        ),
+        R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
+          R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 12px',fontSize:11.5,color:'#92400E',marginBottom:10,lineHeight:1.6}},
+            '거래처명·품목코드가 이카운트에 등록된 것과 같아야 업로드됩니다. 품목코드가 비어 있으면 이카운트가 품목명으로 찾습니다.'),
+          R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
+            R('thead',null,R('tr',null,R('th',{style:{width:88}},'일자'),R('th',null,'거래처'),R('th',null,'품목'),
+              R('th',{style:{width:72,textAlign:'right'}},'수량'),R('th',{style:{width:60,textAlign:'right'}},'박스'),R('th',{style:{width:96}},'센터'))),
+            R('tbody',null,...xlPrev.map((r,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9'}},
+              R('td',{style:{fontSize:11}},r.date),
+              R('td',{style:{fontSize:11.5}},r.cust),
+              R('td',{style:{fontSize:11.5,fontWeight:600}},r.prodName,r.prodCd?R('span',{style:{color:'var(--tm)',fontWeight:400}},' ('+r.prodCd+')'):null),
+              R('td',{style:{textAlign:'right',fontWeight:700}},fN(r.qty)),
+              R('td',{style:{textAlign:'right'}},r.box),
+              R('td',{style:{fontSize:10.5,color:'var(--tm)'}},r.center)
+            )))
+          )),
+          xlPrev.length===0&&R('div',{style:{padding:'20px',textAlign:'center',color:'var(--tm)',fontSize:12}},'만들 전표가 없습니다. 먼저 출고 계획을 반영하세요.')
+        ),
+        R('div',{className:'mfoot'},
+          R('span',{style:{flex:1,fontSize:11.5,color:'var(--tm)'}},'총 '+xlPrev.length+'줄 · 수량 합 '+fN(xlPrev.reduce((n,r)=>n+(+r.qty||0),0))),
+          R('button',{className:'btn bs',onClick:()=>setXlPrev(null),style:{padding:'8px 14px'}},'닫기'),
+          R('button',{className:'btn bp',onClick:()=>{downloadEcountXl(xlPrev);setXlPrev(null);},style:{padding:'8px 18px'}},'⬇ 엑셀 받기')
         )
       )
     )),
