@@ -10077,13 +10077,13 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   },[]);
   /* ── 통합 소요량 표: 열 너비 · 글씨 크기 사용자 조절 (브라우저에 저장) ── */
   const COLS=[
-    {k:'ck',l:'발주',w:40,a:'center'},
-    {k:'nm',l:'원재료',w:300},
-    {k:'sup',l:'매입처',w:230},
-    {k:'pr',l:'최근 매입단가',w:112,a:'right'},
-    {k:'nd',l:'총 필요',w:96,a:'right'},
-    {k:'st',l:'재고',w:84,a:'right'},
-    {k:'sh',l:'부족',w:100,a:'right'}
+    {k:'ck',l:'발주',w:36,a:'center'},
+    {k:'nm',l:'원재료',w:250},
+    {k:'sup',l:'매입처',w:150},
+    {k:'pr',l:'최근 매입단가',w:98,a:'right'},
+    {k:'nd',l:'총 필요',w:86,a:'right'},
+    {k:'st',l:'재고',w:76,a:'right'},
+    {k:'sh',l:'부족',w:88,a:'right'}
   ];
   const CBTN={background:'#fff',border:'1px solid #E2E8F0',borderRadius:6,padding:'2px 7px',cursor:'pointer',fontSize:10,fontWeight:700,color:'#64748b',fontFamily:'inherit',lineHeight:1.6};
   const[colW,setColW]=useState(()=>{try{const v=JSON.parse(localStorage.getItem('bnf_prod_colw_v1')||'null');return(v&&typeof v==='object')?v:{};}catch(e){return{};}});
@@ -10260,7 +10260,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       ),
       R('div',{style:{fontSize:9.5,color:'#b0b8c4',padding:'0 14px 4px'}},'💡 열 제목 사이 경계선을 좌우로 끌면 칸 너비를 바꿀 수 있습니다'),
       R('div',{style:{overflowX:'auto'}},
-      R('table',{style:{width:COLS.reduce((a,c)=>a+wOf(c.k),0),minWidth:'100%',fontSize:fontScale,borderCollapse:'collapse',tableLayout:'fixed'}},
+      R('table',{style:{width:COLS.reduce((a,c)=>a+wOf(c.k),0),maxWidth:'100%',fontSize:fontScale,borderCollapse:'collapse',tableLayout:'fixed'}},
         R('colgroup',null,...COLS.map(c=>R('col',{key:c.k,style:{width:wOf(c.k)}}))),
         R('thead',null,R('tr',{style:{background:'#FAFAFA'}},
           ...COLS.map((c,ci)=>R('th',{key:c.k,style:{padding:'5px 8px',textAlign:c.a||'left',color:'#94a3b8',fontWeight:600,fontSize:'0.92em',borderBottom:'1px solid #E2E8F0',borderRight:ci<COLS.length-1?'1px solid #E2E8F0':'none',position:'relative',whiteSpace:'nowrap',overflow:'hidden'}},
