@@ -10817,6 +10817,134 @@ ${quote.note?`<div class="note"><b>특이사항:</b>\n${quote.note}</div>`:''}
   );
 }
 
+/* ═══ 전 제품 원가 일괄 산출 (BOM × 최근 매입단가) ═══
+   매입단가 조회와 같은 데이터(app_state id=5 purchase_prices)를 사용한다. */
+function ProdCostTable({prods,mats}){
+  const[pp,setPp]=useState(null);          /* 이카운트 최근 매입단가 */
+  const[sort,setSort]=useState('cost');    /* cost | unit | name | miss */
+  const[q,setQ]=useState('');
+  const[yieldMap,setYieldMap]=useState({}); /* 제품별 1회 배합 산출량(개) */
+  const yTimer=useRef(null);
+  const saveYield=(next)=>{
+    setYieldMap(next);
+    if(yTimer.current)clearTimeout(yTimer.current);
+    yTimer.current=setTimeout(()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+        const ex=data&&data.state_data?data.state_data:null;
+        if(!ex)return;
+        return sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{prod_yield:next}),updated_at:new Date().toISOString()});
+      }).catch(()=>{});
+    },700);
+  };
+  const load=()=>{
+    sbClient.from('app_state').select('v:state_data->purchase_prices').eq('id',5).maybeSingle()
+      .then(({data})=>{if(data&&data.v)setPp(data.v);}).catch(()=>{});
+    sbClient.from('app_state').select('v:state_data->prod_yield').eq('id',1).maybeSingle()
+      .then(({data})=>{if(data&&data.v&&typeof data.v==='object')setYieldMap(data.v);}).catch(()=>{});
+  };
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+
+  /* 원재료명 → 최근 매입단가 (이름 정규화 매칭) */
+  const priceIndex=useMemo(()=>{
+    const idx={};
+    ((pp&&pp.items)||[]).forEach(it=>{
+      const k=String(it.name||'').replace(/\s/g,'');
+      if(!k)return;
+      if(!idx[k]||(it.latestDate||'')>(idx[k].date||''))idx[k]={price:+it.latest||0,date:it.latestDate||'',avg:+it.avg||0};
+    });
+    return idx;
+  },[pp]);
+  const priceOf=(b)=>{
+    const key=String(b.name||'').replace(/\s/g,'');
+    if(priceIndex[key])return priceIndex[key];
+    /* 부분 일치 보조 탐색 */
+    const hit=Object.keys(priceIndex).find(k=>k.indexOf(key)>=0||key.indexOf(k)>=0);
+    return hit?priceIndex[hit]:null;
+  };
+
+  const rows=useMemo(()=>{
+    return (prods||[]).filter(p=>(p.bom||[]).length>0).map(p=>{
+      let cost=0,miss=0,missNames=[];
+      (p.bom||[]).forEach(b=>{
+        const amt=+b.amt||0;
+        const pr=priceOf(b);
+        if(pr&&pr.price>0)cost+=amt*pr.price;
+        else{miss++;if(missNames.length<3)missNames.push(b.name||b.c);}
+      });
+      const y=parseFloat(yieldMap[p.id])||0;
+      return{id:p.id,name:p.name,cat:p.cat||'',items:(p.bom||[]).length,cost,miss,missNames,y,unitCost:y>0?cost/y:0};
+    });
+  },[prods,priceIndex,yieldMap]);
+
+  const list=rows.filter(r=>{const t=q.trim();return !t||String(r.name).indexOf(t)>=0;})
+    .sort((a,b)=>sort==='name'?String(a.name).localeCompare(String(b.name),'ko')
+      :sort==='miss'?(b.miss-a.miss)||(b.cost-a.cost)
+      :sort==='unit'?(b.unitCost-a.unitCost)
+      :(b.cost-a.cost));
+  const withCost=rows.filter(r=>r.cost>0);
+  const avgCost=withCost.length?withCost.reduce((n,r)=>n+r.cost,0)/withCost.length:0;
+  const missTotal=rows.reduce((n,r)=>n+r.miss,0);
+  const at=pp&&pp.at?new Date(pp.at):null;
+
+  const copyAll=()=>{
+    const NL=String.fromCharCode(10);
+    const t=['제품\t배합원가(원)\t산출량\t개당원가(원)\t원재료수\t단가없음',
+      ...list.map(r=>[r.name,Math.round(r.cost),r.y||'',r.unitCost>0?Math.round(r.unitCost):'',r.items,r.miss].join('\t'))].join(NL);
+    try{navigator.clipboard.writeText(t);alert('표를 복사했습니다. 엑셀에 붙여넣으세요.');}catch(e){}
+  };
+  const card=(l,v,c,bg,bd,sub)=>R('div',{style:{flex:'1 1 150px',minWidth:140,background:bg,border:'1px solid '+bd,borderRadius:12,padding:'11px 13px'}},
+    R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},l),
+    R('div',{style:{fontSize:19,fontWeight:900,color:c,marginTop:2,fontVariantNumeric:'tabular-nums'}},v),
+    sub&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},sub));
+
+  return R('div',{className:'card',style:{marginBottom:14}},
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:10}},
+      R('div',null,
+        R('div',{style:{fontSize:13,fontWeight:800}},'📦 BOM 제품 원가 한눈에 보기'),
+        R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},
+          '배합비 × 최근 매입단가로 계산한 1회 배합분 원재료 원가입니다. 산출량(개)을 넣으면 개당 원가가 나옵니다'+(at?(' · 단가 기준 '+at.getFullYear()+'-'+String(at.getMonth()+1).padStart(2,'0')+'-'+String(at.getDate()).padStart(2,'0')):''))),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('input',{value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 제품 검색',
+          style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit',width:150}}),
+        R('select',{value:sort,onChange:e=>setSort(e.target.value),
+          style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 8px',fontSize:12,fontFamily:'inherit',background:'#fff'}},
+          R('option',{value:'cost'},'배합 원가순'),R('option',{value:'unit'},'개당 원가순'),R('option',{value:'name'},'이름순'),R('option',{value:'miss'},'단가없음 많은 순')),
+        R('button',{className:'btn bw btn-sm',onClick:copyAll},'📋 표 복사'))
+    ),
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
+      card('BOM 제품',rows.length+'개','#334155','#F8FAFC','#E2E8F0',''),
+      card('평균 배합 원가',fN(Math.round(avgCost))+'원','#D94F1E','#FFF7ED','#FED7AA',withCost.length+'개 산출 · 1회 배합 기준'),
+      card('단가 없는 원재료',missTotal+'건',missTotal?'#B45309':'#15803D',missTotal?'#FFFBEB':'#F0FDF4',missTotal?'#FDE68A':'#BBF7D0',missTotal?'매입 이력이 없어 원가에서 빠짐':'전부 반영됨')
+    ),
+    !pp?R('div',{style:{padding:'16px 0',textAlign:'center',color:'var(--tm)',fontSize:12}},'매입단가를 불러오는 중...')
+    :R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
+      R('thead',null,R('tr',null,R('th',null,'제품'),R('th',{style:{width:58,textAlign:'right'}},'원재료'),
+        R('th',{style:{width:116,textAlign:'right'}},'배합 원가'),R('th',{style:{width:88,textAlign:'right'}},'산출량(개)'),
+        R('th',{style:{width:100,textAlign:'right'}},'개당 원가'),R('th',{style:{width:128}},'단가 없는 항목'))),
+      R('tbody',null,
+        list.length===0?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'BOM이 등록된 제품이 없습니다.')):
+        list.map(r=>R('tr',{key:r.id,style:{borderTop:'1px solid #F1F5F9'}},
+          R('td',{style:{fontWeight:600}},r.name),
+          R('td',{style:{textAlign:'right',color:'var(--tm)'}},r.items+'종'),
+          R('td',{style:{textAlign:'right',fontWeight:700,color:'var(--tm)',fontVariantNumeric:'tabular-nums'}},r.cost>0?fN(Math.round(r.cost))+'원':'-'),
+          R('td',{style:{textAlign:'right'}},
+            R('input',{type:'number',min:'0',value:yieldMap[r.id]===undefined?'':yieldMap[r.id],placeholder:'-',
+              onChange:e=>saveYield(Object.assign({},yieldMap,{[r.id]:e.target.value})),
+              style:{width:70,textAlign:'right',border:'1px solid var(--bd)',borderRadius:6,padding:'3px 6px',fontSize:11.5,fontFamily:'inherit'}})),
+          R('td',{style:{textAlign:'right',fontWeight:800,color:r.unitCost>0?'var(--p)':'var(--tm)',fontVariantNumeric:'tabular-nums'}},
+            r.unitCost>0?fN(Math.round(r.unitCost))+'원':'산출량 입력'),
+          R('td',{style:{fontSize:10.5,color:r.miss?'#B45309':'var(--tm)'}},
+            r.miss?(r.miss+'건 · '+r.missNames.join(', ')+(r.miss>3?' 외':'')):'없음')
+        ))
+      )
+    )),
+    R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8,lineHeight:1.6}},
+      '※ 인건비·고정비·부대비용은 포함되지 않은 ',R('b',null,'원재료 원가'),'입니다. 아래에서 제품을 선택하면 인건비·고정비까지 넣은 상세 원가표를 볼 수 있습니다.',R('br'),
+      '※ 단가는 이카운트 매입 이력에서 자동으로 가져옵니다(매입단가 조회와 동일). 매입 이력이 없는 원재료는 계산에서 빠집니다.')
+  );
+}
+
 function PageCost({prods,mats}){
   const[selId,setSelId]=useState('');const[overPrices,setOverPrices]=useState({});
   /* 매입 데이터 - purchases 테이블에서 최근 매입 단가 자동 가져오기 */
@@ -10879,6 +11007,7 @@ function PageCost({prods,mats}){
   const updW=(id,k,v)=>setWorkers(p=>p.map(c=>c.id===id?{...c,[k]:v}:c));
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},R('div',{className:'pg-title'},'📊 원가 분석표')),
+    R(ProdCostTable,{prods,mats}),
     R('div',{style:{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}},
       R('select',{value:selId,onChange:e=>setSelId(e.target.value),className:'inp',style:{flex:1,maxWidth:300,border:'1.5px solid var(--p)'}},
         R('option',{value:''},'── 제품 선택 ──'),
