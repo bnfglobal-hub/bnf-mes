@@ -2447,6 +2447,153 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   );
 }
 
+/* ═══ 일계표 · 월말 원장 대사 (경영지원부) ═══════════════ */
+function fMoney(n){return Math.round(+n||0).toLocaleString();}
+function PageDailyReport({user,mats,orders}){
+  const[sd,setSd]=useState(null);
+  const[memo,setMemo]=useState('');
+  const[date,setDate]=useState(today2());
+  const[saved,setSaved]=useState('');
+  const load=()=>sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+    .then(({data})=>{const d=(data&&data.state_data)||{};setSd(d);
+      const m=(d.daily_memos||{})[date];setMemo(m===undefined?'':m);}).catch(()=>{});
+  useEffect(()=>{load();},[date]);
+  useBnfSyncReload(()=>load());
+  const saveMemo=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=(data&&data.state_data)||null; if(!ex)return;
+      const mm=Object.assign({},ex.daily_memos||{}); mm[date]=memo;
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{daily_memos:mm}),updated_at:new Date().toISOString()});
+      setSaved('저장됨');setTimeout(()=>setSaved(''),1800);
+    }catch(e){setSaved('저장 실패');}
+  };
+  const d=sd||{};
+  const ym=date.slice(0,7), yy=date.slice(0,4), mo=date.slice(5,7);
+  const pa=((d.profit_analysis||{})[yy]||{})[mo]||{};
+  const sales=+pa.sales||0, purch=+pa.purchase||0;
+  const ship=(d.shipsort_data&&d.shipsort_data.byCenter)||{};
+  let shipBox=0, shipCenters=0;
+  Object.entries(ship).forEach(([k,v])=>{ if(String(k).indexOf(date)>=0){shipCenters++;shipBox+=(+v.totalBox||0);} });
+  const openOrders=(orders||[]).filter(o=>o.status&&o.status!=='도착완료');
+  const lowStock=(mats||[]).filter(m=>(+m.mu||0)>0&&(+m.s||0)<(+m.mu||0)*0.5);
+  const recur=((d.recurring_tasks)||[]).filter(r=>r&&r.nextDue&&r.nextDue<=date);
+  const docs=((d.bnf_docs)||[]).filter(r=>{const nx=equipNext(r);return nx&&nx<=date;});
+  const card=(l,v,c,bg,bd,sub)=>R('div',{style:{flex:'1 1 150px',minWidth:140,background:bg,border:'1px solid '+bd,borderRadius:12,padding:'12px 14px'}},
+    R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},l),
+    R('div',{style:{fontSize:20,fontWeight:900,color:c,marginTop:2,fontVariantNumeric:'tabular-nums'}},v),
+    sub&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},sub));
+  const listBox=(title,items,color)=>R('div',{className:'card',style:{flex:'1 1 280px',minWidth:250,marginBottom:0}},
+    R('div',{style:{fontSize:12.5,fontWeight:800,color:color,marginBottom:8}},title+' '+items.length+'건'),
+    items.length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'없음')
+    :R('div',null,...items.slice(0,8).map((t,i)=>R('div',{key:i,style:{fontSize:11.5,padding:'4px 0',borderTop:i?'1px solid #F1F5F9':'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},t))),
+    items.length>8&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:5}},'외 '+(items.length-8)+'건'));
+  const NL=String.fromCharCode(10);
+  const text=[
+    '[일계표] '+date,'',
+    '이번 달 누계 — 매출 '+fMoney(sales)+'원 / 매입 '+fMoney(purch)+'원 / 이익 '+fMoney(sales-purch)+'원',
+    '출고 '+shipCenters+'개 센터 '+fMoney(shipBox)+'박스',
+    '진행 중 발주 '+openOrders.length+'건 / 재고 부족 '+lowStock.length+'품목',
+    '오늘까지 주기업무 '+recur.length+'건 / 갱신 필요 서류 '+docs.length+'건',
+    memo?(NL+'[메모]'+NL+memo):''
+  ].join(NL);
+  const copy=()=>{try{navigator.clipboard.writeText(text);setSaved('복사됨');setTimeout(()=>setSaved(''),1800);}catch(e){}};
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🧾 일계표'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'하루 업무를 한 장으로 — 매출·매입·출고·발주·재고·주기업무를 자동 집계합니다')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        saved&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},saved),
+        R('input',{type:'date',value:date,onChange:e=>setDate(e.target.value),style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{className:'btn bp btn-sm',onClick:copy},'📋 복사'))
+    ),
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
+      card('이번 달 매출',fMoney(sales),'#1D4ED8','#EFF6FF','#BFDBFE',ym+' 누계(이카운트)'),
+      card('이번 달 매입',fMoney(purch),'#B45309','#FFFBEB','#FDE68A',ym+' 누계'),
+      card('이익(추정)',fMoney(sales-purch),(sales-purch)>=0?'#15803D':'#DC2626',(sales-purch)>=0?'#F0FDF4':'#FEF2F2',(sales-purch)>=0?'#BBF7D0':'#FECACA','매출-매입'),
+      card('오늘 출고',fMoney(shipBox)+'박스','#7C3AED','#F5F3FF','#DDD6FE',shipCenters+'개 센터'),
+      card('진행 중 발주',openOrders.length+'건','#D94F1E','#FFF7ED','#FED7AA',''),
+      card('재고 부족',lowStock.length+'품목',lowStock.length?'#DC2626':'#15803D',lowStock.length?'#FEF2F2':'#F0FDF4',lowStock.length?'#FECACA':'#BBF7D0','월사용량 50% 미만')
+    ),
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
+      listBox('⚠ 재고 부족',lowStock.map(m=>m.n+' — '+fMoney(m.s)+(m.u||'')+' (월사용 '+fMoney(m.mu)+')'),'#B91C1C'),
+      listBox('📦 진행 중 발주',openOrders.map(o=>o.matName+' — '+(o.status||'')+' / 입고예정 '+String(o.expAt||'').slice(0,10)),'#C2410C'),
+      listBox('🔄 오늘까지 주기업무',recur.map(r=>r.title+' (예정 '+r.nextDue+')'),'#B45309'),
+      listBox('🗂 갱신 필요 서류',docs.map(r=>r.name+' (다음 '+equipNext(r)+')'),'#B91C1C')
+    ),
+    R('div',{className:'card'},
+      R('div',{style:{fontSize:12.5,fontWeight:800,marginBottom:8}},'✍ 오늘의 메모 · 특이사항'),
+      R('textarea',{value:memo,onChange:e=>setMemo(e.target.value),placeholder:'입금·출금, 방문객, 사고, 지시사항 등',
+        style:{width:'100%',boxSizing:'border-box',minHeight:110,border:'1px solid var(--bd)',borderRadius:9,padding:'10px 12px',fontSize:13,fontFamily:'inherit',lineHeight:1.6}}),
+      R('div',{style:{display:'flex',justifyContent:'flex-end',marginTop:8}},
+        R('button',{className:'btn bp btn-sm',onClick:saveMemo},'메모 저장'))
+    )
+  );
+}
+function PageLedgerClose({user}){
+  const[sd,setSd]=useState(null);
+  const[ym,setYm]=useState(()=>{const d=new Date();d.setDate(0);return d.toISOString().slice(0,7);});
+  const[chk,setChk]=useState({});
+  const load=()=>sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+    .then(({data})=>{const d=(data&&data.state_data)||{};setSd(d);setChk((d.ledger_close||{})[ym]||{});}).catch(()=>{});
+  useEffect(()=>{load();},[ym]);
+  useBnfSyncReload(()=>load());
+  const CHECKS=['이카운트 매출 전표 입력 완료','이카운트 매입 전표 입력 완료','세금계산서 발행/수취 대조',
+    '재고 실사 반영','미수금 확인·독촉','카드/통장 거래 대조','급여·4대보험 반영','월 마감 승인'];
+  const toggle=async(k)=>{
+    const next=Object.assign({},chk,{[k]:!chk[k]});
+    setChk(next);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=(data&&data.state_data)||null; if(!ex)return;
+      const all=Object.assign({},ex.ledger_close||{}); all[ym]=next;
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{ledger_close:all}),updated_at:new Date().toISOString()});
+    }catch(e){}
+  };
+  const d=sd||{};
+  const yy=ym.slice(0,4), mo=ym.slice(5,7);
+  const pa=((d.profit_analysis||{})[yy]||{})[mo]||{};
+  const sales=+pa.sales||0, purch=+pa.purchase||0;
+  const tt=d.trade_top||{};
+  const sItems=(tt.sales||{})[ym]||{}, pItems=(tt.purchase||{})[ym]||{};
+  const sum=(o)=>Object.values(o).reduce((n,v)=>n+(+(v&&v.amt)||0),0);
+  const sDetail=sum(sItems), pDetail=sum(pItems);
+  const diffS=sales-sDetail, diffP=purch-pDetail;
+  const row=(l,a,b,diff)=>R('tr',null,
+    R('td',{style:{fontWeight:700}},l),
+    R('td',{style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},fMoney(a)),
+    R('td',{style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},fMoney(b)),
+    R('td',{style:{textAlign:'right',fontWeight:800,fontVariantNumeric:'tabular-nums',color:Math.abs(diff)<1?'#15803D':'#DC2626'}},
+      (Math.abs(diff)<1?'일치':fMoney(diff))));
+  const doneCnt=CHECKS.filter(c=>chk[c]).length;
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📕 월말 원장 대사'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'이카운트 월 합계와 품목별 상세 합계를 대조하고, 마감 체크리스트를 관리합니다')),
+      R('input',{type:'month',value:ym,onChange:e=>setYm(e.target.value),
+        style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}})
+    ),
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{fontSize:12.5,fontWeight:800,marginBottom:8}},'🔍 합계 대조 ('+ym+')'),
+      R('div',{className:'tw'},R('table',null,
+        R('thead',null,R('tr',null,R('th',null,'구분'),R('th',{style:{textAlign:'right',width:130}},'월 합계'),
+          R('th',{style:{textAlign:'right',width:130}},'품목 상세 합'),R('th',{style:{textAlign:'right',width:110}},'차이'))),
+        R('tbody',null,row('매출',sales,sDetail,diffS),row('매입',purch,pDetail,diffP))
+      )),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8}},
+        '※ 두 값은 매일 새벽 이카운트에서 자동 수집됩니다. 차이가 있으면 해당 월 전표 누락·수정 여부를 확인하세요.')
+    ),
+    R('div',{className:'card'},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}},
+        R('span',{style:{fontSize:12.5,fontWeight:800}},'✅ 마감 체크리스트'),
+        R('span',{style:{fontSize:11,fontWeight:800,color:doneCnt===CHECKS.length?'#15803D':'var(--tm)'}},doneCnt+' / '+CHECKS.length)),
+      ...CHECKS.map(c=>R('label',{key:c,style:{display:'flex',alignItems:'center',gap:9,padding:'7px 0',borderTop:'1px solid #F1F5F9',cursor:'pointer',fontSize:13}},
+        R('input',{type:'checkbox',checked:!!chk[c],onChange:()=>toggle(c),style:{width:16,height:16,accentColor:'#D94F1E'}}),
+        R('span',{style:{textDecoration:chk[c]?'line-through':'none',color:chk[c]?'var(--tm)':'var(--t)'}},c)))
+    )
+  );
+}
+
 /* ═══ 첨부 업로드 공용 훅 (여러 페이지가 같은 방식으로 사용) ═══
    folder: 저장 경로 폴더명. get/set: 현재 첨부배열을 읽고 쓰는 함수. */
 function useAttach(folder,get,set){
@@ -2729,6 +2876,26 @@ function PageDevRecord({user,title,ic,desc,storeKey,folder,nameLabel,namePh}){
    app_state.bnf_pm_equip = [{_id,name,place,cycle,unit,last,owner,note,history:[...]}]
    다음 점검일 = 최근 점검일 + 주기. 홈 대시보드에서도 같은 계산을 쓴다. */
 const EQ_UNITS=['일','주','개월'];
+/* 회사 서류 기본 목록 — 중대재해처벌법(안전·보건 확보의무) 및 식품제조 필수 서류 */
+const DOC_SEED=[
+  {name:'안전보건 경영방침 수립·게시',place:'사무실 게시판',cycle:12,unit:'개월',note:'중처법 시행령 제4조 1호'},
+  {name:'안전보건 목표·추진계획 수립',place:'경영지원부',cycle:12,unit:'개월',note:'연 1회 수립·점검'},
+  {name:'유해·위험요인 확인 및 개선(위험성평가)',place:'생산부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 3호'},
+  {name:'안전보건 예산 편성·집행 점검',place:'경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 4호'},
+  {name:'안전보건 업무 담당자 지정·평가',place:'경영지원부',cycle:12,unit:'개월',note:'반기 1회 평가 권장'},
+  {name:'종사자 의견 청취 및 개선(반기)',place:'경영지원부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 7호'},
+  {name:'중대재해 대응 매뉴얼 점검',place:'생산부',cycle:6,unit:'개월',note:'비상대응 절차·훈련'},
+  {name:'도급·용역·위탁 업체 안전 평가',place:'구매/경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 9호'},
+  {name:'안전보건 교육 실시·기록',place:'생산부',cycle:3,unit:'개월',note:'분기 정기교육'},
+  {name:'작업환경 측정',place:'생산부',cycle:6,unit:'개월',note:'산업안전보건법'},
+  {name:'근로자 건강진단',place:'경영지원부',cycle:12,unit:'개월',note:'배치전·정기'},
+  {name:'소방시설 자체점검',place:'공장',cycle:12,unit:'개월',note:'작동점검·종합점검'},
+  {name:'전기설비 안전점검',place:'공장',cycle:12,unit:'개월',note:'한국전기안전공사'},
+  {name:'HACCP 정기 평가·자체 검증',place:'품질관리부',cycle:12,unit:'개월',note:'식품안전관리인증'},
+  {name:'영업등록증·품목제조보고 갱신 확인',place:'경영지원부',cycle:12,unit:'개월',note:'변경사항 발생 시 즉시'},
+  {name:'화재·재산종합보험 갱신',place:'경영지원부',cycle:12,unit:'개월',note:'만기 1개월 전 확인'},
+  {name:'4대보험·근로계약서 정비',place:'경영지원부',cycle:12,unit:'개월',note:'신규 입사 시 즉시'}
+];
 function equipNext(r){
   if(!r||!r.last||!(+r.cycle>0))return null;
   const d=new Date(r.last);
@@ -2754,7 +2921,7 @@ function equipState(r){
   return{k:'ok',t:'D-'+d,c:'#15803D',bg:'#F0FDF4'};
 }
 
-function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel,resultOpts}){
+function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel,resultOpts,seedList}){
   const KEY=storeKey||'bnf_pm_equip';
   const[rows,setRows]=useState(null);
   const[q,setQ]=useState('');
@@ -2794,6 +2961,18 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
     setBusy(false);
   };
   const openNew=()=>{setForm({name:'',place:'',cycle:'',unit:'개월',last:today2(),owner:'',note:''});setEditId(null);setShowF(true);};
+  /* 기본 목록 한 번에 등록 (예: 중대재해처벌법 필수 서류) — 이미 있는 이름은 건너뜀 */
+  const seedAll=async()=>{
+    if(!Array.isArray(seedList)||!seedList.length)return;
+    const cur=rows||[];
+    const have=new Set(cur.map(r=>String(r.name||'').replace(/\s/g,'')));
+    const add=seedList.filter(x=>!have.has(String(x.name||'').replace(/\s/g,'')))
+      .map(x=>({_id:newRowId(),name:x.name,place:x.place||'',cycle:x.cycle||'',unit:x.unit||'개월',
+                last:'',owner:'',note:x.note||'',history:[]}));
+    if(!add.length)return alert('이미 모두 등록되어 있습니다.');
+    if(!confirm('기본 서류 '+add.length+'건을 등록할까요? (최근 갱신일은 비어 있으니 각 서류에서 날짜를 넣어주세요)'))return;
+    await persist([...cur,...add]);
+  };
   const openEdit=r=>{setForm({name:r.name||'',place:r.place||'',cycle:r.cycle||'',unit:r.unit||'개월',last:r.last||'',owner:r.owner||'',note:r.note||''});setEditId(r._id);setShowF(true);};
   const save=async()=>{
     if(!form.name.trim())return alert((nameLabel||'설비명')+'을(를) 입력해주세요.');
@@ -2894,7 +3073,11 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},(ic||'🔧')+' '+(title||'설비 점검')),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},desc||'')),
-      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ '+(nameLabel||'설비')+' 등록')
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        Array.isArray(seedList)&&seedList.length>0&&R('button',{className:'btn bs',onClick:seedAll,disabled:busy,
+          title:'중대재해처벌법 등 필수 서류 목록을 한 번에 등록합니다'},'📋 기본 서류 불러오기'),
+        R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ '+(nameLabel||'설비')+' 등록')
+      )
     ),
     /* ── 대시보드 ── */
     (()=>{
@@ -3625,6 +3808,15 @@ function PageWorkOrder({user}){
 
 /* 각 메뉴별 표 정의 */
 const SHARED_PAGES={
+  receivables:{title:'미수금 관리',ic:'💳',desc:'거래처별 미수금과 수금 기일을 관리합니다 · 기일이 지나면 붉게 표시',storeKey:'bnf_receivables',sort:{k:'due',dir:'asc'},cols:[
+    {k:'client',l:'거래처',w:150,ph:'예) (주)압구정푸드'},
+    {k:'issued',l:'매출일',type:'date',w:110},
+    {k:'amount',l:'미수금액',type:'num',w:110,ph:'원'},
+    {k:'due',l:'수금 기일',type:'date',w:110},
+    {k:'status',l:'상태',type:'select',w:100,opts:['미수','일부 수금','수금 완료','대손 검토']},
+    {k:'contact',l:'담당/연락처',w:130},
+    {k:'note',l:'비고',type:'textarea',ph:'약속 내용, 통화 기록 등'}
+  ]},
   logins:{title:'로그인 정보',ic:'🔑',desc:'업무용 사이트 계정을 함께 관리합니다 · 사이트 이름 가나다순',storeKey:'bnf_logins',sort:{k:'site',dir:'asc'},cols:[
     {k:'site',l:'사이트 이름',w:150,ph:'예) 이카운트'},
     {k:'url',l:'링크',type:'link',w:220,ph:'https://...'},
@@ -15818,6 +16010,13 @@ function App(){
     if(page==='rnd_recipe')return R(PageDevRecord,{key:'rnd_recipe',user,title:'확정 배합비',ic:'🧾',
       desc:'양산 확정된 배합비를 거래처·제품별로 보관합니다',storeKey:'bnf_rnd_recipe',folder:'recipe',
       nameLabel:'개발 제품명',namePh:'예) 매운 돈코츠 라멘 (v1.0)'});
+    if(page==='daily_report')return R(PageDailyReport,{user,mats,orders});
+    if(page==='ledger_close')return R(PageLedgerClose,{user});
+    if(page==='docs')return R(PageCycleCheck,{key:'docs',user,title:'회사 서류 관리',ic:'🗂',
+      desc:'중대재해처벌법·인허가·보험 등 갱신 주기가 있는 서류를 관리합니다. 갱신일이 다가오면 홈 화면에 표시됩니다',
+      storeKey:'bnf_docs',nameLabel:'서류',namePh:'예) 안전보건 경영방침 게시',
+      placeLabel:'보관 위치/근거',resultOpts:['갱신 완료','유효','재발급','보완 필요','폐기'],
+      seedList:DOC_SEED});
     if(page==='qc_self')return R(PageCycleCheck,{key:'qc_self',user,title:'자가품질검사',ic:'🧪',
       desc:'유형별 검사 주기를 설정하면 다음 검사일이 자동 계산되고, 도래하면 홈 화면에 표시됩니다',
       storeKey:'bnf_qc_self',nameLabel:'검사 유형',namePh:'예) 세균수 · 대장균군',
