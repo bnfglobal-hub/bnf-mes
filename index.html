@@ -5039,8 +5039,12 @@ function PageAdmin({user}){
     const c=va.localeCompare(vb,'ko',{numeric:true});
     return uDir==='asc'?c:-c;
   });
-  useEffect(()=>{load();},[]);
-  useBnfSyncReload(()=>load());
+  const[navSecs,setNavSecs]=useState(()=>{try{return loadNavSections();}catch(e){return DEFAULT_NAV_SECTIONS;}});
+  useEffect(()=>{load();loadNav();},[]);
+  useBnfSyncReload(()=>{load();loadNav();});
+  /* 권한 목록은 '실제 사용 중인 메뉴 구성'(서버 공유본)을 따라간다 — 새 메뉴·새 폴더가 자동 반영됨 */
+  const loadNav=()=>sbClient.from('app_state').select('v:state_data->bnf_nav_sections').eq('id',1).maybeSingle()
+    .then(({data})=>{const v=data&&data.v;if(Array.isArray(v)&&v.length)setNavSecs(v);}).catch(()=>{});
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
   const saveU=async()=>{
     if(!uf.name||!uf.email)return alert('이름/이메일 필수');
@@ -5177,8 +5181,17 @@ function PageAdmin({user}){
           /* ── 메뉴 접근 권한: 실제 메뉴 정의(DEFAULT_NAV_SECTIONS)에서 자동 생성 ──
              메뉴를 추가/삭제하면 이 목록도 자동으로 따라온다 (수동 관리 불필요) */
           const secs=[];const seen=new Set();
-          (DEFAULT_NAV_SECTIONS||[]).forEach(s=>{
-            const items=(s.items||[]).filter(it=>it&&it.id&&!seen.has(it.id)&&seen.add(it.id));
+          const flat=(arr)=>{
+            const out=[];
+            (arr||[]).forEach(it=>{
+              if(!it)return;
+              if(it.kind==='folder'){out.push(...flat(it.items));return;}   /* 하위 폴더 안 메뉴까지 */
+              if(it.id&&!seen.has(it.id)&&seen.add(it.id))out.push(it);
+            });
+            return out;
+          };
+          (navSecs&&navSecs.length?navSecs:DEFAULT_NAV_SECTIONS||[]).forEach(s=>{
+            const items=flat(s.items);
             if(items.length)secs.push({label:s.label||'메뉴',adminSec:!!s.adminOnly,items});
           });
           /* 사이드바엔 없지만 검색(Ctrl+K)으로 들어갈 수 있는 페이지도 막을 수 있게 포함 */
