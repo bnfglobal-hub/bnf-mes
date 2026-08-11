@@ -4868,12 +4868,56 @@ function PageAdmin({user}){
       )
     ),
     tab==='depts'&&R('div',null,
+      R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:10}},
+        R('button',{className:'btn bp btn-sm',onClick:async()=>{
+          const name=(prompt('새 부서 이름을 입력하세요')||'').trim();
+          if(!name)return;
+          if(depts.some(d=>d.name===name))return alert('같은 이름의 부서가 있습니다.');
+          const maxSort=depts.reduce((m,d)=>Math.max(m,+d.sort_order||0),0);
+          const{error}=await db('depts').insert({name,sort_order:maxSort+1});
+          if(error)alert('추가 실패: '+error.message);else load();
+        }},'+ 부서 추가')
+      ),
       R('div',{className:'tw'},
         R('table',null,
-          R('thead',null,R('tr',null,R('th',null,'부서명'),R('th',null,'소속 인원'))),
-          R('tbody',null,...depts.map(d=>R('tr',{key:d.id},R('td',{style:{fontWeight:600}},d.name),R('td',null,emps.filter(e=>e.dept_id===d.id).length+'명'))))
+          R('thead',null,R('tr',null,R('th',null,'부서명'),R('th',{style:{width:90}},'소속 인원'),R('th',{style:{width:60}},'순서'),R('th',{style:{width:130}},''))),
+          R('tbody',null,...depts.map((d,i)=>{
+            const cnt=emps.filter(e=>e.dept_id===d.id).length;
+            const move=async(dir)=>{
+              const j=i+dir;if(j<0||j>=depts.length)return;
+              const other=depts[j];
+              const a=+d.sort_order||0,b=+other.sort_order||0;
+              await db('depts').update({sort_order:b}).eq('id',d.id);
+              await db('depts').update({sort_order:a}).eq('id',other.id);
+              load();
+            };
+            return R('tr',{key:d.id},
+              R('td',{style:{fontWeight:600}},d.name),
+              R('td',null,cnt+'명'),
+              R('td',null,
+                R('button',{onClick:()=>move(-1),disabled:i===0,title:'위로',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'1px 6px',cursor:i===0?'default':'pointer',fontSize:11,opacity:i===0?0.3:1}},'↑'),
+                R('button',{onClick:()=>move(1),disabled:i===depts.length-1,title:'아래로',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'1px 6px',cursor:i===depts.length-1?'default':'pointer',fontSize:11,marginLeft:3,opacity:i===depts.length-1?0.3:1}},'↓')
+              ),
+              R('td',null,
+                R('button',{className:'btn bs btn-sm',onClick:async()=>{
+                  const name=(prompt('부서 이름 변경',d.name)||'').trim();
+                  if(!name||name===d.name)return;
+                  if(depts.some(x=>x.id!==d.id&&x.name===name))return alert('같은 이름의 부서가 있습니다.');
+                  const{error}=await db('depts').update({name}).eq('id',d.id);
+                  if(error)alert('변경 실패: '+error.message);else load();
+                },style:{marginRight:4}},'이름 변경'),
+                R('button',{onClick:async()=>{
+                  if(cnt>0)return alert('"'+d.name+'"에 소속 직원이 '+cnt+'명 있습니다.\n먼저 직원들의 부서를 다른 곳으로 옮겨주세요.');
+                  if(!confirm('"'+d.name+'" 부서를 삭제할까요?'))return;
+                  const{error}=await db('depts').delete().eq('id',d.id);
+                  if(error)alert('삭제 실패: '+error.message);else load();
+                },style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:8,padding:'4px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'삭제')
+              )
+            );
+          }))
         )
-      )
+      ),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8}},'※ 직원의 부서 변경은 [👥 사용자] 탭 → 수정에서, 부서 자체의 추가·이름변경·순서·삭제는 여기서 합니다. 소속 직원이 있는 부서는 삭제할 수 없습니다.')
     ),
     showUF&&R(Modal2,{title:editU?'직원 수정':'직원 추가',onClose:()=>{setShowUF(false);setEditU(null);},size:560,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>setShowUF(false),style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:saveU,style:{flex:2}},editU?'수정':'추가'))},
       R('div',{className:'fg'},
