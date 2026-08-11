@@ -2896,11 +2896,56 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},desc||'')),
       R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ '+(nameLabel||'설비')+' 등록')
     ),
-    (overCnt>0||soonCnt>0)&&R('div',{className:'card',style:{marginBottom:12,background:overCnt?'#FEF2F2':'#FFFBEB',border:'1px solid '+(overCnt?'#FECACA':'#FDE68A')}},
-      R('div',{style:{fontSize:12.5,fontWeight:700,color:overCnt?'#B91C1C':'#B45309'}},
-        overCnt>0?('⚠ 점검일이 지난 설비 '+overCnt+'대'):'',
-        overCnt>0&&soonCnt>0?' · ':'',
-        soonCnt>0?('🔔 7일 내 점검 예정 '+soonCnt+'대'):'')),
+    /* ── 대시보드 ── */
+    (()=>{
+      const all=rows||[];
+      const okCnt=all.filter(r=>equipState(r).k==='ok').length;
+      const todayCnt=all.filter(r=>equipState(r).k==='today').length;
+      const noneCnt=all.filter(r=>equipState(r).k==='none').length;
+      const overList=all.filter(r=>{const d=equipDday(r);return d!==null&&d<0;})
+        .sort((a,b)=>equipDday(a)-equipDday(b));
+      const soonList=all.filter(r=>{const d=equipDday(r);return d!==null&&d>=0&&d<=7;})
+        .sort((a,b)=>equipDday(a)-equipDday(b));
+      /* 최근 30일 점검 건수 · 이상(정상 아님) 건수 */
+      const ago=new Date();ago.setDate(ago.getDate()-30);
+      const agoS=ago.toISOString().slice(0,10);
+      let done30=0,bad30=0,lastDate='';
+      all.forEach(r=>(r.history||[]).forEach(h=>{
+        if(!h||!h.date)return;
+        if(h.date>lastDate)lastDate=h.date;
+        if(h.date>=agoS){done30++;if(h.result&&h.result!=='정상')bad30++;}
+      }));
+      const card=(label,val,color,bg,bd,sub)=>R('div',{style:{flex:'1 1 130px',minWidth:120,background:bg,border:'1px solid '+bd,borderRadius:12,padding:'12px 14px'}},
+        R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},label),
+        R('div',{style:{fontSize:24,fontWeight:900,color:color,marginTop:2,fontVariantNumeric:'tabular-nums'}},val),
+        sub&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},sub));
+      const listCard=(title,items,color,bg,bd)=>items.length===0?null:R('div',{style:{flex:'1 1 260px',minWidth:240,background:bg,border:'1px solid '+bd,borderRadius:12,padding:'12px 14px'}},
+        R('div',{style:{fontSize:12,fontWeight:800,color:color,marginBottom:8}},title+' '+items.length+'대'),
+        ...items.slice(0,6).map(r=>{
+          const st=equipState(r);
+          return R('div',{key:r._id,onClick:()=>setHist(r),
+            style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'5px 0',borderTop:'1px solid rgba(0,0,0,.05)',cursor:'pointer'}},
+            R('span',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.name+(r.place?' · '+r.place:'')),
+            R('span',{style:{fontSize:11,fontWeight:800,color:st.c,flexShrink:0}},st.t)
+          );
+        }),
+        items.length>6&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:6}},'외 '+(items.length-6)+'대'));
+      return R('div',{style:{marginBottom:14}},
+        R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
+          card('전체',all.length+'대','#334155','#F8FAFC','#E2E8F0',noneCnt>0?('주기 미설정 '+noneCnt+'대'):''),
+          card('점검 지남',overCnt+'대','#DC2626','#FEF2F2','#FECACA',overCnt>0?'즉시 점검 필요':'없음'),
+          card('오늘 점검',todayCnt+'대','#D94F1E','#FFF7ED','#FED7AA',''),
+          card('7일 내',soonCnt+'대','#B45309','#FFFBEB','#FDE68A',''),
+          card('정상',okCnt+'대','#15803D','#F0FDF4','#BBF7D0',''),
+          card('최근 30일 점검',done30+'건','#1D4ED8','#EFF6FF','#BFDBFE',bad30>0?('이상 '+bad30+'건'):'전부 정상')
+        ),
+        (overList.length>0||soonList.length>0)&&R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+          listCard('⚠ 점검일 지남',overList,'#B91C1C','#FEF2F2','#FECACA'),
+          listCard('🔔 7일 내 예정',soonList,'#B45309','#FFFBEB','#FDE68A')
+        ),
+        lastDate&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8}},'최근 점검 기록: '+lastDate+' · 카드를 누르면 해당 설비 이력으로 이동합니다')
+      );
+    })(),
     R('div',{style:{marginBottom:10}},
       R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 설비명·위치·담당 검색',style:{maxWidth:340}})),
     R('div',{className:'tw'},
@@ -15544,7 +15589,12 @@ function App(){
                 pqty:merged.pqty,quote:merged.quote,work_requests:merged.work_requests,
                 bnf_favorites:merged.bnf_favorites,bnf_semi_items:merged.bnf_semi_items,
                 bnf_fav_folders:merged.bnf_fav_folders,bnf_fav_item_folder:merged.bnf_fav_item_folder,
-                bnf_crm:merged.bnf_crm,bnf_logins:merged.bnf_logins};
+                bnf_crm:merged.bnf_crm,bnf_logins:merged.bnf_logins,
+                /* 설정류도 함께 백업 (2026-08-11 메뉴 구성 소실 사고 이후 확대) */
+                bnf_nav_sections:merged.bnf_nav_sections,work_categories:merged.work_categories,
+                bnf_file_cats:merged.bnf_file_cats,hq_folders:merged.hq_folders,
+                recurring_tasks:merged.recurring_tasks,daily_tasks:merged.daily_tasks,
+                shipsort_namemap:merged.shipsort_namemap,bnf_prod_semi_map:merged.bnf_prod_semi_map};
               Object.keys(bks).sort().slice(0,-7).forEach(k=>{delete bks[k];});
               await db('app_state').upsert({id:7,state_data:bks,updated_at:new Date().toISOString()});
             }).catch(()=>{});
@@ -15930,8 +15980,26 @@ function App(){
             style:{padding:'5px 10px',background:'#22C55E',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:700}
           },'+ 폴더'),
           navEditMode&&R('button',{
+            onClick:async()=>{
+              /* 직전 구성으로 되돌리기 (서버에 자동 보관된 1벌) */
+              try{
+                const{data}=await sbClient.from('app_state').select('v:state_data->bnf_nav_sections_prev').eq('id',1).maybeSingle();
+                const prev=data&&data.v;
+                if(!Array.isArray(prev)||!prev.length)return alert('되돌릴 이전 구성이 없습니다.');
+                const cnt=prev.reduce((n,x)=>n+1+((x&&x.items||[]).length),0);
+                if(!confirm('메뉴를 직전 구성('+cnt+'개 항목)으로 되돌릴까요?'))return;
+                setNavSections(prev);
+                try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(prev));}catch(e){}
+                saveNavSections(prev);
+                alert('✅ 이전 구성으로 되돌렸습니다.');
+              }catch(e){alert('되돌리기 실패: '+(e.message||e));}
+            },
+            title:'직전 구성으로 되돌리기',
+            style:{padding:'5px 8px',background:'#FEF3C7',color:'#92400E',border:'1px solid #FDE68A',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:700}
+          },'↩ 되돌리기'),
+          navEditMode&&R('button',{
             onClick:()=>{
-              if(confirm('메뉴를 기본값으로 초기화할까요?')){
+              if(confirm('메뉴를 기본값으로 초기화할까요? (되돌리기로 복구할 수 있습니다)')){
                 setNavSections(DEFAULT_NAV_SECTIONS);
                 localStorage.removeItem('bnf_nav_sections_v3');
               }
