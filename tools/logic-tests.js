@@ -72,6 +72,26 @@ function eq(name, actual, expected) {
   eq('2026-01 근무일(공휴일 1/1 제외)', calcWorkingDays(2026, 1) <= 22, true);
 }
 
+/* ── 4) 재발 방지 정적 검사 ──
+   과거 장애 원인이 된 패턴이 다시 들어오면 커밋을 막는다. */
+{
+  /* (a) 동기화 훅에 함수를 '값'으로 넘기면 선언 전 참조(TDZ)로 화면이 하얗게 된다.
+         반드시 useBnfSyncReload(()=>load()) 형태여야 한다. (2026-08-11 CRM 백색화면) */
+  const bad = [...html.matchAll(/useBnfSyncReload\(\s*(?!\(\s*\)\s*=>)([A-Za-z_$][\w$]*)\s*\)/g)]
+    .filter(m => m[1] !== 'fn');
+  if (bad.length === 0) passes++;
+  else { failures++; console.error('  ✗ useBnfSyncReload에 함수를 값으로 전달: ' + bad.map(b => b[1]).join(', ') + ' → ()=>' + bad[0][1] + '() 형태로 바꾸세요'); }
+
+  /* (b) 자동저장이 서버 읽기 실패 시 중단하는 가드가 남아 있어야 한다 (2026-07-29 BOM 소실) */
+  if (html.includes('자동저장 중단: 서버 상태를 읽지 못함')) passes++;
+  else { failures++; console.error('  ✗ 자동저장 안전가드(읽기 실패 시 중단)가 사라졌습니다'); }
+
+  /* (c) 문자열 리터럴 안에 실제 줄바꿈이 들어가면 전체 스크립트가 죽는다 → syntax-check가 잡지만
+         alert/confirm 안의 \n 표기가 유지되는지 최소 확인 */
+  if (/confirm\('[^']*\\n/.test(html) || /alert\('[^']*\\n/.test(html)) passes++;
+  else { failures++; console.error('  ✗ 경고창 줄바꿈 표기(\\n)가 사라졌습니다 — 실제 줄바꿈이 들어갔는지 확인'); }
+}
+
 console.log(failures === 0
   ? '✅ 로직 테스트 통과 (' + passes + '건)'
   : '❌ 로직 테스트 실패 ' + failures + '건 / 통과 ' + passes + '건');
