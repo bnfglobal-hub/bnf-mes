@@ -2447,6 +2447,186 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
   );
 }
 
+/* ═══ 매입/매출 전표 입력 (경영지원부) ═══════════════
+   app_state.trade_entries = [{id,kind:'sales'|'purchase',date,cust,prodCd,prodName,qty,price,vatType,memo,by,at,sent}]
+   입력 → 목록 관리 → 이카운트 업로드용 엑셀 생성 (API 검증 후 자동전송으로 교체 예정) */
+function PageTradeEntry({user,mats}){
+  const KEY='trade_entries';
+  const[rows,setRows]=useState(null);
+  const[kind,setKind]=useState('sales');
+  const[q,setQ]=useState('');
+  const[ym,setYm]=useState(()=>new Date().toISOString().slice(0,7));
+  const[busy,setBusy]=useState(false);
+  const[custs,setCusts]=useState([]);
+  const blank=()=>({date:today2(),cust:'',prodCd:'',prodName:'',qty:'',price:'',vatType:'과세',memo:''});
+  const[f,setF]=useState(blank());
+  const isAdmin=['superadmin','admin','manager'].includes(user&&user.role);
+
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  const loadCusts=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle();
+      const l=(data&&data.v&&data.v.list)||[];
+      setCusts(l.map(x=>x.name).filter(Boolean).sort((a,b)=>a.localeCompare(b,'ko')));
+    }catch(e){}
+  };
+  useEffect(()=>{load();loadCusts();},[]);
+  useBnfSyncReload(()=>load());
+
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=(data&&data.state_data)||null;
+      if(!ex)throw new Error('서버 상태를 읽지 못했습니다');
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{[KEY]:next}),updated_at:new Date().toISOString()});
+      setRows(next);
+    }catch(e){alert('저장 실패: '+(e.message||e));}
+    setBusy(false);
+  };
+
+  const pickProd=(name)=>{
+    const m=(mats||[]).find(x=>String(x.n)===name);
+    setF(p=>Object.assign({},p,{prodName:name,prodCd:m?m.c:p.prodCd}));
+  };
+  const add=async()=>{
+    if(!f.cust.trim())return alert('거래처를 입력하세요');
+    if(!f.prodName.trim())return alert('품목을 입력하세요');
+    const qty=parseFloat(String(f.qty).replace(/,/g,''))||0;
+    if(qty<=0)return alert('수량을 입력하세요');
+    const price=parseFloat(String(f.price).replace(/,/g,''))||0;
+    const item={id:'te'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+      kind, date:f.date||today2(), cust:f.cust.trim(), prodCd:(f.prodCd||'').trim(),
+      prodName:f.prodName.trim(), qty, price, vatType:f.vatType||'과세', memo:f.memo||'',
+      by:user&&user.id, byName:(user&&user.name)||'', at:Date.now(), sent:false};
+    await persist([item,...(rows||[])]);
+    setF(p=>Object.assign({},blank(),{date:p.date,cust:p.cust}));   /* 연속 입력 편의: 일자·거래처 유지 */
+  };
+  const del=async(it)=>{
+    if(!(isAdmin||it.by===(user&&user.id)))return alert('입력한 사람 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('이 줄을 삭제할까요?'))return;
+    await persist((rows||[]).filter(x=>x.id!==it.id));
+  };
+  const markSent=async(list)=>{
+    const ids=new Set(list.map(x=>x.id));
+    await persist((rows||[]).map(x=>ids.has(x.id)?Object.assign({},x,{sent:true,sentAt:Date.now()}):x));
+  };
+
+  const list=(rows||[]).filter(r=>r.kind===kind)
+    .filter(r=>String(r.date||'').slice(0,7)===ym)
+    .filter(r=>{const t=q.trim().toLowerCase();if(!t)return true;
+      return [r.cust,r.prodName,r.prodCd,r.memo,r.byName].some(v=>String(v||'').toLowerCase().includes(t));})
+    .sort((a,b)=>String(b.date).localeCompare(String(a.date))||(b.at||0)-(a.at||0));
+  const amtOf=(r)=>Math.round((+r.qty||0)*(+r.price||0));
+  const total=list.reduce((n,r)=>n+amtOf(r),0);
+  const notSent=list.filter(r=>!r.sent);
+
+  const downloadXl=(items)=>{
+    if(!items.length)return alert('내보낼 줄이 없습니다.');
+    if(typeof XLSX==='undefined')return alert('엑셀 라이브러리를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.');
+    const head=['일자','순번','거래처명','품목코드','품목명','수량','단가','공급가액','과세구분','적요'];
+    const body=items.map((r,i)=>[String(r.date||'').replace(/-/g,''),i+1,r.cust,r.prodCd||'',r.prodName,
+      +r.qty||0, +r.price||0, amtOf(r), r.vatType||'과세', r.memo||'']);
+    const ws=XLSX.utils.aoa_to_sheet([head,...body]);
+    ws['!cols']=[{wch:10},{wch:6},{wch:20},{wch:12},{wch:32},{wch:10},{wch:12},{wch:14},{wch:9},{wch:22}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,kind==='sales'?'판매입력':'구매입력');
+    XLSX.writeFile(wb,'이카운트_'+(kind==='sales'?'판매':'구매')+'전표_'+ym+'.xlsx');
+    markSent(items);
+  };
+
+  const inp=(k,ph,type,w)=>R('input',{value:f[k],type:type||'text',placeholder:ph||'',
+    onChange:e=>setF(p=>Object.assign({},p,{[k]:e.target.value})),
+    onKeyDown:e=>{if(e.key==='Enter')add();},
+    style:{width:w||'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit'}});
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📥 매입/매출 입력'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'전표를 입력해 두고, 이카운트 업로드용 엑셀로 한 번에 내보냅니다')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('input',{type:'month',value:ym,onChange:e=>setYm(e.target.value),
+          style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{className:'btn bs btn-sm',onClick:()=>downloadXl(notSent),disabled:busy,title:'아직 내보내지 않은 줄만'},'⬇ 미전송분 엑셀'),
+        R('button',{className:'btn bp btn-sm',onClick:()=>downloadXl(list),disabled:busy},'⬇ 이번 달 전체 엑셀'))
+    ),
+    /* 매출/매입 탭 */
+    R('div',{style:{display:'flex',gap:6,marginBottom:12}},
+      ...[['sales','💵 매출 (판매)'],['purchase','🧾 매입 (구매)']].map(([v,l])=>
+        R('button',{key:v,onClick:()=>setKind(v),
+          style:{border:'1px solid '+(kind===v?'var(--p)':'var(--bd)'),background:kind===v?'var(--p)':'#fff',
+            color:kind===v?'#fff':'var(--t)',borderRadius:999,padding:'7px 16px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},l))
+    ),
+    /* 입력 폼 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{fontSize:12.5,fontWeight:800,marginBottom:9}},(kind==='sales'?'매출':'매입')+' 전표 입력'),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8}},
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'일자'),inp('date','','date')),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'거래처 *'),
+          R('input',{value:f.cust,list:'te-custs',placeholder:'거래처명',
+            onChange:e=>setF(p=>Object.assign({},p,{cust:e.target.value})),
+            onKeyDown:e=>{if(e.key==='Enter')add();},
+            style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit'}}),
+          R('datalist',{id:'te-custs'},...custs.slice(0,500).map(c=>R('option',{key:c,value:c})))),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'품목 *'),
+          R('input',{value:f.prodName,list:'te-prods',placeholder:'품목명',
+            onChange:e=>pickProd(e.target.value),
+            onKeyDown:e=>{if(e.key==='Enter')add();},
+            style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit'}}),
+          R('datalist',{id:'te-prods'},...(mats||[]).slice(0,900).map(m=>R('option',{key:m.id,value:m.n})))),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'품목코드'),inp('prodCd','자동')),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'수량 *'),inp('qty','0','number')),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'단가'),inp('price','0','number')),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'과세구분'),
+          R('select',{value:f.vatType,onChange:e=>setF(p=>Object.assign({},p,{vatType:e.target.value})),
+            style:{width:'100%',boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit',background:'#fff'}},
+            ...['과세','면세','영세'].map(v=>R('option',{key:v,value:v},v)))),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)',display:'block',marginBottom:3}},'적요'),inp('memo','비고 (선택)'))
+      ),
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10,gap:8,flexWrap:'wrap'}},
+        R('span',{style:{fontSize:11,color:'var(--tm)'}},'공급가액 ',R('b',{style:{color:'var(--p)'}},fMoney((parseFloat(f.qty)||0)*(parseFloat(f.price)||0)),'원'),' · Enter로 바로 추가'),
+        R('button',{className:'btn bp',onClick:add,disabled:busy,style:{padding:'8px 20px'}},'+ 추가'))
+    ),
+    /* 목록 */
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:8,flexWrap:'wrap'}},
+      R('input',{value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 거래처·품목·적요 검색',
+        style:{maxWidth:300,flex:1,border:'1px solid var(--bd)',borderRadius:8,padding:'7px 10px',fontSize:12,fontFamily:'inherit'}}),
+      R('span',{style:{fontSize:12,fontWeight:700}},list.length+'줄 · 합계 ',R('b',{style:{color:'var(--p)'}},fMoney(total),'원'),
+        notSent.length>0?R('span',{style:{marginLeft:8,color:'#B45309'}},'미전송 '+notSent.length+'줄'):null)
+    ),
+    R('div',{className:'tw'},R('table',null,
+      R('thead',null,R('tr',null,R('th',{style:{width:92}},'일자'),R('th',null,'거래처'),R('th',null,'품목'),
+        R('th',{style:{width:76,textAlign:'right'}},'수량'),R('th',{style:{width:92,textAlign:'right'}},'단가'),
+        R('th',{style:{width:104,textAlign:'right'}},'공급가액'),R('th',{style:{width:64}},'상태'),R('th',{style:{width:76}},'입력자'),R('th',{style:{width:36}}))),
+      R('tbody',null,
+        rows===null?R('tr',null,R('td',{colSpan:9,style:{textAlign:'center',padding:20}},'불러오는 중...')):
+        list.length===0?R('tr',null,R('td',{colSpan:9,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'이 달에 입력된 전표가 없습니다.')):
+        list.map(r=>R('tr',{key:r.id},
+          R('td',{style:{fontSize:11.5}},r.date),
+          R('td',{style:{fontSize:12}},r.cust),
+          R('td',{style:{fontSize:12,fontWeight:600}},r.prodName,r.prodCd?R('span',{style:{color:'var(--tm)',fontWeight:400,fontSize:10.5}},' ('+r.prodCd+')'):null),
+          R('td',{style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},fMoney(r.qty)),
+          R('td',{style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},fMoney(r.price)),
+          R('td',{style:{textAlign:'right',fontWeight:700,fontVariantNumeric:'tabular-nums'}},fMoney(amtOf(r))),
+          R('td',null,r.sent?R('span',{style:{fontSize:10,fontWeight:700,color:'#15803D',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:999,padding:'2px 7px'}},'전송')
+            :R('span',{style:{fontSize:10,fontWeight:700,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:999,padding:'2px 7px'}},'대기')),
+          R('td',{style:{fontSize:10.5,color:'var(--tm)'}},r.byName||'-'),
+          R('td',null,R('button',{onClick:()=>del(r),title:'삭제',
+            style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:13,padding:2}},'✕'))
+        ))
+      )
+    )),
+    R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8,lineHeight:1.6}},
+      '※ [⬇ 엑셀]로 받은 파일을 이카운트 ',R('b',null,(kind==='sales'?'판매입력':'구매입력')),' → [엑셀 자료 올리기]에 올리면 전표가 등록됩니다. 내보낸 줄은 "전송"으로 표시됩니다.',R('br'),
+      '※ 이카운트 OpenAPI 검증이 끝나면 이 화면에서 버튼 하나로 자동 전송되도록 바꿉니다.')
+  );
+}
+
 /* ═══ 일계표 · 월말 원장 대사 (경영지원부) ═══════════════ */
 function fMoney(n){return Math.round(+n||0).toLocaleString();}
 function PageDailyReport({user,mats,orders}){
@@ -16109,6 +16289,7 @@ function App(){
     if(page==='rnd_recipe')return R(PageDevRecord,{key:'rnd_recipe',user,title:'확정 배합비',ic:'🧾',
       desc:'양산 확정된 배합비를 거래처·제품별로 보관합니다',storeKey:'bnf_rnd_recipe',folder:'recipe',
       nameLabel:'개발 제품명',namePh:'예) 매운 돈코츠 라멘 (v1.0)'});
+    if(page==='trade_entry')return R(PageTradeEntry,{user,mats});
     if(page==='daily_report')return R(PageDailyReport,{user,mats,orders});
     if(page==='ledger_close')return R(PageLedgerClose,{user});
     if(page==='docs')return R(PageCycleCheck,{key:'docs',user,title:'회사 서류 관리',ic:'🗂',
