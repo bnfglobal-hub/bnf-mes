@@ -27,8 +27,12 @@ function eq(name, actual, expected) {
 /* ── 1) 출고계획: PACK_MAP / packOf / fixAiItem ── */
 {
   const code = extract('const NAME_FIX=[', 'return {box,pack,total};\n  };');
-  const fn = new Function(code + '\nreturn {fixAiItem, packOf, fixAiName};');
-  const { fixAiItem, packOf, fixAiName } = fn();
+  /* React 훅·서버 호출은 테스트에서 대체(스텁)하고 순수 계산 로직만 검증한다 */
+  const stub = 'const useState=(v)=>[v,()=>{}];const useEffect=()=>{};'
+    + 'const sbClient={from:()=>({select:()=>({eq:()=>({maybeSingle:()=>Promise.resolve({data:null})})}),upsert:()=>Promise.resolve({})})};'
+    + 'const parsed=null;\n';
+  const fn = new Function(stub + code + '\nreturn {fixAiItem, packOf, fixAiName, nameSim};');
+  const { fixAiItem, packOf, fixAiName, nameSim } = fn();
 
   eq('packOf 청국장=30', packOf('[엄마밥상] 청국장'), 30);
   eq('packOf 김치청국장=25', packOf('[엄마밥상] 김치청국장'), 25);
@@ -48,6 +52,15 @@ function eq(name, actual, expected) {
   eq('fixAiName 렐레기→털레기', fixAiName('[외할머니댁] 일산 렐레기 수제비'), '[외할머니댁] 일산 털레기 수제비');
   eq('fixAiName 외할머니맥→댁', fixAiName('[외할머니맥] 일산 털레기 수제비'), '[외할머니댁] 일산 털레기 수제비');
   eq('fixAiName 공백정리', fixAiName('  [엄마밥상]   청국장  '), '[엄마밥상] 청국장');
+  eq('fixAiName 벌레기→털레기', fixAiName('[외할머니댁] 일산 벌레기 수제비'), '[외할머니댁] 일산 털레기 수제비');
+
+  /* 이름 유사도: 한 글자 오인식은 높은 점수, 다른 제품은 낮은 점수여야 한다 */
+  const simTypo = nameSim('[외할머니댁] 일산 벌레기 수제비', '[외할머니댁] 일산 털레기 수제비');
+  if (simTypo >= 0.78) passes++;
+  else { failures++; console.error('  ✗ 한 글자 오인식 유사도 ' + simTypo.toFixed(2) + ' (0.78 이상 기대)'); }
+  const simOther = nameSim('[엄마밥상] 청국장', '[엄마밥상] 김치청국장');
+  if (simOther < 0.78) passes++;
+  else { failures++; console.error('  ✗ 다른 제품 유사도 ' + simOther.toFixed(2) + ' (0.78 미만이어야 함)'); }
 }
 
 /* ── 2) 출고계획: 센터 이름 정규화 ── */

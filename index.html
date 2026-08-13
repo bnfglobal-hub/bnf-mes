@@ -14687,7 +14687,7 @@ function PageShipSort({mats,hqItems}){
   };
 
   /* ===== 발주서 이미지 자동 인식 (Gemini) ===== */
-  const loadScaledImg=(dataUrl,cb)=>{const img=new Image();img.onload=()=>{const max=1800;let w=img.width,h=img.height;if(w>max||h>max){const s=max/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);try{cb(c.toDataURL('image/jpeg',0.92));}catch(e){cb(dataUrl);}};img.onerror=()=>cb(dataUrl);img.src=dataUrl;};
+  const loadScaledImg=(dataUrl,cb)=>{const img=new Image();img.onload=()=>{const max=2600;let w=img.width,h=img.height;if(w>max||h>max){const s=max/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);try{cb(c.toDataURL('image/jpeg',0.92));}catch(e){cb(dataUrl);}};img.onerror=()=>cb(dataUrl);img.src=dataUrl;};
   const setShipImgFrom=(file)=>{if(!file)return;const r=new FileReader();r.onload=()=>loadScaledImg(r.result,d=>{setShipImg(d);setImgErr('');});r.readAsDataURL(file);};
   const onShipImgPick=(e)=>{const f=e.target.files&&e.target.files[0];if(f)setShipImgFrom(f);e.target.value='';};
   /* 붙여넣기 칸에 이미지가 오면 이미지로, 아니면 텍스트 기본 붙여넣기 */
@@ -14773,15 +14773,61 @@ function PageShipSort({mats,hqItems}){
   };
   /* AI OCR 품목명 교정 (한글 오독 보정) */
   const NAME_FIX=[
-    [/렐레기|털래기|텔레기|틸레기/g,'털레기'],
+    [/렐레기|털래기|텔레기|틸레기|벌레기|털레지/g,'털레기'],
     [/외할머니택|외할머니덱|외할머니맥|외할머니액/g,'외할머니댁'],
     [/엄마밥성|엄마밥싱/g,'엄마밥상'],
     [/맑은콤탕|맑은곰당/g,'맑은곰탕'],
     [/청국징|정국장/g,'청국장'],
   ];
+  /* ── 정식 품목명 사전 ──
+     지금까지 실제로 쓰인 품목명을 모아두고, AI가 읽은 이름이 그 중 하나와 거의 같으면
+     정식 이름으로 바꿔준다. (예: '일산 벌레기 수제비' → '일산 털레기 수제비')
+     글자 한두 개가 틀리는 OCR 오인식을 규칙 추가 없이 자동으로 잡는다. */
+  const[canonNames,setCanonNames]=useState([]);
+  const loadCanon=()=>sbClient.from('app_state').select('v:state_data->shipsort_names').eq('id',1).maybeSingle()
+    .then(({data})=>{if(Array.isArray(data&&data.v))setCanonNames(data.v);}).catch(()=>{});
+  useEffect(()=>{loadCanon();},[]);
+  const saveCanon=(names)=>{
+    const merged=[];
+    const seen=new Set();
+    [...(canonNames||[]),...names].forEach(n=>{
+      const k=String(n||'').replace(/\s/g,'');
+      if(!k||seen.has(k))return;
+      seen.add(k);merged.push(String(n).trim());
+    });
+    if(merged.length===(canonNames||[]).length)return;
+    setCanonNames(merged);
+    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+      const ex=data&&data.state_data?data.state_data:null;
+      if(!ex)return;
+      return sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{shipsort_names:merged.slice(0,400)}),updated_at:new Date().toISOString()});
+    }).catch(()=>{});
+  };
+  /* 두 글자씩 잘라 겹치는 비율로 유사도 계산 (0~1) */
+  const nameSim=(a,b)=>{
+    const A=String(a||'').replace(/\s/g,''),B=String(b||'').replace(/\s/g,'');
+    if(!A||!B)return 0;
+    if(A===B)return 1;
+    const bg=(t)=>{const o=[];for(let i=0;i<t.length-1;i++)o.push(t.slice(i,i+2));return o;};
+    const x=bg(A),y=bg(B);
+    if(!x.length||!y.length)return 0;
+    const pool=y.slice();let hit=0;
+    x.forEach(g=>{const i=pool.indexOf(g);if(i>=0){hit++;pool.splice(i,1);}});
+    return (2*hit)/(x.length+y.length);
+  };
   const fixAiName=(raw)=>{
     let s=String(raw||'').replace(/\s+/g,' ').trim();
     NAME_FIX.forEach(([re,to])=>{s=s.replace(re,to);});
+    if(!s)return s;
+    /* 이미 쓰던 정식 이름과 거의 같으면 그 이름으로 통일 */
+    const pool=[...(canonNames||[]),
+      ...Object.keys((parsed&&parsed.prodTotal)||{})];
+    let best=null,bestScore=0;
+    pool.forEach(n=>{
+      const sc=nameSim(s,n);
+      if(sc>bestScore){bestScore=sc;best=n;}
+    });
+    if(best&&bestScore>=0.78&&best!==s)return best;
     return s;
   };
   /* 제품 박스입수 (총수량 = 박스수 × 입수). 명세서 관측값 기준, 미등록은 0(=검토표에서 입력) */
@@ -14946,11 +14992,12 @@ function PageShipSort({mats,hqItems}){
     const page=await pdf.getPage(pageNo);
     const vp0=page.getViewport({scale:1});
     /* 긴 변 ~2200px가 되도록 스케일 (숫자/코드 선명하게 = 정확도 확보) */
-    const scale=Math.min(4,Math.max(2,2200/Math.max(vp0.width,vp0.height)));
+    /* 글자를 더 또렷하게 — 긴 변 3000px 기준 (OCR 오인식 감소) */
+    const scale=Math.min(5,Math.max(2.5,3000/Math.max(vp0.width,vp0.height)));
     const vp=page.getViewport({scale});
     const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
     await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
-    return c.toDataURL('image/jpeg',0.95).split(',')[1];
+    return c.toDataURL('image/jpeg',0.97).split(',')[1];
   };
 
   /* 여러 PDF 파일 처리 */
@@ -15045,6 +15092,8 @@ function PageShipSort({mats,hqItems}){
     });
     const orders=Object.entries(byC).map(([center,items])=>({center,date:review.date,items}));
     if(!orders.length){alert('반영할 항목이 없습니다.');return;}
+    /* 사람이 확인한 이름을 정식 사전에 등록 → 다음부터 같은 오인식 자동 교정 */
+    try{saveCanon(review.rows.map(r=>r.name).filter(Boolean));}catch(e){}
     aggregate(orders,review.date);
     setReview(null);
   };
