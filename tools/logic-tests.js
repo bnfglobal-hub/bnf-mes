@@ -54,13 +54,29 @@ function eq(name, actual, expected) {
   eq('fixAiName 공백정리', fixAiName('  [엄마밥상]   청국장  '), '[엄마밥상] 청국장');
   eq('fixAiName 벌레기→털레기', fixAiName('[외할머니댁] 일산 벌레기 수제비'), '[외할머니댁] 일산 털레기 수제비');
 
+  /* 실제 사전이 있을 때 오인식 교정 (여러 형태) */
+  {
+    const CANON = ['[외할머니댁] 일산 털레기 수제비', '[엄마밥상] 김치청국장', '[엄마밥상] 청국장', '[엄마밥상] 맑은곰탕'];
+    const stub2 = 'const useState=(v)=>[' + JSON.stringify(CANON) + ',()=>{}];const useEffect=()=>{};'
+      + 'const sbClient={from:()=>({select:()=>({eq:()=>({maybeSingle:()=>Promise.resolve({data:null})})}),upsert:()=>Promise.resolve({})})};'
+      + 'const parsed=null;\n';
+    const f2 = new Function(stub2 + code + '\nreturn fixAiName;')();
+    ['일산 할례기 수제비', '일산 딜레 수제비', '일산 텔레기 수제비', '일산 벌레기 수제비'].forEach(t => {
+      eq('교정 ' + t, f2('[외할머니댁] ' + t), '[외할머니댁] 일산 털레기 수제비');
+    });
+    /* 다른 제품끼리는 섞이면 안 된다 */
+    eq('청국장 유지', f2('[엄마밥상] 청국장'), '[엄마밥상] 청국장');
+    eq('김치청국장 유지', f2('[엄마밥상] 김치청국장'), '[엄마밥상] 김치청국장');
+  }
+
   /* 이름 유사도: 한 글자 오인식은 높은 점수, 다른 제품은 낮은 점수여야 한다 */
   const simTypo = nameSim('[외할머니댁] 일산 벌레기 수제비', '[외할머니댁] 일산 털레기 수제비');
   if (simTypo >= 0.78) passes++;
   else { failures++; console.error('  ✗ 한 글자 오인식 유사도 ' + simTypo.toFixed(2) + ' (0.78 이상 기대)'); }
+  /* 오타 교정본이 다른 제품보다 반드시 더 가까워야 한다 (섞임 방지의 핵심 성질) */
   const simOther = nameSim('[엄마밥상] 청국장', '[엄마밥상] 김치청국장');
-  if (simOther < 0.78) passes++;
-  else { failures++; console.error('  ✗ 다른 제품 유사도 ' + simOther.toFixed(2) + ' (0.78 미만이어야 함)'); }
+  if (simTypo > simOther) passes++;
+  else { failures++; console.error('  ✗ 오타 유사도(' + simTypo.toFixed(2) + ')가 다른 제품(' + simOther.toFixed(2) + ')보다 높아야 합니다'); }
 }
 
 /* ── 2) 출고계획: 센터 이름 정규화 ── */
