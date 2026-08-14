@@ -15269,6 +15269,50 @@ function PageShipSort({mats,hqItems}){
       alert('PC 수집기에 연결하지 못했습니다.\n사무실 PC에서 "컬리 발주 수집기"를 켜두면 즉시 새로 읽어올 수 있습니다.\n(지금 보이는 내용은 마지막으로 저장된 발주입니다)');
     }
   };
+  /* ── 컬리 발주 확정 ──
+     사무실 PC의 수집기가 컬리 포털에 값을 채우고, 여기서 사람이 확인·승인한 뒤에만
+     거래명세서를 생성한다. 승인 전에는 아무것도 제출되지 않는다. */
+  const[cfm,setCfm]=useState(null);        /* {token,date,rows,...} 채움 완료 → 승인 대기 */
+  const[cfmBusy,setCfmBusy]=useState('');
+  const[cfmDone,setCfmDone]=useState(null);
+  const BRIDGE='http://127.0.0.1:8788';
+  const cfmPrepare=async()=>{
+    const d=kurlyDate||today2();
+    if(!confirm('['+d+dowLabel(d)+'] 발주를 확정 준비합니다.\n\n· 입고예약시간 14:00~14:59\n· 출고유형 A유형\n· 소비기한 = 각 품목의 직전입고 날짜\n\n값만 채우고, 거래명세서 생성은 확인 후 승인해야 실행됩니다.'))return;
+    setCfmBusy('컬리 포털에 값을 채우는 중... (1~2분)');setCfmDone(null);
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),300000);
+      const r=await fetch(BRIDGE+'/confirm/prepare?date='+d,{signal:ctl.signal});
+      clearTimeout(tm);
+      const j=await r.json();
+      setCfmBusy('');
+      if(j.error==='LOGIN_REQUIRED'){alert('컬리 포털 로그인이 필요합니다.\n사무실 PC의 bnf-kurly-order 폴더에서 "1-컬리 로그인.bat"을 한 번 실행해주세요.');return;}
+      if(j.error){alert('확정을 중단했습니다. 컬리에는 아무것도 제출되지 않았습니다.\n\n'+j.error);return;}
+      setCfm(j);
+    }catch(e){
+      setCfmBusy('');
+      alert('사무실 PC의 "컬리 발주 수집기"가 켜져 있어야 확정할 수 있습니다.\n(휴대폰에서는 확정 실행이 되지 않습니다)');
+    }
+  };
+  const cfmApprove=async()=>{
+    if(!cfm)return;
+    if(!confirm('거래명세서를 생성합니다.\n\n'+cfm.date+dowLabel(cfm.date)+' · '+cfm.rows.length+'개 품목\n\n생성 후에는 되돌릴 수 없습니다. 진행할까요?'))return;
+    setCfmBusy('거래명세서 생성 중...');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),300000);
+      const r=await fetch(BRIDGE+'/confirm/approve?token='+encodeURIComponent(cfm.token),{signal:ctl.signal});
+      clearTimeout(tm);
+      const j=await r.json();
+      setCfmBusy('');
+      if(j.error){alert('생성을 중단했습니다.\n\n'+j.error);return;}
+      setCfmDone(j);setCfm(null);
+      alert('거래명세서 생성을 완료했습니다.\n컬리 포털에서 최종 확인해주세요.');
+    }catch(e){setCfmBusy('');alert('생성 결과를 확인하지 못했습니다. 컬리 포털에서 직접 확인해주세요.');}
+  };
+  const cfmCancel=()=>{
+    fetch(BRIDGE+'/confirm/cancel').catch(()=>{});
+    setCfm(null);
+  };
   const kurlyRows=(kurly&&kurly.rows||[]).filter(r=>!kurlyDate||r.date===kurlyDate);
   const kurlyByCenter=(()=>{
     const g={};
@@ -15397,9 +15441,41 @@ function PageShipSort({mats,hqItems}){
               ? ('마지막 수집 '+new Date(kurly.at).toLocaleString('ko-KR')+' · 입고예정일 '+((kurly.dates||[]).join(', ')||'없음'))
               : '아직 불러온 발주가 없습니다. 사무실 PC의 컬리 수집기를 실행해주세요.')
         ),
-        R('button',{className:'btn bp btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);}},'🛒 컬리 발주 확인')
+        R('div',{style:{display:'flex',gap:6}},
+          R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);}},'🛒 컬리 발주 확인'),
+          R('button',{className:'btn bp btn-sm',onClick:cfmPrepare,disabled:!!cfmBusy},cfmBusy||'✅ 컬리 발주 확정')
+        )
       )
     ),
+    /* 확정 승인 화면 — 여기서 승인해야만 거래명세서가 생성된다 */
+    cfm&&R(Portal,null,R('div',{className:'mbg'},
+      R('div',{className:'mbox',style:{maxWidth:820,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
+        R('div',{className:'mhdr'},R('span',{style:{fontSize:15,fontWeight:800}},'✅ 컬리 발주 확정 — 승인 대기')),
+        R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
+          R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 12px',fontSize:12,marginBottom:10,lineHeight:1.6}},
+            '아래 값이 컬리 포털에 ',R('b',null,'입력만'),' 된 상태입니다. 아직 제출·생성되지 않았습니다.',R('br'),
+            '내용을 확인하고 ',R('b',null,'[거래명세서 생성]'),'을 눌러야 최종 실행됩니다.'),
+          R('div',{style:{fontSize:12.5,fontWeight:700,marginBottom:6}},
+            cfm.date+dowLabel(cfm.date)+' · '+cfm.rows.length+'개 품목 · 입고예약 '+cfm.time+' · 출고유형 '+cfm.type),
+          R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
+            R('thead',null,R('tr',null,R('th',null,'품목'),R('th',{style:{width:104}},'입고예약'),
+              R('th',{style:{width:64}},'출고유형'),R('th',{style:{width:104}},'소비기한'),R('th',{style:{width:104}},'직전입고'))),
+            R('tbody',null,...cfm.rows.map((r,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9'}},
+              R('td',{style:{fontWeight:600}},r.name),
+              R('td',{style:{fontSize:11.5}},r.time),
+              R('td',{style:{fontSize:11.5}},r.type),
+              R('td',{style:{fontSize:11.5,fontWeight:700,color:'var(--p)'}},r.exp),
+              R('td',{style:{fontSize:11.5,color:'var(--tm)'}},r.prev)
+            )))
+          ))
+        ),
+        R('div',{className:'mfoot'},
+          R('span',{style:{flex:1,fontSize:11.5,color:'var(--tm)'}},cfmBusy||'승인 전에는 아무것도 생성되지 않습니다'),
+          R('button',{className:'btn bs',onClick:cfmCancel,disabled:!!cfmBusy,style:{padding:'8px 14px'}},'취소'),
+          R('button',{className:'btn bp',onClick:cfmApprove,disabled:!!cfmBusy,style:{padding:'8px 18px'}},'✓ 승인 · 거래명세서 생성')
+        )
+      )
+    )),
     /* 컬리 발주 모달 */
     kurlyOpen&&R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)setKurlyOpen(false);}},
       R('div',{className:'mbox',style:{maxWidth:860,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
