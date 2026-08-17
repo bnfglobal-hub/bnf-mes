@@ -2837,6 +2837,140 @@ function PageLedgerClose({user}){
   );
 }
 
+/* ═══ 기타 (경영지원부) — 주간 회의 참석 체크 ═══════════════
+   매주 월요일 회의 기준. 명단은 이 화면에서 직접 수정할 수 있다. */
+function PageEtc({user}){
+  /* 날짜는 우리 시간(로컬) 기준으로 다룬다. toISOString은 UTC라 하루 밀린다. */
+  const ymd=(x)=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+  const monOf=(d)=>{const x=(typeof d==='string')?new Date(d+'T00:00:00'):new Date(d);
+    const w=x.getDay();x.setDate(x.getDate()-((w+6)%7));return ymd(x);};
+  const[mem,setMem]=useState([]);
+  const[att,setAtt]=useState({});
+  const[wk,setWk]=useState(()=>monOf(new Date()));
+  const[edit,setEdit]=useState(false);
+  const[nm,setNm]=useState('');
+  const load=()=>sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle()
+    .then(({data})=>{const d=(data&&data.state_data)||{};
+      setMem(Array.isArray(d.meeting_members)?d.meeting_members:[]);
+      setAtt(d.meeting_attend||{});}).catch(()=>{});
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+  const persist=async(patch)=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=(data&&data.state_data)||null;
+      if(!ex){alert('자동저장 중단: 서버 상태를 읽지 못함.\n잠시 후 다시 시도해주세요.');return;}
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,patch),updated_at:new Date().toISOString()});
+    }catch(e){}
+  };
+  const saveMem=(next)=>{setMem(next);persist({meeting_members:next});};
+  const cur=att[wk]||{absent:[],memo:''};
+  const saveAtt=(next)=>{const all=Object.assign({},att,{[wk]:next});setAtt(all);persist({meeting_attend:all});};
+  const toggle=(n)=>{
+    const ab=cur.absent||[];
+    saveAtt(Object.assign({},cur,{absent:ab.indexOf(n)>=0?ab.filter(x=>x!==n):[...ab,n]}));
+  };
+  const addMem=()=>{
+    const v=nm.trim(); if(!v)return;
+    if(mem.indexOf(v)>=0){alert('이미 명단에 있습니다.');return;}
+    saveMem([...mem,v]); setNm('');
+  };
+  const delMem=(n)=>{if(!confirm('"'+n+'" 을(를) 명단에서 뺄까요?\n지난 기록은 그대로 남습니다.'))return;saveMem(mem.filter(x=>x!==n));};
+  /* 사용자 관리에 등록된 재직 직원을 명단으로 불러온다 (기존 명단은 지우지 않고 없는 사람만 추가) */
+  const pullEmps=async()=>{
+    try{
+      const{data}=await db('emp').select('name').eq('status','active').order('name');
+      const names=(data||[]).map(x=>String(x.name||'').trim()).filter(Boolean);
+      if(!names.length){alert('불러올 직원이 없습니다.');return;}
+      const add=names.filter(n=>mem.indexOf(n)<0);
+      if(!add.length){alert('이미 모두 명단에 있습니다.');return;}
+      if(!confirm(add.length+'명을 명단에 추가할까요?\n\n'+add.join(', ')))return;
+      saveMem([...mem,...add]);
+    }catch(e){alert('직원 명단을 불러오지 못했습니다.');}
+  };
+  const mvMem=(i,d)=>{const a=[...mem];const j=i+d;if(j<0||j>=a.length)return;const t=a[i];a[i]=a[j];a[j]=t;saveMem(a);};
+  const shiftWk=(n)=>{const x=new Date(wk+'T00:00:00');x.setDate(x.getDate()+7*n);setWk(ymd(x));};
+  const dow=(ds)=>{const d=new Date(ds+'T00:00:00');return isNaN(d.getTime())?'':' ('+['일','월','화','수','목','금','토'][d.getDay()]+')';};
+  const absent=(cur.absent||[]).filter(n=>mem.indexOf(n)>=0);
+  const weeks=[];
+  {const x=new Date(wk+'T00:00:00');
+   for(let i=7;i>=0;i--){const y=new Date(x);y.setDate(y.getDate()-7*i);weeks.push(ymd(y));}}
+  const absCnt=(n)=>weeks.filter(w=>((att[w]||{}).absent||[]).indexOf(n)>=0).length;
+  const copy=()=>{
+    const t=['📋 주간 회의 참석 ('+wk+dow(wk)+')',
+      '참석 '+(mem.length-absent.length)+'명 / 전체 '+mem.length+'명',
+      absent.length?('미참석: '+absent.join(', ')):'미참석 없음'].join('\n')+(cur.memo?('\n비고: '+cur.memo):'');
+    if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>alert('복사했습니다.'),()=>alert(t));
+    else alert(t);
+  };
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📎 기타'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'매주 월요일 회의 참석 체크 · 명단 관리')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('button',{className:'btn bw btn-sm',onClick:()=>shiftWk(-1)},'◀ 지난주'),
+        R('input',{type:'date',value:wk,onChange:e=>setWk(monOf(e.target.value||wk)),
+          style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{className:'btn bw btn-sm',onClick:()=>shiftWk(1)},'다음주 ▶'),
+        R('button',{className:'btn bw btn-sm',onClick:()=>setWk(monOf(new Date()))},'이번주')
+      )
+    ),
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:8}},
+        R('span',{style:{fontSize:12.5,fontWeight:800}},'🗓 '+wk+dow(wk)+' 회의 참석'),
+        R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+          R('span',{style:{fontSize:11.5,fontWeight:800,color:absent.length?'#DC2626':'#15803D'}},
+            absent.length?('미참석 '+absent.length+'명'):'전원 참석'),
+          R('button',{className:'btn bw btn-sm',onClick:copy},'복사'),
+          R('button',{className:'btn '+(edit?'bp':'bw')+' btn-sm',onClick:()=>setEdit(!edit)},edit?'완료':'명단 수정')
+        )),
+      mem.length===0
+        ? R('div',{style:{padding:'22px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},'명단이 비어 있습니다. [명단 수정]에서 추가해주세요.')
+        : R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(158px,1fr))',gap:7}},
+            ...mem.map((n,i)=>{
+              const off=absent.indexOf(n)>=0;
+              return R('div',{key:n,style:{display:'flex',alignItems:'center',gap:5}},
+                R('button',{onClick:()=>toggle(n),
+                  style:{flex:1,textAlign:'left',padding:'9px 11px',borderRadius:9,cursor:'pointer',fontSize:12.5,fontWeight:700,fontFamily:'inherit',
+                    border:'1px solid '+(off?'#FCA5A5':'#BBF7D0'),background:off?'#FEF2F2':'#F0FDF4',color:off?'#B91C1C':'#15803D'}},
+                  (off?'✖ ':'✔ ')+n),
+                edit&&R('div',{style:{display:'flex',flexDirection:'column',gap:2}},
+                  R('button',{className:'btn bw',onClick:()=>mvMem(i,-1),style:{padding:'0 5px',fontSize:9,lineHeight:1.5}},'▲'),
+                  R('button',{className:'btn bw',onClick:()=>mvMem(i,1),style:{padding:'0 5px',fontSize:9,lineHeight:1.5}},'▼')),
+                edit&&R('button',{className:'btn bw',onClick:()=>delMem(n),style:{padding:'4px 7px',fontSize:11,color:'#DC2626'}},'✕')
+              );
+            })
+          ),
+      edit&&R('div',{style:{display:'flex',gap:6,marginTop:10}},
+        R('input',{value:nm,onChange:e=>setNm(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addMem();},
+          placeholder:'이름 입력 후 Enter',
+          style:{flex:1,border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit'}}),
+        R('button',{className:'btn bp btn-sm',onClick:addMem},'+ 추가'),
+        R('button',{className:'btn bw btn-sm',onClick:pullEmps},'👥 직원 불러오기')),
+      R('div',{style:{marginTop:10}},
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:4}},'비고'),
+        R('textarea',{value:cur.memo||'',onChange:e=>saveAtt(Object.assign({},cur,{memo:e.target.value})),
+          placeholder:'회의 안건·특이사항 (선택)',
+          style:{width:'100%',minHeight:52,border:'1px solid var(--bd)',borderRadius:8,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit',resize:'vertical'}}))
+    ),
+    mem.length>0&&R('div',{className:'card'},
+      R('div',{style:{fontSize:12.5,fontWeight:800,marginBottom:8}},'📊 최근 8주 참석 현황'),
+      R('div',{className:'tw'},R('table',{style:{fontSize:12}},
+        R('thead',null,R('tr',null,R('th',{style:{minWidth:88}},'이름'),
+          ...weeks.map(w=>R('th',{key:w,style:{width:52,textAlign:'center',fontSize:10.5}},w.slice(5))),
+          R('th',{style:{width:64,textAlign:'center'}},'미참석'))),
+        R('tbody',null,...mem.map(n=>R('tr',{key:n,style:{borderTop:'1px solid #F1F5F9'}},
+          R('td',{style:{fontWeight:700}},n),
+          ...weeks.map(w=>{const o=((att[w]||{}).absent||[]).indexOf(n)>=0;
+            return R('td',{key:w,style:{textAlign:'center',fontWeight:800,color:o?'#DC2626':'#15803D'}},o?'✖':'○');}),
+          R('td',{style:{textAlign:'center',fontWeight:800,color:absCnt(n)?'#DC2626':'var(--tm)'}},absCnt(n))
+        )))
+      )),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8}},'○ 참석 · ✖ 미참석 — 위에서 이름을 눌러 바꿉니다.')
+    )
+  );
+}
+
 /* ═══ 첨부 업로드 공용 훅 (여러 페이지가 같은 방식으로 사용) ═══
    folder: 저장 경로 폴더명. get/set: 현재 첨부배열을 읽고 쓰는 함수. */
 function useAttach(folder,get,set){
@@ -15255,7 +15389,7 @@ function PageShipSort({mats,hqItems}){
       const r=await fetch('http://127.0.0.1:8788/orders?date='+(kurlyDate||today2()),{signal:ctl.signal});
       clearTimeout(tm);
       const j=await r.json();
-      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyBusy('');alert(j.msg||'컬리 포털 로그인이 필요합니다.');return;}
+      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyBusy('');await kurlyLogin();return;}
       if(j&&Array.isArray(j.rows)){
         const rows=j.rows.map(x=>Object.assign({},x,{date:j.date}));
         setKurly(p=>({at:new Date().toISOString(),dates:[j.date],rows}));
@@ -15276,6 +15410,16 @@ function PageShipSort({mats,hqItems}){
   const[cfmBusy,setCfmBusy]=useState('');
   const[cfmDone,setCfmDone]=useState(null);
   const BRIDGE='http://127.0.0.1:8788';
+  /* 컬리 로그인은 몇 시간이면 만료된다. 사무실 PC 화면에 로그인 창을 띄워준다. */
+  const kurlyLogin=async()=>{
+    if(!confirm('컬리 로그인이 만료되었습니다.\n\n사무실 PC 화면에 컬리 로그인 창을 띄울까요?\n(창이 뜨면 로그인만 하시면 자동으로 저장되고 닫힙니다)'))return;
+    try{
+      await fetch(BRIDGE+'/login');
+      alert('사무실 PC 화면에 컬리 로그인 창을 띄웠습니다.\n로그인하신 뒤 다시 눌러주세요.');
+    }catch(e){
+      alert('사무실 PC의 컬리 수집기가 꺼져 있습니다.\nPC에서 bnf-kurly-order 폴더의 "1-컬리 로그인.bat"을 실행해주세요.');
+    }
+  };
   const cfmPrepare=async()=>{
     const d=kurlyDate||today2();
     if(!confirm('['+d+dowLabel(d)+'] 발주를 확정 준비합니다.\n\n· 입고예약시간 14:00~14:59\n· 출고유형 A유형\n· 소비기한 = 각 품목의 직전입고 날짜\n\n값만 채우고, 거래명세서 생성은 확인 후 승인해야 실행됩니다.'))return;
@@ -15286,7 +15430,7 @@ function PageShipSort({mats,hqItems}){
       clearTimeout(tm);
       const j=await r.json();
       setCfmBusy('');
-      if(j.error==='LOGIN_REQUIRED'){alert('컬리 포털 로그인이 필요합니다.\n사무실 PC의 bnf-kurly-order 폴더에서 "1-컬리 로그인.bat"을 한 번 실행해주세요.');return;}
+      if(j.error==='LOGIN_REQUIRED'){await kurlyLogin();return;}
       if(j.error){alert('확정을 중단했습니다. 컬리에는 아무것도 제출되지 않았습니다.\n\n'+j.error);return;}
       setCfm(j);
     }catch(e){
@@ -16742,6 +16886,7 @@ function App(){
     if(page==='trade_entry')return R(PageTradeEntry,{user,mats});
     if(page==='daily_report')return R(PageDailyReport,{user,mats,orders});
     if(page==='ledger_close')return R(PageLedgerClose,{user});
+    if(page==='etc_misc')return R(PageEtc,{user});
     if(page==='docs')return R(PageCycleCheck,{key:'docs',user,title:'회사 서류 관리',ic:'🗂',
       desc:'중대재해처벌법·인허가·보험 등 갱신 주기가 있는 서류를 관리합니다. 갱신일이 다가오면 홈 화면에 표시됩니다',
       storeKey:'bnf_docs',nameLabel:'서류',namePh:'예) 안전보건 경영방침 게시',
