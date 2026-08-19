@@ -934,21 +934,42 @@ function PageProdSchedule(){
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
       const sd=data&&data.state_data?data.state_data:{};
       const imgs=sd.sched_images||{};
+      const prev=sd.sched_images_prev||{};
+      if(imgs[weekStart])prev[weekStart]=imgs[weekStart];   /* 직전 이미지 보관(실수 복구용) */
       imgs[weekStart]=dataUrl;
-      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs},updated_at:new Date().toISOString()});
+      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs,sched_images_prev:prev},updated_at:new Date().toISOString()});
       setImg(dataUrl);
     }catch(err){alert('저장 실패: '+err.message);}
     setUploading(false);
   };
 
+  /* 휴대폰 사진(수 MB~수십 MB)도 자동으로 줄여서 저장한다 (2026-08-19) */
   const processFile=(file)=>{
     if(!file){return;}
     if(!file.type.startsWith('image/')){alert('이미지 파일만 가능합니다');return;}
-    if(file.size>5*1024*1024){alert('이미지가 너무 큽니다 (5MB 이하로 줄여주세요).');return;}
-    const reader=new FileReader();
-    reader.onload=(ev)=>saveImg(ev.target.result);
-    reader.onerror=()=>alert('파일 읽기 실패');
-    reader.readAsDataURL(file);
+    const url=URL.createObjectURL(file);
+    const im=new Image();
+    im.onload=()=>{
+      URL.revokeObjectURL(url);
+      const tryScale=(maxW,q)=>{
+        const sc=Math.min(1,maxW/Math.max(im.width,im.height));
+        const cv=document.createElement('canvas');
+        cv.width=Math.max(1,Math.round(im.width*sc));
+        cv.height=Math.max(1,Math.round(im.height*sc));
+        cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+        return cv.toDataURL('image/jpeg',q);
+      };
+      /* 크기가 맞을 때까지 단계적으로 축소 */
+      let out=null;
+      for(const[w,q]of[[2600,0.88],[2000,0.82],[1500,0.78],[1100,0.72]]){
+        out=tryScale(w,q);
+        if(out.length<3.6*1024*1024)break;
+      }
+      if(!out||out.length>=4.8*1024*1024){alert('이미지를 줄여도 너무 큽니다. 다른 사진으로 시도해주세요.');return;}
+      saveImg(out);
+    };
+    im.onerror=()=>{URL.revokeObjectURL(url);alert('이미지를 읽지 못했습니다.');};
+    im.src=url;
   };
 
   const handleFile=(e)=>{processFile(e.target.files[0]);e.target.value='';};
@@ -975,8 +996,10 @@ function PageProdSchedule(){
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
       const sd=data&&data.state_data?data.state_data:{};
       const imgs=sd.sched_images||{};
+      const prev=sd.sched_images_prev||{};
+      if(imgs[weekStart])prev[weekStart]=imgs[weekStart];   /* 직전 이미지 보관(실수 복구용) */
       delete imgs[weekStart];
-      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs},updated_at:new Date().toISOString()});
+      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs,sched_images_prev:prev},updated_at:new Date().toISOString()});
       setImg(null);
     }catch(err){alert('삭제 실패: '+err.message);}
   };
