@@ -2046,6 +2046,19 @@ function PageFeatureReq({user}){
     setPosts(data||[]);
   };
   const openNew=()=>{setForm({title:'',body:'',area:'',prio:'보통'});setEditId(null);setShowF(true);};
+  /* 빠른 등록: 목록 위 큰 입력칸에서 Enter 한 번으로 바로 등록 */
+  const[quickReq,setQuickReq]=useState('');
+  const[quickPrio,setQuickPrio]=useState('보통');
+  const quickSave=async()=>{
+    const t=quickReq.trim();
+    if(!t)return;
+    if(!board){alert('게시판을 준비하지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
+    try{
+      const content=frPack({status:'요청',area:'',prio:quickPrio},'');
+      await db('posts').insert({board_id:board.id,title:t,content,author_id:user.id});
+      setQuickReq('');setQuickPrio('보통');loadPosts();
+    }catch(e){alert('등록 실패: '+e.message);}
+  };
   /* 상세화면에는 모달이 없으므로 목록으로 돌아간 뒤 모달을 띄운다 */
   const openEdit=p=>{const{meta,body}=frParse(p.content);setForm({title:p.title||'',body,area:meta.area||'',prio:meta.prio||'보통'});setEditId(p.id);setPost(null);setShowF(true);};
   const save=async()=>{
@@ -2145,6 +2158,19 @@ function PageFeatureReq({user}){
       R('div',null,R('div',{className:'pg-title'},'💡 추가 기능 요청'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'원하는 기능을 남겨주세요 · 검토 후 반영합니다')),
       R('button',{className:'btn bp',onClick:openNew},'+ 기능 요청')
+    ),
+    /* 빠른 기능 요청 — 바로 입력 */
+    R('div',{className:'card',style:{marginBottom:12,padding:'18px 20px',border:'1.5px solid #FFDCCC',background:'linear-gradient(180deg,#FFFDFB,#FFF8F4)'}},
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+        R('input',{value:quickReq,onChange:e=>setQuickReq(e.target.value),
+          onKeyDown:e=>{if(e.key==='Enter')quickSave();},
+          placeholder:'💡 원하는 기능을 입력하고 Enter — 예) 출고 계획에 인쇄 버튼 추가해주세요',
+          style:{flex:'1 1 380px',border:'1.5px solid var(--bd)',borderRadius:12,padding:'13px 16px',fontSize:14,fontFamily:'inherit',background:'#fff'}}),
+        R('select',{value:quickPrio,onChange:e=>setQuickPrio(e.target.value),
+          style:{border:'1px solid var(--bd)',borderRadius:10,padding:'11px 10px',fontSize:12.5,fontFamily:'inherit',background:'#fff'}},
+          ...['보통','높음','긴급'].map(x=>R('option',{key:x,value:x},'중요도 '+x))),
+        R('button',{className:'btn bp',onClick:quickSave,style:{padding:'12px 20px',fontSize:13,fontWeight:800,borderRadius:12}},'요청 등록 →')),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:7}},'자세한 설명·사진을 붙이려면 오른쪽 위 [+ 기능 요청]을 눌러주세요.')
     ),
     R('div',{className:'tab-row'},
       ...['전체',...FR_STATUS].map(f=>R('button',{key:f,className:'tab'+(filter===f?' act':''),onClick:()=>setFilter(f)},
