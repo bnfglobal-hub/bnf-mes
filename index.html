@@ -3729,7 +3729,11 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
 const MANUAL_CATS=['공통','생산','품질','연구개발','영업/물류','구매/자재','전산/시스템','안전/위생','기타'];
 function PageManual({user}){
   const KEY='bnf_manuals';
+  const CKEY='bnf_manual_cats';
   const[rows,setRows]=useState(null);
+  const[cats,setCats]=useState(MANUAL_CATS);
+  const[catEdit,setCatEdit]=useState(false);
+  const[newCat,setNewCat]=useState('');
   const[cat,setCat]=useState('전체');
   const[q,setQ]=useState('');
   const[sel,setSel]=useState(null);
@@ -3745,17 +3749,24 @@ function PageManual({user}){
   useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
-      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
-      setRows(Array.isArray(data&&data.v)?data.v:[]);
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const sd=(data&&data.state_data)||{};
+      setRows(Array.isArray(sd[KEY])?sd[KEY]:[]);
+      if(Array.isArray(sd[CKEY])&&sd[CKEY].length)setCats(sd[CKEY]);
     }catch(e){setRows([]);}
   };
-  const persist=async(next)=>{
+  const persist=async(next,nextCats)=>{
     setBusy(true);
     try{
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-      const existing=(data&&data.state_data)||{};
-      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
-      setRows(next);
+      const existing=(data&&data.state_data)||null;
+      if(!existing){alert('자동저장 중단: 서버 상태를 읽지 못함.\n잠시 후 다시 시도해주세요.');setBusy(false);return;}
+      const patch={};
+      if(next)patch[KEY]=next;
+      if(nextCats)patch[CKEY]=nextCats;
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,patch),updated_at:new Date().toISOString()});
+      if(next)setRows(next);
+      if(nextCats)setCats(nextCats);
     }catch(e){alert('저장 실패: '+e.message);}
     setBusy(false);
   };
@@ -3867,16 +3878,35 @@ function PageManual({user}){
     return [r.title,r.body,r.owner,r.cat].some(v=>String(v||'').toLowerCase().includes(s));
   });
   const cnt=c=>(rows||[]).filter(r=>(r.cat||'공통')===c).length;
+  const addCat=async()=>{const v=(newCat||'').trim();if(!v)return;
+    if(cats.indexOf(v)>=0){alert('같은 분류가 있습니다.');return;}
+    await persist(null,[...cats,v]);setNewCat('');};
+  const renameCat=async(old)=>{const v=(prompt('분류 이름을 바꿉니다.',old)||'').trim();
+    if(!v||v===old)return;if(cats.indexOf(v)>=0){alert('같은 분류가 있습니다.');return;}
+    const nextRows=(rows||[]).map(r=>((r.cat||'공통')===old?Object.assign({},r,{cat:v}):r));
+    await persist(nextRows,cats.map(x=>x===old?v:x));if(cat===old)setCat(v);};
+  const delCat=async(name)=>{const n=(rows||[]).filter(r=>(r.cat||'공통')===name).length;
+    if(!confirm('"'+name+'" 분류를 없앨까요?\n\n안에 있던 '+n+'건은 다른 분류로 옮겨집니다.'))return;
+    const rest=cats.filter(x=>x!==name);const to=(cats.indexOf('기타')>=0&&name!=='기타')?'기타':(rest[0]||'공통');
+    const nextRows=(rows||[]).map(r=>((r.cat||'공통')===name?Object.assign({},r,{cat:to}):r));
+    await persist(nextRows,rest);if(cat===name)setCat('전체');};
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📚 업무 매뉴얼'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'업무 방법을 정리해 함께 봅니다 · 사진·문서 첨부 가능')),
       R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 매뉴얼 작성')
     ),
-    R('div',{className:'tab-row'},
-      ...['전체',...MANUAL_CATS].map(c=>R('button',{key:c,className:'tab'+(cat===c?' act':''),onClick:()=>setCat(c)},
-        c+' '+(c==='전체'?(rows||[]).length:cnt(c))))
+    R('div',{className:'tab-row',style:{alignItems:'center'}},
+      R('button',{key:'전체',className:'tab'+(cat==='전체'?' act':''),onClick:()=>setCat('전체')},'전체 '+(rows||[]).length),
+      ...cats.map(c=>R('span',{key:c,style:{display:'inline-flex',alignItems:'center'}},
+        R('button',{className:'tab'+(cat===c?' act':''),onClick:()=>setCat(c)},c+' '+cnt(c)),
+        catEdit&&R('button',{onClick:()=>renameCat(c),title:'이름 바꾸기',style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:11,padding:'0 1px'}},'✎'),
+        catEdit&&R('button',{onClick:()=>delCat(c),title:'분류 삭제',style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:12,padding:'0 2px'}},'✕'))),
+      isAdmin&&R('button',{onClick:()=>setCatEdit(!catEdit),style:{flexShrink:0,marginLeft:4,border:'1px dashed var(--bd)',background:catEdit?'var(--pb)':'#fff',color:catEdit?'var(--p)':'var(--tm)',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},catEdit?'완료':'⚙ 분류 관리')
     ),
+    (catEdit&&isAdmin)&&R('div',{style:{display:'flex',gap:6,marginBottom:10}},
+      R('input',{className:'inp',value:newCat,onChange:e=>setNewCat(e.target.value),onKeyDown:e=>{if(e.key==='Enter')addCat();},placeholder:'새 분류 이름 (예: 물류팀, 김포창고)',style:{maxWidth:260}}),
+      R('button',{className:'btn bp btn-sm',onClick:addCat},'+ 분류 추가')),
     R('div',{style:{margin:'0 0 10px'}},
       R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 제목·내용 검색',style:{maxWidth:340}})),
     rows===null?R('div',{className:'card',style:{textAlign:'center',padding:24,color:'var(--tm)'}},'로딩 중...'):
@@ -3903,7 +3933,7 @@ function PageManual({user}){
           R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>Object.assign({},p,{title:e.target.value})),placeholder:'예) 라멘 라인 살균 공정 순서'})),
         R('div',{className:'fr'},R('label',{className:'lbl'},'분류'),
           R('select',{className:'inp',value:form.cat,onChange:e=>setForm(p=>Object.assign({},p,{cat:e.target.value}))},
-            ...MANUAL_CATS.map(c=>R('option',{key:c,value:c},c))))
+            ...cats.map(c=>R('option',{key:c,value:c},c))))
       ),
       R('div',{className:'fr'},R('label',{className:'lbl'},'담당/작성 부서'),
         R('input',{className:'inp',value:form.owner,onChange:e=>setForm(p=>Object.assign({},p,{owner:e.target.value})),placeholder:'예) 생산팀 김과장'})),
