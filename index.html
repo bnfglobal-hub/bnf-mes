@@ -602,10 +602,10 @@ body{font-variant-numeric:tabular-nums}
 /* 입력칸 통일 */
 .inp{border-radius:9px}
 .inp:focus,input:focus,select:focus,textarea:focus{outline:2px solid rgba(217,79,30,.25);outline-offset:0}
-/* 로딩 공통: '불러오는 중' 계열에 은은한 애니메이션 */
-@keyframes bnfPulse{0%,100%{opacity:.55}50%{opacity:1}}
-.empty{animation:none}
-.empty:has(+ *){animation:none}
+/* 로딩 공통: 점 3개가 순차로 깜빡이는 표시 */
+@keyframes bnfPulse{0%,100%{opacity:.4}50%{opacity:1}}
+.ld{color:var(--tm);display:inline-flex;align-items:center;gap:3px}
+.ld::after{content:'●●●';letter-spacing:2px;animation:bnfPulse 1.1s ease-in-out infinite}
 /* 빈 화면 아이콘 통일 */
 .empty-ic{font-size:30px;display:block;margin-bottom:8px;opacity:.6}
 @media(max-width:768px){
@@ -2044,7 +2044,7 @@ function PageBoard({user}){
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,R('th',{style:{width:'55%'}},'제목'),R('th',null,'작성자'),R('th',null,'날짜'),R('th',null,'조회'))),
-        R('tbody',null,loading?R('tr',null,R('td',{colSpan:4,style:{textAlign:'center',padding:20}},'로딩 중...')):
+        R('tbody',null,loading?R('tr',null,R('td',{colSpan:4,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           posts.length===0?R('tr',null,R('td',{colSpan:4,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'게시글이 없습니다')):
           posts.map(p=>R('tr',{key:p.id,style:{cursor:'pointer'},onClick:()=>viewPost(p)},R('td',{style:{fontWeight:500}},p.title),R('td',{style:{fontSize:11,color:'var(--tm)'}},p.emp?.name),R('td',{style:{fontSize:11,color:'var(--tm)'}},fDate(p.created_at)),R('td',{style:{fontSize:11,color:'var(--tm)'}},p.view_count)))
         )
@@ -2233,7 +2233,7 @@ function PageFeatureReq({user}){
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,R('th',{style:{width:78}},'상태'),R('th',null,'요청 내용'),R('th',{style:{width:74}},'중요도'),R('th',{style:{width:88}},'요청자'),R('th',{style:{width:92}},'요청일'),R('th',{style:{width:78}},''))),
-        R('tbody',null,loading?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20}},'로딩 중...')):
+        R('tbody',null,loading?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           shown.length===0?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'요청이 없습니다. [+ 기능 요청]으로 남겨주세요.')):
           shown.map(p=>{
             const{meta}=frParse(p.content);
@@ -2494,7 +2494,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
             R('td',null,R('button',{className:'btn bp btn-sm',onClick:quickSave,disabled:busy,
               style:{padding:'4px 10px',fontSize:11}},'등록'))
           ),
-          rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. 위 줄에 바로 입력하거나 [+ 추가]를 눌러주세요.')):
           list.map(r=>R('tr',{key:r._id,
             onDoubleClick:()=>{if(canEdit(r))openEdit(r);else alert('작성자 또는 관리자만 수정할 수 있습니다.');},
@@ -2745,7 +2745,7 @@ function PageTradeEntry({user,mats}){
         R('th',{style:{width:76,textAlign:'right'}},'수량'),R('th',{style:{width:92,textAlign:'right'}},'단가'),
         R('th',{style:{width:104,textAlign:'right'}},'공급가액'),R('th',{style:{width:64}},'상태'),R('th',{style:{width:76}},'입력자'),R('th',{style:{width:36}}))),
       R('tbody',null,
-        rows===null?R('tr',null,R('td',{colSpan:9,style:{textAlign:'center',padding:20}},'불러오는 중...')):
+        rows===null?R('tr',null,R('td',{colSpan:9,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'불러오는 중 '))):
         list.length===0?R('tr',null,R('td',{colSpan:9,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'이 달에 입력된 전표가 없습니다.')):
         list.map(r=>R('tr',{key:r.id},
           R('td',{style:{fontSize:11.5}},r.date),
@@ -3331,7 +3331,7 @@ function PageDevRecord({user,title,ic,desc,storeKey,folder,nameLabel,namePh}){
           R('th',{style:{width:150}},'거래처'),R('th',null,nameLabel||'개발 제품명'),R('th',null,'내용'),
           R('th',{style:{width:90}},'개선'),R('th',{style:{width:96}},'담당자'),R('th',{style:{width:96}},'등록일'),R('th',{style:{width:84}},''))),
         R('tbody',null,
-          rows===null?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          rows===null?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           list.length===0?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 항목이 없습니다. [+ 새 항목]으로 추가해주세요.')):
           list.map(r=>R('tr',{key:r._id,style:{cursor:'pointer'},onClick:()=>setSel(r)},
             R('td',{style:{fontSize:12.5}},r.client||'-'),
@@ -3637,7 +3637,7 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
           R('th',{style:{width:110}},'최근 점검일'),R('th',{style:{width:110}},'다음 점검일'),R('th',{style:{width:96}},'상태'),
           R('th',{style:{width:90}},'담당'),R('th',{style:{width:150}},''))),
         R('tbody',null,
-          rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 항목이 없습니다. [+ '+(nameLabel||'설비')+' 등록]으로 추가해주세요.')):
           list.map(r=>{const st=equipState(r);return R('tr',{key:r._id,style:{background:st.k==='over'?'#FFF8F8':(st.k==='soon'||st.k==='today'?'#FFFDF5':'#fff')}},
             R('td',{style:{fontWeight:600,cursor:'pointer'},onClick:()=>setHist(r),title:'점검 이력 보기'},r.name,
@@ -4358,7 +4358,7 @@ function PageWorkOrder({user}){
           R('th',{style:{width:110}},'작업일'),R('th',{style:{width:118}},'폴더'),R('th',{style:{width:120}},'거래처'),R('th',null,'제목'),R('th',{style:{width:200}},'파일'),
           R('th',null,'비고'),R('th',{style:{width:96}},'올린이'),R('th',{style:{width:120}},''))),
         R('tbody',null,
-          rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'올라온 작업지시서가 없습니다.')):
           list.map(r=>R('tr',{key:r.id,style:{cursor:'pointer'},onClick:()=>preview(r)},
             R('td',{style:{fontSize:12}},r.date||'-'),
@@ -4955,7 +4955,7 @@ function PageApproval({user}){
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,R('th',{style:{width:80}},'상태'),R('th',{style:{width:70}},'종류'),R('th',null,'제목'),R('th',null,'기안자'),R('th',null,'기안일'),R('th',{style:{width:96}},''))),
-        R('tbody',null,loading?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20}},'로딩 중...')):
+        R('tbody',null,loading?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           docs.length===0?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'문서 없음')):
           docs.map(d=>{
             const nf=(d.content&&Array.isArray(d.content.__files))?d.content.__files.length:0;
@@ -5013,7 +5013,7 @@ function PageAttendance({user}){
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,R('th',null,'날짜'),R('th',null,'출근'),R('th',null,'퇴근'),R('th',null,'근무시간'),R('th',null,'형태'))),
-        R('tbody',null,loading?R('tr',null,R('td',{colSpan:5,style:{textAlign:'center',padding:20}},'로딩 중...')):
+        R('tbody',null,loading?R('tr',null,R('td',{colSpan:5,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           records.length===0?R('tr',null,R('td',{colSpan:5,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'기록 없음')):
           records.map(r=>{const mins=r.check_in&&r.check_out?Math.round((new Date(r.check_out)-new Date(r.check_in))/60000):null;return R('tr',{key:r.id},R('td',{style:{fontWeight:500}},r.work_date),R('td',null,fTime(r.check_in)),R('td',null,fTime(r.check_out)),R('td',{style:{fontWeight:600,color:'var(--p)'}},mins?Math.floor(mins/60)+'h '+(mins%60)+'m':'-'),R('td',null,r.work_type==='office'?'사무실':'재택'));})
         )
