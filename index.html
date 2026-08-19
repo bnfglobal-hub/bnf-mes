@@ -16949,32 +16949,51 @@ function App(){
     window.addEventListener('bnf-sync',onSync);
     return()=>{clearInterval(t);window.removeEventListener('bnf-sync',onSync);};
   },[user&&user.id]);
-  /* ── 웹푸시 구독: 휴대폰·PC가 꺼져 있어도 알림을 받도록 등록 ── */
-  useEffect(()=>{
-    if(!user||!('serviceWorker'in navigator)||!('PushManager'in window))return;
+  /* ── 웹푸시 구독: 휴대폰·PC가 꺼져 있어도 알림을 받도록 등록 ──
+     아이폰(사파리)은 사용자가 버튼을 직접 눌러야만 권한 팝업이 뜬다(자동 요청 불가).
+     그래서 실제 구독은 [알림 켜기] 버튼(enablePush)에서 하고, 여기선 서비스워커 등록과
+     이미 허용된 기기의 재구독만 처리한다. */
+  const[pushOn,setPushOn]=useState(()=>{try{return('Notification'in window)&&Notification.permission==='granted';}catch(e){return false;}});
+  const doSubscribe=async()=>{
     const VAPID='BD4h02YviEK3gF4LC762oOiE75yOX5VIwFig5Dh6LrbBlF_QIHPb__FppuRKq8YRbp--OcM9Wbwh4bpGGPJQMXw';
     const b64=(s)=>{const pad='='.repeat((4-s.length%4)%4);const b=(s+pad).replace(/-/g,'+').replace(/_/g,'/');
       const raw=atob(b);const arr=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);return arr;};
+    const reg=await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(VAPID)});
+    if(!sub)return false;
+    const js=sub.toJSON();
+    const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+    const ex=(data&&data.state_data)||null; if(!ex)return false;
+    const all=Object.assign({},ex.push_subs||{});
+    const mine=(all[user.id]||[]).filter(x=>x&&x.endpoint&&x.endpoint!==js.endpoint);
+    mine.push({endpoint:js.endpoint,keys:js.keys,name:(user.name||''),at:new Date().toISOString()});
+    all[user.id]=mine.slice(-5);
+    await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{push_subs:all}),updated_at:new Date().toISOString()});
+    return true;
+  };
+  /* 버튼 탭 → 권한 요청(사용자 제스처) → 구독 */
+  const enablePush=async()=>{
+    if(!('serviceWorker'in navigator)||!('PushManager'in window)){
+      alert('이 브라우저는 알림을 지원하지 않습니다. 아이폰은 사파리에서 "홈 화면에 추가" 후, 홈 화면 아이콘으로 열어주세요.');return;}
+    try{
+      let perm=Notification.permission;
+      if(perm!=='granted')perm=await Notification.requestPermission();
+      if(perm!=='granted'){alert('알림이 차단되어 있습니다. 휴대폰 설정 > 알림에서 이 앱(MES)의 알림을 켜주세요.');return;}
+      const ok=await doSubscribe();
+      if(ok){setPushOn(true);try{new Notification('B&F MES',{body:'알림이 켜졌습니다 ✓'});}catch(e){}}
+      else alert('알림 등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    }catch(e){alert('알림 켜기 실패: '+(e&&e.message||e));}
+  };
+  useEffect(()=>{
+    if(!user||!('serviceWorker'in navigator)||!('PushManager'in window))return;
     let cancelled=false;
     (async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('sw.js');
-        if(Notification.permission==='default'){try{await Notification.requestPermission();}catch(e){}}
-        if(Notification.permission!=='granted')return;
-        await navigator.serviceWorker.ready;
-        let sub=await reg.pushManager.getSubscription();
-        if(!sub){sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(VAPID)});}
-        if(cancelled||!sub)return;
-        const js=sub.toJSON();
-        /* 내 구독을 서버에 저장 (엔드포인트로 중복 제거) */
-        const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-        const ex=(data&&data.state_data)||null; if(!ex)return;
-        const all=Object.assign({},ex.push_subs||{});
-        const mine=(all[user.id]||[]).filter(x=>x&&x.endpoint&&x.endpoint!==js.endpoint);
-        mine.push({endpoint:js.endpoint,keys:js.keys,name:(user.name||''),at:new Date().toISOString()});
-        all[user.id]=mine.slice(-5);   /* 사람당 최근 기기 5개까지 */
-        await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{push_subs:all}),updated_at:new Date().toISOString()});
-      }catch(e){/* 구독 실패는 조용히 무시 (권한 거부·미지원 기기 등) */}
+        await navigator.serviceWorker.register('sw.js');
+        if(Notification.permission==='granted'&&!cancelled){await doSubscribe();setPushOn(true);}
+      }catch(e){}
     })();
     return()=>{cancelled=true;};
   },[user&&user.id]);
@@ -17484,6 +17503,9 @@ function App(){
           R('span',{className:'hdr-search-text'},'검색'),
           R('span',{style:{display:'inline-flex',alignItems:'center',gap:2,padding:'1px 5px',background:'#F3F4F6',borderRadius:4,fontSize:9,fontWeight:600,color:'#94a3b8',marginLeft:2}},'⌘K')
         ),
+        /* 🔔 알림 켜기 (권한 없을 때만) */
+        !pushOn&&R('button',{onClick:enablePush,title:'휴대폰·PC 알림 켜기',
+          style:{display:'inline-flex',alignItems:'center',gap:4,padding:'5px 11px',background:'var(--pb)',border:'1px solid #F3D6C7',borderRadius:20,color:'var(--p)',fontSize:11,fontWeight:800,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'🔔 알림 켜기'),
         /* 🔔 알림 */
         R('button',{onClick:()=>setNotifPanel(true),title:'알림',style:{position:'relative',width:32,height:32,background:'#F2EEF6',border:'1px solid #E5DEEC',borderRadius:'50%',cursor:'pointer',fontSize:14,flexShrink:0,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}},'🔔',
           shortCnt>0&&R('span',{style:{position:'absolute',top:-2,right:-2,minWidth:16,height:16,padding:'0 4px',background:'linear-gradient(135deg,#EF4444,#DC2626)',color:'#fff',borderRadius:8,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',border:'2px solid #fcfaff',boxShadow:'0 1px 4px rgba(220,38,38,0.4)'}},shortCnt>99?'99+':shortCnt)
