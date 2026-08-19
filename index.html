@@ -590,6 +590,37 @@ body{font-variant-numeric:tabular-nums}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* ═══ 2026-08-19 UI/UX 일관성·모바일 개선 ═══ */
+/* 표 통일: 헤더·셀 여백, 줄 호버, 숫자 가독성 */
+.tw th{padding:9px 10px;font-size:11.5px;font-weight:700;color:#6B7280;background:#FAFAF8;white-space:nowrap}
+.tw td{padding:8px 10px;font-size:12.5px}
+.tw tbody tr:hover{background:#FBF8F5}
+/* 버튼 터치 영역·통일 */
+.btn{min-height:34px}
+.btn-sm{min-height:30px}
+/* 입력칸 통일 */
+.inp{border-radius:9px}
+.inp:focus,input:focus,select:focus,textarea:focus{outline:2px solid rgba(217,79,30,.25);outline-offset:0}
+/* 로딩 공통: '불러오는 중' 계열에 은은한 애니메이션 */
+@keyframes bnfPulse{0%,100%{opacity:.55}50%{opacity:1}}
+.empty{animation:none}
+.empty:has(+ *){animation:none}
+/* 빈 화면 아이콘 통일 */
+.empty-ic{font-size:30px;display:block;margin-bottom:8px;opacity:.6}
+@media(max-width:768px){
+  /* 넓은 표: 첫 컬럼 고정 — 휴대폰에서 옆으로 밀어도 이름이 보이게 */
+  .tw table th:first-child,.tw table td:first-child{position:sticky;left:0;background:#fff;z-index:2;box-shadow:2px 0 0 rgba(0,0,0,.04)}
+  .tw table th:first-child{background:#FAFAF8;z-index:3}
+  .tw tbody tr:hover td:first-child{background:#FBF8F5}
+  /* 모달: 본문 여백·풀폭 */
+  .mbox{max-width:100vw!important}
+  /* 탭 줄: 옆으로 스크롤 */
+  .tab-row{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap!important}
+  .tab-row .tab{white-space:nowrap;flex:0 0 auto}
+  /* 페이지 제목 아래 설명 줄바꿈 */
+  .pg-title{font-size:17px}
+}
 </style>
 <script>
 window._deferredPrompt=null;
@@ -4544,8 +4575,7 @@ function PageApproval({user}){
   const openNew=(t,title)=>{resetForm();setFType(t||'leave');
     if(title)setForm(p=>({...p,title:title}));
     setShowF(true);};
-  /* 전자결재에 들어오면 기안 작성창을 바로 띄운다 (닫으면 목록이 보인다) */
-  useEffect(()=>{openNew('general');},[]);
+
   const openEdit=d=>{
     const c={...(d.content||{})};
     const refs=Array.isArray(c.__refs)?c.__refs:[];
@@ -4726,6 +4756,76 @@ function PageApproval({user}){
         R('button',{className:'btn bok',style:{flex:1,justifyContent:'center'},onClick:()=>decide(sel,'승인')},'✅ 승인'),
         R('button',{className:'btn bd2',style:{flex:1,justifyContent:'center'},onClick:()=>decide(sel,'반려')},'❌ 반려'))):null
   );
+  const draftBody=()=>R('div',null,
+      R('div',{className:'fr'},R('label',{className:'lbl'},'문서 종류'),R('select',{className:'inp',value:fType,onChange:e=>{setFType(e.target.value);setForm(p=>({...p,content:{}}));}},fTypes.map(f=>R('option',{key:f.v,value:f.v},f.l)))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'제목 *'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'문서 제목'})),
+      renderFields(),
+      /* ── 결재선: 앞단계는 자유 추가, 뒷단계는 관리자가 고정 ── */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'결재선 (순서대로 결재됩니다)'),
+        R('div',{style:{border:'1px solid var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
+          /* 기안자가 고른 단계들 */
+          ...(form.approvers||[]).map((id,i)=>R('div',{key:'a'+i,style:{display:'flex',gap:6,alignItems:'center',marginBottom:6}},
+            R('span',{style:{fontSize:11,fontWeight:800,color:'var(--p)',width:34,flexShrink:0}},(i+1)+'차'),
+            R('select',{className:'inp',value:id,style:{flex:1},
+              onChange:e=>setForm(p=>{const a=[...(p.approvers||[])];a[i]=e.target.value;return{...p,approvers:a};})},
+              R('option',{value:''},'선택'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||'')))),
+            R('button',{type:'button',title:'위로',disabled:i===0,onClick:()=>setForm(p=>{const a=[...(p.approvers||[])];const t=a[i-1];a[i-1]=a[i];a[i]=t;return{...p,approvers:a};}),
+              style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'4px 7px',fontSize:11,cursor:i===0?'not-allowed':'pointer',opacity:i===0?.4:1,fontFamily:'inherit'}},'↑'),
+            R('button',{type:'button',title:'삭제',onClick:()=>setForm(p=>({...p,approvers:(p.approvers||[]).filter((_,x)=>x!==i)})),
+              style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'4px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'×')
+          )),
+          R('button',{type:'button',onClick:()=>setForm(p=>({...p,approvers:[...(p.approvers||[]),'']})),
+            style:{padding:'5px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',border:'1px dashed var(--p)',background:'#fff',color:'var(--p)'}},'+ 결재자 추가'),
+          /* 관리자가 고정한 뒷단계 */
+          (lockedPre||lockedFinal)&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--bd)'}},
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6,fontWeight:700}},'🔒 고정 결재자 (관리자 지정 · 변경 불가)'),
+            lockedPre&&R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:5}},
+              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'고정1'),
+              R('input',{className:'inp',value:empName(lockedPre),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}})),
+            lockedFinal&&R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'최종'),
+              R('input',{className:'inp',value:empName(lockedFinal),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}}))
+          ),
+          (!lockedPre&&!lockedFinal&&!(form.approvers||[]).length)&&R('div',{style:{marginTop:8,fontSize:11,color:'var(--err)'}},'결재자를 한 명 이상 추가해주세요.')
+        )
+      ),
+      /* ── 첨부 (사진·파일 · 붙여넣기 · 드래그) ── */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (사진·파일)'),
+        R('div',{
+          onPaste:onPaste,
+          onDragOver:e=>{e.preventDefault();},
+          onDrop:e=>{e.preventDefault();attachFiles(e.dataTransfer&&e.dataTransfer.files);},
+          tabIndex:0,
+          style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:12,background:'#FCFCFD'}},
+          R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?10:0}},
+            R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
+            R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{attachFiles(e.target.files);e.target.value='';}}),
+            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 50MB)')
+          ),
+          (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
+            ...(form.files||[]).map((f,i)=>R('div',{key:f.tmp||f.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden',opacity:f.pending?.55:1}},
+              isImg(f)
+                ?R('img',{src:f.url,alt:f.name,style:{width:110,height:110,objectFit:'cover',display:'block'}})
+                :R('span',{style:{fontSize:11}},'📄 ',f.name.length>18?f.name.slice(0,18)+'…':f.name),
+              f.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
+              !f.pending&&R('button',{type:'button',onClick:()=>removeAttach(i),title:'첨부 삭제',
+                style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
+            ))
+          )
+        )
+      ),
+      /* 참조자 (여러명 - 알림만 감, 결재권 없음) */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'참조 (선택 · 알림만)'),
+        R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+          ...emps.filter(e=>e.id!==user.id&&!(form.approvers||[]).includes(e.id)&&e.id!==lockedPre&&e.id!==lockedFinal).map(e=>{
+            const on=(form.refs||[]).includes(e.id);
+            return R('button',{key:e.id,onClick:()=>setForm(p=>({...p,refs:on?(p.refs||[]).filter(x=>x!==e.id):[...(p.refs||[]),e.id]})),
+              style:{padding:'5px 11px',borderRadius:16,fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)'}},
+              (on?'✓ ':'')+e.name);
+          })
+        )
+      )
+  );
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},R('div',{className:'pg-title'},'📋 전자결재'),
       R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
@@ -4809,75 +4909,15 @@ function PageApproval({user}){
         )
       )
     ),
-    showF&&R(Modal2,{title:editId?'결재 문서 수정':'결재 기안',onClose:()=>{setShowF(false);resetForm();},size:560,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>{setShowF(false);resetForm();},style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:submit,disabled:upBusy,style:{flex:2}},upBusy?'업로드 중...':(editId?'수정 저장':'기안')))},
-      R('div',{className:'fr'},R('label',{className:'lbl'},'문서 종류'),R('select',{className:'inp',value:fType,onChange:e=>{setFType(e.target.value);setForm(p=>({...p,content:{}}));}},fTypes.map(f=>R('option',{key:f.v,value:f.v},f.l)))),
-      R('div',{className:'fr'},R('label',{className:'lbl'},'제목 *'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'문서 제목'})),
-      renderFields(),
-      /* ── 결재선: 앞단계는 자유 추가, 뒷단계는 관리자가 고정 ── */
-      R('div',{className:'fr'},R('label',{className:'lbl'},'결재선 (순서대로 결재됩니다)'),
-        R('div',{style:{border:'1px solid var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
-          /* 기안자가 고른 단계들 */
-          ...(form.approvers||[]).map((id,i)=>R('div',{key:'a'+i,style:{display:'flex',gap:6,alignItems:'center',marginBottom:6}},
-            R('span',{style:{fontSize:11,fontWeight:800,color:'var(--p)',width:34,flexShrink:0}},(i+1)+'차'),
-            R('select',{className:'inp',value:id,style:{flex:1},
-              onChange:e=>setForm(p=>{const a=[...(p.approvers||[])];a[i]=e.target.value;return{...p,approvers:a};})},
-              R('option',{value:''},'선택'),...emps.filter(e=>e.id!==user.id).map(e=>R('option',{key:e.id,value:e.id},e.name+' '+(e.position||'')))),
-            R('button',{type:'button',title:'위로',disabled:i===0,onClick:()=>setForm(p=>{const a=[...(p.approvers||[])];const t=a[i-1];a[i-1]=a[i];a[i]=t;return{...p,approvers:a};}),
-              style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'4px 7px',fontSize:11,cursor:i===0?'not-allowed':'pointer',opacity:i===0?.4:1,fontFamily:'inherit'}},'↑'),
-            R('button',{type:'button',title:'삭제',onClick:()=>setForm(p=>({...p,approvers:(p.approvers||[]).filter((_,x)=>x!==i)})),
-              style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'4px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'×')
-          )),
-          R('button',{type:'button',onClick:()=>setForm(p=>({...p,approvers:[...(p.approvers||[]),'']})),
-            style:{padding:'5px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',border:'1px dashed var(--p)',background:'#fff',color:'var(--p)'}},'+ 결재자 추가'),
-          /* 관리자가 고정한 뒷단계 */
-          (lockedPre||lockedFinal)&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--bd)'}},
-            R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6,fontWeight:700}},'🔒 고정 결재자 (관리자 지정 · 변경 불가)'),
-            lockedPre&&R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:5}},
-              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'고정1'),
-              R('input',{className:'inp',value:empName(lockedPre),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}})),
-            lockedFinal&&R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
-              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0}},'최종'),
-              R('input',{className:'inp',value:empName(lockedFinal),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}}))
-          ),
-          (!lockedPre&&!lockedFinal&&!(form.approvers||[]).length)&&R('div',{style:{marginTop:8,fontSize:11,color:'var(--err)'}},'결재자를 한 명 이상 추가해주세요.')
-        )
-      ),
-      /* ── 첨부 (사진·파일 · 붙여넣기 · 드래그) ── */
-      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (사진·파일)'),
-        R('div',{
-          onPaste:onPaste,
-          onDragOver:e=>{e.preventDefault();},
-          onDrop:e=>{e.preventDefault();attachFiles(e.dataTransfer&&e.dataTransfer.files);},
-          tabIndex:0,
-          style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:12,background:'#FCFCFD'}},
-          R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?10:0}},
-            R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
-            R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{attachFiles(e.target.files);e.target.value='';}}),
-            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 50MB)')
-          ),
-          (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
-            ...(form.files||[]).map((f,i)=>R('div',{key:f.tmp||f.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden',opacity:f.pending?.55:1}},
-              isImg(f)
-                ?R('img',{src:f.url,alt:f.name,style:{width:110,height:110,objectFit:'cover',display:'block'}})
-                :R('span',{style:{fontSize:11}},'📄 ',f.name.length>18?f.name.slice(0,18)+'…':f.name),
-              f.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
-              !f.pending&&R('button',{type:'button',onClick:()=>removeAttach(i),title:'첨부 삭제',
-                style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
-            ))
-          )
-        )
-      ),
-      /* 참조자 (여러명 - 알림만 감, 결재권 없음) */
-      R('div',{className:'fr'},R('label',{className:'lbl'},'참조 (선택 · 알림만)'),
-        R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
-          ...emps.filter(e=>e.id!==user.id&&!(form.approvers||[]).includes(e.id)&&e.id!==lockedPre&&e.id!==lockedFinal).map(e=>{
-            const on=(form.refs||[]).includes(e.id);
-            return R('button',{key:e.id,onClick:()=>setForm(p=>({...p,refs:on?(p.refs||[]).filter(x=>x!==e.id):[...(p.refs||[]),e.id]})),
-              style:{padding:'5px 11px',borderRadius:16,fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:'1px solid '+(on?'var(--p)':'var(--bd)'),background:on?'var(--pb)':'#fff',color:on?'var(--p)':'var(--tm)'}},
-              (on?'✓ ':'')+e.name);
-          })
-        )
-      )
+    showF&&R(Modal2,{title:editId?'결재 문서 수정':'결재 기안',onClose:()=>{setShowF(false);resetForm();},size:560,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>{setShowF(false);resetForm();},style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:submit,disabled:upBusy,style:{flex:2}},upBusy?'업로드 중...':(editId?'수정 저장':'기안')))},draftBody()
+    ),
+    /* ── 목록 아래 바로 기안 입력 ── */
+    !showF&&R('div',{className:'card',style:{marginTop:14,padding:'20px 22px',border:'1.5px solid #FFDCCC',background:'linear-gradient(180deg,#FFFDFB,#FFF8F4)'}},
+      R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'✍ 바로 기안하기'),
+      draftBody(),
+      R('div',{style:{display:'flex',gap:8,marginTop:14}},
+        R('button',{className:'btn bs',onClick:resetForm,style:{flex:1,justifyContent:'center'}},'지우기'),
+        R('button',{className:'btn bp',onClick:submit,disabled:upBusy,style:{flex:2,justifyContent:'center',minHeight:44,fontSize:13.5,fontWeight:800}},upBusy?'업로드 중...':'기안 올리기 →'))
     )
   );
 }
