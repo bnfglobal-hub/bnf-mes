@@ -4907,6 +4907,31 @@ function PageApproval({user}){
       R('div',{className:'fr'},R('label',{className:'lbl'},'문서 종류'),R('select',{className:'inp',value:fType,onChange:e=>{setFType(e.target.value);setForm(p=>({...p,content:{}}));}},fTypes.map(f=>R('option',{key:f.v,value:f.v},f.l)))),
       R('div',{className:'fr'},R('label',{className:'lbl'},'제목 *'),R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>({...p,title:e.target.value})),placeholder:'문서 제목'})),
       renderFields(),
+      /* ── 첨부 (사진·파일 · 붙여넣기 · 드래그) ── */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (사진·파일)'),
+        R('div',{
+          onPaste:onPaste,
+          onDragOver:e=>{e.preventDefault();},
+          onDrop:e=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>attachFiles(fs));},
+          tabIndex:0,
+          style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:12,background:'#FCFCFD'}},
+          R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?10:0}},
+            R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
+            R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{attachFiles(e.target.files);e.target.value='';}}),
+            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 50MB)')
+          ),
+          (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
+            ...(form.files||[]).map((f,i)=>R('div',{key:f.tmp||f.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden',opacity:f.pending?.55:1}},
+              isImg(f)
+                ?R('img',{src:f.url,alt:f.name,style:{width:110,height:110,objectFit:'cover',display:'block'}})
+                :R('span',{style:{fontSize:11}},'📄 ',f.name.length>18?f.name.slice(0,18)+'…':f.name),
+              f.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
+              !f.pending&&R('button',{type:'button',onClick:()=>removeAttach(i),title:'첨부 삭제',
+                style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
+            ))
+          )
+        )
+      ),
       /* ── 결재선: 앞단계는 자유 추가, 뒷단계는 관리자가 고정 ── */
       R('div',{className:'fr'},R('label',{className:'lbl'},'결재선 (순서대로 결재됩니다)'),
         R('div',{style:{border:'1px solid var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
@@ -4934,31 +4959,6 @@ function PageApproval({user}){
               R('input',{className:'inp',value:empName(lockedFinal),readOnly:true,style:{flex:1,background:'#F9FAFB',color:'var(--tm)',cursor:'not-allowed'}}))
           ),
           (!lockedPre&&!lockedFinal&&!(form.approvers||[]).length)&&R('div',{style:{marginTop:8,fontSize:11,color:'var(--err)'}},'결재자를 한 명 이상 추가해주세요.')
-        )
-      ),
-      /* ── 첨부 (사진·파일 · 붙여넣기 · 드래그) ── */
-      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (사진·파일)'),
-        R('div',{
-          onPaste:onPaste,
-          onDragOver:e=>{e.preventDefault();},
-          onDrop:e=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>attachFiles(fs));},
-          tabIndex:0,
-          style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:12,background:'#FCFCFD'}},
-          R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?10:0}},
-            R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
-            R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{attachFiles(e.target.files);e.target.value='';}}),
-            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 50MB)')
-          ),
-          (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
-            ...(form.files||[]).map((f,i)=>R('div',{key:f.tmp||f.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden',opacity:f.pending?.55:1}},
-              isImg(f)
-                ?R('img',{src:f.url,alt:f.name,style:{width:110,height:110,objectFit:'cover',display:'block'}})
-                :R('span',{style:{fontSize:11}},'📄 ',f.name.length>18?f.name.slice(0,18)+'…':f.name),
-              f.pending&&R('span',{style:{position:'absolute',left:0,right:0,bottom:0,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,textAlign:'center',padding:'2px 0'}},'업로드 중...'),
-              !f.pending&&R('button',{type:'button',onClick:()=>removeAttach(i),title:'첨부 삭제',
-                style:{position:'absolute',top:2,right:2,width:18,height:18,lineHeight:'16px',textAlign:'center',border:'none',borderRadius:'50%',background:'rgba(0,0,0,.55)',color:'#fff',fontSize:11,cursor:'pointer',padding:0}},'×')
-            ))
-          )
         )
       ),
       /* 참조자 (여러명 - 알림만 감, 결재권 없음) */
