@@ -1635,7 +1635,7 @@ function WorkReqModal({item,emps,user,onClose,onSave,onDelete,onStatus,onComment
         R('div',{
           onPaste:onPasteFiles,
           onDragOver:e=>e.preventDefault(),
-          onDrop:e=>{e.preventDefault();if(canEdit||isAssignee)addFiles(e.dataTransfer&&e.dataTransfer.files);},
+          onDrop:e=>{e.preventDefault();if(canEdit||isAssignee)filesFromDrop(e.dataTransfer).then(fs=>addFiles(fs));},
           tabIndex:0,
           style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(f.files||[]).length?9:0}},
@@ -3030,6 +3030,40 @@ function PageEtc({user}){
 
 /* ═══ 첨부 업로드 공용 훅 (여러 페이지가 같은 방식으로 사용) ═══
    folder: 저장 경로 폴더명. get/set: 현재 첨부배열을 읽고 쓰는 함수. */
+/* 드롭된 항목에서 파일을 전부 모은다 — 폴더를 떨어뜨리면 하위 폴더까지 훑는다.
+   주의: webkitGetAsEntry는 드롭 이벤트 처리 중(동기)에만 유효하므로 await 전에 먼저 읽는다. */
+function filesFromDrop(dt){
+  if(!dt)return Promise.resolve([]);
+  const entries=[];
+  const items=dt.items?Array.prototype.slice.call(dt.items):[];
+  items.forEach(it=>{
+    try{const en=it.webkitGetAsEntry&&it.webkitGetAsEntry();if(en)entries.push(en);}catch(e){}
+  });
+  const plainFiles=Array.prototype.slice.call(dt.files||[]);
+  if(!entries.length)return Promise.resolve(plainFiles);
+  const out=[];
+  const walk=(entry,prefix)=>new Promise(res=>{
+    if(!entry)return res();
+    if(entry.isFile){
+      entry.file(f=>{
+        try{ /* 폴더 안 파일은 이름 앞에 폴더 경로를 붙여 구분 */
+          if(prefix)Object.defineProperty(f,'name',{value:prefix+f.name});
+        }catch(e){}
+        out.push(f);res();
+      },()=>res());
+    }else if(entry.isDirectory){
+      const rd=entry.createReader();
+      const readAll=()=>rd.readEntries(async es=>{
+        if(!es.length)return res();
+        for(const e of es)await walk(e,(prefix||'')+entry.name+'_');
+        readAll();
+      },()=>res());
+      readAll();
+    }else res();
+  });
+  return Promise.all(entries.map(en=>walk(en,''))).then(()=>out.length?out:plainFiles);
+}
+
 function useAttach(folder,get,set){
   const ref=useRef(null);
   const[upBusy,setUpBusy]=useState(false);
@@ -3079,13 +3113,16 @@ function useAttach(folder,get,set){
   const clean=()=>(get()||[]).filter(x=>x&&!x.pending&&x.path);
   const fB=b=>{if(!b)return'';const k=b/1024;return k<1024?(' · '+k.toFixed(0)+'KB'):(' · '+(k/1024).toFixed(1)+'MB');};
   /* 입력용 첨부 상자 */
+  const dirRef=useRef(null);
   const Box=(label)=>R('div',{onPaste:onPaste,onDragOver:e=>e.preventDefault(),
-    onDrop:e=>{e.preventDefault();add(e.dataTransfer&&e.dataTransfer.files);},tabIndex:0,
+    onDrop:e=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>add(fs));},tabIndex:0,
     style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
     R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(get()||[]).length?9:0}},
       R('button',{type:'button',className:'btn bs',onClick:()=>ref.current&&ref.current.click(),disabled:upBusy},'📎 '+(label||'파일 선택')),
       R('input',{ref:ref,type:'file',multiple:true,style:{display:'none'},onChange:e=>{add(e.target.files);e.target.value='';}}),
-      R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 50MB')),
+      R('button',{type:'button',className:'btn bs',onClick:()=>dirRef.current&&dirRef.current.click(),disabled:upBusy},'📁 폴더'),
+      R('input',{ref:dirRef,type:'file',multiple:true,webkitdirectory:'',style:{display:'none'},onChange:e=>{add(e.target.files);e.target.value='';}}),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'파일·폴더를 끌어다 놓거나 Ctrl+V · 최대 50MB')),
     (get()||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
       ...(get()||[]).map((x,i)=>R('div',{key:x.tmp||x.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',overflow:'hidden',opacity:x.pending?.55:1}},
         isImg(x)?R('img',{src:x.url,alt:x.name,style:{width:100,height:100,objectFit:'cover',display:'block'}})
@@ -3816,7 +3853,7 @@ function PageManual({user}){
           placeholder:'순서대로 적어주세요.\n1. ...\n2. ...\n\n사진은 Ctrl+V로 바로 붙여넣을 수 있습니다.',style:{minHeight:200}})),
       R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (사진·PDF·엑셀)'),
         R('div',{onPaste:onPasteM,onDragOver:e=>e.preventDefault(),
-          onDrop:e=>{e.preventDefault();addFiles(e.dataTransfer&&e.dataTransfer.files);},tabIndex:0,
+          onDrop:e=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>addFiles(fs));},tabIndex:0,
           style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:10,background:'#FCFCFD'}},
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?9:0}},
             R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
@@ -4241,7 +4278,7 @@ function PageWorkOrder({user}){
         R('input',{className:'inp',value:meta.note,onChange:e=>setMeta(p=>Object.assign({},p,{note:e.target.value})),placeholder:'특이사항 (선택)'})),
       R('div',{
         onDragOver:e=>e.preventDefault(),
-        onDrop:e=>{e.preventDefault();upload(e.dataTransfer&&e.dataTransfer.files);},
+        onDrop:e=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>upload(fs));},
         style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:16,textAlign:'center',background:'#FCFCFD',marginTop:4}},
         R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:busy},busy?'업로드 중...':'📎 엑셀 파일 선택'),
         R('input',{ref:fileRef,type:'file',multiple:true,accept:'.xlsx,.xlsm,.xls,.csv',style:{display:'none'},
@@ -4799,7 +4836,7 @@ function PageApproval({user}){
         R('div',{
           onPaste:onPaste,
           onDragOver:e=>{e.preventDefault();},
-          onDrop:e=>{e.preventDefault();attachFiles(e.dataTransfer&&e.dataTransfer.files);},
+          onDrop:e=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>attachFiles(fs));},
           tabIndex:0,
           style:{border:'1.5px dashed var(--bd)',borderRadius:10,padding:12,background:'#FCFCFD'}},
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?10:0}},
@@ -15784,7 +15821,7 @@ function PageShipSort({mats,hqItems}){
     exportXL(rows,'출고계획_'+(dates[0]||new Date().toISOString().slice(0,10)),'출고계획');
   };
 
-  const onDrop=(e)=>{e.preventDefault();if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);};
+  const onDrop=(e)=>{e.preventDefault();filesFromDrop(e.dataTransfer).then(fs=>{if(fs.length)handleFiles(fs);});};
 
   /* 카톡 등에서 "보내기(공유)"로 전달된 PDF 자동 처리 (독립 실행형 앱 전용) */
   useEffect(()=>{
