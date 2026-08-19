@@ -8682,6 +8682,46 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     );
   };
 
+  /* ── 오늘 할 일 요약 (인사말 아래 한 줄) ── */
+  const[todayInfo,setTodayInfo]=useState(null);
+  const loadToday=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const d=(data&&data.state_data)||{};
+      const t=today2();
+      /* 오늘 출고 박스수 */
+      let shipBox=0;
+      const bc=(d.shipsort_data&&d.shipsort_data.byCenter)||{};
+      Object.keys(bc).forEach(k=>{if(k.indexOf(t)===0)shipBox+=(+bc[k].totalBox||0);});
+      /* 주기 업무 임박(D-2 이내) */
+      let recSoon=0;
+      (Array.isArray(d.recurring_tasks)?d.recurring_tasks:[]).forEach(r=>{
+        try{
+          const last=r.last?new Date(r.last+'T00:00:00'):null;
+          if(!last||!+r.cycle)return;
+          const due=new Date(last);
+          if((r.unit||'개월')==='개월')due.setMonth(due.getMonth()+(+r.cycle));
+          else due.setDate(due.getDate()+(+r.cycle)*((r.unit==='주')?7:1));
+          const dd=Math.floor((due-new Date())/86400000);
+          if(dd<=2)recSoon++;
+        }catch(e){}
+      });
+      /* 설비 점검 임박(D-3 이내) */
+      let eqSoon=0;
+      (Array.isArray(d.bnf_pm_equip)?d.bnf_pm_equip:[]).forEach(r=>{
+        try{
+          if(!r.last||!+r.cycle)return;
+          const due=new Date(r.last+'T00:00:00');
+          if((r.unit||'개월')==='개월')due.setMonth(due.getMonth()+(+r.cycle));
+          else due.setDate(due.getDate()+(+r.cycle)*((r.unit==='주')?7:1));
+          if(Math.floor((due-new Date())/86400000)<=3)eqSoon++;
+        }catch(e){}
+      });
+      setTodayInfo({shipBox,recSoon,eqSoon});
+    }catch(e){}
+  };
+  useEffect(()=>{loadToday();},[]);
+  useBnfSyncReload(()=>loadToday());
   return R('div',{className:'pg fa'},
     R('div',{style:{marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}},
       R('div',null,
@@ -8695,6 +8735,24 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       ),
       R('button',{onClick:()=>setEditMode(!editMode),style:{background:editMode?'#D94F1E':'#fff',color:editMode?'#fff':'#374151',border:'1px solid '+(editMode?'#D94F1E':'#E5E7EB'),borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}},editMode?'✓ 완료':'⠿ 편집')
     ),
+    /* 오늘 할 일 요약줄 */
+    (()=>{
+      const ti=todayInfo||{};
+      const chips=[];
+      const mk=(ic,txt,page,urgent)=>chips.push(R('button',{key:txt,onClick:()=>onGoPage(page),
+        style:{display:'inline-flex',alignItems:'center',gap:6,border:'1px solid '+(urgent?'#FCA5A5':'var(--bd)'),
+          background:urgent?'#FEF2F2':'#fff',color:urgent?'#B91C1C':'var(--t)',
+          borderRadius:999,padding:'8px 15px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},ic,txt));
+      if(ti.shipBox>0)mk('📦','오늘 출고 '+ti.shipBox+'박스','shipsort',false);
+      if(shortCnt>0)mk('⚠','재고 부족 '+shortCnt+'건','prod',true);
+      if(ti.eqSoon>0)mk('🔧','점검 임박 '+ti.eqSoon+'건','pm_equip',true);
+      if(ti.recSoon>0)mk('🔁','주기 업무 '+ti.recSoon+'건','workreq',false);
+      if(!chips.length)return null;
+      return R('div',{className:'hscroll',style:{marginBottom:16}},
+        R('div',{style:{display:'flex',gap:8,paddingBottom:2}},
+          R('span',{style:{alignSelf:'center',fontSize:11.5,fontWeight:800,color:'var(--tm)',flexShrink:0}},'오늘 할 일'),
+          ...chips));
+    })(),
     editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:10,marginBottom:18,fontSize:11,color:'#92400E',fontWeight:600}},'💡 ↑↓ 버튼(또는 드래그)으로 순서 변경, [숨김]으로 안 보이게 설정. 완료를 누르면 저장됩니다.'),
     ...sectionOrder.map((id,idx)=>renderSection(id,idx))
   );
