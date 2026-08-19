@@ -685,6 +685,35 @@ window._isStandalone=window.matchMedia('(display-mode: standalone)').matches||wi
 console.log('%c[BNF MES] BUILD 2026-07-16-INV-SCROLL','color:#fff;background:#DC2626;font-weight:bold;padding:2px 8px;border-radius:4px');
 const {useState,useRef,useEffect,useMemo}=React;
 const R=React.createElement;
+/* 어디서나 쓰는 복사+토스트 — 복사되면 화면 하단에 잠깐 '복사됨' 표시 */
+function bnfToast(msg){
+  try{
+    var d=document.createElement('div');
+    d.textContent=msg;
+    d.style.cssText='position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:9999;'
+      +'background:rgba(30,20,15,.92);color:#fff;padding:9px 16px;border-radius:999px;'
+      +'font-size:13px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none;'
+      +'font-family:inherit;opacity:0;transition:opacity .15s';
+    document.body.appendChild(d);
+    requestAnimationFrame(function(){d.style.opacity='1';});
+    setTimeout(function(){d.style.opacity='0';setTimeout(function(){d.remove();},200);},1300);
+  }catch(e){}
+}
+function bnfCopy(text,label){
+  var t=String(text==null?'':text);
+  if(!t)return;
+  var done=function(){bnfToast((label||'복사됨')+' ✓');};
+  var legacy=function(){
+    try{
+      var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.left='-9999px';
+      document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();
+    }catch(e){}
+  };
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,legacy);return;}
+  }catch(e){}
+  legacy();
+}
 /* 모달을 body 최상위로 렌더 — 조상의 transform/animation(.pg.fa)이 position:fixed를
    가둬 모달이 어긋나거나 깜빡이는 문제 방지 */
 const Portal=({children})=>ReactDOM.createPortal(children,document.body);
@@ -2419,10 +2448,17 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
       return R('a',{href,target:'_blank',rel:'noreferrer',style:{color:'var(--p)',textDecoration:'none',wordBreak:'break-all'}},v);
     }
     if(c.type==='num')return R('span',null,(+v||0).toLocaleString());
+    if(c.type==='tel'||/전화|연락처|휴대|모바일/.test(c.l||'')){
+      const num=String(v).replace(/[^0-9+]/g,'');
+      return R('span',{style:{display:'inline-flex',alignItems:'center',gap:5}},
+        R('a',{href:'tel:'+num,onClick:e=>e.stopPropagation(),style:{color:'var(--p)',textDecoration:'none',fontWeight:600}},v),
+        R('button',{onClick:e=>{e.stopPropagation();bnfCopy(v,'연락처 복사');},title:'복사',
+          style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:5,padding:'1px 5px',fontSize:10,cursor:'pointer',fontFamily:'inherit'}},'복사'));
+    }
     if(c.k==='id'||c.type==='pw')
       return R('span',{style:{display:'inline-flex',alignItems:'center',gap:5}},
         R('span',{style:{fontFamily:'monospace',wordBreak:'break-all'}},v),
-        R('button',{onClick:e=>{e.stopPropagation();try{navigator.clipboard.writeText(v);}catch(err){}},title:'복사',
+        R('button',{onClick:e=>{e.stopPropagation();bnfCopy(v,(c.type==='pw'?'비밀번호':'아이디')+' 복사');},title:'복사',
           style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:5,padding:'1px 5px',fontSize:10,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'복사'));
     return R('span',{style:{whiteSpace:'pre-wrap',wordBreak:'break-word'}},v);
   };
@@ -4036,7 +4072,19 @@ function PageCRM({user}){
       R('div',null,R('div',{className:'pg-title'},'🤝 거래처 CRM'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},
           '이카운트 거래처 자동 연동',ec&&ec.at?(' · 갱신 '+fDT(ec.at)):'',' · 행을 누르면 상세·메모')),
-      R('span',{style:{fontSize:11,color:'var(--tm)'}},merged.length+'곳')
+      R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+        R('span',{style:{fontSize:11,color:'var(--tm)'}},merged.length+'곳'),
+        R('button',{className:'btn bs btn-sm',onClick:()=>{
+          const rows=filtered;
+          if(!rows.length){alert('내보낼 거래처가 없습니다.');return;}
+          const head=['거래처명','구분','사업자번호','대표자','전화','모바일','은행','계좌','예금주','담당자','등급','누적매출','누적매입'];
+          const esc=(v)=>{const t=String(v==null?'':v).replace(/"/g,'""');return (t.indexOf(',')>=0||t.indexOf('"')>=0||t.indexOf(String.fromCharCode(10))>=0)?('"'+t+'"'):t;};
+          const lines=[head.join(',')].concat(rows.map(r=>[r.name,r.kind,r.code,r.ceo,r.tel,r.mobile,r.bank,r.acct,r.holder,r.person,r.grade,r.salesAmt||'',r.buyAmt||''].map(esc).join(',')));
+          const blob=new Blob(['﻿'+lines.join(String.fromCharCode(13,10))],{type:'text/csv;charset=utf-8'});
+          const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='거래처목록_'+today2()+'.csv';a.click();
+          setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+        }},'⬇ 엑셀(CSV)')
+      )
     ),
     R('div',{className:'tab-row'},
       ...CRM_KINDS.map(k=>R('button',{key:k,className:'tab'+(kind===k?' act':''),onClick:()=>setKind(k)},k+' '+cnt(k)))),
@@ -4084,11 +4132,15 @@ function PageCRM({user}){
         R('button',{className:'btn bp',onClick:saveDetail,disabled:busy,style:{flex:2}},busy?'저장 중...':'메모 저장'))},
       R('div',{style:{background:'#F9F7FB',borderRadius:10,padding:'12px 14px',marginBottom:14,fontSize:13}},
         R('div',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:8}},'이카운트 등록 정보 (자동)'),
-        ...[['구분',sel.kind],['사업자번호',sel.code],['대표자',sel.ceo],['전화',sel.tel],['모바일',sel.mobile],
-           ['은행',sel.bank],['계좌',sel.acct],['예금주',sel.holder],
+        ...[['구분',sel.kind],['사업자번호',sel.code,'copy'],['대표자',sel.ceo],['전화',sel.tel,'tel'],['모바일',sel.mobile,'tel'],
+           ['은행',sel.bank],['계좌',sel.acct,'copy'],['예금주',sel.holder],
            ['누적 매출',sel.salesAmt?nf(sel.salesAmt)+'원':''],['누적 매입',sel.buyAmt?nf(sel.buyAmt)+'원':'']]
-          .filter(x=>x[1]).map(x=>R('div',{key:x[0],style:{display:'flex',gap:10,padding:'2px 0'}},
-            R('span',{style:{color:'var(--tm)',width:80,flexShrink:0}},x[0]),R('span',{style:{fontWeight:600}},x[1])))),
+          .filter(x=>x[1]).map(x=>R('div',{key:x[0],style:{display:'flex',gap:10,padding:'2px 0',alignItems:'center'}},
+            R('span',{style:{color:'var(--tm)',width:80,flexShrink:0}},x[0]),
+            x[2]==='tel'?R('a',{href:'tel:'+String(x[1]).replace(/[^0-9+]/g,''),style:{fontWeight:600,color:'var(--p)',textDecoration:'none'}},x[1],R('span',{style:{fontSize:10,marginLeft:6,color:'var(--tm)'}},'📞 전화')):
+            x[2]==='copy'?R('span',{style:{fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}},x[1],
+              R('button',{onClick:()=>bnfCopy(x[1],x[0]+' 복사'),style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:5,padding:'1px 6px',fontSize:10,cursor:'pointer',fontFamily:'inherit'}},'복사')):
+            R('span',{style:{fontWeight:600}},x[1])))),
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'담당자'),
           R('input',{className:'inp',value:form.person||'',onChange:e=>setForm(p=>Object.assign({},p,{person:e.target.value}))})),
@@ -11827,6 +11879,13 @@ function PageFiles({user}){
     }catch(e){alert('다운로드 실패: '+e.message);}
   };
   
+  const copyLink=(f)=>{
+    try{
+      const{data}=sbClient.storage.from('bnf-files').getPublicUrl(f.storage_path);
+      if(data&&data.publicUrl)bnfCopy(data.publicUrl,'파일 링크 복사');
+      else alert('링크를 만들지 못했습니다.');
+    }catch(e){alert('링크 복사 실패: '+e.message);}
+  };
   const del=async(f)=>{
     if(!confirm('"'+f.name+'" 삭제?'))return;
     try{
@@ -11896,7 +11955,7 @@ function PageFiles({user}){
       loading?R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'로딩 중...'):
       visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},(cat?'"'+cat+'" 분류에 ':'')+'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
       R('table',null,
-        R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:140}},'분류'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:50}}))),
+        R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:140}},'분류'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:56,textAlign:'center'}},'링크'),R('th',{style:{width:50}}))),
         R('tbody',null,...visibleFiles.map(f=>R('tr',{key:f.id},
           R('td',{style:{fontSize:18}},fIcon(f)),
           R('td',null,R('div',{style:{fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:280}},f.name)),
@@ -11907,6 +11966,7 @@ function PageFiles({user}){
           R('td',{style:{fontSize:11,color:'var(--tm)'}},fSize(f.size_bytes)),
           R('td',{style:{fontSize:11,color:'var(--tm)'}},f.uploader_name||'-',R('div',{style:{fontSize:10}},fDate(f.created_at))),
           R('td',{style:{textAlign:'center'}},R('button',{className:'btn bp btn-sm',onClick:()=>download(f),style:{padding:'4px 10px'}},'⬇️')),
+          R('td',{style:{textAlign:'center'}},R('button',{className:'btn bs btn-sm',onClick:()=>copyLink(f),title:'공유 링크 복사',style:{padding:'4px 8px'}},'🔗')),
           R('td',null,(f.uploader_id===user.id||['superadmin','admin'].includes(user.role))&&R('button',{onClick:()=>del(f),style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:14,padding:4}},'✕'))
         )))
       )
