@@ -8404,7 +8404,9 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     const y=new Date().getFullYear();
     const pa=profitSnap||{};
     const gv=(yy,mm,f)=>{const r=(pa[String(yy)]||{})[mm];return r&&r[f]!==undefined&&r[f]!==''?(+r[f]||0):null;};
-    let li=-1;for(let i=11;i>=0;i--){if(gv(y,MM[i],'sales')!==null){li=i;break;}}
+    /* 항상 '오늘이 속한 달'을 보여준다 — 선입력으로 다음달 데이터가 먼저 생겨도 흔들리지 않게 (2026-08-19) */
+    let li=new Date().getMonth();
+    if(gv(y,MM[li],'sales')===null){for(let i=li;i>=0;i--){if(gv(y,MM[i],'sales')!==null){li=i;break;}}}
     const sReal=li>=0?gv(y,MM[li],'sales'):null;
     /* 진행 중인 달이면 월말 예상치로 환산 (매출 현황 페이지와 동일 기준) */
     const nowD=new Date();
