@@ -4708,7 +4708,7 @@ function PageApproval({user}){
       )
     ),
     /* ── 빠른 기안: 들어오자마자 바로 입력 ── */
-    R('div',{className:'card',style:{marginBottom:14,padding:'22px 20px',maxWidth:760,marginLeft:'auto',marginRight:'auto',
+    R('div',{className:'card',style:{marginBottom:14,padding:'26px 24px',
       border:'1.5px solid #FFDCCC',background:'linear-gradient(180deg,#FFFDFB,#FFF8F4)'}},
       R('div',{style:{textAlign:'center',fontSize:14.5,fontWeight:800,marginBottom:12}},'✍ 바로 기안하기'),
       R('div',{style:{display:'flex',gap:6,justifyContent:'center',flexWrap:'wrap',marginBottom:12}},
@@ -4717,7 +4717,7 @@ function PageApproval({user}){
             fontWeight:quickType===f.v?800:600,
             border:'1px solid '+(quickType===f.v?'var(--p)':'var(--bd)'),
             background:quickType===f.v?'var(--p)':'#fff',color:quickType===f.v?'#fff':'var(--t)'}},f.l))),
-      R('div',{style:{display:'flex',gap:8,maxWidth:620,margin:'0 auto'}},
+      R('div',{style:{display:'flex',gap:8,maxWidth:900,margin:'0 auto'}},
         R('input',{value:quickTitle,onChange:e=>setQuickTitle(e.target.value),
           onKeyDown:e=>{if(e.key==='Enter'){openNew(quickType,quickTitle.trim());setQuickTitle('');}},
           placeholder:'제목을 입력하고 Enter — 예) 8월 원재료 구매요청',
