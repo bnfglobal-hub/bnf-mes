@@ -4518,8 +4518,8 @@ function PageApproval({user}){
   const openNew=(t,title)=>{resetForm();setFType(t||'leave');
     if(title)setForm(p=>({...p,title:title}));
     setShowF(true);};
-  const[quickTitle,setQuickTitle]=useState('');
-  const[quickType,setQuickType]=useState('general');
+  /* 전자결재에 들어오면 기안 작성창을 바로 띄운다 (닫으면 목록이 보인다) */
+  useEffect(()=>{openNew('general');},[]);
   const openEdit=d=>{
     const c={...(d.content||{})};
     const refs=Array.isArray(c.__refs)?c.__refs:[];
@@ -4706,24 +4706,6 @@ function PageApproval({user}){
         isAdmin&&R('button',{className:'btn bs',onClick:()=>setCfgOpen(v=>!v)},'⚙ 결재선 설정'),
         R('button',{className:'btn bp',onClick:openNew},'+ 결재 기안')
       )
-    ),
-    /* ── 빠른 기안: 들어오자마자 바로 입력 ── */
-    R('div',{className:'card',style:{marginBottom:14,padding:'26px 24px',
-      border:'1.5px solid #FFDCCC',background:'linear-gradient(180deg,#FFFDFB,#FFF8F4)'}},
-      R('div',{style:{textAlign:'center',fontSize:14.5,fontWeight:800,marginBottom:12}},'✍ 바로 기안하기'),
-      R('div',{style:{display:'flex',gap:6,justifyContent:'center',flexWrap:'wrap',marginBottom:12}},
-        ...fTypes.map(f=>R('button',{key:f.v,onClick:()=>setQuickType(f.v),
-          style:{padding:'7px 16px',borderRadius:999,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,
-            fontWeight:quickType===f.v?800:600,
-            border:'1px solid '+(quickType===f.v?'var(--p)':'var(--bd)'),
-            background:quickType===f.v?'var(--p)':'#fff',color:quickType===f.v?'#fff':'var(--t)'}},f.l))),
-      R('div',{style:{display:'flex',gap:8,maxWidth:900,margin:'0 auto'}},
-        R('input',{value:quickTitle,onChange:e=>setQuickTitle(e.target.value),
-          onKeyDown:e=>{if(e.key==='Enter'){openNew(quickType,quickTitle.trim());setQuickTitle('');}},
-          placeholder:'제목을 입력하고 Enter — 예) 8월 원재료 구매요청',
-          style:{flex:1,border:'1.5px solid var(--bd)',borderRadius:12,padding:'13px 16px',fontSize:14,fontFamily:'inherit',background:'#fff'}}),
-        R('button',{className:'btn bp',onClick:()=>{openNew(quickType,quickTitle.trim());setQuickTitle('');},
-          style:{padding:'0 22px',fontSize:13.5,fontWeight:800,borderRadius:12}},'기안 시작 →'))
     ),
     /* ── 관리자: 최종 결재자 고정 ── */
     (isAdmin&&cfgOpen)&&R('div',{className:'card',style:{marginBottom:12}},
