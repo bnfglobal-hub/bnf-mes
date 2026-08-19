@@ -3033,27 +3033,32 @@ function PageEtc({user}){
 function useAttach(folder,get,set){
   const ref=useRef(null);
   const[upBusy,setUpBusy]=useState(false);
+  /* 업로드 도중 컴포넌트가 다시 렌더되면 get()이 옛날 값을 돌려줘
+     방금 넣은 첨부가 사라지던 버그(2026-08-19) → 항상 최신값을 ref로 유지 */
+  const liveRef=useRef([]);
+  liveRef.current=get()||[];
+  const apply=(fn)=>{const next=fn(liveRef.current||[]);liveRef.current=next;set(next);};
   const isImg=f=>!!f&&(/^image\//.test(f.mime||'')||/\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(f.name||''));
   const add=async(listIn)=>{
     const files=Array.from(listIn||[]).filter(Boolean);
     if(!files.length)return;
     const temps=files.map(x=>({tmp:'t'+Math.random().toString(36).slice(2),name:x.name||'붙여넣은 이미지.png',
       url:(window.URL&&URL.createObjectURL)?URL.createObjectURL(x):'',size:x.size,mime:x.type||'',pending:true}));
-    set([...(get()||[]),...temps]);
+    apply(cur=>[...cur,...temps]);
     setUpBusy(true);
     for(let i=0;i<files.length;i++){
       const file=files[i],t=temps[i];
       try{
-        if(file.size>50*1024*1024){set((get()||[]).filter(x=>x.tmp!==t.tmp));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        if(file.size>50*1024*1024){apply(cur=>cur.filter(x=>x.tmp!==t.tmp));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
         const safe=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         const path=folder+'/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
         if(error)throw error;
         const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
         const real={name:file.name||'붙여넣은 이미지.png',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||''};
-        set((get()||[]).map(x=>x.tmp===t.tmp?real:x));
+        apply(cur=>cur.map(x=>x.tmp===t.tmp?real:x));
       }catch(e){
-        set((get()||[]).filter(x=>x.tmp!==t.tmp));
+        apply(cur=>cur.filter(x=>x.tmp!==t.tmp));
         alert('첨부 업로드 실패: '+e.message);
       }
     }
@@ -3066,10 +3071,10 @@ function useAttach(folder,get,set){
     if(picked.length){e.preventDefault();add(picked);}
   };
   const remove=async(idx)=>{
-    const x=(get()||[])[idx];if(!x)return;
+    const x=(liveRef.current||[])[idx];if(!x)return;
     if(!confirm('"'+x.name+'" 첨부를 삭제할까요?'))return;
     try{if(x.path)await sbClient.storage.from('bnf-files').remove([x.path]);}catch(e){}
-    set((get()||[]).filter((_,i)=>i!==idx));
+    apply(cur=>cur.filter((_,i)=>i!==idx));
   };
   const clean=()=>(get()||[]).filter(x=>x&&!x.pending&&x.path);
   const fB=b=>{if(!b)return'';const k=b/1024;return k<1024?(' · '+k.toFixed(0)+'KB'):(' · '+(k/1024).toFixed(1)+'MB');};
