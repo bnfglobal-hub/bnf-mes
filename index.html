@@ -6004,6 +6004,15 @@ async function pushNotif(list){
     await sbClient.from('app_state').upsert({id:1,state_data:{...ex,notifications:next},updated_at:now});
     /* 카카오톡 연동 준비: 브리지가 켜져 있으면 릴레이 (없어도 무시) */
     add.forEach(n=>pushKakao(n).catch(()=>{}));
+    /* 휴대폰·PC 웹푸시 발송 (앱이 꺼져 있어도 알림) — 엣지 함수가 처리, 실패해도 무시 */
+    try{
+      const SB='https://fchxlplnacyycuddvdmu.supabase.co';
+      const KEY='sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli';
+      fetch(SB+'/functions/v1/send-push',{method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY,'apikey':KEY},
+        body:JSON.stringify({items:add.map(n=>({to:n.to,title:'B&F MES 알림',body:n.text,url:'https://bnfglobal-hub.github.io/bnf-mes/'+(n.page?('?p='+n.page):'')}))})
+      }).catch(()=>{});
+    }catch(e){}
   }catch(e){console.warn('알림 생성 실패',e);}
 }
 /* 카카오 알림 릴레이 (선택) - 로컬 브리지의 /kakao 로 전달, 없으면 조용히 무시.
@@ -16939,6 +16948,35 @@ function App(){
     const onSync=()=>check();
     window.addEventListener('bnf-sync',onSync);
     return()=>{clearInterval(t);window.removeEventListener('bnf-sync',onSync);};
+  },[user&&user.id]);
+  /* ── 웹푸시 구독: 휴대폰·PC가 꺼져 있어도 알림을 받도록 등록 ── */
+  useEffect(()=>{
+    if(!user||!('serviceWorker'in navigator)||!('PushManager'in window))return;
+    const VAPID='BD4h02YviEK3gF4LC762oOiE75yOX5VIwFig5Dh6LrbBlF_QIHPb__FppuRKq8YRbp--OcM9Wbwh4bpGGPJQMXw';
+    const b64=(s)=>{const pad='='.repeat((4-s.length%4)%4);const b=(s+pad).replace(/-/g,'+').replace(/_/g,'/');
+      const raw=atob(b);const arr=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);return arr;};
+    let cancelled=false;
+    (async()=>{
+      try{
+        const reg=await navigator.serviceWorker.register('sw.js');
+        if(Notification.permission==='default'){try{await Notification.requestPermission();}catch(e){}}
+        if(Notification.permission!=='granted')return;
+        await navigator.serviceWorker.ready;
+        let sub=await reg.pushManager.getSubscription();
+        if(!sub){sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64(VAPID)});}
+        if(cancelled||!sub)return;
+        const js=sub.toJSON();
+        /* 내 구독을 서버에 저장 (엔드포인트로 중복 제거) */
+        const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+        const ex=(data&&data.state_data)||null; if(!ex)return;
+        const all=Object.assign({},ex.push_subs||{});
+        const mine=(all[user.id]||[]).filter(x=>x&&x.endpoint&&x.endpoint!==js.endpoint);
+        mine.push({endpoint:js.endpoint,keys:js.keys,name:(user.name||''),at:new Date().toISOString()});
+        all[user.id]=mine.slice(-5);   /* 사람당 최근 기기 5개까지 */
+        await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{push_subs:all}),updated_at:new Date().toISOString()});
+      }catch(e){/* 구독 실패는 조용히 무시 (권한 거부·미지원 기기 등) */}
+    })();
+    return()=>{cancelled=true;};
   },[user&&user.id]);
   /* Cmd+K / Ctrl+K로 글로벌 검색 열기 */
   useEffect(()=>{
