@@ -17244,7 +17244,19 @@ function App(){
             style:{padding:'5px 8px',background:'#F2EEF6',color:'#6B6B6B',border:'none',borderRadius:6,cursor:'pointer',fontSize:10}
           },'↻')
         ),
-        navSections.filter(s=>!s.adminOnly||isAdmin).map((sec,secIdx)=>{
+        (()=>{ /* 자기 부서 폴더를 홈 폴더 바로 다음으로 (관리자는 그대로, 편집모드에서는 원래 순서) */
+          const base=navSections.filter(s=>!s.adminOnly||isAdmin);
+          if(isAdmin||navEditMode)return base;
+          const norm=t=>String(t||'').replace(/[^가-힣A-Za-z]/g,'');
+          const dept=norm(user&&(user.depts&&user.depts.name||user.dept_name||user.dept));
+          if(!dept)return base;
+          const di=base.findIndex((sec,i)=>i>0&&(()=>{const l=norm(sec.label);return l&&(l.indexOf(dept)>=0||dept.indexOf(l)>=0);})());
+          if(di<1)return base;
+          const out=base.slice();
+          const[mine]=out.splice(di,1);
+          out.splice(1,0,mine);
+          return out;
+        })().map((sec,secIdx)=>{
           const visibleItems=(sec.items||[]).filter(navItemVisible);
           if(visibleItems.length===0&&!navEditMode)return null;
           const folderKey=sec.type||sec.label;
