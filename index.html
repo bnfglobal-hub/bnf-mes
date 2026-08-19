@@ -3896,10 +3896,10 @@ function PageManual({user}){
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'업무 방법을 정리해 함께 봅니다 · 사진·문서 첨부 가능')),
       R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 매뉴얼 작성')
     ),
-    R('div',{className:'tab-row',style:{alignItems:'center'}},
-      R('button',{key:'전체',className:'tab'+(cat==='전체'?' act':''),onClick:()=>setCat('전체')},'전체 '+(rows||[]).length),
-      ...cats.map(c=>R('span',{key:c,style:{display:'inline-flex',alignItems:'center'}},
-        R('button',{className:'tab'+(cat===c?' act':''),onClick:()=>setCat(c)},c+' '+cnt(c)),
+    R('div',{className:'tab-row',style:{alignItems:'center',flexWrap:'wrap',justifyContent:'flex-start'}},
+      R('button',{key:'전체',className:'tab'+(cat==='전체'?' act':''),style:{flex:'0 0 auto'},onClick:()=>setCat('전체')},'전체 '+(rows||[]).length),
+      ...cats.map(c=>R('span',{key:c,style:{display:'inline-flex',alignItems:'center',flex:'0 0 auto'}},
+        R('button',{className:'tab'+(cat===c?' act':''),style:{flex:'0 0 auto'},onClick:()=>setCat(c)},c+' '+cnt(c)),
         catEdit&&R('button',{onClick:()=>renameCat(c),title:'이름 바꾸기',style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:11,padding:'0 1px'}},'✎'),
         catEdit&&R('button',{onClick:()=>delCat(c),title:'분류 삭제',style:{background:'none',border:'none',cursor:'pointer',color:'#CBD5E1',fontSize:12,padding:'0 2px'}},'✕'))),
       isAdmin&&R('button',{onClick:()=>setCatEdit(!catEdit),style:{flexShrink:0,marginLeft:4,border:'1px dashed var(--bd)',background:catEdit?'var(--pb)':'#fff',color:catEdit?'var(--p)':'var(--tm)',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},catEdit?'완료':'⚙ 분류 관리')
