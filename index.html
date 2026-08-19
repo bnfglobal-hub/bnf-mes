@@ -3209,6 +3209,81 @@ function AttachView({files}){
     ));
 }
 
+/* ═══ AI 도우미 (GPT) ══════════════════════════════════
+   MES 안에서 바로 GPT에게 질문. 키는 서버(ask-gpt 엣지함수) 비밀값으로만 보관. */
+function PageAI({user}){
+  const[msgs,setMsgs]=useState([]);   /* {role:'user'|'assistant', content} */
+  const[input,setInput]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState('');
+  const boxRef=useRef(null);
+  const SB='https://fchxlplnacyycuddvdmu.supabase.co';
+  const KEY='sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli';
+  const scrollDown=()=>{try{const b=boxRef.current;if(b)b.scrollTop=b.scrollHeight;}catch(e){}};
+  useEffect(()=>{scrollDown();},[msgs,busy]);
+  const send=async()=>{
+    const q=input.trim();
+    if(!q||busy)return;
+    setErr('');
+    const next=[...msgs,{role:'user',content:q}];
+    setMsgs(next);setInput('');setBusy(true);
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
+      const r=await fetch(SB+'/functions/v1/ask-gpt',{method:'POST',signal:ctl.signal,
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY,'apikey':KEY},
+        body:JSON.stringify({messages:[
+          {role:'system',content:'너는 ㈜비엔에프글로벌(식품 제조사)의 사내 업무 도우미다. 한국어로 간결하고 정확하게 답한다.'},
+          ...next.map(m=>({role:m.role,content:m.content}))
+        ]})});
+      clearTimeout(tm);
+      const j=await r.json();
+      if(j.error){
+        if(j.error==='NO_KEY')setErr(j.msg||'API 키가 설정되지 않았습니다.');
+        else setErr('오류: '+j.error);
+        setBusy(false);return;
+      }
+      setMsgs(m=>[...m,{role:'assistant',content:j.reply||'(빈 응답)'}]);
+    }catch(e){
+      setErr(e&&e.name==='AbortError'?'응답이 너무 오래 걸립니다. 다시 시도해주세요.':'연결 실패: '+(e&&e.message||e));
+    }
+    setBusy(false);
+  };
+  const onKey=(e)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}};
+  const bubble=(m,i)=>{
+    const me=m.role==='user';
+    return R('div',{key:i,style:{display:'flex',justifyContent:me?'flex-end':'flex-start',marginBottom:10}},
+      R('div',{style:{maxWidth:'80%',padding:'10px 14px',borderRadius:14,fontSize:13.5,lineHeight:1.65,whiteSpace:'pre-wrap',wordBreak:'break-word',
+        background:me?'var(--p)':'#fff',color:me?'#fff':'var(--t)',border:me?'none':'1px solid var(--bd)',
+        borderBottomRightRadius:me?4:14,borderBottomLeftRadius:me?14:4}},m.content));
+  };
+  return R('div',{className:'pg fa',style:{display:'flex',flexDirection:'column',height:'100%'}},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🤖 AI 도우미 (GPT)'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'업무 질문·번역·문서 작성 등 무엇이든 물어보세요')),
+      msgs.length>0&&R('button',{className:'btn bs btn-sm',onClick:()=>{setMsgs([]);setErr('');}},'🗑 대화 지우기')
+    ),
+    R('div',{ref:boxRef,className:'card',style:{flex:1,overflowY:'auto',minHeight:260,padding:'16px',background:'#F8FAFC',marginBottom:10}},
+      msgs.length===0&&!busy?R('div',{style:{textAlign:'center',color:'var(--tm)',padding:'40px 20px'}},
+        R('div',{style:{fontSize:40,marginBottom:12}},'🤖'),
+        R('div',{style:{fontSize:14,fontWeight:700,marginBottom:8}},'무엇이든 물어보세요'),
+        R('div',{style:{fontSize:12,lineHeight:1.9}},
+          '· "거래처에 보낼 정중한 독촉 메일 써줘"',R('br'),
+          '· "이 영어 계약서 문장 번역해줘"',R('br'),
+          '· "식품 HACCP 준비 서류 목록 알려줘"'))
+      :R('div',null,...msgs.map(bubble),
+        busy&&R('div',{style:{display:'flex',justifyContent:'flex-start'}},
+          R('div',{style:{padding:'10px 14px',borderRadius:14,background:'#fff',border:'1px solid var(--bd)'}},
+            R('span',{className:'ld'},'생각 중 ')))),
+    ),
+    err&&R('div',{style:{background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',borderRadius:10,padding:'10px 14px',fontSize:12.5,marginBottom:10,whiteSpace:'pre-wrap'}},'⚠ '+err),
+    R('div',{style:{display:'flex',gap:8,alignItems:'flex-end'}},
+      R('textarea',{value:input,onChange:e=>setInput(e.target.value),onKeyDown:onKey,disabled:busy,
+        placeholder:'질문을 입력하고 Enter (줄바꿈은 Shift+Enter)',
+        style:{flex:1,border:'1.5px solid var(--bd)',borderRadius:12,padding:'11px 14px',fontSize:13.5,fontFamily:'inherit',resize:'none',minHeight:46,maxHeight:140}}),
+      R('button',{className:'btn bp',onClick:send,disabled:busy||!input.trim(),style:{padding:'0 20px',height:46,fontSize:14,fontWeight:800,borderRadius:12,flexShrink:0}},busy?'...':'전송'))
+  );
+}
+
 /* ═══ 매입처 공문 (품질관리부) ══════════════════════════
    매입처에서 온 공문을 게시판처럼 올리고, 파일 첨부·미리보기.
    app_state.bnf_vendor_docs 에 저장 → 전 직원 공유. */
@@ -17528,6 +17603,7 @@ function App(){
     if(page==='pm_equip')return R(PageCycleCheck,{key:'pm_equip',user,title:'설비 점검',ic:'🔧',
       desc:'점검 주기를 설정하면 다음 점검일이 자동 계산되고, 임박하면 홈 화면에 표시됩니다',
       storeKey:'bnf_pm_equip',nameLabel:'설비명',namePh:'예) 살균기 1호',placeLabel:'위치'});
+    if(page==='ai')return R(PageAI,{user});
     if(page==='qc_docs')return R(PageVendorDocs,{user});
     if(page==='manual')return R(PageManual,{user});
     if(page==='crm')return R(PageCRM,{user});
