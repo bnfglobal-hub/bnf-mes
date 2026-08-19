@@ -4556,7 +4556,7 @@ function apprCanView(d,uid){
 
 /* ═══ 전자결재 ══════════════════════════════════════ */
 function PageApproval({user}){
-  const[tab,setTab]=useState('mine');const[docs,setDocs]=useState([]);const[sel,setSel]=useState(null);
+  const[tab,setTab]=useState('mine');const[docs,setDocs]=useState([]);const[sel,setSel]=useState(null);const[docQ,setDocQ]=useState('');
   const[allDocs,setAllDocs]=useState([]);   /* 대시보드 집계용 (내가 볼 수 있는 전체) */
   const[showF,setShowF]=useState(false);const[fType,setFType]=useState('leave');const[loading,setLoading]=useState(true);
   const[emps,setEmps]=useState([]);
@@ -5004,12 +5004,16 @@ function PageApproval({user}){
     })(),
     R('div',{className:'tab-row'},[['mine','내 기안'],['pending','결재 대기'],['involved','참여 문서']].map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
     R('div',{style:{fontSize:11,color:'var(--tm)',margin:'0 0 8px 2px'}},'🔒 결재 문서는 기안자·결재자·참조자만 볼 수 있습니다.'),
+    R('div',{style:{marginBottom:10}},R('input',{className:'inp',value:docQ,onChange:e=>setDocQ(e.target.value),placeholder:'🔍 제목·기안자 검색',style:{maxWidth:320}})),
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,R('th',{style:{width:80}},'상태'),R('th',{style:{width:70}},'종류'),R('th',null,'제목'),R('th',null,'기안자'),R('th',null,'기안일'),R('th',{style:{width:96}},''))),
         R('tbody',null,loading?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
-          docs.length===0?R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},'문서 없음')):
-          docs.map(d=>{
+          (()=>{
+            const qq=docQ.trim().toLowerCase();
+            const dlist=qq?docs.filter(d=>[d.title,d.emp&&d.emp.name].some(v=>String(v||'').toLowerCase().includes(qq))):docs;
+            if(dlist.length===0)return R('tr',null,R('td',{colSpan:6,style:{textAlign:'center',padding:20,color:'var(--tm)'}},qq?'검색 결과 없음':'문서 없음'));
+            return dlist.map(d=>{
             const nf=(d.content&&Array.isArray(d.content.__files))?d.content.__files.length:0;
             return R('tr',{key:d.id,style:{cursor:'pointer'},onClick:()=>setSel(d)},
               R('td',null,R(Bdg2,{cls:ASTAT[d.status]||'b-g',txt:d.status})),
@@ -5022,7 +5026,8 @@ function PageApproval({user}){
                 R('button',{title:'삭제',onClick:e=>{e.stopPropagation();delDoc(d);},style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')
               ))
             );
-          })
+          });
+          })()
         )
       )
     ),
@@ -7091,6 +7096,7 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
   const[saving,setSaving]=useState(false);
   const[newTitle,setNewTitle]=useState('');
   const[catF,setCatF]=useState('all'); /* 카테고리 필터 */
+  const[wq,setWq]=useState(''); /* 업무 검색어 */
   const[newCat,setNewCat]=useState('factory'); /* 새 업무 분류 */
   const[wcats,setWcats]=useState(DEFAULT_WCATS); /* 분류 목록 (편집 가능) */
   const[catMgr,setCatMgr]=useState(false); /* 분류 관리 모달 */
@@ -7250,10 +7256,12 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
     ||(Array.isArray(r.sharedIds)&&r.sharedIds.indexOf(user&&user.id)>=0);
   const catOf=(r)=>r.category||'etc';
   const catMatch=(r)=>catF==='all'||catOf(r)===catF;
+  const qMatch=(r)=>{const q=wq.trim().toLowerCase();if(!q)return true;
+    return [r.title,r.desc,r.assigneeName,r.requesterName].some(v=>String(v||'').toLowerCase().includes(q));};
   const mineAll=reqs.filter(mineFilter);
   /* 좌: 진행 중(미완료) / 우: 완료 (선택한 분류로 필터) */
-  const ongoing=mineAll.filter(isOpen).filter(catMatch).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  const completed=mineAll.filter(isDone).filter(catMatch).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  const ongoing=mineAll.filter(isOpen).filter(catMatch).filter(qMatch).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const completed=mineAll.filter(isDone).filter(catMatch).filter(qMatch).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
   const ongoingShow=personal?ongoing:ongoing.slice(0,30);
   const completedShow=personal?completed:completed.slice(0,20);
   const openCntByCat=(v)=>mineAll.filter(isOpen).filter(r=>v==='all'||catOf(r)===v).length;
@@ -7374,7 +7382,9 @@ function OngoingWork({user,onGoPage,storeKey,personal}){
           c.l,cnt>0&&R('span',{style:{marginLeft:5,opacity:0.85,fontWeight:800}},cnt));
       }),
       R('button',{onClick:()=>setCatMgr(true),title:'분류 추가·수정',
-        style:{flexShrink:0,border:'1px dashed var(--bd)',background:'#fff',color:'var(--tm)',borderRadius:999,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},'⚙ 분류 관리')
+        style:{flexShrink:0,border:'1px dashed var(--bd)',background:'#fff',color:'var(--tm)',borderRadius:999,padding:'6px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},'⚙ 분류 관리'),
+      R('input',{value:wq,onChange:e=>setWq(e.target.value),placeholder:'🔍 업무 검색',
+        style:{flex:'1 1 140px',minWidth:120,border:'1px solid var(--bd)',borderRadius:999,padding:'6px 13px',fontSize:12,fontFamily:'inherit'}})
     ),
     /* ── 진행 중인 업무 (전체 폭) ── */
     R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:12}},
