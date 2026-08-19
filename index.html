@@ -17568,10 +17568,32 @@ function App(){
     xlPreview&&R(XlPreviewModal,{preview:xlPreview,onClose:()=>setXlPreview(null),onConfirm:confirmXlImport}),
     myInfoOpen&&R(MyInfoModal,{user,onClose:()=>setMyInfoOpen(false),onUpdated:u=>{setUser(u);try{localStorage.setItem('bnf_user',JSON.stringify(u));}catch(e){}}}),
     globalSearch&&R(GlobalSearchModal,{mats,prods,user,onClose:()=>setGlobalSearch(false),onGoPage:(p,extra)=>{setPage(p);setGlobalSearch(false);}}),
-    notifPanel&&R(NotifPanel,{mats,user,onClose:()=>setNotifPanel(false),onGoPage:(p)=>{setPage(p);setNotifPanel(false);}})
+    notifPanel&&R(NotifPanel,{mats,user,onClose:()=>setNotifPanel(false),onGoPage:(p)=>{setPage(p);setNotifPanel(false);}}),
+    R(ScrollTopButton)
   );
 }
 
+/* 스크롤이 내려가면 나타나는 '맨 위로' 버튼 (모바일·긴 화면 편의) */
+function ScrollTopButton(){
+  const[show,setShow]=useState(false);
+  useEffect(()=>{
+    const scroller=()=>document.querySelector('.pg')||document.querySelector('.main');
+    const onScroll=(e)=>{
+      const el=e.target;
+      if(!el||!el.classList)return;
+      if(el.classList.contains('pg')||el.classList.contains('main'))setShow((el.scrollTop||0)>300);
+    };
+    document.addEventListener('scroll',onScroll,true);
+    return()=>document.removeEventListener('scroll',onScroll,true);
+  },[]);
+  if(!show)return null;
+  return R('button',{onClick:()=>{const el=document.querySelector('.pg')||document.querySelector('.main');if(el)el.scrollTo({top:0,behavior:'smooth'});},
+    title:'맨 위로',
+    style:{position:'fixed',right:'18px',bottom:'calc(74px + env(safe-area-inset-bottom))',zIndex:60,
+      width:44,height:44,borderRadius:'50%',border:'none',cursor:'pointer',
+      background:'#fff',color:'#D94F1E',boxShadow:'0 3px 12px rgba(0,0,0,.18)',
+      fontSize:18,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center'}},'↑');
+}
 ReactDOM.createRoot(document.getElementById('root')).render(R(App));
 
 </script>
