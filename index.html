@@ -4143,6 +4143,7 @@ function PageWorkOrder({user}){
   );
 
   /* ── 목록 ── */
+  const inFolder=(r)=>fFol===''?true:(fFol==='__none__'?!(r.folder||''):(r.folder||'')===fFol);
   const list=(rows||[]).filter(r=>{
     if(fCli&&(String(r.client||'').trim()||'미지정')!==fCli)return false;
     const s=q.trim().toLowerCase();
@@ -4151,7 +4152,6 @@ function PageWorkOrder({user}){
     return [r.title,r.name,r.note,r.date,r._byName,r.client,r.folder].some(v=>String(v||'').toLowerCase().includes(s));
   });
   const cliCount=(c)=>(rows||[]).filter(r=>(String(r.client||'').trim()||'미지정')===c).length;
-  const inFolder=(r)=>fFol===''?true:(fFol==='__none__'?!(r.folder||''):(r.folder||'')===fFol);
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📋 작업지시서'),
