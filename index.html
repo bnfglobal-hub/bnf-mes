@@ -3999,20 +3999,58 @@ function PageWorkOrder({user}){
   const fileRef=useRef(null);
   const isAdmin=['superadmin','admin'].includes(user.role);
   const KEY='bnf_pm_workorder';
+  const FKEY='bnf_pm_wo_folders';
+  const[folders,setFolders]=useState([]);      /* 폴더 이름 목록 */
+  const[fFol,setFFol]=useState('');            /* 선택된 폴더 */
+  const[folEdit,setFolEdit]=useState(false);
+  const[newFol,setNewFol]=useState('');
 
   useEffect(()=>{load();},[]);
   useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
-      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
-      setRows(Array.isArray(data&&data.v)?data.v:[]);
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const sd=(data&&data.state_data)||{};
+      setRows(Array.isArray(sd[KEY])?sd[KEY]:[]);
+      setFolders(Array.isArray(sd[FKEY])?sd[FKEY]:[]);
     }catch(e){setRows([]);}
   };
-  const persist=async(next)=>{
+  const persist=async(next,nextFolders)=>{
     const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-    const existing=(data&&data.state_data)||{};
-    await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+    const existing=(data&&data.state_data)||null;
+    if(!existing){alert('자동저장 중단: 서버 상태를 읽지 못함.\n잠시 후 다시 시도해주세요.');return;}
+    const patch={[KEY]:next};
+    if(nextFolders)patch[FKEY]=nextFolders;
+    await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,patch),updated_at:new Date().toISOString()});
     setRows(next);
+    if(nextFolders)setFolders(nextFolders);
+  };
+  /* ── 폴더 관리 ── */
+  const addFolder=async()=>{
+    const v=(newFol||'').trim();
+    if(!v)return;
+    if(folders.indexOf(v)>=0){alert('같은 이름의 폴더가 있습니다.');return;}
+    await persist(rows||[],[...folders,v]);
+    setNewFol('');
+  };
+  const renameFolder=async(old)=>{
+    const v=(prompt('폴더 이름을 바꿉니다.',old)||'').trim();
+    if(!v||v===old)return;
+    if(folders.indexOf(v)>=0){alert('같은 이름의 폴더가 있습니다.');return;}
+    /* 폴더 이름이 바뀌면 그 안의 작업지시서도 같이 따라간다 */
+    const nextRows=(rows||[]).map(r=>((r.folder||'')===old?Object.assign({},r,{folder:v}):r));
+    await persist(nextRows,folders.map(x=>x===old?v:x));
+    if(fFol===old)setFFol(v);
+  };
+  const delFolder=async(name)=>{
+    const n=(rows||[]).filter(r=>(r.folder||'')===name).length;
+    if(!confirm('"'+name+'" 폴더를 없앨까요?\n\n안에 있던 '+n+'건은 지워지지 않고 [미분류]로 갑니다.'))return;
+    const nextRows=(rows||[]).map(r=>((r.folder||'')===name?Object.assign({},r,{folder:''}):r));
+    await persist(nextRows,folders.filter(x=>x!==name));
+    if(fFol===name)setFFol('');
+  };
+  const moveTo=async(r,name)=>{
+    await persist((rows||[]).map(x=>x.id===r.id?Object.assign({},x,{folder:name}):x));
   };
   const upload=async(fileList)=>{
     const files=Array.from(fileList||[]).filter(Boolean);
@@ -4030,6 +4068,7 @@ function PageWorkOrder({user}){
         added.push({id:'w'+Date.now()+Math.random().toString(36).slice(2,6),
           name:f.name,path,url:(pub&&pub.publicUrl)||'',size:f.size,
           date:meta.date||today2(),client:(meta.client||'').trim(),title:(meta.title||'').trim()||f.name.replace(/\.[^.]+$/,''),note:meta.note||'',
+          folder:(meta.folder||fFol||''),
           _by:user.id,_byName:user.name,_at:now2()});
       }
       if(added.length){
@@ -4107,10 +4146,12 @@ function PageWorkOrder({user}){
   const list=(rows||[]).filter(r=>{
     if(fCli&&(String(r.client||'').trim()||'미지정')!==fCli)return false;
     const s=q.trim().toLowerCase();
+    if(!inFolder(r))return false;
     if(!s)return true;
-    return [r.title,r.name,r.note,r.date,r._byName,r.client].some(v=>String(v||'').toLowerCase().includes(s));
+    return [r.title,r.name,r.note,r.date,r._byName,r.client,r.folder].some(v=>String(v||'').toLowerCase().includes(s));
   });
   const cliCount=(c)=>(rows||[]).filter(r=>(String(r.client||'').trim()||'미지정')===c).length;
+  const inFolder=(r)=>fFol===''?true:(fFol==='__none__'?!(r.folder||''):(r.folder||'')===fFol);
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📋 작업지시서'),
@@ -4127,7 +4168,12 @@ function PageWorkOrder({user}){
           R('input',{className:'inp',list:'wo-clients',value:meta.client,onChange:e=>setMeta(p=>Object.assign({},p,{client:e.target.value})),placeholder:'예) 컬리, 압구정푸드'}),
           R('datalist',{id:'wo-clients'},...clients.map(c=>R('option',{key:c,value:c})))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'제목 (비우면 파일명)'),
-          R('input',{className:'inp',value:meta.title,onChange:e=>setMeta(p=>Object.assign({},p,{title:e.target.value})),placeholder:'예) 7/29 라멘 라인 작업지시'}))
+          R('input',{className:'inp',value:meta.title,onChange:e=>setMeta(p=>Object.assign({},p,{title:e.target.value})),placeholder:'예) 7/29 라멘 라인 작업지시'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'폴더'),
+          R('select',{className:'inp',value:(meta.folder!==undefined?meta.folder:fFol),
+            onChange:e=>setMeta(p=>Object.assign({},p,{folder:e.target.value}))},
+            R('option',{value:''},'미분류'),
+            ...folders.map(f=>R('option',{key:f,value:f},f))))
       ),
       R('div',{className:'fr'},R('label',{className:'lbl'},'비고'),
         R('input',{className:'inp',value:meta.note,onChange:e=>setMeta(p=>Object.assign({},p,{note:e.target.value})),placeholder:'특이사항 (선택)'})),
@@ -4140,6 +4186,35 @@ function PageWorkOrder({user}){
           onChange:e=>{upload(e.target.files);e.target.value='';}}),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:8}},'또는 파일을 이 영역에 끌어다 놓으세요 · xlsx / xls / csv · 최대 50MB')
       )
+    ),
+    /* 폴더별 보기 */
+    R('div',{className:'card',style:{marginBottom:10,padding:'10px 12px'}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
+        R('span',{style:{fontSize:12,fontWeight:800}},'📁 폴더별 보기'),
+        R('button',{className:'btn '+(folEdit?'bp':'bw')+' btn-sm',onClick:()=>setFolEdit(!folEdit)},folEdit?'완료':'폴더 관리')),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        R('button',{onClick:()=>setFFol(''),
+          style:{border:'1px solid '+(fFol===''?'var(--p)':'var(--bd)'),background:fFol===''?'var(--p)':'#fff',color:fFol===''?'#fff':'var(--t)',
+            borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'전체 '+(rows||[]).length),
+        R('button',{onClick:()=>setFFol('__none__'),
+          style:{border:'1px solid '+(fFol==='__none__'?'var(--p)':'var(--bd)'),background:fFol==='__none__'?'var(--p)':'#fff',color:fFol==='__none__'?'#fff':'var(--tm)',
+            borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}},
+          '미분류 '+(rows||[]).filter(r=>!(r.folder||'')).length),
+        ...folders.map(f=>R('span',{key:f,style:{display:'inline-flex',alignItems:'center',gap:3}},
+          R('button',{onClick:()=>setFFol(f),
+            style:{border:'1px solid '+(fFol===f?'var(--p)':'var(--bd)'),background:fFol===f?'var(--p)':'#fff',color:fFol===f?'#fff':'var(--t)',
+              borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:fFol===f?700:600,cursor:'pointer',fontFamily:'inherit'}},
+            '📁 '+f+' '+(rows||[]).filter(r=>(r.folder||'')===f).length),
+          folEdit&&R('button',{onClick:()=>renameFolder(f),title:'이름 바꾸기',
+            style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 6px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✎'),
+          folEdit&&R('button',{onClick:()=>delFolder(f),title:'폴더 삭제',
+            style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 6px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')
+        ))
+      ),
+      folEdit&&R('div',{style:{display:'flex',gap:6,marginTop:9}},
+        R('input',{className:'inp',value:newFol,onChange:e=>setNewFol(e.target.value),
+          onKeyDown:e=>{if(e.key==='Enter')addFolder();},placeholder:'새 폴더 이름 (예: 컬리, 정기 생산)',style:{maxWidth:260}}),
+        R('button',{className:'btn bp btn-sm',onClick:addFolder},'+ 폴더 추가'))
     ),
     /* 거래처별 보기 */
     clients.length>0&&R('div',{className:'card',style:{marginBottom:10,padding:'10px 12px'}},
@@ -4158,13 +4233,18 @@ function PageWorkOrder({user}){
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,
-          R('th',{style:{width:110}},'작업일'),R('th',{style:{width:120}},'거래처'),R('th',null,'제목'),R('th',{style:{width:200}},'파일'),
+          R('th',{style:{width:110}},'작업일'),R('th',{style:{width:118}},'폴더'),R('th',{style:{width:120}},'거래처'),R('th',null,'제목'),R('th',{style:{width:200}},'파일'),
           R('th',null,'비고'),R('th',{style:{width:96}},'올린이'),R('th',{style:{width:120}},''))),
         R('tbody',null,
-          rows===null?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:20}},'로딩 중...')):
-          list.length===0?R('tr',null,R('td',{colSpan:7,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'올라온 작업지시서가 없습니다.')):
+          rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20}},'로딩 중...')):
+          list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'올라온 작업지시서가 없습니다.')):
           list.map(r=>R('tr',{key:r.id,style:{cursor:'pointer'},onClick:()=>preview(r)},
             R('td',{style:{fontSize:12}},r.date||'-'),
+            R('td',{onClick:e=>e.stopPropagation()},
+              R('select',{value:r.folder||'',onChange:e=>moveTo(r,e.target.value),
+                style:{border:'1px solid var(--bd)',borderRadius:6,padding:'2px 5px',fontSize:11,fontFamily:'inherit',maxWidth:112,background:'#fff'}},
+                R('option',{value:''},'미분류'),
+                ...folders.map(f=>R('option',{key:f,value:f},f)))),
             R('td',{style:{fontSize:11.5,fontWeight:700,color:'var(--p)'}},String(r.client||'').trim()||'-'),
             R('td',{style:{fontWeight:600,fontSize:12.5}},r.title),
             R('td',{style:{fontSize:11,color:'var(--tm)',wordBreak:'break-all'}},'📄 ',r.name,' ',R('span',{style:{color:'#CBD5E1'}},fSize(r.size))),
