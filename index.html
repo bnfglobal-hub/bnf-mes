@@ -7919,13 +7919,13 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[todos,setTodos]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_todos')||'[]');}catch(e){return[];}});
   const[todoInput,setTodoInput]=useState('');
   const[editMode,setEditMode]=useState(false);
-  const HOME_ALL=['sales','equip','appr','newprod','ongoing','quick','wr','news','lt','stats'];
+  const HOME_ALL=['acts','sales','equip','appr','newprod','ongoing','quick','wr','news','lt','stats'];
   const[sectionOrder,setSectionOrder]=useState(()=>{
     try{
       const v=JSON.parse(localStorage.getItem('bnf_home_order')||'null');
       let arr=(Array.isArray(v)&&v.length>0)?v.filter(x=>x!=='ai'):['wr','news','lt','stats'];
       /* 신규 섹션 자동 삽입: 매출 → 전자결재 → 신제품 → 진행업무 → 퀵메뉴 순으로 상단 배치 */
-      ['quick','ongoing','newprod','appr','equip','sales'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
+      ['quick','ongoing','newprod','appr','equip','sales','acts'].forEach(id=>{if(!arr.includes(id))arr.unshift(id);});
       return arr.filter(x=>HOME_ALL.includes(x));
     }catch(e){return HOME_ALL.slice();}
   });
@@ -8550,8 +8550,66 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     );
   };
 
-  const SEC_LABELS={sales:'💵 매출 현황',equip:'🔧 점검 예정',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
+  /* ── 관리자: 다른 사용자의 최근 작업 (3줄) ──
+     서버 상태에서 작성자(_at/_byName)가 붙은 항목을 모아 최신순으로 보여준다. */
+  const[recentActs,setRecentActs]=useState(null);
+  const isBossView=['superadmin','admin'].includes(user.role);
+  const loadActs=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const sd=(data&&data.state_data)||{};
+      const LABELS={work_requests:'업무 현황',bnf_pm_workorder:'작업지시서',bnf_rnd_status:'연구개발 현황',
+        bnf_rnd_log:'연구개발 일지',bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',
+        bnf_qc_claim:'클레임',bnf_pm_equip:'설비 점검',bnf_receivables:'미수금',bnf_crm:'거래처 CRM',
+        trade_entries:'매입/매출 입력',approval_docs:'전자결재',bnf_files:'파일 공유',
+        bnf_rnd_recipe:'확정 배합비',recurring_tasks:'주기 업무',daily_tasks:'업무'};
+      const out=[];
+      Object.keys(sd).forEach(k=>{
+        const v=sd[k];
+        if(!Array.isArray(v))return;
+        v.forEach(it=>{
+          if(!it||typeof it!=='object')return;
+          const at=it._at||it.at, by=it._byName||it.byName||it._by_name;
+          if(!at||!by)return;
+          const t=new Date(at).getTime(); if(!t)return;
+          const what=String(it.title||it.name||it.text||it.client||it.body||'').replace(/\s+/g,' ').trim().slice(0,34);
+          out.push({t,by:String(by),label:LABELS[k]||k,what});
+        });
+      });
+      out.sort((x,y)=>y.t-x.t);
+      /* 본인 작업은 제외하고 다른 사용자 작업만 */
+      const my=String(user.name||'').trim();
+      setRecentActs(out.filter(o=>o.by.trim()!==my).slice(0,3));
+    }catch(e){setRecentActs([]);}
+  };
+  useEffect(()=>{if(isBossView)loadActs();},[]);
+  useBnfSyncReload(()=>{if(isBossView)loadActs();});
+  const fAgo=(t)=>{
+    const m=Math.floor((Date.now()-t)/60000);
+    if(m<1)return '방금';
+    if(m<60)return m+'분 전';
+    const h=Math.floor(m/60);
+    if(h<24)return h+'시간 전';
+    return Math.floor(h/24)+'일 전';
+  };
+  const buildActs=()=>R('div',{className:'card',style:{padding:'12px 16px'}},
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
+      R('span',{style:{fontSize:12.5,fontWeight:800}},'👀 직원 최근 작업'),
+      R('span',{style:{fontSize:10,color:'var(--tm)'}},'최신 3건')),
+    recentActs===null?R('div',{style:{fontSize:11.5,color:'var(--tm)',padding:'6px 0'}},'불러오는 중...'):
+    recentActs.length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)',padding:'6px 0'}},'다른 사용자의 최근 작업이 없습니다.'):
+    R('div',null,...recentActs.map((o,i)=>R('div',{key:i,
+      style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:i?'1px solid #F1F5F9':'none',fontSize:12}},
+      R('span',{style:{fontWeight:800,flexShrink:0}},o.by),
+      R('span',{style:{fontSize:10,fontWeight:700,color:'var(--p)',background:'#FFF3ED',border:'1px solid #FFDCCC',borderRadius:999,padding:'1px 8px',flexShrink:0}},o.label),
+      R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--t)'}},o.what||'-'),
+      R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},fAgo(o.t))
+    )))
+  );
+
+  const SEC_LABELS={acts:'👀 직원 최근 작업',sales:'💵 매출 현황',equip:'🔧 점검 예정',appr:'📋 전자결재',newprod:'🆕 신제품 현황',ongoing:'🔥 진행 중인 업무',quick:'⚡ 퀵메뉴',wr:'💱 환율·날씨',news:'📰 뉴스',lt:'🔗 바로가기·할일',stats:'📊 현황 카드'};
   const builders={
+    acts:buildActs,
     sales:buildSales,
     equip:buildEquip,
     appr:buildAppr,
@@ -8564,6 +8622,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const renderSection=(id,idx)=>{
     const builder=builders[id];if(!builder)return null;
     if(id==='sales'&&!isBoss)return null;
+    if(id==='acts'&&!isBossView)return null;
     const isHidden=hiddenSecs.includes(id);
     if(isHidden&&!editMode)return null;
     const dragProps=editMode?{
@@ -9571,12 +9630,12 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           );
         };
         return R('div',{className:'card fav-stock-card',style:{padding:0,overflow:'hidden',display:'flex',flexDirection:'column',maxHeight:540}},
-        R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,#FFF8F4,#FFE5DA)',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,gap:8}},
+        R('div',{style:{padding:'11px 14px',background:'#FFFDFB',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,gap:8}},
           R('div',{style:{minWidth:0,flex:1}},
-            R('div',{style:{fontSize:12,fontWeight:700,color:'var(--p)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},'⭐ 완제품 재고 현황',
-              shortFavs.length>0&&R('span',{style:{fontSize:9,background:'#FEE2E2',color:'#B91C1C',padding:'1px 7px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+shortFavs.length)
+            R('div',{style:{fontSize:12.5,fontWeight:800,color:'var(--t)',display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}},'⭐ 완제품 재고 현황',
+              shortFavs.length>0&&R('span',{style:{fontSize:10,background:'#FEF2F2',color:'#B91C1C',border:'1px solid #FECACA',padding:'1px 8px',borderRadius:999,fontWeight:700}},'부족 '+shortFavs.length)
             ),
-            R('div',{style:{fontSize:9,color:'var(--tm)',fontWeight:500,marginTop:1}},'⋮⋮ 드래그 → 폴더 이동 · 우클릭 → 색 변경')
+            R('div',{style:{fontSize:9.5,color:'#B8AEA6',fontWeight:500,marginTop:2}},'드래그로 폴더 이동 · 우클릭으로 색 변경')
           ),
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexShrink:0}},
             isAdmin&&R('button',{onClick:applyPrevMonthSales,disabled:muApplying,title:'올해(1월~오늘) 판매량의 월평균을 즐겨찾기 품목 월사용량에 적용',
@@ -9586,12 +9645,12 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           )
         ),
         /* 폴더 탭 바 */
-        R('div',{style:{padding:'6px 10px',borderBottom:'1px solid var(--bd)',background:'#FFFDFB',display:'flex',gap:4,flexWrap:'wrap',alignItems:'center',flexShrink:0}},
+        R('div',{style:{padding:'8px 12px',borderBottom:'1px solid var(--bd)',background:'#fff',display:'flex',gap:5,flexWrap:'wrap',alignItems:'center',flexShrink:0}},
           /* 전체 */
           R('button',{onClick:()=>setSelectedFavFolder('_all'),
             onDragOver:e=>e.preventDefault(),
-            style:{padding:'3px 9px',border:'1px solid '+(selectedFavFolder==='_all'?'#374151':'var(--bd)'),background:selectedFavFolder==='_all'?'#374151':'#fff',color:selectedFavFolder==='_all'?'#fff':'#374151',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'inherit'}
-          },'📊 전체('+favMats.length+')'),
+            style:{padding:'4px 12px',border:'1px solid '+(selectedFavFolder==='_all'?'#374151':'var(--bd)'),background:selectedFavFolder==='_all'?'#374151':'#fff',color:selectedFavFolder==='_all'?'#fff':'#475569',borderRadius:999,cursor:'pointer',fontSize:10.5,fontWeight:700,fontFamily:'inherit'}
+          },'전체 '+favMats.length),
           /* 각 폴더 탭 */
           ...favFolders.map(f=>{
             const cnt=favFolderCounts[f.id]||0;
@@ -9601,22 +9660,22 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
               onDragOver:e=>onFavFolderDragOver(e,f.id),
               onDragLeave:()=>setDragOverFavFolder(null),
               onDrop:e=>onFavFolderDrop(e,f.id),
-              style:{display:'flex',alignItems:'center',borderRadius:6,overflow:'hidden',border:'1.5px solid '+(isDragOver?'#7C3AED':isSelected?f.color:'var(--bd)'),background:isDragOver?'#F5F3FF':isSelected?f.color+'18':'#fff',transition:'all .1s',transform:isDragOver?'scale(1.05)':'none'}
+              style:{display:'flex',alignItems:'center',borderRadius:999,overflow:'hidden',border:'1px solid '+(isDragOver?'#7C3AED':isSelected?f.color:'var(--bd)'),background:isDragOver?'#F5F3FF':isSelected?f.color+'14':'#fff',transition:'all .1s'}
             },
               R('button',{onClick:()=>setSelectedFavFolder(f.id),
                 onContextMenu:e=>{e.preventDefault();changeFavFolderColor(f.id);},
-                style:{padding:'3px 7px',background:'transparent',border:'none',color:f.color,cursor:'pointer',fontSize:10,fontWeight:isSelected?700:600,fontFamily:'inherit',display:'flex',alignItems:'center',gap:4}
+                style:{padding:'4px 10px',background:'transparent',border:'none',color:isSelected?f.color:'#475569',cursor:'pointer',fontSize:10.5,fontWeight:isSelected?800:600,fontFamily:'inherit',display:'flex',alignItems:'center',gap:5}
               },
                 R('span',{style:{width:7,height:7,borderRadius:'50%',background:f.color,display:'inline-block'}}),
                 f.name,
-                R('span',{style:{fontSize:9,color:'var(--tm)',fontWeight:500}},'('+cnt+')')
+                R('span',{style:{fontSize:9.5,color:'#B8AEA6',fontWeight:600}},cnt)
               ),
               R('button',{onClick:e=>{e.stopPropagation();renameFavFolder(f.id);},title:'이름 변경',style:{background:'transparent',border:'none',padding:'2px 4px',cursor:'pointer',fontSize:9,color:'var(--tm)'}},'✎'),
               f.id!=='_root'&&R('button',{onClick:e=>{e.stopPropagation();deleteFavFolder(f.id);},title:'폴더 삭제',style:{background:'transparent',border:'none',padding:'2px 6px 2px 1px',cursor:'pointer',fontSize:10,color:'#FCA5A5'}},'×')
             );
           }),
           /* 새 폴더 버튼 */
-          R('button',{onClick:addFavFolder,style:{padding:'3px 8px',background:'#fff',border:'1px dashed var(--p)',color:'var(--p)',borderRadius:6,cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit'}},'+ 폴더')
+          R('button',{onClick:addFavFolder,style:{padding:'4px 11px',background:'#fff',border:'1px dashed #CBD5E1',color:'#64748B',borderRadius:999,cursor:'pointer',fontSize:10.5,fontWeight:700,fontFamily:'inherit'}},'+ 폴더')
         ),
         /* 컬럼 헤더 */
         R('div',{className:'fav-cols',style:{padding:'4px 10px',background:'#FAFAFA',borderBottom:'1px solid var(--bd)',display:'flex',gap:6,alignItems:'center',fontSize:9,color:'#94a3b8',fontWeight:700,flexShrink:0,flexWrap:'nowrap'}},
@@ -9642,10 +9701,10 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                   onDrop:e=>onFavFolderDrop(e,f.id),
                   style:{borderBottom:'1px solid var(--bd)',background:isDragOver?'#F5F3FF':'transparent'}
                 },
-                  R('div',{style:{padding:'6px 12px',background:'linear-gradient(0deg,'+f.color+'15,'+f.color+'15),#fff',borderBottom:'1px solid '+f.color+'33',display:'flex',alignItems:'center',gap:6,position:'sticky',top:0,zIndex:2}},
+                  R('div',{style:{padding:'6px 12px',background:'#FAFAF9',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',gap:7,position:'sticky',top:0,zIndex:2}},
                     R('span',{style:{width:8,height:8,borderRadius:'50%',background:f.color,display:'inline-block'}}),
-                    R('span',{style:{fontSize:11,fontWeight:700,color:f.color}},f.name),
-                    R('span',{style:{fontSize:9,color:'var(--tm)'}},'('+items.length+'개)')
+                    R('span',{style:{fontSize:11,fontWeight:800,color:'var(--t)'}},f.name),
+                    R('span',{style:{fontSize:9.5,color:'#B8AEA6',fontWeight:600}},items.length+'개')
                   ),
                   ...items.map(m=>renderFavRow(m,f.color))
                 );
