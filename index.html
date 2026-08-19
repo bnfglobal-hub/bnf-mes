@@ -16905,6 +16905,41 @@ function App(){
   const[myInfoOpen,setMyInfoOpen]=useState(false);
   const[globalSearch,setGlobalSearch]=useState(false); /* Cmd+K 글로벌 검색 모달 */
   const[notifPanel,setNotifPanel]=useState(false); /* 알림 패널 */
+  /* ── 새 알림이 오면 카톡처럼 윈도우 바탕화면 팝업 알림 ── */
+  useEffect(()=>{
+    if(!user||!('Notification'in window))return;
+    /* 최초 1회 권한 요청 */
+    try{if(Notification.permission==='default')Notification.requestPermission();}catch(e){}
+    const seen=(()=>{try{return new Set(JSON.parse(sessionStorage.getItem('bnf_notif_seen')||'[]'));}catch(e){return new Set();}})();
+    let first=true;
+    const check=async()=>{
+      if(document.hidden&&first)return;    /* 첫 로드 때 숨은 탭이면 건너뜀 */
+      try{
+        const{data}=await sbClient.from('app_state').select('v:state_data->notifications').eq('id',1).maybeSingle();
+        const arr=Array.isArray(data&&data.v)?data.v:[];
+        const mine=arr.filter(n=>n&&n.to===user.id&&!n.read);
+        const fresh=mine.filter(n=>n.id&&!seen.has(n.id));
+        mine.forEach(n=>{if(n.id)seen.add(n.id);});
+        try{sessionStorage.setItem('bnf_notif_seen',JSON.stringify([...seen].slice(-300)));}catch(e){}
+        if(!first&&fresh.length&&Notification.permission==='granted'){
+          fresh.slice(0,3).forEach(n=>{
+            try{
+              const nt=new Notification('B&F MES 알림',{body:String(n.text||'').slice(0,120),tag:n.id,
+                icon:'https://bnfglobal-hub.github.io/bnf-mes/icon-192.png'});
+              nt.onclick=()=>{try{window.focus();}catch(e){}nt.close();};
+            }catch(e){}
+          });
+        }
+        first=false;
+      }catch(e){}
+    };
+    check();
+    const t=setInterval(()=>{if(!document.hidden)check();},25000);
+    /* 다른 화면 변화(bnf-sync) 때도 즉시 확인 */
+    const onSync=()=>check();
+    window.addEventListener('bnf-sync',onSync);
+    return()=>{clearInterval(t);window.removeEventListener('bnf-sync',onSync);};
+  },[user&&user.id]);
   /* Cmd+K / Ctrl+K로 글로벌 검색 열기 */
   useEffect(()=>{
     const onKey=e=>{
