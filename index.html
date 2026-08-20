@@ -2302,13 +2302,16 @@ function PageFeatureReq({user}){
 /* ═══ 공용 공유 표 (여러 메뉴가 같은 구조를 씀) ═══════════
    app_state.state_data[storeKey] 에 배열로 저장 → 모든 기기·직원이 함께 봄.
    cols: [{k,l,w,type:'text'|'date'|'num'|'link'|'pw'|'textarea'|'select',opts,ph}] */
-function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
+function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
   const[rows,setRows]=useState(null);
   const[q,setQ]=useState('');
   const[showF,setShowF]=useState(false);
   const[editId,setEditId]=useState(null);
   const[form,setForm]=useState({});
   const[busy,setBusy]=useState(false);
+  /* 사진·파일 첨부 (files:true 설정된 메뉴만) — 행마다 _files 배열로 저장 */
+  const att=useAttach(storeKey,()=>form._files||[],v=>setForm(p=>Object.assign({},p,{_files:v})));
+  const[viewFiles,setViewFiles]=useState(null);   /* 첨부 보기 {title,files} */
   const isAdmin=['superadmin','admin'].includes(user.role);
   const blank=()=>{const o={};cols.forEach(c=>{o[c.k]=c.type==='date'?today2():'';});return o;};
   /* 줄 고유번호는 반드시 _id 사용 — 칸 이름(id, date 등)과 절대 겹치지 않게 */
@@ -2382,10 +2385,12 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
     setBusy(false);
   };
   const openNew=()=>{setForm(blank());setEditId(null);setShowF(true);};
-  const openEdit=r=>{const o={};cols.forEach(c=>{o[c.k]=r[c.k]||'';});setForm(o);setEditId(r._id);setShowF(true);};
+  const openEdit=r=>{const o={};cols.forEach(c=>{o[c.k]=r[c.k]||'';});o._files=(r._files||[]).slice();setForm(o);setEditId(r._id);setShowF(true);};
   const save=async()=>{
     const first=cols[0];
     if(!String(form[first.k]||'').trim())return alert(first.l+'을(를) 입력해주세요.');
+    if(allowFiles&&att.upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
+    if(allowFiles)form._files=(form._files||[]).filter(x=>x&&!x.pending&&x.path);
     const list=(rows||[]).slice();
     if(editId){
       const i=list.findIndex(x=>x._id===editId);
@@ -2440,6 +2445,10 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
     else cmp=va.localeCompare(vb,'ko',{numeric:true});
     return sortDir==='asc'?cmp:-cmp;
   });
+  const filesBadge=(r)=>(allowFiles&&(r._files||[]).length>0)?R('button',{
+    onClick:e=>{e.stopPropagation();setViewFiles({title:String(r[cols[0].k]||''),files:r._files});},
+    title:'첨부 보기',
+    style:{marginLeft:6,border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'1px 6px',fontSize:10,cursor:'pointer',fontFamily:'inherit',color:'var(--p)',fontWeight:700}},'📎'+r._files.length):null;
   const cell=(r,c)=>{
     const v=r[c.k]||'';
     if(!v)return R('span',{style:{color:'#CBD5E1'}},'-');
@@ -2486,7 +2495,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
       list.length===0?R('div',{className:'card',style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. [+ 추가]로 입력해주세요.'):
       list.map(r=>R('div',{key:r._id,className:'card',style:{padding:'12px 14px'}},
         R('div',{style:{display:'flex',alignItems:'flex-start',gap:8,marginBottom:6}},
-          R('div',{style:{fontWeight:700,fontSize:'1.08em',flex:1,minWidth:0,wordBreak:'break-word'}},String(r[cols[0].k]||'-')),
+          R('div',{style:{fontWeight:700,fontSize:'1.08em',flex:1,minWidth:0,wordBreak:'break-word'}},String(r[cols[0].k]||'-'),filesBadge(r)),
           canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4,flexShrink:0}},
             R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'3px 8px',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
             R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'3px 8px',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'🗑'))
@@ -2535,7 +2544,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
           list.map(r=>R('tr',{key:r._id,
             onDoubleClick:()=>{if(canEdit(r))openEdit(r);else alert('작성자 또는 관리자만 수정할 수 있습니다.');},
             title:'더블클릭하면 수정',style:{cursor:'default'}},
-            ...cols.map(c=>R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top'}},cell(r,c))),
+            ...cols.map(c=>R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top'}},cell(r,c),c===cols[0]&&filesBadge(r))),
             R('td',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap'}},r._byName||'-',R('br'),fDate(r._at)),
             R('td',{style:{whiteSpace:'nowrap'}},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
               R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
@@ -2545,6 +2554,9 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
         )
       )
     ),
+    viewFiles&&R(Modal2,{title:'📎 첨부 · '+viewFiles.title,onClose:()=>setViewFiles(null),size:620,
+      footer:R('button',{className:'btn bs',onClick:()=>setViewFiles(null),style:{width:'100%'}},'닫기')},
+      R(AttachView,{files:viewFiles.files})),
     showF&&R(Modal2,{title:(editId?'수정':'추가')+' · '+title,onClose:()=>{setShowF(false);setEditId(null);},size:560,
       footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
         R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
@@ -2558,7 +2570,8 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort}){
                 R('option',{value:''},'선택'),...(c.opts||[]).map(o=>R('option',{key:o,value:o},o)))
             :R('input',{className:'inp',type:c.type==='date'?'date':(c.type==='num'?'number':'text'),
                 value:form[c.k]||'',onChange:e=>setForm(p=>Object.assign({},p,{[c.k]:e.target.value})),placeholder:c.ph||''})
-      ))
+      )),
+      allowFiles&&R('div',{className:'fr'},R('label',{className:'lbl'},'사진·파일 첨부 (여러 장)'),att.Box('사진·파일 선택'))
     )
   );
 }
@@ -4689,11 +4702,11 @@ const SHARED_PAGES={
     {k:'pw',l:'비밀번호',type:'pw',w:150},
     {k:'note',l:'비고',type:'textarea',ph:'용도, 담당자, 만료일 등'}
   ]},
-  rnd_log:{title:'연구개발 일지',ic:'📔',desc:'일자별 연구·시험 내용을 기록합니다',storeKey:'bnf_rnd_log',cols:[
+  rnd_log:{title:'연구개발 일지',ic:'📔',desc:'하루에 여러 건도 각각 등록됩니다 · 사진 첨부 가능',storeKey:'bnf_rnd_log',files:true,cols:[
     {k:'date',l:'일자',type:'date',w:110},
-    {k:'subject',l:'과제/제품',w:160},
+    {k:'subject',l:'과제/제품',w:160,ph:'예) 차돌된장찌개'},
     {k:'writer',l:'담당',w:90},
-    {k:'recipe',l:'배합비',type:'textarea',w:220,ph:'원료명  비율(%)  투입량\n예)\n정제수  60  6.0kg\n간장  15  1.5kg\n설탕  8  0.8kg'},
+    {k:'stage',l:'개발 단계',type:'select',w:110,opts:['샘플 제작','관능 평가','배합 개선','원가 검토','완료']},
     {k:'work',l:'실시 내용',type:'textarea',ph:'조건·시험 방법 등'},
     {k:'result',l:'결과/개선점',type:'textarea'}
   ]},
