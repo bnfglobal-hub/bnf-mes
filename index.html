@@ -621,6 +621,127 @@ body{font-variant-numeric:tabular-nums}
   /* 페이지 제목 아래 설명 줄바꿈 */
   .pg-title{font-size:17px}
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   2026-08-20 UI 리디자인 레이어 — 시각 디자인 전용 (내용·기능 무변경)
+   원칙: Premium Enterprise SaaS · 절제된 그림자 · 얇은 보더 · 통일된 radius
+   되돌리기: git revert 1커밋 (태그 pre-redesign)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 토큰 보강 (기존 브랜드 유지, 파생 톤만 추가) ── */
+:root{
+  --surface:#FFFFFF;
+  --bg-secondary:#F7F5F3;
+  --border:#EAE6E1;
+  --border-strong:#DED8D2;
+  --text-primary:#1C1613;
+  --text-secondary:#6E645C;
+  --text-tertiary:#9A9088;
+  --brand-orange:var(--p);
+  --brand-orange-soft:#FDF0E9;
+  --brand-blue:#1D4ED8;
+  --brand-blue-deep:#1E3A8A;
+  --success:#15803D; --success-soft:#EBF7EF;
+  --warning:#B45309; --warning-soft:#FBF3E7;
+  --danger:#DC2626;  --danger-soft:#FCEEEE;
+  --info:#2563EB;    --info-soft:#EEF3FD;
+  --radius:10px;
+  --radius-lg:12px;
+  --shadow-sm:0 1px 2px rgba(28,22,19,.05);
+  --shadow-float:0 8px 30px rgba(28,22,19,.12),0 2px 8px rgba(28,22,19,.06);
+  --ease:cubic-bezier(.2,.6,.3,1);
+  /* 기존 토큰 재조정 (같은 계열, 더 정돈된 톤) */
+  --bg:#F8F6F4;
+  --bd:#EAE6E1;
+  --t:#1C1613;
+  --tm:#6E645C;
+  --sb:#FBFAF8;
+  --pb:#FDF0E9;
+}
+
+/* ── 전역 타이포 ── */
+html,body,#root{letter-spacing:-0.011em}
+body{font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.pg-title{font-size:16px;font-weight:700;letter-spacing:-0.02em;color:var(--text-primary)}
+.card-title{font-size:12.5px;font-weight:650;color:var(--text-primary);letter-spacing:-0.01em}
+
+/* ── 헤더: 더 얇고 정교하게 ── */
+.hdr{height:48px;background:#FFFFFF;border-bottom:1px solid var(--border);box-shadow:none}
+.hdr-search-btn{background:#FFFFFF !important;border:1px solid var(--border) !important;border-radius:8px !important;transition:border-color .15s var(--ease),color .15s var(--ease)}
+.hdr-search-btn:hover{background:#FFFFFF !important;border-color:var(--border-strong) !important;color:var(--text-primary) !important;box-shadow:none}
+.hdr button,.hdr .hdr-name{transition:all .15s var(--ease)}
+
+/* ── 사이드바: 가볍고 정돈된 리스트 ── */
+.sb{background:var(--sb);border-right:1px solid var(--border)}
+.sb-lbl{font-size:10px;font-weight:650;letter-spacing:.9px;color:var(--text-tertiary);padding:8px 12px 4px}
+.ni{padding:7px 10px;border-radius:7px;font-size:12.5px;color:#3D3630;gap:8px;transition:background .12s var(--ease),color .12s var(--ease);margin-bottom:0}
+.ni:hover{background:#F1EDE9;color:var(--text-primary)}
+.ni.act{background:var(--brand-orange-soft);color:var(--p);font-weight:650;box-shadow:inset 2.5px 0 0 var(--p)}
+.ni .ic{font-size:13px;width:17px}
+.ni .nbdg{font-size:9.5px;padding:1px 6px;font-weight:650}
+
+/* ── 카드: 얇은 보더 + 최소 그림자 + radius 통일 ── */
+.card{border:1px solid var(--border);border-radius:var(--radius-lg) !important;box-shadow:var(--shadow-sm);transition:box-shadow .15s var(--ease),border-color .15s var(--ease)}
+.card:hover{box-shadow:var(--shadow-sm)}
+.pg{padding:18px 20px}
+.pg-hdr{margin-bottom:14px}
+
+/* ── 버튼 체계: Primary/Secondary/Ghost/Danger ── */
+.btn{border-radius:8px;font-weight:600;letter-spacing:-0.01em;transition:background .13s var(--ease),border-color .13s var(--ease),box-shadow .13s var(--ease),transform .08s var(--ease);box-shadow:none}
+.btn:active{transform:translateY(0.5px)}
+.btn:focus-visible{outline:2px solid rgba(217,79,30,.35);outline-offset:1px}
+.btn.bp{background:var(--p);box-shadow:none}
+.btn.bp:hover{background:var(--pd)}
+.btn.bs,.btn.bw{background:#FFFFFF;border:1px solid var(--border);color:var(--text-primary)}
+.btn.bs:hover,.btn.bw:hover{border-color:var(--border-strong);background:#FBFAF9}
+.btn.bd,.btn.bd2{background:#FFFFFF;border:1px solid #F3C8C8;color:var(--danger)}
+.btn.bd:hover,.btn.bd2:hover{background:var(--danger-soft)}
+.btn.bok{background:var(--success)}
+
+/* ── 입력: 1px 보더 + 브랜드 포커스 링 ── */
+.inp{border-width:1px;border-radius:8px;transition:border-color .13s var(--ease),box-shadow .13s var(--ease)}
+.inp:focus,input:focus,select:focus,textarea:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(217,79,30,.12)}
+
+/* ── 표: 밀도 높고 가벼운 그리드 ── */
+.tw{border:1px solid var(--border);border-radius:var(--radius)}
+.tw th{background:#FBFAF9;color:var(--text-tertiary);font-size:11px;font-weight:600;letter-spacing:.01em;padding:8px 10px;border-bottom:1px solid var(--border)}
+.tw td{padding:7px 10px;font-size:12.5px;border-bottom:1px solid #F4F1EE}
+.tw tbody tr:last-child td{border-bottom:none}
+.tw tbody tr{transition:background .1s var(--ease)}
+.tw tbody tr:hover{background:#FAF8F6}
+
+/* ── 탭: 세그먼트 정돈 ── */
+.tab-row{background:#F1EEEA;border-radius:9px;padding:3px;gap:2px}
+.tab{border-radius:7px;font-weight:600;color:var(--text-secondary);transition:background .13s var(--ease),color .13s var(--ease)}
+.tab:hover{color:var(--text-primary)}
+.tab.act{background:#FFFFFF;color:var(--p);box-shadow:0 1px 2px rgba(28,22,19,.07)}
+
+/* ── 배지: Soft bg + Strong text ── */
+.b-ok{background:var(--success-soft);color:var(--success)}
+.b-e{background:var(--danger-soft);color:var(--danger)}
+.b-i{background:var(--info-soft);color:var(--info)}
+.b-g{background:#F1EEEA;color:var(--text-secondary)}
+
+/* ── 모달: 명확하지만 절제된 플로팅 ── */
+.mbg{background:rgba(28,22,19,.38);animation:fadeIn .13s ease}
+.mbox{border-radius:14px;border:1px solid var(--border);box-shadow:var(--shadow-float)}
+.mhdr{border-bottom:1px solid var(--border)}
+.mfoot{border-top:1px solid var(--border)}
+
+/* ── 빈 화면·로딩 ── */
+.empty{color:var(--text-tertiary)}
+.empty-ic{opacity:.5}
+
+/* ── 스크롤바: 얇게 ── */
+.pg::-webkit-scrollbar,.tw::-webkit-scrollbar,.mbody::-webkit-scrollbar,.sb::-webkit-scrollbar{width:8px;height:8px}
+.pg::-webkit-scrollbar-thumb,.tw::-webkit-scrollbar-thumb,.mbody::-webkit-scrollbar-thumb,.sb::-webkit-scrollbar-thumb{background:#D9D2CB;border-radius:8px;border:2px solid transparent;background-clip:content-box}
+.pg::-webkit-scrollbar-track,.tw::-webkit-scrollbar-track{background:transparent}
+
+/* ── 데스크톱에서만: 과한 라운드·그림자 억제 ── */
+@media(min-width:769px){
+  .card{border-radius:var(--radius-lg) !important}
+}
+
 </style>
 <script>
 window._deferredPrompt=null;
@@ -8852,7 +8973,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       R('div',{style:{fontSize:14,fontWeight:800,marginTop:2,color:color||'#fff',whiteSpace:'nowrap'}},val)
     );
     return R('div',{onClick:()=>!editMode&&onGoPage('salesStat'),
-      style:{background:'linear-gradient(135deg,#1E3A8A,#2563EB)',borderRadius:18,padding:'14px 16px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 8px 22px rgba(37,99,235,.25)'}},
+      style:{background:'linear-gradient(170deg,#1E3A8A 0%,#1D4ED8 100%)',borderRadius:12,padding:'14px 16px',color:'#fff',cursor:editMode?'inherit':'pointer',boxShadow:'0 1px 2px rgba(28,22,19,.06)',border:'1px solid #1E40AF'}},
       /* 제목 + 목표 */
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:10}},
         R('div',{style:{fontSize:12,fontWeight:800,letterSpacing:-.2}},'💵 매출 현황',
