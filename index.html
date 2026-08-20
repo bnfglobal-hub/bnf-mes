@@ -16649,7 +16649,7 @@ function PageShipSort({mats,hqItems}){
         else{const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(t);done();}
       };
       const cell={fontSize:12,padding:'7px 8px',borderBottom:'1px solid #F4F1F7',whiteSpace:'nowrap'};
-      const cols='92px 46px 54px minmax(150px,1fr) 62px 62px';
+      const cols='92px 40px 128px minmax(140px,1fr) 48px 56px';
       return R('div',{className:'card',style:{marginBottom:14,padding:'12px 14px'}},
         R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}},
           R('div',null,
@@ -16690,7 +16690,7 @@ function PageShipSort({mats,hqItems}){
           ...rows.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:cols,alignItems:'center',background:r.ok?'#fff':'#FFFBEB'}},
             R('div',{style:cell},r.date),
             R('div',{style:{...cell,fontWeight:800,color:'var(--p)'}},'12A'),
-            R('div',{style:{...cell,fontWeight:800,display:'flex',alignItems:'center',gap:3}},
+            R('div',{style:{...cell,fontWeight:800,display:'flex',alignItems:'center',gap:3,overflow:'hidden'}},
               R('input',{type:'number',min:0,value:r.pal,
                 onChange:ev=>{const v=ev.target.value;saveAjPalOv(Object.assign({},ajPalOv,{[r.ovKey]:v}));},
                 title:r.edited?('자동계산 '+r.auto+'파렛트에서 수정됨 — 지우면 자동값으로 복귀'):'파렛트 수 (수정 가능)',
