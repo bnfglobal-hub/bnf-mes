@@ -10798,9 +10798,75 @@ function ImgModal({data,onClose,genImg}){
   ));
 }
 
+/* ────── 작업지시서 이미지 모달 (원료 발주 → 이미지 올려 복사·인쇄) ────── */
+function WorkOrderImgModal({data,onClose}){
+  const[img,setImg]=useState('');      /* dataURL */
+  const[busy,setBusy]=useState(false);
+  const fileRef=useRef(null);
+  const load=(file)=>{
+    if(!file){return;}
+    if(!(file.type||'').startsWith('image/')){alert('이미지 파일만 올릴 수 있습니다.');return;}
+    setBusy(true);
+    const rd=new FileReader();
+    rd.onload=(ev)=>{setImg(ev.target.result);setBusy(false);};
+    rd.onerror=()=>{setBusy(false);alert('이미지를 읽지 못했습니다.');};
+    rd.readAsDataURL(file);
+  };
+  const onPaste=(e)=>{
+    const items=(e.clipboardData&&e.clipboardData.items)||[];
+    for(const it of items){if(it.type&&it.type.indexOf('image')>=0){const f=it.getAsFile();if(f){e.preventDefault();load(f);return;}}}
+  };
+  const copyImg=async()=>{
+    if(!img)return;
+    try{
+      const blob=await (await fetch(img)).blob();
+      if(navigator.clipboard&&window.ClipboardItem){
+        await navigator.clipboard.write([new ClipboardItem({[blob.type]:blob})]);
+        bnfToast('작업지시서 이미지 복사됨 ✓');
+      }else{throw new Error('unsupported');}
+    }catch(err){alert('이미지 복사가 지원되지 않는 브라우저입니다. [저장] 후 붙여넣어 사용해주세요.');}
+  };
+  const printImg=()=>{
+    if(!img)return;
+    const w=window.open('','_blank');
+    if(!w){alert('팝업이 차단되어 인쇄창을 열 수 없습니다. 팝업 허용 후 다시 시도해주세요.');return;}
+    const title=(data.prod&&data.prod.name||'작업지시서')+' '+(data.qty||'')+'개';
+    w.document.write('<html><head><title>'+title+'</title><style>@page{margin:8mm}body{margin:0;text-align:center}img{max-width:100%;height:auto}</style></head><body><img src="'+img+'" onload="setTimeout(function(){window.print();},200)"></body></html>');
+    w.document.close();
+  };
+  return R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
+    R('div',{className:'mbox',style:{maxWidth:640,margin:'auto',borderRadius:16,maxHeight:'94vh',display:'flex',flexDirection:'column'},onPaste:onPaste},
+      R('div',{className:'mhdr'},
+        R('div',null,
+          R('div',{style:{fontSize:15,fontWeight:800}},'📄 작업지시서'),
+          R('div',{style:{fontSize:12,color:'#64748b'}},(data.prod&&data.prod.name||'')+' · '+(data.qty||'')+'개')),
+        R('button',{onClick:onClose,style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#64748b'}},'×')),
+      R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
+        !img
+          ?R('div',{onDragOver:e=>e.preventDefault(),onDrop:e=>{e.preventDefault();load(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]);},
+              onClick:()=>fileRef.current&&fileRef.current.click(),
+              style:{border:'2px dashed var(--bd)',borderRadius:12,padding:'44px 20px',textAlign:'center',cursor:'pointer',background:'#FCFCFD'}},
+              R('div',{style:{fontSize:40,marginBottom:10}},'🖼'),
+              R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},busy?'불러오는 중...':'작업지시서 이미지 올리기'),
+              R('div',{style:{fontSize:12,color:'var(--tm)'}},'여기를 눌러 사진 선택 · 끌어다 놓기 · Ctrl+V 붙여넣기'))
+          :R('div',{style:{textAlign:'center'}},
+              R('img',{src:img,alt:'작업지시서',style:{maxWidth:'100%',borderRadius:8,border:'1px solid var(--bd)'}}),
+              R('button',{className:'btn bs btn-sm',onClick:()=>setImg(''),style:{marginTop:10}},'다른 이미지로 바꾸기')),
+        R('input',{ref:fileRef,type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{load(e.target.files&&e.target.files[0]);e.target.value='';}})
+      ),
+      R('div',{className:'mfoot'},
+        R('button',{className:'btn bp',style:{flex:1,padding:11},disabled:!img,onClick:copyImg},'📋 복사'),
+        R('button',{className:'btn',style:{flex:1,padding:11,background:'#0F766E',color:'#fff',fontWeight:700},disabled:!img,onClick:printImg},'🖨 인쇄'),
+        img&&R('a',{href:img,download:((data.prod&&data.prod.name)||'작업지시서')+'.png',className:'btn bs',style:{padding:'11px 14px',textDecoration:'none',display:'inline-flex',alignItems:'center'}},'💾 저장'),
+        R('button',{className:'btn bs',style:{padding:'11px 14px'},onClick:onClose},'닫기'))
+    )
+  ));
+}
+
 /* ────── PAGE: 생산계획 ────── */
 function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOpenBOM}){
   const[confirmData,setConfirmData]=useState(null);
+  const[woModal,setWoModal]=useState(null);   /* 작업지시서 이미지 모달 {prod,qty} */
   /* ── 매입내역(이카운트 구매현황) 에서 품목별 거래처·단가 끌어오기 ──
      매입단가 조회와 같은 데이터(app_state.purchase_prices)를 그대로 사용한다. */
   const[buyHist,setBuyHist]=useState(null);
@@ -11134,6 +11200,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('input',{type:'number',min:'0',value:pqty[p.id]??'',onChange:e=>setPqty(pv=>({...pv,[p.id]:e.target.value})),placeholder:'수량',style:{width:78,padding:'7px 9px',border:'1.5px solid '+(qty>0?'#D94F1E':'#e2e8f0'),borderRadius:8,fontSize:13,textAlign:'center'}}),
             R('span',{style:{fontSize:11,color:'#64748b'}},'개'),
             R('button',{className:'btn',style:{background:'#475569',color:'#fff',padding:'7px 10px',fontSize:11},disabled:!qty,onClick:()=>qty&&setConfirmData({prod:p,qty,rows})},'📝 지시'),
+            R('button',{className:'btn',style:{background:'#0F766E',color:'#fff',padding:'7px 10px',fontSize:11},onClick:()=>setWoModal({prod:p,qty}),title:'작업지시서 이미지 올려 복사·인쇄'},'📄 작업지시서'),
             R('button',{className:'btn bp',style:{fontSize:11,padding:'7px 10px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,rows})},'📋 이미지'),
             qty>0&&R('button',{onClick:()=>setPqty(pv=>({...pv,[p.id]:''})),title:'초기화',style:{padding:'6px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕'),
             R('select',{value:getProdFolder(p.id),onChange:e=>moveProdToFolder(p.id,e.target.value),title:'폴더 이동',style:{padding:'6px 6px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:10,background:'#fff',cursor:'pointer',maxWidth:90}},
@@ -11192,7 +11259,8 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     })
       );
     }),
-    isAdmin&&R('button',{className:'btn bp',style:{width:'100%',padding:12,marginTop:4,fontSize:14},onClick:onOpenBOM},'+ 제품 + BOM 등록')
+    isAdmin&&R('button',{className:'btn bp',style:{width:'100%',padding:12,marginTop:4,fontSize:14},onClick:onOpenBOM},'+ 제품 + BOM 등록'),
+    woModal&&R(WorkOrderImgModal,{data:woModal,onClose:()=>setWoModal(null)})
   );
 }
 
