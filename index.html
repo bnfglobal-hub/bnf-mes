@@ -16581,7 +16581,9 @@ function PageShipSort({mats,hqItems}){
         const{date,center}=parseCkey(k);
         const box=+d.totalBox||0;
         if(box<=0)return;
-        rows.push({date,center,pal:palletOf(box)});
+        /* 파렛트 이동전표에서 수동 수정한 값이 있으면 그 값으로 (2026-08-20) */
+        const ov=ajPalOv[date+'|'+center];
+        rows.push({date,center,pal:(ov!=null&&ov!=='')?(+ov||0):palletOf(box)});
       });
       if(!rows.length)return null;
       /* 센터 표기: 카톡용 짧은 이름 */
