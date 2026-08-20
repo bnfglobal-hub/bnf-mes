@@ -16149,7 +16149,8 @@ function PageShipSort({mats,hqItems}){
       setCfmBusy('');
       if(j.error){alert('생성을 중단했습니다.\n\n'+j.error);return;}
       setCfmDone(j);setCfm(null);
-      alert('거래명세서 생성을 완료했습니다.\n컬리 포털에서 최종 확인해주세요.');
+      if(j.ok===false)alert('생성 버튼은 눌렀지만 완료 문구를 확인하지 못했습니다.\n컬리 포털에서 꼭 직접 확인해주세요.');
+      else alert('✅ 거래명세서 생성 완료!\n컬리 포털의 [거래명세서 내역]에서 확인할 수 있습니다.');
     }catch(e){setCfmBusy('');alert('생성 결과를 확인하지 못했습니다. 컬리 포털에서 직접 확인해주세요.');}
   };
   const cfmCancel=()=>{
@@ -16334,7 +16335,10 @@ function PageShipSort({mats,hqItems}){
               ...(((kurly&&kurly.dates)||[]).slice().sort().map(d=>R('option',{key:d,value:d},d+dowLabel(d))))),
             R('button',{className:'btn bw btn-sm',onClick:refreshKurly,disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기'),
             R('a',{href:'https://partner-portal.kurly.com/purchase-order/purchase-order-plan-schedule/detail?scheduledReceivingDate='+(kurlyDate||today2())+'&neoPurchaseOrderPlanGoodsStatuses=CREATED',
-              target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →')
+              target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →'),
+            R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
+              onClick:()=>{setKurlyOpen(false);cfmPrepare();},
+              title:'입고예약시간·출고유형·소비기한을 자동 입력하고, 검증 통과 후 승인하면 거래명세서까지 생성'},cfmBusy||'✅ 컬리 발주 확정')
           ),
           kurlyRows.length===0
             ? R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},'이 날짜에 발주가 없습니다.')
