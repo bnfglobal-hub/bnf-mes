@@ -15833,6 +15833,37 @@ function PageShipSort({mats,hqItems}){
   };
 
   /* PDF 페이지를 고해상도 이미지(jpeg base64)로 렌더 - 이미지 PDF의 AI 인식용 */
+  /* PDF 안에 통째로 들어있는 JPEG(스캔·컬리 명세서 등)를 바이트에서 직접 뽑는다.
+     pdf.js 렌더가 일부 PDF에서 멈추는 문제(2026-08-20)의 근본 우회 — 렌더 없이 원본 화질 그대로. */
+  const extractPdfJpegs=async(buf)=>{
+    const d=new Uint8Array(buf);
+    const spans=[];
+    let i=0;
+    while(i<d.length-3){
+      if(d[i]===0xFF&&d[i+1]===0xD8&&d[i+2]===0xFF){
+        let j=i+2;
+        while(j<d.length-1&&!(d[j]===0xFF&&d[j+1]===0xD9))j++;
+        if(j<d.length-1){spans.push([i,j+2]);i=j+2;continue;}
+      }
+      i++;
+    }
+    const out=[];
+    for(const[st,en]of spans){
+      if(en-st<40*1024)continue;               /* 아이콘·썸네일 제외 */
+      const blob=new Blob([d.slice(st,en)],{type:'image/jpeg'});
+      const url=URL.createObjectURL(blob);
+      try{
+        const im=await new Promise((res,rej)=>{const x=new Image();x.onload=()=>res(x);x.onerror=rej;x.src=url;});
+        /* 명세서 본문 페이지만 (안내문·로고 등 작은 이미지는 건너뜀) */
+        if(Math.min(im.naturalWidth,im.naturalHeight)>=1500){
+          const durl=await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(blob);});
+          out.push(String(durl).split(',')[1]);
+        }
+      }catch(e){}
+      URL.revokeObjectURL(url);
+    }
+    return out;
+  };
   const renderPdfPageToB64=async(pdf,pageNo)=>{
     const page=await pdf.getPage(pageNo);
     const vp0=page.getViewport({scale:1});
@@ -15841,7 +15872,10 @@ function PageShipSort({mats,hqItems}){
     const scale=Math.min(5,Math.max(2.5,3000/Math.max(vp0.width,vp0.height)));
     const vp=page.getViewport({scale});
     const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
-    await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+    await Promise.race([
+      page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise,
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('PDF 렌더 시간 초과(25초) — 파일을 이미지로 캡처해 올려주세요')),25000))
+    ]);
     return c.toDataURL('image/jpeg',0.97).split(',')[1];
   };
 
@@ -15865,14 +15899,17 @@ function PageShipSort({mats,hqItems}){
     setLoading(true);setProgress('PDF 분석 중...');
     const allOrders=[];      /* 텍스트 파서로 확정된 정확한 주문 (바로 반영) */
     const aiRows=[];         /* 이미지 AI 인식 행 (검토표에서 확인 후 반영) */
+    const zeroFiles=[];      /* 한 행도 못 읽은 파일 (경고용) */
     let foundDate='';
     let dbg='';
     let aiUsed=false;
     for(let fi=0;fi<files.length;fi++){
       const fname=files[fi].name||('파일'+(fi+1));
+      const rowsBefore=aiRows.length+allOrders.length;
       setProgress('PDF 분석 중... ('+(fi+1)+'/'+files.length+')');
       try{
         const buf=await files[fi].arrayBuffer();
+        const rawCopy=buf.slice(0);   /* pdf.js가 buf를 워커로 가져가며 비우므로(detach) 추출용 복사본을 먼저 떠둔다 */
         const pdf=await lib.getDocument({data:buf}).promise;
         let fullText='';
         for(let p=1;p<=pdf.numPages;p++){
@@ -15887,13 +15924,21 @@ function PageShipSort({mats,hqItems}){
           if(order.date&&!foundDate)foundDate=order.date;
           allOrders.push(order);
         }else{
-          /* 글자 없음(이미지/스캔 PDF) → 페이지를 고해상도 이미지로 렌더 → AI 인식 (박스수만 신뢰) */
+          /* 글자 없음(이미지/스캔 PDF) → ① PDF 속 JPEG 직접 추출(빠르고 원본화질) ② 실패 시 렌더 */
           aiUsed=true;
-          for(let p=1;p<=pdf.numPages;p++){
-            setProgress('그림 PDF AI 인식 중... ('+(fi+1)+'/'+files.length+' · '+p+'p)');
+          let pageB64s=[];
+          try{pageB64s=await extractPdfJpegs(rawCopy);}catch(ee){pageB64s=[];}
+          const useExtract=pageB64s.length>0;
+          const pageCount=useExtract?pageB64s.length:pdf.numPages;
+          for(let p=1;p<=pageCount;p++){
+            setProgress('그림 PDF AI 인식 중... ('+(fi+1)+'/'+files.length+' · '+p+'/'+pageCount+'p)');
             try{
-              const b64=await renderPdfPageToB64(pdf,p);
-              const r=await recognizeShipImage(b64,'image/jpeg');
+              const b64=useExtract?pageB64s[p-1]:await renderPdfPageToB64(pdf,p);
+              let r=await recognizeShipImage(b64,'image/jpeg');
+              if((!r.orders||!r.orders.length)&&useExtract){
+                await new Promise(rs=>setTimeout(rs,2500));   /* 일시적 빈 응답 대비 재시도 */
+                try{r=await recognizeShipImage(b64,'image/jpeg');}catch(re){}
+              }
               if(r.orders&&r.orders.length){
                 if(r.gdate&&!foundDate)foundDate=r.gdate;
                 r.orders.forEach(o=>o.items.forEach(it=>{
@@ -15905,7 +15950,8 @@ function PageShipSort({mats,hqItems}){
             }catch(pe){dbg+='\n\n===== '+fname+' '+p+'p AI 오류: '+String(pe.message||pe);}
           }
         }
-      }catch(e){console.error('PDF 파싱 실패:',fname,e);dbg+='\n\n===== '+fname+' 처리 오류: '+String(e.message||e);}
+        if(aiRows.length+allOrders.length===rowsBefore){zeroFiles.push(fname);dbg+='\n\n===== '+fname+': 0행 (읽은 내용 없음)';}
+      }catch(e){console.error('PDF 파싱 실패:',fname,e);dbg+='\n\n===== '+fname+' 처리 오류: '+String(e.message||e);if(zeroFiles.indexOf(fname)<0)zeroFiles.push(fname);}
     }
     setRawDbg(dbg);
     setLoading(false);setProgress('');
@@ -15915,6 +15961,7 @@ function PageShipSort({mats,hqItems}){
 
     /* 2) AI 인식분(그림 PDF)은 검토표로 → 사람이 박스수·입수·총수량 확인/수정 후 반영 */
     if(aiRows.length>0){
+      if(zeroFiles.length)alert('⚠ 아래 파일에서는 한 행도 읽지 못했습니다. 해당 파일만 다시 올려주세요.\n\n· '+zeroFiles.join('\n· '));
       setReview({date:foundDate,rows:aiRows});
     }else if(aiUsed&&allOrders.length===0){
       alert('그림 PDF에서 표를 읽지 못했습니다. 더 선명한 파일로 다시 시도하거나, 🐞 인식 원문을 확인해 주세요.');
@@ -16454,7 +16501,9 @@ function PageShipSort({mats,hqItems}){
               const inp=(key,w)=>R('input',{value:r[key]||'',onChange:e=>updReviewRow(i,key,e.target.value),
                 style:{width:w,textAlign:'right',border:'1px solid '+(key==='pack'&&r.pack===0?'#F59E0B':'var(--bd)'),background:key==='pack'&&r.pack===0?'#FFFBEB':'#fff',borderRadius:6,padding:'4px 6px',fontSize:12,fontFamily:'inherit'}});
               return R('tr',{key:i,style:{borderTop:'1px solid #F1F5F9',background:need?'#FEF9F3':'#fff'}},
-                R('td',{style:{fontSize:11}},normCenter2(r.center)),
+                R('td',null,R('select',{value:normCenter2(r.center),onChange:e=>updReviewRow(i,'center',e.target.value),
+                  style:{border:'1px solid var(--bd)',borderRadius:6,padding:'3px 4px',fontSize:11,fontFamily:'inherit',background:'#fff',maxWidth:110}},
+                  ...['김포(켄달)','김포(삼우)','평택컬리','창원물류대행','기타'].concat(['김포(켄달)','김포(삼우)','평택컬리','창원물류대행','기타'].indexOf(normCenter2(r.center))<0?[normCenter2(r.center)]:[]).map(c=>R('option',{key:c,value:c},c)))),
                 R('td',{style:{fontSize:11.5,fontWeight:600}},r.name),
                 R('td',{style:{textAlign:'right'}},inp('box',48)),
                 R('td',{style:{textAlign:'right'}},inp('pack',48)),
