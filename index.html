@@ -1620,7 +1620,7 @@ function WorkReqModal({item,emps,user,onClose,onSave,onDelete,onStatus,onComment
     for(let i=0;i<files.length;i++){
       const file=files[i],t=temps[i];
       try{
-        if(file.size>50*1024*1024){setF(p=>({...p,files:(p.files||[]).filter(x=>x.tmp!==t.tmp)}));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        if(file.size>100*1024*1024){setF(p=>({...p,files:(p.files||[]).filter(x=>x.tmp!==t.tmp)}));alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
         const safe=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         const path='workreq/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
@@ -1693,7 +1693,7 @@ function WorkReqModal({item,emps,user,onClose,onSave,onDelete,onStatus,onComment
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(f.files||[]).length?9:0}},
             R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
             R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{addFiles(e.target.files);e.target.value='';}}),
-            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 50MB')
+            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 100MB')
           ),
           (f.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
             ...(f.files||[]).map((x,i)=>R('div',{key:x.tmp||x.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',overflow:'hidden',opacity:x.pending?.55:1}},
@@ -3142,7 +3142,7 @@ function useAttach(folder,get,set){
     for(let i=0;i<files.length;i++){
       const file=files[i],t=temps[i];
       try{
-        if(file.size>50*1024*1024){apply(cur=>cur.filter(x=>x.tmp!==t.tmp));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        if(file.size>100*1024*1024){apply(cur=>cur.filter(x=>x.tmp!==t.tmp));alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
         const safe=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         const path=folder+'/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
@@ -3181,7 +3181,7 @@ function useAttach(folder,get,set){
       R('input',{ref:ref,type:'file',multiple:true,style:{display:'none'},onChange:e=>{add(e.target.files);e.target.value='';}}),
       R('button',{type:'button',className:'btn bs',onClick:()=>dirRef.current&&dirRef.current.click(),disabled:upBusy},'📁 폴더'),
       R('input',{ref:dirRef,type:'file',multiple:true,webkitdirectory:'',style:{display:'none'},onChange:e=>{add(e.target.files);e.target.value='';}}),
-      R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'파일·폴더를 끌어다 놓거나 Ctrl+V · 최대 50MB')),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'파일·폴더를 끌어다 놓거나 Ctrl+V · 최대 100MB')),
     (get()||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
       ...(get()||[]).map((x,i)=>R('div',{key:x.tmp||x.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',overflow:'hidden',opacity:x.pending?.55:1}},
         isImg(x)?R('img',{src:x.url,alt:x.name,style:{width:100,height:100,objectFit:'cover',display:'block'}})
@@ -3985,7 +3985,7 @@ function PageManual({user}){
     for(let i=0;i<files.length;i++){
       const file=files[i],t=temps[i];
       try{
-        if(file.size>50*1024*1024){setForm(p=>Object.assign({},p,{files:(p.files||[]).filter(x=>x.tmp!==t.tmp)}));alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        if(file.size>100*1024*1024){setForm(p=>Object.assign({},p,{files:(p.files||[]).filter(x=>x.tmp!==t.tmp)}));alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
         const safe=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         const path='manual/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
@@ -4151,7 +4151,7 @@ function PageManual({user}){
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?9:0}},
             R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
             R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{addFiles(e.target.files);e.target.value='';}}),
-            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 50MB')),
+            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'끌어다 놓거나 Ctrl+V로 붙여넣기 · 최대 100MB')),
           (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
             ...(form.files||[]).map((x,i)=>R('div',{key:x.tmp||x.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',overflow:'hidden',opacity:x.pending?.55:1}},
               isImgM(x)?R('img',{src:x.url,alt:x.name,style:{width:100,height:100,objectFit:'cover',display:'block'}})
@@ -4467,7 +4467,7 @@ function PageWorkOrder({user}){
     try{
       const added=[];
       for(const f of files){
-        if(f.size>50*1024*1024){alert('"'+f.name+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        if(f.size>100*1024*1024){alert('"'+f.name+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
         const safe=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
         const path='workorder/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,f);
@@ -4592,7 +4592,7 @@ function PageWorkOrder({user}){
         R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:busy},busy?'업로드 중...':'📎 엑셀 파일 선택'),
         R('input',{ref:fileRef,type:'file',multiple:true,accept:'.xlsx,.xlsm,.xls,.csv',style:{display:'none'},
           onChange:e=>{upload(e.target.files);e.target.value='';}}),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:8}},'또는 파일을 이 영역에 끌어다 놓으세요 · xlsx / xls / csv · 최대 50MB')
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:8}},'또는 파일을 이 영역에 끌어다 놓으세요 · xlsx / xls / csv · 최대 100MB')
       )
     ),
     /* 폴더별 보기 */
@@ -4871,7 +4871,7 @@ function PageApproval({user}){
     for(let i=0;i<files.length;i++){
       const file=files[i],t=temps[i];
       try{
-        if(file.size>50*1024*1024){drop(t.tmp);alert('"'+(file.name||'파일')+'" 은(는) 50MB를 넘어 건너뜁니다.');continue;}
+        if(file.size>100*1024*1024){drop(t.tmp);alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
         const base=(file.name||'clip.png').replace(/[^a-zA-Z0-9._-]/g,'_');
         const path='approval/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+base;
         const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
@@ -5122,7 +5122,7 @@ function PageApproval({user}){
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:(form.files||[]).length?10:0}},
             R('button',{type:'button',className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:upBusy},'📎 파일 선택'),
             R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{attachFiles(e.target.files);e.target.value='';}}),
-            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 50MB)')
+            R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'업로드 중...':'여기를 클릭한 뒤 Ctrl+V로 붙여넣거나, 파일을 끌어다 놓아도 됩니다 (최대 100MB)')
           ),
           (form.files||[]).length>0&&R('div',{style:{display:'flex',flexWrap:'wrap',gap:8}},
             ...(form.files||[]).map((f,i)=>R('div',{key:f.tmp||f.path||i,style:{position:'relative',border:'1px solid var(--bd)',borderRadius:8,background:'#fff',padding:isImg(f)?0:'7px 26px 7px 10px',overflow:'hidden',opacity:f.pending?.55:1}},
@@ -12171,7 +12171,7 @@ function PageFiles({user}){
 
   const upload=async(file)=>{
     if(!file)return;
-    if(file.size>50*1024*1024){alert('파일 크기는 50MB 이하만 가능합니다');return;}
+    if(file.size>100*1024*1024){alert('파일 크기는 50MB 이하만 가능합니다');return;}
     setUploading(true);
     try{
       const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
