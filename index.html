@@ -15147,6 +15147,19 @@ function PageShipSort({mats,hqItems}){
   const[imgErr,setImgErr]=useState('');
   const[review,setReview]=useState(null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
+  const[ajPalOv,setAjPalOv]=useState({}); /* 파렛트 수 수동 수정값 {날짜|센터: 수} — 서버 공유 */
+  useEffect(()=>{
+    sbClient.from('app_state').select('v:state_data->aj_pal_override').eq('id',1).maybeSingle()
+      .then(({data})=>{if(data&&data.v&&typeof data.v==='object')setAjPalOv(data.v);}).catch(()=>{});
+  },[]);
+  const saveAjPalOv=async(next)=>{
+    setAjPalOv(next);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=(data&&data.state_data)||null; if(!ex)return;
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{aj_pal_override:next}),updated_at:new Date().toISOString()});
+    }catch(e){}
+  };
   const[dayMsg,setDayMsg]=useState(''); /* 일자별 복사 알림 "날짜|메시지" */
   const dayRefs=useRef({});             /* 날짜별 섹션 DOM (이미지 캡처용) */
   const[ajBridge,setAjBridge]=useState(null);   /* null=확인중 true=연결됨 false=꺼짐 */
@@ -16619,7 +16632,10 @@ function PageShipSort({mats,hqItems}){
         const box=+d.totalBox||0;
         if(box<=0)return;
         const info=AJ_WARE[center];
-        rows.push({date,center,box,pal:palletOf(box),ware:info?info.ware:'',ok:!!info});
+        const ovKey=date+'|'+center;
+        const auto=palletOf(box);
+        const ov=ajPalOv[ovKey];
+        rows.push({date,center,box,pal:(ov!=null&&ov!=='')?(+ov||0):auto,auto,ovKey,edited:(ov!=null&&ov!==''&&+ov!==auto),ware:info?info.ware:'',ok:!!info});
       });
       if(!rows.length)return null;
       rows.sort((a,b)=>(a.date+a.center).localeCompare(b.date+b.center,'ko'));
@@ -16674,7 +16690,14 @@ function PageShipSort({mats,hqItems}){
           ...rows.map((r,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:cols,alignItems:'center',background:r.ok?'#fff':'#FFFBEB'}},
             R('div',{style:cell},r.date),
             R('div',{style:{...cell,fontWeight:800,color:'var(--p)'}},'12A'),
-            R('div',{style:{...cell,fontWeight:800}},r.pal,R('span',{style:{fontSize:9.5,color:'var(--tm)',fontWeight:500}},' ('+r.box+'박스)')),
+            R('div',{style:{...cell,fontWeight:800,display:'flex',alignItems:'center',gap:3}},
+              R('input',{type:'number',min:0,value:r.pal,
+                onChange:ev=>{const v=ev.target.value;saveAjPalOv(Object.assign({},ajPalOv,{[r.ovKey]:v}));},
+                title:r.edited?('자동계산 '+r.auto+'파렛트에서 수정됨 — 지우면 자동값으로 복귀'):'파렛트 수 (수정 가능)',
+                style:{width:44,textAlign:'center',fontWeight:800,border:'1px solid '+(r.edited?'#F59E0B':'var(--bd)'),background:r.edited?'#FFFBEB':'#fff',borderRadius:6,padding:'3px 2px',fontSize:12,fontFamily:'inherit'}}),
+              r.edited&&R('button',{onClick:()=>{const nx=Object.assign({},ajPalOv);delete nx[r.ovKey];saveAjPalOv(nx);},title:'자동계산('+r.auto+')으로 되돌리기',
+                style:{background:'none',border:'none',cursor:'pointer',color:'#F59E0B',fontSize:11,padding:0}},'↺'),
+              R('span',{style:{fontSize:9.5,color:'var(--tm)',fontWeight:500}},'('+r.box+'박스)')),
             R('div',{style:cell},r.ok?r.ware:R('span',{style:{color:'#B45309',fontWeight:700}},'⚠ '+r.center+' 매핑없음')),
             R('div',{style:cell},'0000'),
             R('div',{style:{...cell,padding:'4px 8px'}},r.ok&&R('button',{className:'btn bw btn-sm',style:{padding:'3px 8px',fontSize:10},onClick:()=>copy(line(r),'✓ '+r.center+' 복사됨')},'복사'))
