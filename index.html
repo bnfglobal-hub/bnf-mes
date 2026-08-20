@@ -12168,10 +12168,17 @@ function PageFiles({user}){
       setFiles(p=>p.map(x=>x.id===f.id?{...x,folder:to}:x));
     }catch(e){alert('분류 변경 실패: '+(e.message||e));}
   };
+  const saveNote=async(f,note)=>{
+    if((f.note||'')===(note||''))return;
+    try{
+      await sbClient.from('shared_files').update({note:note}).eq('id',f.id);
+      setFiles(p=>p.map(x=>x.id===f.id?{...x,note:note}:x));
+    }catch(e){alert('비고 저장 실패: '+(e.message||e));}
+  };
 
   const upload=async(file)=>{
     if(!file)return;
-    if(file.size>100*1024*1024){alert('파일 크기는 50MB 이하만 가능합니다');return;}
+    if(file.size>100*1024*1024){alert('파일 크기는 100MB 이하만 가능합니다');return;}
     setUploading(true);
     try{
       const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
@@ -12276,7 +12283,7 @@ function PageFiles({user}){
       loading?R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'로딩 중...'):
       visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},(cat?'"'+cat+'" 분류에 ':'')+'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
       R('table',null,
-        R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:140}},'분류'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:56,textAlign:'center'}},'링크'),R('th',{style:{width:50}}))),
+        R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:140}},'분류'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:150}},'비고'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:56,textAlign:'center'}},'링크'),R('th',{style:{width:50}}))),
         R('tbody',null,...visibleFiles.map(f=>R('tr',{key:f.id},
           R('td',{style:{fontSize:18}},fIcon(f)),
           R('td',null,R('div',{style:{fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:280}},f.name)),
@@ -12286,13 +12293,16 @@ function PageFiles({user}){
             ...allCats.map(c=>R('option',{key:c,value:c},c)))),
           R('td',{style:{fontSize:11,color:'var(--tm)'}},fSize(f.size_bytes)),
           R('td',{style:{fontSize:11,color:'var(--tm)'}},f.uploader_name||'-',R('div',{style:{fontSize:10}},fDate(f.created_at))),
+          R('td',null,R('input',{defaultValue:f.note||'',placeholder:'비고 입력',key:'note'+f.id+(f.note||''),
+            onBlur:e=>saveNote(f,e.target.value),onKeyDown:e=>{if(e.key==='Enter')e.target.blur();},
+            style:{width:'100%',border:'1px solid var(--bd)',borderRadius:6,padding:'4px 7px',fontSize:11.5,fontFamily:'inherit',background:'#fff'}})),
           R('td',{style:{textAlign:'center'}},R('button',{className:'btn bp btn-sm',onClick:()=>download(f),style:{padding:'4px 10px'}},'⬇️')),
           R('td',{style:{textAlign:'center'}},R('button',{className:'btn bs btn-sm',onClick:()=>copyLink(f),title:'공유 링크 복사',style:{padding:'4px 8px'}},'🔗')),
           R('td',null,(f.uploader_id===user.id||['superadmin','admin'].includes(user.role))&&R('button',{onClick:()=>del(f),style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:14,padding:4}},'✕'))
         )))
       )
     ),
-    R('div',{style:{marginTop:10,fontSize:11,color:'var(--tm)'}},'💡 분류를 먼저 고른 뒤 업로드하면 그 분류로 저장됩니다 · 표의 [분류] 칸에서 언제든 옮길 수 있습니다 · 드래그&드롭 업로드 · 50MB 이하')
+    R('div',{style:{marginTop:10,fontSize:11,color:'var(--tm)'}},'💡 분류를 먼저 고른 뒤 업로드하면 그 분류로 저장됩니다 · 표의 [분류] 칸에서 언제든 옮길 수 있습니다 · 드래그&드롭 업로드 · 100MB 이하')
   );
 }
 
@@ -17875,7 +17885,7 @@ function App(){
         })().map((sec,secIdx)=>{
           const visibleItems=(sec.items||[]).filter(navItemVisible);
           if(visibleItems.length===0&&!navEditMode)return null;
-          const folderKey=sec.type||sec.label;
+          const folderKey=sec.label||sec.type;   /* 라벨이 고유 — type('custom')이 겹쳐 같이 열리던 문제 해결 */
           const isOpen=expandedFolders[folderKey]!==false;
           const isActiveSection=navFlatIds(sec.items).indexOf(page)>=0;
           return R('div',{
