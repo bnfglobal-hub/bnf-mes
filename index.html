@@ -9118,7 +9118,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
           const at=it._at||it.at, by=it._byName||it.byName||it._by_name;
           if(!at||!by)return;
           const t=new Date(at).getTime(); if(!t)return;
-          const what=String(it.title||it.name||it.text||it.client||it.body||'').replace(/\s+/g,' ').trim().slice(0,34);
+          const what=String(it.title||it.name||it.subject||it.product||it.text||it.client||it.body||it.work||it.content||it.area||it.site||'').replace(/\s+/g,' ').trim().slice(0,34);
           out.push({t,by:String(by),label:LABELS[k]||k,what,page:PAGES[k]||null});
         });
       });
