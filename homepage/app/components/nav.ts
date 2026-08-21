@@ -1,3 +1,5 @@
+import { company } from "@/lib/content";
+
 export type NavChild = { href: string; label: string };
 export type NavItem = { href: string; label: string; children?: NavChild[]; external?: boolean };
 
@@ -39,16 +41,8 @@ export const NAV: NavItem[] = [
       { href: "/support/contact", label: "문의하기" },
     ],
   },
-  { href: "https://smartstore.naver.com/bnfglobal", label: "쇼핑몰", external: true },
+  { href: company.shopUrl, label: "쇼핑몰", external: true },
 ];
 
-export const COMPANY_INFO = {
-  name: "(주)비엔에프글로벌",
-  ceo: "이용재",
-  privacyOfficer: "이정길",
-  tel: "1688-3362",
-  bizNo: "120-86-43118",
-  mailOrderNo: "제2013-경기하남-0052호",
-  hq: { label: "본사(F1)", addr: "경기도 하남시 산곡로 8", tel: "031 794 5071", fax: "031 794 5009" },
-  factory: { label: "공장(F2)", addr: "경기도 이천시 백사면 이여로 260-15", tel: "031 633 1518", fax: "031 634 6454" },
-};
+/** 회사 정보 — content/site.json 에서 관리 (관리자 화면에서 수정) */
+export const COMPANY_INFO = company;

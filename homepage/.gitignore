@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 자동 백업 (되돌리기용 로컬 파일)
+/content/_backups/
