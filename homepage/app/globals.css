@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* ═══ B&F GLOBAL 홈페이지 디자인 토큰 ═══
+   컨셉: 청결 · 신뢰 · 세련 · 투명
+   — 흰 바탕과 넉넉한 여백(청결), 로고 레드 단일 액센트(브랜드),
+     얇은 헤어라인과 반투명 헤더(투명), 정돈된 그리드(세련) */
+
+:root {
+  --bg: #fdfdfc;
+  --surface: #ffffff;
+  --ink: #15191e;
+  --muted: #5b636d;
+  --faint: #8b929b;
+  --line: #e9e7e3;
+  --line-strong: #d9d6d0;
+  --brand: #e23a2c;
+  --brand-deep: #c22c20;
+  --brand-soft: #fdf1ef;
+  --trust: #1c3d5a;
+  --trust-soft: #f2f6fa;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-soft: var(--brand-soft);
+  --color-trust: var(--trust);
+  --color-trust-soft: var(--trust-soft);
+  --font-sans: "Pretendard Variable", Pretendard, "Noto Sans KR", sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  letter-spacing: -0.012em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  word-break: keep-all; /* 한국어: 단어 중간 줄바꿈 방지 */
+}
+
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+::selection {
+  background: rgba(226, 58, 44, 0.14);
+}
+
+:focus-visible {
+  outline: 2px solid rgba(226, 58, 44, 0.55);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 섹션 등장 모션: 상태 전달용 1회 페이드업 (스크롤 연출 최소화) */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise { animation: rise 0.6s cubic-bezier(0.2, 0.6, 0.3, 1) both; }
+
+.kicker {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--brand);
+  text-transform: uppercase;
+}
