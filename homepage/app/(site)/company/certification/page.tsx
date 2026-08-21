@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import PageHeader from "@/app/components/PageHeader";
-import { content } from "@/lib/content";
+import { content, styleOf } from "@/lib/content";
 
 export const metadata: Metadata = {
   title: "인증현황",
@@ -21,12 +21,12 @@ export default function CertificationPage() {
 
       <section className="mx-auto max-w-[1180px] px-5 py-16">
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {c.list.map((item) => (
+          {c.list.map((item, i) => (
             <li key={item.title} className="flex items-start gap-3 border border-line px-5 py-4">
               <span className="mt-0.5 shrink-0 bg-brand-soft px-2 py-1 text-[11px] font-bold text-brand">
                 {item.group}
               </span>
-              <span className="text-[13.5px] font-bold leading-snug">{item.title}</span>
+              <span data-edit={`certification.list.${i}.title`} className="text-[13.5px] font-bold leading-snug">{item.title}</span>
             </li>
           ))}
         </ul>

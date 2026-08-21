@@ -21,13 +21,14 @@ export default function SeafoodPage() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={it.image}
+                data-img={`seafood.items.${i}.image`}
                 alt={it.name}
                 className="aspect-[4/3] w-full bg-surface-2 object-cover"
                 loading="lazy"
                 width={500}
                 height={375}
               />
-              <p className="mt-3 text-[14px] font-bold">{it.name}</p>
+              <p data-edit={`seafood.items.${i}.name`} className="mt-3 text-[14px] font-bold">{it.name}</p>
             </li>
           ))}
         </ul>

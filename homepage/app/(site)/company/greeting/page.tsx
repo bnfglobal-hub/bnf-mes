@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import PageHeader from "@/app/components/PageHeader";
-import { content, paragraphs } from "@/lib/content";
+import { content, paragraphs, styleOf } from "@/lib/content";
 
 export const metadata: Metadata = {
   title: "인사말",
@@ -15,22 +15,38 @@ export default function GreetingPage() {
       <PageHeader title="인사말" section="회사소개" current="/company/greeting" />
 
       <section className="mx-auto max-w-[1180px] px-5 py-16">
-        <h2 className="text-[clamp(1.15rem,2.4vw,1.6rem)] font-bold leading-snug">
+        <h2 data-edit="greeting.headline" style={styleOf("greeting.headline")} className="text-[clamp(1.15rem,2.4vw,1.6rem)] font-bold leading-snug">
           {g.headline}
         </h2>
 
         <div className="mt-10 grid gap-12 md:grid-cols-[1.25fr_1fr] md:items-start">
-          <div className="space-y-6 text-[15px] leading-[1.9]">
-            {paragraphs(g.body).map((p) => (
-              <p key={p}>{p}</p>
-            ))}
-            <p className="pt-4 text-[15px] font-bold text-muted">{g.signature}</p>
+          <div className="text-[15px] leading-[1.9]">
+            <div
+              data-edit="greeting.body"
+              data-edit-format="paragraphs"
+              data-edit-multiline="1"
+              style={styleOf("greeting.body")}
+              className="space-y-6"
+            >
+              {paragraphs(g.body).map((p) => (
+                <p key={p}>{p}</p>
+              ))}
+            </div>
+            <p
+              data-edit="greeting.signature"
+              style={styleOf("greeting.signature")}
+              className="pt-6 text-[15px] font-bold text-muted"
+            >
+              {g.signature}
+            </p>
           </div>
 
           {g.image && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={g.image}
+              data-img="greeting.image"
+              style={styleOf("greeting.image")}
               alt="신선한 식재료"
               className="content-img"
               loading="lazy"

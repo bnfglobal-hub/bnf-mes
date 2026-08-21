@@ -26,14 +26,15 @@ export default function HmrPage() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={it.image}
+                data-img={`hmr.items.${i}.image`}
                 alt={`${it.brand} ${it.name}`}
                 className="aspect-square w-full bg-surface-2 object-cover"
                 loading="lazy"
                 width={500}
                 height={500}
               />
-              {it.brand && <p className="mt-3 text-[12px] font-bold text-brand">[{it.brand}]</p>}
-              <p className="mt-0.5 text-[13.5px] font-bold leading-snug">{it.name}</p>
+              {it.brand && <p data-edit={`hmr.items.${i}.brand`} className="mt-3 text-[12px] font-bold text-brand">[{it.brand}]</p>}
+              <p data-edit={`hmr.items.${i}.name`} className="mt-0.5 text-[13.5px] font-bold leading-snug">{it.name}</p>
             </li>
           ))}
         </ul>

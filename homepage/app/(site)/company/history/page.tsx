@@ -14,14 +14,14 @@ export default function HistoryPage() {
 
       <section className="mx-auto max-w-[1180px] px-5 py-16">
         <ol className="max-w-3xl">
-          {content.history.map((h) => (
+          {content.history.map((h, hi) => (
             <li key={h.year} className="flex gap-6 border-b border-line py-6 last:border-b-0 sm:gap-10">
               <span className="w-[62px] shrink-0 text-[20px] font-extrabold leading-tight text-brand tabular-nums sm:text-[22px]">
-                {h.year}
+                <span data-edit={`history.${hi}.year`}>{h.year}</span>
               </span>
               <div className="space-y-1 pt-0.5 text-[14.5px] leading-relaxed">
-                {h.events.map((line) => (
-                  <p key={line}>{line}</p>
+                {h.events.map((line, ei) => (
+                  <p key={line} data-edit={`history.${hi}.events.${ei}`}>{line}</p>
                 ))}
               </div>
             </li>

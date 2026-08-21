@@ -30,5 +30,25 @@ export default async function AdminPage() {
     );
   }
 
-  return <Editor initial={initial} />;
+  return (
+    <>
+      <div className="border-b border-[#ddd] bg-[#fffaf5] px-5 py-3.5">
+        <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3">
+          <span className="text-[13px] font-bold text-[#8a5a20]">
+            화면을 보면서 마우스로 고치는 편집기가 준비되었습니다.
+          </span>
+          <a
+            href="/admin/editor"
+            className="rounded-md bg-[#e8261e] px-4 py-2 text-[12.5px] font-bold text-white transition-colors hover:bg-[#c41c15]"
+          >
+            비주얼 편집기 열기 →
+          </a>
+          <span className="text-[12px] text-[#a08050]">
+            아래 목록형 편집도 그대로 쓸 수 있습니다.
+          </span>
+        </div>
+      </div>
+      <Editor initial={initial} />
+    </>
+  );
 }

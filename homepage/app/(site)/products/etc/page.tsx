@@ -21,14 +21,15 @@ export default function EtcPage() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={it.image}
+                data-img={`etc.items.${i}.image`}
                 alt={it.name}
                 className="aspect-[4/3] w-full bg-surface-2 object-cover"
                 loading="lazy"
                 width={500}
                 height={375}
               />
-              <p className="mt-3 text-[14.5px] font-bold">{it.name}</p>
-              {it.spec && <p className="mt-0.5 text-[13px] text-muted tabular-nums">{it.spec}</p>}
+              <p data-edit={`etc.items.${i}.name`} className="mt-3 text-[14.5px] font-bold">{it.name}</p>
+              {it.spec && <p data-edit={`etc.items.${i}.spec`} className="mt-0.5 text-[13px] text-muted tabular-nums">{it.spec}</p>}
             </li>
           ))}
         </ul>
