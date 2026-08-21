@@ -17537,10 +17537,8 @@ function App(){
           }),
             navEditMode&&R('span',{style:{fontSize:9,opacity:.4}},'⋮⋮'),
             R('span',{style:{fontSize:9,opacity:.7,width:9,display:'inline-block',transform:fOpen?'rotate(90deg)':'none',transition:'transform .2s'}},'▶'),
-            navEditMode
-              ? R(NavNameInput,{value:n.ic||'📁',onCommit:(v)=>{if(v!==(n.ic||'📁'))updNavAt(path,realIdx,{ic:v});},
-                  style:{width:30,background:'#fff',border:'1px solid #DDD5E3',padding:'3px',borderRadius:5,fontSize:11,textAlign:'center',outline:'none',fontFamily:'inherit'},title:'아이콘'})
-              : R('span',{style:{fontSize:12}},n.ic||'📁'),
+            navEditMode&&R(NavNameInput,{value:n.ic||'📁',onCommit:(v)=>{if(v!==(n.ic||'📁'))updNavAt(path,realIdx,{ic:v});},
+                  style:{width:30,background:'#fff',border:'1px solid #DDD5E3',padding:'3px',borderRadius:5,fontSize:11,textAlign:'center',outline:'none',fontFamily:'inherit'},title:'아이콘'}),
             navEditMode
               ? R(NavNameInput,{value:n.l||'',onCommit:(v)=>{if(v!==(n.l||''))updNavAt(path,realIdx,{l:v});},
                   style:{flex:1,minWidth:0,background:'#fff',border:'1px solid #DDD5E3',padding:'3px 7px',borderRadius:5,fontSize:11.5,outline:'none',fontFamily:'inherit'},title:'하위 폴더 이름'})
@@ -17605,7 +17603,6 @@ function App(){
         onClick:()=>{setPage(n.id);setSbOpen(false);},
         style:{paddingLeft:path.length>1?18:24,cursor:'pointer'}
       },
-        R('span',{className:'ic'},n.ic),
         R('span',null,n.l)
       ));
     });
@@ -18416,7 +18413,7 @@ function App(){
                     title:'폴더 이름',
                     style:{flex:1,minWidth:0,width:'100%',background:'#fff',border:'1px solid #DDD5E3',color:'#1A1A1A',padding:'4px 8px',borderRadius:6,fontSize:12,fontFamily:'inherit',outline:'none'}
                   })
-                : R('span',{style:{flex:1,letterSpacing:-0.2}},sec.label),
+                : R('span',{style:{flex:1,letterSpacing:-0.2}},String(sec.label||'').replace(/^[^가-힣ㄱ-ㆎA-Za-z0-9]+\s*/,'')||sec.label),
               navEditMode&&!sec.adminOnly&&R('button',{
                 onClick:e=>{
                   e.stopPropagation();
