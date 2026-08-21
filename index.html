@@ -3842,6 +3842,7 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
   const[catF,setCatF]=useState('전체');
   const[upBusy,setUpBusy]=useState(false);
   const[dragRow,setDragRow]=useState(null);
+  const[dragAll,setDragAll]=useState(false);
   const fileRef=useRef(null);   /* 등록 모달 파일 선택 */
   const fileRef2=useRef(null);  /* 상세 화면 파일 선택 */
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
@@ -3926,6 +3927,16 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
     if(!confirm('"'+f.name+'" 첨부를 삭제할까요?'))return;
     try{if(f.path)await sbClient.storage.from('bnf-files').remove([f.path]);}catch(e){}
     setForm(p=>Object.assign({},p,{files:(p.files||[]).filter((_,i)=>i!==idx)}));
+  };
+  /* 표 빈 곳에 드래그 → 파일이 첨부된 새 서류 등록 모달 열기 */
+  const dropNew=async(fileList)=>{
+    if(!withFiles)return;
+    const metas=await upFiles(fileList);
+    if(!metas.length)return;
+    const base=String(metas[0].name||'').replace(/\.[^.]+$/,'');
+    setForm({name:base,place:'',cycle:'',unit:'개월',last:today2(),owner:'',note:'',
+      cat:(withCats&&catF!=='전체'&&catF!=='미분류')?catF:'',files:metas});
+    setEditId(null);setShowF(true);
   };
   /* 표의 행 위로 드래그해서 바로 첨부 */
   const dropOnRow=async(r,fileList)=>{
@@ -4155,8 +4166,13 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
     })(),
     R('div',{style:{marginBottom:10,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
       R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 설비명·위치·담당 검색',style:{maxWidth:340}}),
-      withFiles&&R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'● 파일 업로드 중...':'💡 파일을 아래 표의 서류 행 위로 드래그하면 바로 첨부됩니다')),
-    R('div',{className:'tw'},
+      withFiles&&R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'● 파일 업로드 중...':'💡 서류 행 위로 드래그하면 그 서류에 첨부, 빈 곳에 드래그하면 새 서류로 등록됩니다')),
+    R('div',Object.assign({className:'tw'},withFiles?{
+      onDragOver:e=>{e.preventDefault();setDragAll(true);},
+      onDragLeave:e=>{if(!e.currentTarget.contains(e.relatedTarget))setDragAll(false);},
+      onDrop:e=>{e.preventDefault();setDragAll(false);dropNew(e.dataTransfer&&e.dataTransfer.files);},
+      style:{outline:dragAll?'2px dashed var(--p)':'none',outlineOffset:-2,borderRadius:12,background:dragAll?'#FFF9F5':undefined}
+    }:{}),
       R('table',null,
         R('thead',null,R('tr',null,
           R('th',null,nameLabel||'설비명'),R('th',{style:{width:120}},placeLabel||'위치'),R('th',{style:{width:90}},'점검 주기'),
@@ -4164,12 +4180,14 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
           R('th',{style:{width:90}},'담당'),R('th',{style:{width:150}},''))),
         R('tbody',null,
           rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
-          list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 항목이 없습니다. [+ '+(nameLabel||'설비')+' 등록]으로 추가해주세요.')):
+          list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},
+            '등록된 항목이 없습니다. [+ '+(nameLabel||'설비')+' 등록]으로 추가해주세요.',
+            withFiles&&R('div',{style:{marginTop:4,fontSize:11.5}},'📎 파일을 여기로 드래그하면 첨부된 새 '+(nameLabel||'항목')+'가 바로 등록됩니다'))):
           list.map(r=>{const st=equipState(r);
             const dropProps=withFiles?{
-              onDragOver:e=>{e.preventDefault();setDragRow(r._id);},
+              onDragOver:e=>{e.preventDefault();e.stopPropagation();setDragAll(false);setDragRow(r._id);},
               onDragLeave:()=>setDragRow(d=>d===r._id?null:d),
-              onDrop:e=>{e.preventDefault();setDragRow(null);dropOnRow(r,e.dataTransfer&&e.dataTransfer.files);}
+              onDrop:e=>{e.preventDefault();e.stopPropagation();setDragRow(null);setDragAll(false);dropOnRow(r,e.dataTransfer&&e.dataTransfer.files);}
             }:{};
             return R('tr',Object.assign({key:r._id,style:{background:dragRow===r._id?'#FFF3EC':(st.k==='over'?'#FFF8F8':(st.k==='soon'||st.k==='today'?'#FFFDF5':'#fff')),
               outline:dragRow===r._id?'2px dashed var(--p)':'none',outlineOffset:-2}},dropProps),
