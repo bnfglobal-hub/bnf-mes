@@ -1,24 +1,22 @@
 @import "tailwindcss";
 
-/* ═══ B&F GLOBAL 홈페이지 디자인 토큰 — v3 (Ciao Energy 레퍼런스) ═══
-   컨셉: 다크 시네마틱 · 제품이 주인공 · 포스터급 타이포 · 투명한 공정 고백
-   — 어두운 무대 위 스포트라이트를 받는 음식, 브랜드 레드 글로우,
-     대형 이탤릭 디스플레이, 나쁜 것에 취소선을 긋는 정직한 화법 */
+/* ═══ B&F GLOBAL — 기존 홈페이지(bnfglobal.co.kr) 재현 베이스 ═══
+   원본 기준: 흰 배경 · 검정 본문 · NanumSquare · 로고 레드 포인트
+   이 위에서 단계적으로 디벨롭한다. */
 
 :root {
-  --bg: #0b0c0e;
-  --surface: #14161a;
-  --surface-2: #1b1e23;
-  --ink: #f5f3ef;
-  --muted: #a8a29b;
-  --faint: #6e6963;
-  --line: rgba(245, 243, 239, 0.1);
-  --line-strong: rgba(245, 243, 239, 0.22);
-  --brand: #e23a2c;
-  --brand-deep: #c22c20;
-  --brand-soft: rgba(226, 58, 44, 0.12);
-  --trust: #1c3d5a;
-  --trust-soft: #12161c;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --ink: #1a1a1a;
+  --muted: #666666;
+  --faint: #999999;
+  --line: #e5e5e5;
+  --line-strong: #cccccc;
+  --brand: #e8261e;
+  --brand-deep: #c41c15;
+  --brand-soft: #fdf0ef;
+  --dark: #333333;
 }
 
 @theme inline {
@@ -33,9 +31,9 @@
   --color-brand: var(--brand);
   --color-brand-deep: var(--brand-deep);
   --color-brand-soft: var(--brand-soft);
-  --color-trust: var(--trust);
-  --color-trust-soft: var(--trust-soft);
-  --font-sans: "Pretendard Variable", Pretendard, "Noto Sans KR", sans-serif;
+  --color-dark: var(--dark);
+  --font-sans: "NanumSquare", "NanumSquareRound", "Pretendard Variable",
+    Pretendard, "Noto Sans KR", sans-serif;
 }
 
 html {
@@ -46,10 +44,8 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
-  letter-spacing: -0.012em;
+  word-break: keep-all;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  word-break: keep-all; /* 한국어: 단어 중간 줄바꿈 방지 */
 }
 
 h1, h2, h3 {
@@ -57,14 +53,13 @@ h1, h2, h3 {
 }
 
 ::selection {
-  background: rgba(226, 58, 44, 0.35);
-  color: #fff;
+  background: rgba(232, 38, 30, 0.15);
 }
 
 :focus-visible {
-  outline: 2px solid rgba(226, 58, 44, 0.7);
+  outline: 2px solid rgba(232, 38, 30, 0.6);
   outline-offset: 3px;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -76,114 +71,24 @@ h1, h2, h3 {
   }
 }
 
-/* ── 포스터 디스플레이 타이포 (레퍼런스의 콘덴스드 이탤릭 대문자 번역) ── */
-.display {
-  font-weight: 900;
-  font-stretch: 92%;
-  letter-spacing: -0.045em;
-  line-height: 1.04;
-  text-transform: uppercase;
-}
-.display-slant {
-  font-style: italic;
-  transform: skewX(-4deg);
-}
-
-.kicker {
-  font-size: 0.72rem;
+/* 원본의 섹션 제목 스타일 — 가운데 정렬 굵은 고딕 */
+.sec-title {
+  font-size: clamp(1.35rem, 2.6vw, 1.75rem);
   font-weight: 800;
-  font-style: italic;
-  letter-spacing: 0.22em;
-  color: var(--brand);
-  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  text-align: center;
 }
 
-/* ── 스포트라이트 무대 ── */
-.stage {
-  background:
-    radial-gradient(ellipse 70% 55% at 50% 38%, rgba(226, 58, 44, 0.16), transparent 65%),
-    radial-gradient(ellipse 55% 45% at 50% 42%, rgba(245, 200, 120, 0.08), transparent 70%),
-    var(--bg);
-}
-.stage-quality {
-  background:
-    radial-gradient(ellipse 60% 50% at 72% 45%, rgba(28, 61, 90, 0.55), transparent 70%),
-    var(--bg);
+/* 서브페이지 상단 제목 (원본: 좌측 정렬 큰 제목) */
+.page-title {
+  font-size: clamp(1.6rem, 3.4vw, 2.25rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
 }
 
-/* 접시 스포트라이트 그림자 */
-.dish-glow {
-  filter: drop-shadow(0 30px 60px rgba(226, 58, 44, 0.22)) drop-shadow(0 12px 28px rgba(0, 0, 0, 0.7));
-}
-
-/* ── 등장 모션: 1회 페이드업 ── */
-@keyframes rise {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.rise { animation: rise 0.7s cubic-bezier(0.2, 0.6, 0.3, 1) both; }
-
-/* ── 나쁜 것 취소선 (레퍼런스의 아스파탐 스트라이크) ── */
-.strike {
-  position: relative;
-  color: var(--faint);
-  font-weight: 700;
-}
-.strike::after {
-  content: "";
-  position: absolute;
-  left: -2%;
-  right: -2%;
-  top: 50%;
-  height: 2px;
-  background: var(--brand);
-  transform: rotate(-1.5deg);
-}
-
-/* ── FAQ 아코디언 ── */
-details.faq {
-  border-bottom: 1px solid var(--line);
-}
-details.faq summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 4px;
-  font-size: 15px;
-  font-weight: 700;
-  transition: color 0.15s ease;
-}
-details.faq summary::-webkit-details-marker { display: none; }
-details.faq summary:hover { color: var(--brand); }
-details.faq summary::after {
-  content: "+";
-  font-size: 20px;
-  font-weight: 400;
-  color: var(--faint);
-  transition: transform 0.2s ease;
-}
-details.faq[open] summary::after { transform: rotate(45deg); color: var(--brand); }
-details.faq .faq-body {
-  padding: 0 4px 20px;
-  font-size: 13.5px;
-  line-height: 1.75;
-  color: var(--muted);
-  max-width: 60ch;
-}
-
-/* ── 가로 무한 마퀴 (품목 티커) ── */
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.marquee-track {
-  display: flex;
-  width: max-content;
-  animation: marquee 36s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .marquee-track { animation: none; }
+/* 본문 이미지: 원본은 대부분 이미지 한 장으로 구성 */
+.content-img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
