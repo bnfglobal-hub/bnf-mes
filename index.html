@@ -3781,24 +3781,25 @@ function PageDevRecord({user,title,ic,desc,storeKey,folder,nameLabel,namePh}){
    다음 점검일 = 최근 점검일 + 주기. 홈 대시보드에서도 같은 계산을 쓴다. */
 const EQ_UNITS=['일','주','개월'];
 /* 회사 서류 기본 목록 — 중대재해처벌법(안전·보건 확보의무) 및 식품제조 필수 서류 */
+const DOC_CATS=['안전보건','인허가·등록','시설·소방','보험','인사·노무','기타'];
 const DOC_SEED=[
-  {name:'안전보건 경영방침 수립·게시',place:'사무실 게시판',cycle:12,unit:'개월',note:'중처법 시행령 제4조 1호'},
-  {name:'안전보건 목표·추진계획 수립',place:'경영지원부',cycle:12,unit:'개월',note:'연 1회 수립·점검'},
-  {name:'유해·위험요인 확인 및 개선(위험성평가)',place:'생산부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 3호'},
-  {name:'안전보건 예산 편성·집행 점검',place:'경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 4호'},
-  {name:'안전보건 업무 담당자 지정·평가',place:'경영지원부',cycle:12,unit:'개월',note:'반기 1회 평가 권장'},
-  {name:'종사자 의견 청취 및 개선(반기)',place:'경영지원부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 7호'},
-  {name:'중대재해 대응 매뉴얼 점검',place:'생산부',cycle:6,unit:'개월',note:'비상대응 절차·훈련'},
-  {name:'도급·용역·위탁 업체 안전 평가',place:'구매/경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 9호'},
-  {name:'안전보건 교육 실시·기록',place:'생산부',cycle:3,unit:'개월',note:'분기 정기교육'},
-  {name:'작업환경 측정',place:'생산부',cycle:6,unit:'개월',note:'산업안전보건법'},
-  {name:'근로자 건강진단',place:'경영지원부',cycle:12,unit:'개월',note:'배치전·정기'},
-  {name:'소방시설 자체점검',place:'공장',cycle:12,unit:'개월',note:'작동점검·종합점검'},
-  {name:'전기설비 안전점검',place:'공장',cycle:12,unit:'개월',note:'한국전기안전공사'},
-  {name:'HACCP 정기 평가·자체 검증',place:'품질관리부',cycle:12,unit:'개월',note:'식품안전관리인증'},
-  {name:'영업등록증·품목제조보고 갱신 확인',place:'경영지원부',cycle:12,unit:'개월',note:'변경사항 발생 시 즉시'},
-  {name:'화재·재산종합보험 갱신',place:'경영지원부',cycle:12,unit:'개월',note:'만기 1개월 전 확인'},
-  {name:'4대보험·근로계약서 정비',place:'경영지원부',cycle:12,unit:'개월',note:'신규 입사 시 즉시'}
+  {name:'안전보건 경영방침 수립·게시',place:'사무실 게시판',cycle:12,unit:'개월',note:'중처법 시행령 제4조 1호',cat:'안전보건'},
+  {name:'안전보건 목표·추진계획 수립',place:'경영지원부',cycle:12,unit:'개월',note:'연 1회 수립·점검',cat:'안전보건'},
+  {name:'유해·위험요인 확인 및 개선(위험성평가)',place:'생산부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 3호',cat:'안전보건'},
+  {name:'안전보건 예산 편성·집행 점검',place:'경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 4호',cat:'안전보건'},
+  {name:'안전보건 업무 담당자 지정·평가',place:'경영지원부',cycle:12,unit:'개월',note:'반기 1회 평가 권장',cat:'안전보건'},
+  {name:'종사자 의견 청취 및 개선(반기)',place:'경영지원부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 7호',cat:'안전보건'},
+  {name:'중대재해 대응 매뉴얼 점검',place:'생산부',cycle:6,unit:'개월',note:'비상대응 절차·훈련',cat:'안전보건'},
+  {name:'도급·용역·위탁 업체 안전 평가',place:'구매/경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 9호',cat:'안전보건'},
+  {name:'안전보건 교육 실시·기록',place:'생산부',cycle:3,unit:'개월',note:'분기 정기교육',cat:'안전보건'},
+  {name:'작업환경 측정',place:'생산부',cycle:6,unit:'개월',note:'산업안전보건법',cat:'안전보건'},
+  {name:'근로자 건강진단',place:'경영지원부',cycle:12,unit:'개월',note:'배치전·정기',cat:'안전보건'},
+  {name:'소방시설 자체점검',place:'공장',cycle:12,unit:'개월',note:'작동점검·종합점검',cat:'시설·소방'},
+  {name:'전기설비 안전점검',place:'공장',cycle:12,unit:'개월',note:'한국전기안전공사',cat:'시설·소방'},
+  {name:'HACCP 정기 평가·자체 검증',place:'품질관리부',cycle:12,unit:'개월',note:'식품안전관리인증',cat:'인허가·등록'},
+  {name:'영업등록증·품목제조보고 갱신 확인',place:'경영지원부',cycle:12,unit:'개월',note:'변경사항 발생 시 즉시',cat:'인허가·등록'},
+  {name:'화재·재산종합보험 갱신',place:'경영지원부',cycle:12,unit:'개월',note:'만기 1개월 전 확인',cat:'보험'},
+  {name:'4대보험·근로계약서 정비',place:'경영지원부',cycle:12,unit:'개월',note:'신규 입사 시 즉시',cat:'인사·노무'}
 ];
 function equipNext(r){
   if(!r||!r.last||!(+r.cycle>0))return null;
@@ -3825,24 +3826,33 @@ function equipState(r){
   return{k:'ok',t:'D-'+d,c:'#15803D',bg:'#F0FDF4'};
 }
 
-function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel,resultOpts,seedList}){
+function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel,resultOpts,seedList,withFiles,catsKey,catList}){
   const KEY=storeKey||'bnf_pm_equip';
+  const withCats=!!catsKey;
   const[rows,setRows]=useState(null);
   const[q,setQ]=useState('');
   const[busy,setBusy]=useState(false);
   const[showF,setShowF]=useState(false);
   const[editId,setEditId]=useState(null);
-  const[form,setForm]=useState({name:'',place:'',cycle:'',unit:'개월',last:'',owner:'',note:''});
+  const[form,setForm]=useState({name:'',place:'',cycle:'',unit:'개월',last:'',owner:'',note:'',cat:'',files:[]});
   const[hist,setHist]=useState(null);     /* 이력 보기 대상 */
   const[chk,setChk]=useState(null);       /* 점검 기록 입력 대상 */
   const[chkF,setChkF]=useState({date:today2(),result:(resultOpts&&resultOpts[0])||'정상',note:''});
+  const[cats,setCats]=useState(Array.isArray(catList)?catList:[]);
+  const[catF,setCatF]=useState('전체');
+  const[upBusy,setUpBusy]=useState(false);
+  const[dragRow,setDragRow]=useState(null);
+  const fileRef=useRef(null);   /* 등록 모달 파일 선택 */
+  const fileRef2=useRef(null);  /* 상세 화면 파일 선택 */
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
 
   useEffect(()=>{load();},[]);
   useBnfSyncReload(()=>load());
   const load=async()=>{
     try{
-      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      const sel='v:state_data->'+KEY+(withCats?(',c:state_data->'+catsKey):'');
+      const{data}=await sbClient.from('app_state').select(sel).eq('id',1).maybeSingle();
+      if(withCats&&Array.isArray(data&&data.c)&&data.c.length)setCats(data.c);
       const raw=Array.isArray(data&&data.v)?data.v:[];
       const seen={};
       setRows(raw.map(r=>{
@@ -3864,7 +3874,73 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
     }catch(e){alert('저장 실패: '+e.message);}
     setBusy(false);
   };
-  const openNew=()=>{setForm({name:'',place:'',cycle:'',unit:'개월',last:today2(),owner:'',note:''});setEditId(null);setShowF(true);};
+  /* ── 폴더(분류) 관리 ── */
+  const saveCats=async(next)=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[catsKey]:next}),updated_at:new Date().toISOString()});
+      setCats(next);
+    }catch(e){alert('폴더 저장 실패: '+e.message);}
+  };
+  const addCat=async()=>{
+    const n=prompt('새 폴더 이름을 입력해주세요.');
+    if(n===null)return;const name=n.trim();if(!name)return;
+    if(cats.includes(name))return alert('이미 있는 폴더입니다.');
+    await saveCats([...cats,name]);setCatF(name);
+  };
+  const delCat=async(c)=>{
+    const used=(rows||[]).filter(r=>r.cat===c).length;
+    if(used)return alert('"'+c+'" 폴더에 서류 '+used+'건이 있어 삭제할 수 없습니다. 각 서류를 수정해서 다른 폴더로 옮긴 뒤 삭제해주세요.');
+    if(!confirm('"'+c+'" 폴더를 삭제할까요?'))return;
+    await saveCats(cats.filter(x=>x!==c));if(catF===c)setCatF('전체');
+  };
+  /* ── 파일 첨부 (Supabase Storage bnf-files) ── */
+  const upPrefix=(KEY||'misc').replace(/^bnf_/,'')+'/';
+  const fSize=b=>{if(!b)return'';const k=b/1024;return k<1024?k.toFixed(0)+'KB':(k/1024).toFixed(1)+'MB';};
+  const upFiles=async(listIn)=>{
+    const files=Array.from(listIn||[]).filter(Boolean);
+    if(!files.length)return[];
+    setUpBusy(true);
+    const out=[];
+    for(const file of files){
+      try{
+        if(file.size>100*1024*1024){alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
+        const safe=(file.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path=upPrefix+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
+        if(error)throw error;
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+        out.push({name:file.name||'파일',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||'',by:user.name,at:now2()});
+      }catch(e){alert('"'+(file.name||'파일')+'" 업로드 실패: '+e.message);}
+    }
+    setUpBusy(false);
+    return out;
+  };
+  const addFormFiles=async(fileList)=>{
+    const metas=await upFiles(fileList);
+    if(metas.length)setForm(p=>Object.assign({},p,{files:[...(p.files||[]),...metas]}));
+  };
+  const rmFormFile=async(idx)=>{
+    const f=(form.files||[])[idx];if(!f)return;
+    if(!confirm('"'+f.name+'" 첨부를 삭제할까요?'))return;
+    try{if(f.path)await sbClient.storage.from('bnf-files').remove([f.path]);}catch(e){}
+    setForm(p=>Object.assign({},p,{files:(p.files||[]).filter((_,i)=>i!==idx)}));
+  };
+  /* 표의 행 위로 드래그해서 바로 첨부 */
+  const dropOnRow=async(r,fileList)=>{
+    if(!withFiles)return;
+    const metas=await upFiles(fileList);
+    if(!metas.length)return;
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{files:[...(x.files||[]),...metas]}):x));
+  };
+  const rmRowFile=async(r,idx)=>{
+    const f=(r.files||[])[idx];if(!f)return;
+    if(!confirm('"'+f.name+'" 첨부를 삭제할까요?'))return;
+    try{if(f.path)await sbClient.storage.from('bnf-files').remove([f.path]);}catch(e){}
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{files:(x.files||[]).filter((_,i)=>i!==idx)}):x));
+  };
+  const openNew=()=>{setForm({name:'',place:'',cycle:'',unit:'개월',last:today2(),owner:'',note:'',cat:(withCats&&catF!=='전체'&&catF!=='미분류')?catF:'',files:[]});setEditId(null);setShowF(true);};
   /* 기본 목록 한 번에 등록 (예: 중대재해처벌법 필수 서류) — 이미 있는 이름은 건너뜀 */
   const seedAll=async()=>{
     if(!Array.isArray(seedList)||!seedList.length)return;
@@ -3872,14 +3948,15 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
     const have=new Set(cur.map(r=>String(r.name||'').replace(/\s/g,'')));
     const add=seedList.filter(x=>!have.has(String(x.name||'').replace(/\s/g,'')))
       .map(x=>({_id:newRowId(),name:x.name,place:x.place||'',cycle:x.cycle||'',unit:x.unit||'개월',
-                last:'',owner:'',note:x.note||'',history:[]}));
+                last:'',owner:'',note:x.note||'',cat:x.cat||'',files:[],history:[]}));
     if(!add.length)return alert('이미 모두 등록되어 있습니다.');
     if(!confirm('기본 서류 '+add.length+'건을 등록할까요? (최근 갱신일은 비어 있으니 각 서류에서 날짜를 넣어주세요)'))return;
     await persist([...cur,...add]);
   };
-  const openEdit=r=>{setForm({name:r.name||'',place:r.place||'',cycle:r.cycle||'',unit:r.unit||'개월',last:r.last||'',owner:r.owner||'',note:r.note||''});setEditId(r._id);setShowF(true);};
+  const openEdit=r=>{setForm({name:r.name||'',place:r.place||'',cycle:r.cycle||'',unit:r.unit||'개월',last:r.last||'',owner:r.owner||'',note:r.note||'',cat:r.cat||'',files:(r.files||[]).slice()});setEditId(r._id);setShowF(true);};
   const save=async()=>{
     if(!form.name.trim())return alert((nameLabel||'설비명')+'을(를) 입력해주세요.');
+    if(upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
     const list=(rows||[]).slice();
     if(editId){
       const i=list.findIndex(x=>x._id===editId);
@@ -3892,7 +3969,11 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
   };
   const del=async(r)=>{
     if(!(isAdmin||r._by===user.id))return alert('등록자 또는 관리자만 삭제할 수 있습니다.');
-    if(!confirm('"'+r.name+'" 항목을 삭제할까요? 이력도 함께 지워집니다.'))return;
+    if(!confirm('"'+r.name+'" 항목을 삭제할까요? 이력'+(withFiles?'·첨부파일':'')+'도 함께 지워집니다.'))return;
+    if(withFiles){
+      const paths=(r.files||[]).map(x=>x&&x.path).filter(Boolean);
+      if(paths.length){try{await sbClient.storage.from('bnf-files').remove(paths);}catch(e){}}
+    }
     await persist((rows||[]).filter(x=>x._id!==r._id));
   };
   /* 점검 기록 → 최근 점검일 갱신 + 이력 추가 */
@@ -3908,9 +3989,13 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
   };
 
   const list=(rows||[]).filter(r=>{
+    if(withCats&&catF!=='전체'){
+      if(catF==='미분류'){if(r.cat)return false;}
+      else if(r.cat!==catF)return false;
+    }
     const s=q.trim().toLowerCase();
     if(!s)return true;
-    return [r.name,r.place,r.owner,r.note].some(v=>String(v||'').toLowerCase().includes(s));
+    return [r.name,r.place,r.owner,r.note,r.cat].some(v=>String(v||'').toLowerCase().includes(s));
   }).slice().sort((a,b)=>{
     const da=equipDday(a),db=equipDday(b);
     if(da===null&&db===null)return String(a.name||'').localeCompare(String(b.name||''),'ko');
@@ -3931,12 +4016,27 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
       R('div',{className:'card',style:{marginBottom:12}},
         R('h2',{style:{fontSize:16,fontWeight:800,marginBottom:6}},r.name),
         R('div',{style:{fontSize:12,color:'var(--tm)',display:'flex',gap:10,flexWrap:'wrap'}},
+          withCats&&r.cat&&R('span',null,'📁 ',r.cat),
           r.place&&R('span',null,'📍 ',r.place),
           R('span',null,'주기 ',r.cycle?(r.cycle+r.unit):'미설정'),
           R('span',null,'최근 점검 ',r.last||'-'),
           R('span',{style:{color:equipState(r).c,fontWeight:700}},'다음 ',equipNext(r)||'-',' (',equipState(r).t,')'),
           r.owner&&R('span',null,'담당 ',r.owner)),
         r.note&&R('div',{style:{marginTop:10,paddingTop:10,borderTop:'1px solid var(--bd)',fontSize:13,whiteSpace:'pre-wrap'}},r.note)),
+      withFiles&&R('div',{className:'card',style:{marginBottom:12}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+          R('div',{className:'card-title',style:{margin:0}},'📎 첨부파일 '+((r.files||[]).length)+'건'),
+          upBusy&&R('span',{style:{fontSize:11,color:'var(--p)'}},'● 업로드 중')),
+        R('div',{onDragOver:e=>e.preventDefault(),
+          onDrop:e=>{e.preventDefault();dropOnRow(r,e.dataTransfer&&e.dataTransfer.files);},
+          onClick:()=>fileRef2.current&&fileRef2.current.click(),
+          style:{border:'2px dashed var(--bd)',borderRadius:10,padding:'12px',textAlign:'center',fontSize:12,color:'var(--tm)',cursor:'pointer',background:'#FBFAF8',marginBottom:(r.files||[]).length?8:0}},
+          '파일을 여기로 드래그하거나 클릭해서 추가 (여러 개 가능)'),
+        R('input',{type:'file',multiple:true,ref:fileRef2,style:{display:'none'},onChange:e=>{dropOnRow(r,e.target.files);e.target.value='';}}),
+        ...(r.files||[]).map((f,i)=>R('div',{key:i,style:{display:'flex',gap:8,alignItems:'center',fontSize:12.5,padding:'5px 0',borderTop:'1px solid #F3EFEA'}},
+          R('a',{href:f.url,target:'_blank',rel:'noreferrer',style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'#1D4ED8',textDecoration:'none'}},'📄 '+f.name),
+          R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},fSize(f.size)+(f.by?(' · '+f.by):'')),
+          R('button',{onClick:()=>rmRowFile(r,i),style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'삭제')))),
       R('div',{className:'tw'},
         R('table',null,
           R('thead',null,R('tr',null,R('th',{style:{width:110}},'점검일'),R('th',{style:{width:90}},'결과'),R('th',null,'내용'),R('th',{style:{width:110}},'점검자'))),
@@ -4033,8 +4133,29 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
         lastDate&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:8}},'최근 점검 기록: '+lastDate+' · 카드를 누르면 해당 설비 이력으로 이동합니다')
       );
     })(),
-    R('div',{style:{marginBottom:10}},
-      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 설비명·위치·담당 검색',style:{maxWidth:340}})),
+    /* ── 폴더(분류) 탭 ── */
+    withCats&&(()=>{
+      const all=rows||[];
+      const cnt=c=>all.filter(r=>r.cat===c).length;
+      const uncat=all.filter(r=>!r.cat).length;
+      const chip=(label,n,active,onClick)=>R('button',{key:label,onClick,
+        style:{display:'inline-flex',alignItems:'center',gap:5,padding:'6px 12px',borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',
+          border:'1px solid '+(active?'var(--p)':'var(--bd)'),background:active?'#FFF3EC':'#fff',color:active?'var(--p)':'var(--t)'}},
+        (active?'📂 ':'📁 ')+label,
+        R('span',{style:{fontSize:10.5,fontWeight:800,color:active?'var(--p)':'var(--tm)'}},n));
+      return R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:10}},
+        chip('전체',all.length,catF==='전체',()=>setCatF('전체')),
+        ...cats.map(c=>chip(c,cnt(c),catF===c,()=>setCatF(c))),
+        uncat>0&&chip('미분류',uncat,catF==='미분류',()=>setCatF('미분류')),
+        isAdmin&&R('button',{onClick:addCat,style:{border:'1px dashed var(--bd)',background:'transparent',borderRadius:10,padding:'6px 12px',fontSize:12,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit'}},'+ 폴더 추가'),
+        isAdmin&&catF!=='전체'&&catF!=='미분류'&&cats.includes(catF)&&R('button',{onClick:()=>delCat(catF),
+          title:'비어 있는 폴더만 삭제할 수 있습니다',
+          style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:10,padding:'6px 10px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑 폴더 삭제')
+      );
+    })(),
+    R('div',{style:{marginBottom:10,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 설비명·위치·담당 검색',style:{maxWidth:340}}),
+      withFiles&&R('span',{style:{fontSize:11,color:'var(--tm)'}},upBusy?'● 파일 업로드 중...':'💡 파일을 아래 표의 서류 행 위로 드래그하면 바로 첨부됩니다')),
     R('div',{className:'tw'},
       R('table',null,
         R('thead',null,R('tr',null,
@@ -4044,8 +4165,17 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
         R('tbody',null,
           rows===null?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           list.length===0?R('tr',null,R('td',{colSpan:8,style:{textAlign:'center',padding:24,color:'var(--tm)'}},'등록된 항목이 없습니다. [+ '+(nameLabel||'설비')+' 등록]으로 추가해주세요.')):
-          list.map(r=>{const st=equipState(r);return R('tr',{key:r._id,style:{background:st.k==='over'?'#FFF8F8':(st.k==='soon'||st.k==='today'?'#FFFDF5':'#fff')}},
-            R('td',{style:{fontWeight:600,cursor:'pointer'},onClick:()=>setHist(r),title:'점검 이력 보기'},r.name,
+          list.map(r=>{const st=equipState(r);
+            const dropProps=withFiles?{
+              onDragOver:e=>{e.preventDefault();setDragRow(r._id);},
+              onDragLeave:()=>setDragRow(d=>d===r._id?null:d),
+              onDrop:e=>{e.preventDefault();setDragRow(null);dropOnRow(r,e.dataTransfer&&e.dataTransfer.files);}
+            }:{};
+            return R('tr',Object.assign({key:r._id,style:{background:dragRow===r._id?'#FFF3EC':(st.k==='over'?'#FFF8F8':(st.k==='soon'||st.k==='today'?'#FFFDF5':'#fff')),
+              outline:dragRow===r._id?'2px dashed var(--p)':'none',outlineOffset:-2}},dropProps),
+            R('td',{style:{fontWeight:600,cursor:'pointer'},onClick:()=>setHist(r),title:withFiles?'이력·첨부파일 보기':'점검 이력 보기'},r.name,
+              withCats&&r.cat&&catF==='전체'&&R('span',{style:{fontSize:10,color:'#8B5E3C',background:'#FDF3E7',border:'1px solid #F3E0C7',borderRadius:8,padding:'1px 6px',marginLeft:5,fontWeight:700}},'📁 '+r.cat),
+              withFiles&&(r.files||[]).length>0&&R('span',{style:{fontSize:10,color:'#1D4ED8',marginLeft:5,fontWeight:700}},'📎'+r.files.length),
               (r.history||[]).length>0&&R('span',{style:{fontSize:10,color:'var(--tm)',marginLeft:5}},'이력 ',r.history.length)),
             R('td',{style:{fontSize:12,color:'var(--tm)'}},r.place||'-'),
             R('td',{style:{fontSize:12}},r.cycle?(r.cycle+r.unit):R('span',{style:{color:'#D9D2CB'}},'미설정')),
@@ -4072,6 +4202,10 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
           R('input',{className:'inp',value:form.name,onChange:e=>setForm(p=>Object.assign({},p,{name:e.target.value})),placeholder:namePh||'예) 살균기 1호'})),
         R('div',{className:'fr'},R('label',{className:'lbl'},placeLabel||'위치'),
           R('input',{className:'inp',value:form.place,onChange:e=>setForm(p=>Object.assign({},p,{place:e.target.value})),placeholder:'예) 1공장 포장실'}))),
+      withCats&&R('div',{className:'fr'},R('label',{className:'lbl'},'폴더(분류)'),
+        R('select',{className:'inp',value:form.cat||'',onChange:e=>setForm(p=>Object.assign({},p,{cat:e.target.value}))},
+          R('option',{value:''},'미분류'),
+          ...cats.map(c=>R('option',{key:c,value:c},c)))),
       R('div',{className:'fr'},R('label',{className:'lbl'},'점검 주기'),
         R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
           R('input',{type:'number',min:'0',className:'inp',value:form.cycle,onChange:e=>setForm(p=>Object.assign({},p,{cycle:e.target.value})),placeholder:'숫자',style:{maxWidth:120}}),
@@ -4086,7 +4220,19 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
       form.last&&+form.cycle>0&&R('div',{style:{fontSize:12,color:'var(--ok)',fontWeight:700,marginBottom:8}},
         '→ 다음 점검일: ',equipNext({last:form.last,cycle:+form.cycle,unit:form.unit})),
       R('div',{className:'fr'},R('label',{className:'lbl'},'비고'),
-        R('textarea',{className:'inp',value:form.note,onChange:e=>setForm(p=>Object.assign({},p,{note:e.target.value})),placeholder:'점검 항목, 주의사항 등',style:{minHeight:70}}))
+        R('textarea',{className:'inp',value:form.note,onChange:e=>setForm(p=>Object.assign({},p,{note:e.target.value})),placeholder:'점검 항목, 주의사항 등',style:{minHeight:70}})),
+      withFiles&&R('div',{className:'fr',style:{marginTop:8}},R('label',{className:'lbl'},'첨부파일'),
+        R('div',{onDragOver:e=>e.preventDefault(),
+          onDrop:e=>{e.preventDefault();addFormFiles(e.dataTransfer&&e.dataTransfer.files);},
+          onClick:()=>fileRef.current&&fileRef.current.click(),
+          style:{border:'2px dashed var(--bd)',borderRadius:10,padding:'14px',textAlign:'center',fontSize:12,color:'var(--tm)',cursor:'pointer',background:'#FBFAF8'}},
+          upBusy?'● 업로드 중...':'📎 파일을 여기로 드래그하거나 클릭해서 선택 (여러 개 가능)'),
+        R('input',{type:'file',multiple:true,ref:fileRef,style:{display:'none'},onChange:e=>{addFormFiles(e.target.files);e.target.value='';}}),
+        (form.files||[]).length>0&&R('div',{style:{marginTop:6,display:'flex',flexDirection:'column',gap:4}},
+          ...(form.files||[]).map((f,i)=>R('div',{key:i,style:{display:'flex',gap:6,alignItems:'center',fontSize:12}},
+            R('a',{href:f.url,target:'_blank',rel:'noreferrer',style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'#1D4ED8',textDecoration:'none'}},'📄 '+f.name),
+            R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},fSize(f.size)),
+            R('button',{onClick:()=>rmFormFile(i),style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'1px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'×')))))
     ),
     chk&&checkModal()
   );
@@ -17913,10 +18059,10 @@ function App(){
     if(page==='ledger_close')return R(PageLedgerClose,{user});
     if(page==='etc_misc')return R(PageEtc,{user});
     if(page==='docs')return R(PageCycleCheck,{key:'docs',user,title:'회사 서류 관리',ic:'🗂',
-      desc:'중대재해처벌법·인허가·보험 등 갱신 주기가 있는 서류를 관리합니다. 갱신일이 다가오면 홈 화면에 표시됩니다',
+      desc:'중대재해처벌법·인허가·보험 등 갱신 주기가 있는 서류를 관리합니다. 갱신일이 다가오면 홈 화면에 표시됩니다 · 폴더별 관리, 파일 드래그 첨부 가능',
       storeKey:'bnf_docs',nameLabel:'서류',namePh:'예) 안전보건 경영방침 게시',
       placeLabel:'보관 위치/근거',resultOpts:['갱신 완료','유효','재발급','보완 필요','폐기'],
-      seedList:DOC_SEED});
+      seedList:DOC_SEED,withFiles:true,catsKey:'bnf_docs_cats',catList:DOC_CATS});
     if(page==='qc_self')return R(PageCycleCheck,{key:'qc_self',user,title:'자가품질검사',ic:'🧪',
       desc:'유형별 검사 주기를 설정하면 다음 검사일이 자동 계산되고, 도래하면 홈 화면에 표시됩니다',
       storeKey:'bnf_qc_self',nameLabel:'검사 유형',namePh:'예) 세균수 · 대장균군',
