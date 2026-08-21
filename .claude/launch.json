@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "mes",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set PATH=C:\\Program Files\\nodejs;%PATH%&& npx -y http-server -p 8123 -c-1 ."],
+      "port": 8123
+    },
+    {
       "name": "franchise-order",
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "set PATH=C:\\Program Files\\nodejs;%PATH%&& cd /d franchise-order&& npm run dev:lan"],
