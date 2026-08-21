@@ -164,87 +164,6 @@ export function AlignPicker({ value, onChange }: { value: string; onChange: (v: 
   );
 }
 
-/** 파일 올리기 버튼 — 드래그&드롭도 받는다 */
-export function Uploader({
-  accept = "image/*",
-  label = "파일 선택",
-  onUploaded,
-  hint,
-}: {
-  accept?: string;
-  label?: string;
-  onUploaded: (url: string) => void;
-  hint?: string;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [drag, setDrag] = useState(false);
-  const [err, setErr] = useState("");
-
-  const send = async (file: File) => {
-    setBusy(true);
-    setErr("");
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let bin = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) {
-        bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      }
-      const r = await fetch("/api/admin/upload", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: file.name, type: file.type, data: btoa(bin) }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "업로드 실패");
-      onUploaded(j.url);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div>
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDrag(true);
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDrag(false);
-          const f = e.dataTransfer.files?.[0];
-          if (f) send(f);
-        }}
-        onClick={() => ref.current?.click()}
-        className={`cursor-pointer rounded-md border border-dashed px-3 py-3 text-center text-[12px] transition-colors ${
-          drag
-            ? "border-[#e8261e] bg-[#e8261e]/10 text-[#ff6a5e]"
-            : "border-[#33383f] text-[#9aa1ab] hover:border-[#4a5058] hover:text-[#e8eaed]"
-        }`}
-      >
-        {busy ? "올리는 중..." : drag ? "여기에 놓으세요" : label}
-        {hint && !busy && <span className="mt-0.5 block text-[11px] text-[#6b727c]">{hint}</span>}
-      </div>
-      <input
-        ref={ref}
-        type="file"
-        accept={accept}
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) send(f);
-          e.target.value = "";
-        }}
-      />
-      {err && <p className="mt-1.5 text-[11.5px] font-bold text-[#ff6a5e]">{err}</p>}
-    </div>
-  );
-}
-
 export function Toggle({
   checked,
   onChange,
@@ -274,5 +193,73 @@ export function Toggle({
       </span>
       <input type="checkbox" checked={checked} onChange={() => {}} className="hidden" />
     </label>
+  );
+}
+
+
+/** 여백을 그림으로 보여주며 조절 — 숫자를 몰라도 되게 단계 버튼을 함께 둔다 */
+export function SpacingBox({
+  top,
+  bottom,
+  onTop,
+  onBottom,
+}: {
+  top: string;
+  bottom: string;
+  onTop: (v: string) => void;
+  onBottom: (v: string) => void;
+}) {
+  const STEPS: { l: string; v: string }[] = [
+    { l: "없음", v: "0px" },
+    { l: "좁게", v: "24px" },
+    { l: "보통", v: "56px" },
+    { l: "넓게", v: "96px" },
+    { l: "기본", v: "" },
+  ];
+
+  const Bar = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => (
+    <div className="mb-2">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11.5px] text-[#9aa1ab]">{label}</span>
+        <span className="text-[11px] text-[#5c636d] tabular-nums">{value || "기본"}</span>
+      </div>
+      <div className="flex gap-1">
+        {STEPS.map((s) => (
+          <button
+            key={s.l}
+            type="button"
+            onClick={() => onChange(s.v)}
+            className={`flex-1 rounded border py-1 text-[11px] transition-colors ${
+              (value || "") === s.v
+                ? "border-[#e8261e] bg-[#e8261e]/15 text-[#ff6a5e]"
+                : "border-[#2a2e34] text-[#9aa1ab] hover:border-[#3a3f46] hover:text-[#e8eaed]"
+            }`}
+          >
+            {s.l}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* 여백을 눈으로 보여주는 그림 */}
+      <div className="mb-3 rounded-md border border-[#2a2e34] bg-[#101317] p-2">
+        <div
+          className="rounded bg-[#e8261e]/25"
+          style={{ height: Math.min(28, Math.max(2, parseInt(top || "0", 10) / 4 || 2)) }}
+        />
+        <div className="my-1 grid h-8 place-items-center rounded bg-[#22262b] text-[11px] text-[#7b828c]">
+          내용
+        </div>
+        <div
+          className="rounded bg-[#e8261e]/25"
+          style={{ height: Math.min(28, Math.max(2, parseInt(bottom || "0", 10) / 4 || 2)) }}
+        />
+      </div>
+      <Bar value={top} onChange={onTop} label="위 여백" />
+      <Bar value={bottom} onChange={onBottom} label="아래 여백" />
+    </div>
   );
 }

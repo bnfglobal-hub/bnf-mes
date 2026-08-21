@@ -124,6 +124,7 @@ export default function EditBridge() {
         const img = el as HTMLImageElement;
         extra.src = img.getAttribute("src");
         extra.alt = img.alt;
+        extra.natural = { w: img.naturalWidth || 0, h: img.naturalHeight || 0 };
       }
       if (k.kind === "video") {
         extra.src = (el as HTMLVideoElement).getAttribute("src");
@@ -153,14 +154,16 @@ export default function EditBridge() {
       sel?.addRange(range);
 
       const finish = () => {
-        if (!editingEl) return;
-        const value = editingEl.innerText.replace(/ /g, " ").replace(/\n{3,}/g, "\n\n");
-        editingEl.removeAttribute("contenteditable");
-        editingEl.classList.remove("bnf-editing");
-        post("edit", { path, value });
-        editingEl.removeEventListener("blur", finish);
-        editingEl.removeEventListener("keydown", onKey);
+        const node = editingEl;
+        if (!node) return;
+        // contenteditable 을 떼면 blur 가 다시 불리므로 먼저 비워 재진입을 막는다
         editingEl = null;
+        const value = node.innerText.replace(/ /g, " ").replace(/\n{3,}/g, "\n\n").trim();
+        node.removeEventListener("blur", finish);
+        node.removeEventListener("keydown", onKey);
+        node.removeAttribute("contenteditable");
+        node.classList.remove("bnf-editing");
+        post("edit", { path, value });
       };
       const onKey = (ev: KeyboardEvent) => {
         if (ev.key === "Escape") {
@@ -226,29 +229,34 @@ export default function EditBridge() {
         }
       });
 
-      // 스타일 덮어쓰기
+      // 스타일 덮어쓰기 (PC 값 + 태블릿·모바일 전용 값)
+      const kebab = (k: string) => k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
       const styles = (draft.style ?? {}) as Record<string, Record<string, string>>;
+      const stylesT = (draft.styleTablet ?? {}) as Record<string, Record<string, string>>;
+      const stylesM = (draft.styleMobile ?? {}) as Record<string, Record<string, string>>;
       document
-        .querySelectorAll<HTMLElement>("[data-edit],[data-img],[data-video],[data-btn]")
+        .querySelectorAll<HTMLElement>("[data-edit],[data-img],[data-video],[data-btn],[data-section]")
         .forEach((el) => {
-          const key = el.dataset.edit || el.dataset.img || el.dataset.video || el.dataset.btn;
+          const key =
+            el.dataset.edit || el.dataset.img || el.dataset.video || el.dataset.btn ||
+            (el.dataset.section ? `section.${el.dataset.section}` : undefined);
           if (!key) return;
-          const s = styles[key];
+
           // 이전에 적용했던 것 지우기
-          const applied = (el.dataset.bnfStyled || "").split(",").filter(Boolean);
-          applied.forEach((prop) => el.style.removeProperty(prop));
-          if (!s) {
-            delete el.dataset.bnfStyled;
-            return;
-          }
+          (el.dataset.bnfStyled || "").split(",").filter(Boolean).forEach((prop) => el.style.removeProperty(prop));
+
           const props: string[] = [];
-          Object.entries(s).forEach(([k, val]) => {
-            if (!val) return;
-            const prop = k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-            el.style.setProperty(prop, val, "important");
+          // PC 값은 보통 우선순위로 — 태블릿·모바일 전용 규칙(!important)이 이길 수 있게
+          const put = (prop: string, val: string, important = false) => {
+            el.style.setProperty(prop, val, important ? "important" : "");
             props.push(prop);
-          });
-          el.dataset.bnfStyled = props.join(",");
+          };
+          Object.entries(styles[key] ?? {}).forEach(([k, v]) => v && put(kebab(k), v));
+          Object.entries(stylesT[key] ?? {}).forEach(([k, v]) => v && put(`--t-${kebab(k)}`, v));
+          Object.entries(stylesM[key] ?? {}).forEach(([k, v]) => v && put(`--m-${kebab(k)}`, v));
+
+          if (props.length) el.dataset.bnfStyled = props.join(",");
+          else delete el.dataset.bnfStyled;
         });
 
       // 오버레이 강도
@@ -284,12 +292,26 @@ export default function EditBridge() {
 
       post("applied", {});
       queueMicrotask(sendRect);
+      setTimeout(sendSections, 60);
     }
 
     function sendRect() {
       if (selected && document.contains(selected)) {
         post("rect", { rect: rectOf(selected) });
       }
+      sendSections();
+    }
+
+    /** 섹션 각각의 화면상 위치 — 부모가 hover 도구막대와 '+ 섹션 추가' 를 그린다 */
+    function sendSections() {
+      if (previewOnly) return;
+      const list = [...document.querySelectorAll<HTMLElement>("[data-section]")].map((el) => ({
+        id: el.dataset.section!,
+        label: el.dataset.sectionLabel ?? el.dataset.section!,
+        custom: el.dataset.custom === "1",
+        rect: rectOf(el),
+      }));
+      post("sections", { list, scrollY: window.scrollY, docH: document.documentElement.scrollHeight });
     }
 
     function setPreview(on: boolean) {
@@ -320,6 +342,15 @@ export default function EditBridge() {
         case "preview":
           setPreview(!!d.on);
           break;
+        case "selectPath": {
+          const q = `[data-edit="${CSS.escape(d.path)}"],[data-img="${CSS.escape(d.path)}"],[data-video="${CSS.escape(d.path)}"],[data-section="${CSS.escape(d.path)}"]`;
+          const el = document.querySelector<HTMLElement>(q);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            setTimeout(() => select(el), 320);
+          }
+          break;
+        }
         case "deselect":
           if (selected) selected.classList.remove("bnf-sel");
           selected = null;
@@ -332,17 +363,30 @@ export default function EditBridge() {
       }
     };
 
+    /* ── 더블클릭 → 그 자리에서 글자 수정 ── */
+    const onDbl = (e: MouseEvent) => {
+      if (previewOnly) return;
+      const el = closestEditable(e.target);
+      if (!el || !el.dataset.edit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startInline(el.dataset.edit);
+    };
+
     document.addEventListener("mouseover", onOver, true);
     document.addEventListener("click", onClick, true);
+    document.addEventListener("dblclick", onDbl, true);
     window.addEventListener("message", onMessage);
     window.addEventListener("scroll", sendRect, true);
     window.addEventListener("resize", sendRect);
 
     post("ready", { page: location.pathname });
+    setTimeout(sendSections, 120);
 
     return () => {
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("dblclick", onDbl, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("scroll", sendRect, true);
       window.removeEventListener("resize", sendRect);

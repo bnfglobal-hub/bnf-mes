@@ -890,5 +890,10 @@
       "hidden": []
     }
   },
-  "style": {}
+  "style": {},
+  "styleTablet": {},
+  "styleMobile": {},
+  "customSections": {},
+  "media": [],
+  "seo": {}
 }

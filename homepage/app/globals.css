@@ -92,3 +92,45 @@ h1, h2, h3 {
   width: 100%;
   height: auto;
 }
+
+/* ═══ 기기별 덮어쓰기 ═══
+   편집기에서 태블릿·모바일 전용 값을 지정하면 --t-* / --m-* 변수로 내려오고,
+   해당 화면폭에서만 적용된다. 지정하지 않은 값은 기본 디자인 그대로다. */
+@media (max-width: 1023px) {
+  [style*="--t-"] {
+    font-size: var(--t-font-size, revert-layer) !important;
+    font-weight: var(--t-font-weight, revert-layer) !important;
+    text-align: var(--t-text-align, revert-layer) !important;
+    color: var(--t-color, revert-layer) !important;
+    line-height: var(--t-line-height, revert-layer) !important;
+    letter-spacing: var(--t-letter-spacing, revert-layer) !important;
+    padding-top: var(--t-padding-top, revert-layer) !important;
+    padding-bottom: var(--t-padding-bottom, revert-layer) !important;
+    height: var(--t-height, revert-layer) !important;
+    width: var(--t-width, revert-layer) !important;
+    object-fit: var(--t-object-fit, revert-layer) !important;
+    object-position: var(--t-object-position, revert-layer) !important;
+    border-radius: var(--t-border-radius, revert-layer) !important;
+    background-color: var(--t-background-color, revert-layer) !important;
+    display: var(--t-display, revert-layer) !important;
+  }
+}
+@media (max-width: 767px) {
+  [style*="--m-"] {
+    font-size: var(--m-font-size, revert-layer) !important;
+    font-weight: var(--m-font-weight, revert-layer) !important;
+    text-align: var(--m-text-align, revert-layer) !important;
+    color: var(--m-color, revert-layer) !important;
+    line-height: var(--m-line-height, revert-layer) !important;
+    letter-spacing: var(--m-letter-spacing, revert-layer) !important;
+    padding-top: var(--m-padding-top, revert-layer) !important;
+    padding-bottom: var(--m-padding-bottom, revert-layer) !important;
+    height: var(--m-height, revert-layer) !important;
+    width: var(--m-width, revert-layer) !important;
+    object-fit: var(--m-object-fit, revert-layer) !important;
+    object-position: var(--m-object-position, revert-layer) !important;
+    border-radius: var(--m-border-radius, revert-layer) !important;
+    background-color: var(--m-background-color, revert-layer) !important;
+    display: var(--m-display, revert-layer) !important;
+  }
+}

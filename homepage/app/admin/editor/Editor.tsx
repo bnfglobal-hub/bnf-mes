@@ -2,165 +2,321 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Inspector, { type Selection } from "./Inspector";
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import Manipulator, { type ManipTarget, type Rect } from "./Manipulator";
+import SectionOverlay, { type SectionInfo } from "./SectionOverlay";
+import SectionLibrary from "./SectionLibrary";
+import MediaLibrary from "./MediaLibrary";
+import Toolbar, { type DeviceId } from "./Toolbar";
+import { TEMPLATES, newId } from "./templates";
+import { clone, getPath, setPath, type MediaItem, type SiteDraft } from "./types";
 
 const MSG = "bnf-editor";
+const PAGE = "home";
+const BUILTINS = ["hero", "videos", "cards", "product", "location"];
 
-const DEVICES = [
-  { id: "desktop", label: "PC", w: 0, icon: "M3 5h18v11H3zM8 20h8" },
-  { id: "tablet", label: "태블릿", w: 834, icon: "M5 3h14v18H5zM11 18h2" },
-  { id: "mobile", label: "모바일", w: 390, icon: "M7 2h10v20H7zM10 19h4" },
-] as const;
+export default function Editor({ initial }: { initial: SiteDraft }) {
+  const [draft, setDraftState] = useState<SiteDraft>(initial);
+  const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(initial));
+  const [publishedSnapshot, setPublishedSnapshot] = useState<string | null>(null);
 
-type DeviceId = (typeof DEVICES)[number]["id"];
-
-const PAGES = [
-  { path: "/", label: "홈 화면", sections: true },
-  { path: "/company/greeting", label: "인사말" },
-  { path: "/company/history", label: "회사연혁" },
-  { path: "/company/business", label: "사업분야" },
-  { path: "/company/manufacturing", label: "식품제조" },
-  { path: "/company/certification", label: "인증현황" },
-  { path: "/company/location", label: "오시는 길" },
-  { path: "/products/import", label: "수입 제품" },
-  { path: "/products/oil", label: "식용 유지" },
-  { path: "/products/frozen", label: "냉동 수산/축산" },
-  { path: "/products/hmr-export", label: "HMR(수출용)" },
-  { path: "/products/hmr", label: "HMR(내수용)" },
-  { path: "/products/sauce", label: "소스/육수" },
-  { path: "/products/noodle", label: "면류" },
-  { path: "/products/seafood", label: "수산물가공품" },
-  { path: "/products/etc", label: "기타 가공품" },
-  { path: "/support/oem", label: "OEM 견적" },
-  { path: "/support/contact", label: "문의하기" },
-];
-
-const SECTION_LABELS: Record<string, string> = {
-  hero: "첫 화면(영상)",
-  videos: "소개 영상",
-  cards: "소개 카드",
-  product: "PRODUCT",
-  location: "오시는 길",
-};
-
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v));
-}
-
-function getPath(obj: any, path: string) {
-  return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
-}
-function setPath(obj: any, path: string, value: any) {
-  const keys = path.split(".");
-  let cur = obj;
-  for (const k of keys.slice(0, -1)) {
-    if (cur[k] == null) cur[k] = {};
-    cur = cur[k];
-  }
-  cur[keys[keys.length - 1]] = value;
-}
-
-export default function Editor({ initial }: { initial: any }) {
-  const [draft, setDraftState] = useState<any>(initial);
-  const [savedSnapshot, setSavedSnapshot] = useState<string>(JSON.stringify(initial));
   const [sel, setSel] = useState<Selection>(null);
-  const [rect, setRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [selRect, setSelRect] = useState<Rect | null>(null);
+  const [selNatural, setSelNatural] = useState<{ w: number; h: number } | undefined>();
+  const [cropMode, setCropMode] = useState(false);
+
   const [device, setDevice] = useState<DeviceId>("desktop");
   const [preview, setPreview] = useState(false);
-  const [status, setStatus] = useState<{ kind: "idle" | "busy" | "ok" | "err"; msg?: string }>({ kind: "idle" });
+  const [sections, setSections] = useState<SectionInfo[]>([]);
+  const [hoverSection, setHoverSection] = useState<string | null>(null);
+  const [canvasRect, setCanvasRect] = useState<Rect | null>(null);
+
+  const [libraryAt, setLibraryAt] = useState<number | null>(null);
+  const [mediaFor, setMediaFor] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
-  const [page, setPage] = useState("/");
+  const [, forceRender] = useState(0);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const frameBoxRef = useRef<HTMLDivElement>(null);
   const history = useRef<string[]>([JSON.stringify(initial)]);
   const hIndex = useRef(0);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const dirty = JSON.stringify(draft) !== savedSnapshot;
+  const unpublished = publishedSnapshot !== null && JSON.stringify(draft) !== publishedSnapshot;
 
   const layout = useMemo(
     () => ({
-      order: draft?.layout?.home?.order ?? ["hero", "videos", "cards", "product", "location"],
-      hidden: draft?.layout?.home?.hidden ?? [],
+      order: draft.layout?.[PAGE]?.order ?? BUILTINS,
+      hidden: draft.layout?.[PAGE]?.hidden ?? [],
     }),
     [draft]
   );
 
-  /* ── 편집 내용을 미리보기 화면에 전달 ── */
-  const push = useCallback((next: any) => {
+  const showToast = useCallback((kind: "ok" | "err", msg: string) => {
+    setToast({ kind, msg });
+    setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  const push = useCallback((next: SiteDraft) => {
     iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "draft", draft: next }, "*");
   }, []);
 
-  /* ── 변경 기록 (되돌리기용) ── */
+  const saveDraft = useCallback(
+    async (data: SiteDraft, opts?: { silent?: boolean }) => {
+      setSaveState("saving");
+      try {
+        const r = await fetch("/api/admin/draft", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "저장 실패");
+        setSavedSnapshot(JSON.stringify(data));
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1600);
+        if (!opts?.silent) showToast("ok", "저장했습니다");
+        return true;
+      } catch (e) {
+        setSaveState("idle");
+        showToast("err", e instanceof Error ? e.message : String(e));
+        return false;
+      }
+    },
+    [showToast]
+  );
+
+  /** 구조가 바뀌면(섹션 추가·삭제·복제·숨김) 저장 후 캔버스를 다시 그린다 */
+  const saveThenReload = useCallback(
+    (next: SiteDraft) => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+      reloadTimer.current = setTimeout(() => {
+        void saveDraft(next, { silent: true }).then((ok) => {
+          if (ok) iframeRef.current?.contentWindow?.location.reload();
+        });
+      }, 80);
+    },
+    [saveDraft]
+  );
+
   const commit = useCallback(
-    (next: any) => {
+    (next: SiteDraft, opts?: { structural?: boolean }) => {
       setDraftState(next);
       const s = JSON.stringify(next);
       if (history.current[hIndex.current] !== s) {
         history.current = history.current.slice(0, hIndex.current + 1);
         history.current.push(s);
-        if (history.current.length > 100) history.current.shift();
+        if (history.current.length > 60) history.current.shift();
         hIndex.current = history.current.length - 1;
+        forceRender((n) => n + 1);
       }
       push(next);
+
+      if (opts?.structural) {
+        saveThenReload(next);
+      } else {
+        if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+        setSaveState("saving");
+        autosaveTimer.current = setTimeout(() => void saveDraft(next, { silent: true }), 1200);
+      }
     },
-    [push]
+    [push, saveDraft, saveThenReload]
   );
 
-  const undo = useCallback(() => {
-    if (hIndex.current <= 0) return;
-    hIndex.current -= 1;
-    const v = JSON.parse(history.current[hIndex.current]);
-    setDraftState(v);
-    push(v);
-  }, [push]);
+  const jumpHistory = useCallback(
+    (delta: number) => {
+      const t = hIndex.current + delta;
+      if (t < 0 || t >= history.current.length) return;
+      hIndex.current = t;
+      const v = JSON.parse(history.current[t]) as SiteDraft;
+      setDraftState(v);
+      push(v);
+      forceRender((n) => n + 1);
+      saveThenReload(v);
+    },
+    [push, saveThenReload]
+  );
 
-  const redo = useCallback(() => {
-    if (hIndex.current >= history.current.length - 1) return;
-    hIndex.current += 1;
-    const v = JSON.parse(history.current[hIndex.current]);
-    setDraftState(v);
-    push(v);
-  }, [push]);
+  const undo = useCallback(() => jumpHistory(-1), [jumpHistory]);
+  const redo = useCallback(() => jumpHistory(1), [jumpHistory]);
 
   /* ── 값 읽기/쓰기 ── */
   const getValue = useCallback((path: string) => getPath(draft, path), [draft]);
   const setValue = useCallback(
-    (path: string, v: any) => {
+    (path: string, v: unknown) => {
       const next = clone(draft);
-      setPath(next, path, v);
+      setPath(next as Record<string, unknown>, path, v);
       commit(next);
     },
     [draft, commit]
   );
 
+  const styleKey = device === "desktop" ? "style" : device === "tablet" ? "styleTablet" : "styleMobile";
+
   const getStyle = useCallback(
-    (path: string, prop: string) => String(draft?.style?.[path]?.[prop] ?? ""),
-    [draft]
-  );
-  const setStyle = useCallback(
-    (path: string, prop: string, v: string) => {
-      const next = clone(draft);
-      next.style = next.style ?? {};
-      next.style[path] = next.style[path] ?? {};
-      if (v === "" || v == null) delete next.style[path][prop];
-      else next.style[path][prop] = prop === "transform" ? `scale(${parseFloat(v) / 100 || 1})` : v;
-      if (Object.keys(next.style[path]).length === 0) delete next.style[path];
-      commit(next);
+    (path: string, prop: string) => {
+      const bag = (draft as Record<string, unknown>)[styleKey] as
+        | Record<string, Record<string, string>>
+        | undefined;
+      return String(bag?.[path]?.[prop] ?? "");
     },
-    [draft, commit]
+    [draft, styleKey]
+  );
+
+  const setStyleMany = useCallback(
+    (path: string, props: Record<string, string>) => {
+      const next = clone(draftRef.current) as Record<string, unknown>;
+      const bag = (next[styleKey] ?? {}) as Record<string, Record<string, string>>;
+      const cur = { ...(bag[path] ?? {}) };
+      for (const [k, v] of Object.entries(props)) {
+        if (v === "" || v == null) delete cur[k];
+        else cur[k] = k === "transform" ? `scale(${(parseFloat(v) || 100) / 100})` : v;
+      }
+      if (Object.keys(cur).length === 0) delete bag[path];
+      else bag[path] = cur;
+      next[styleKey] = bag;
+      commit(next as SiteDraft);
+    },
+    [styleKey, commit]
+  );
+
+  const setStyle = useCallback(
+    (path: string, prop: string, v: string) => setStyleMany(path, { [prop]: v }),
+    [setStyleMany]
   );
 
   const setLayout = useCallback(
-    (l: { order: string[]; hidden: string[] }) => {
-      const next = clone(draft);
+    (l: { order: string[]; hidden: string[] }, structural = false) => {
+      const next = clone(draftRef.current);
       next.layout = next.layout ?? {};
-      next.layout.home = l;
-      commit(next);
+      next.layout[PAGE] = l;
+      commit(next, { structural });
     },
-    [draft, commit]
+    [commit]
   );
+
+  /* ── 섹션 조작 ── */
+  const moveSection = useCallback(
+    (id: string, dir: -1 | 1) => {
+      const order = [...layout.order];
+      const i = order.indexOf(id);
+      const t = i + dir;
+      if (i < 0 || t < 0 || t >= order.length) return;
+      [order[i], order[t]] = [order[t], order[i]];
+      setLayout({ ...layout, order });
+    },
+    [layout, setLayout]
+  );
+
+  const toggleHide = useCallback(
+    (id: string) => {
+      const hidden = layout.hidden.includes(id)
+        ? layout.hidden.filter((x) => x !== id)
+        : [...layout.hidden, id];
+      setLayout({ ...layout, hidden }, true);
+    },
+    [layout, setLayout]
+  );
+
+  const addSection = (templateKey: string, index: number) => {
+    const t = TEMPLATES.find((x) => x.key === templateKey);
+    if (!t) return;
+    const id = newId();
+    const next = clone(draftRef.current);
+    next.customSections = next.customSections ?? {};
+    next.customSections[id] = {
+      id,
+      type: t.type as never,
+      label: t.name,
+      content: clone(t.content) as never,
+    };
+    const order = [...layout.order];
+    order.splice(Math.max(0, Math.min(order.length, index)), 0, id);
+    next.layout = next.layout ?? {};
+    next.layout[PAGE] = { order, hidden: layout.hidden };
+    commit(next, { structural: true });
+    setLibraryAt(null);
+    showToast("ok", `‘${t.name}’ 섹션을 추가했습니다`);
+  };
+
+  const duplicateSection = useCallback(
+    (id: string) => {
+      const src = draftRef.current.customSections?.[id];
+      if (!src) {
+        showToast("err", "기본 섹션은 복제할 수 없습니다 (숨기기를 쓰세요)");
+        return;
+      }
+      const nid = newId();
+      const next = clone(draftRef.current);
+      next.customSections![nid] = { ...clone(src), id: nid };
+      const order = [...layout.order];
+      order.splice(order.indexOf(id) + 1, 0, nid);
+      next.layout = next.layout ?? {};
+      next.layout[PAGE] = { order, hidden: layout.hidden };
+      commit(next, { structural: true });
+      showToast("ok", "섹션을 복제했습니다");
+    },
+    [layout, commit, showToast]
+  );
+
+  const deleteSection = useCallback(
+    (id: string) => {
+      if (!draftRef.current.customSections?.[id]) {
+        showToast("err", "기본 섹션은 삭제 대신 숨기기를 쓰세요");
+        return;
+      }
+      if (!window.confirm("이 섹션을 삭제할까요?\n\n되돌리기(Ctrl+Z)로 복구할 수 있습니다.")) return;
+      const next = clone(draftRef.current);
+      delete next.customSections![id];
+      next.layout = next.layout ?? {};
+      next.layout[PAGE] = { order: layout.order.filter((x) => x !== id), hidden: layout.hidden };
+      commit(next, { structural: true });
+      setSel(null);
+      showToast("ok", "섹션을 삭제했습니다");
+    },
+    [layout, commit, showToast]
+  );
+
+  const dropSection = useCallback(() => {
+    if (!dragId || dropIdx === null) {
+      setDragId(null);
+      setDropIdx(null);
+      return;
+    }
+    const order = layout.order.filter((x) => x !== dragId);
+    const at = Math.max(0, Math.min(order.length, dropIdx > layout.order.indexOf(dragId) ? dropIdx - 1 : dropIdx));
+    order.splice(at, 0, dragId);
+    setLayout({ ...layout, order });
+    setDragId(null);
+    setDropIdx(null);
+  }, [dragId, dropIdx, layout, setLayout]);
+
+  /* ── 캔버스 위치 추적 ── */
+  useEffect(() => {
+    const update = () => {
+      const el = frameBoxRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setCanvasRect((prev) =>
+        prev && prev.x === r.left && prev.y === r.top && prev.w === r.width && prev.h === r.height
+          ? prev
+          : { x: r.left, y: r.top, w: r.width, h: r.height }
+      );
+    };
+    update();
+    window.addEventListener("resize", update);
+    const t = setInterval(update, 400);
+    return () => {
+      window.removeEventListener("resize", update);
+      clearInterval(t);
+    };
+  }, [device, preview]);
 
   /* ── 미리보기 화면에서 오는 신호 ── */
   useEffect(() => {
@@ -168,38 +324,71 @@ export default function Editor({ initial }: { initial: any }) {
       const d = e.data;
       if (!d || d.__src !== MSG) return;
       if (d.type === "ready") {
-        push(draft);
+        push(draftRef.current);
       } else if (d.type === "select") {
         setSel({ kind: d.kind, path: d.path, text: d.text, src: d.src, alt: d.alt, label: d.label });
-        setRect(d.rect);
+        setSelRect(d.rect);
+        setSelNatural(d.natural);
+        setCropMode(false);
       } else if (d.type === "rect") {
-        setRect(d.rect);
+        setSelRect(d.rect);
+      } else if (d.type === "sections") {
+        setSections(d.list);
       } else if (d.type === "edit") {
         setValue(d.path, d.value);
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [draft, push, setValue]);
+  }, [push, setValue]);
+
+  const setPreviewMode = useCallback((on: boolean) => {
+    setPreview(on);
+    if (on) {
+      setSel(null);
+      setCropMode(false);
+    }
+    iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "preview", on }, "*");
+  }, []);
 
   /* ── 단축키 ── */
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
       const mod = e.ctrlKey || e.metaKey;
+
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
+        return;
       }
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        save();
+        void saveDraft(draftRef.current);
+        return;
       }
-      if (e.key === "Escape" && preview) setPreviewMode(false);
+      if (typing) return;
+
+      if (mod && e.key.toLowerCase() === "d" && sel?.kind === "section") {
+        e.preventDefault();
+        duplicateSection(sel.path);
+        return;
+      }
+      if (e.key === "Escape") {
+        if (preview) setPreviewMode(false);
+        else if (cropMode) setCropMode(false);
+        else {
+          setSel(null);
+          iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "deselect" }, "*");
+        }
+      }
+      if (e.key === "Delete" && sel?.kind === "section") deleteSection(sel.path);
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  });
+  }, [undo, redo, saveDraft, sel, preview, cropMode, duplicateSection, deleteSection, setPreviewMode]);
 
   /* ── 저장 안 하고 나가기 경고 ── */
   useEffect(() => {
@@ -210,193 +399,88 @@ export default function Editor({ initial }: { initial: any }) {
     return () => window.removeEventListener("beforeunload", h);
   }, [dirty]);
 
-  const setPreviewMode = (on: boolean) => {
-    setPreview(on);
-    if (on) setSel(null);
-    iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "preview", on }, "*");
-  };
-
-  const save = async () => {
-    setStatus({ kind: "busy", msg: "저장 중" });
-    try {
-      const r = await fetch("/api/admin/draft", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(draft),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "저장 실패");
-      setSavedSnapshot(JSON.stringify(draft));
-      setStatus({ kind: "ok", msg: "저장했습니다" });
-      setTimeout(() => setStatus({ kind: "idle" }), 2200);
-    } catch (e) {
-      setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
-    }
-  };
+  /* ── 게시본과 비교 ── */
+  useEffect(() => {
+    fetch("/api/admin/draft")
+      .then((r) => r.json())
+      .then((j) => j.published && setPublishedSnapshot(JSON.stringify(j.published)))
+      .catch(() => {});
+  }, []);
 
   const publish = async () => {
-    if (!window.confirm("변경사항을 홈페이지에 게시하시겠습니까?\n\n게시하면 방문자에게 바로 보입니다.")) return;
-    setStatus({ kind: "busy", msg: "게시 중" });
+    if (!window.confirm("이 변경사항을 실제 홈페이지에 반영하시겠습니까?")) return;
     try {
       const r = await fetch("/api/admin/publish", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(draftRef.current),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "게시 실패");
-      setSavedSnapshot(JSON.stringify(draft));
-      setStatus({ kind: "ok", msg: "홈페이지에 게시되었습니다" });
-      setTimeout(() => setStatus({ kind: "idle" }), 3000);
+      setSavedSnapshot(JSON.stringify(draftRef.current));
+      setPublishedSnapshot(JSON.stringify(draftRef.current));
+      showToast("ok", "홈페이지에 게시되었습니다");
     } catch (e) {
-      setStatus({ kind: "err", msg: e instanceof Error ? e.message : String(e) });
+      showToast("err", e instanceof Error ? e.message : String(e));
     }
   };
 
-  const startInline = (path: string) => {
+  const startInline = (path: string) =>
     iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "startInline", path }, "*");
-  };
+  const selectInCanvas = (path: string) =>
+    iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "selectPath", path }, "*");
 
-  /* ── 섹션 드래그 ── */
-  const onDrop = (index: number) => {
-    if (!dragId) return;
-    const order = layout.order.filter((x: string) => x !== dragId);
-    const at = Math.max(0, Math.min(order.length, index));
-    order.splice(at, 0, dragId);
-    setLayout({ ...layout, order });
-    setDragId(null);
-    setDropIdx(null);
-  };
+  const manipTarget: ManipTarget | null =
+    !preview && sel && (sel.kind === "image" || sel.kind === "video") && selRect
+      ? { kind: sel.kind, path: sel.path, rect: selRect, natural: selNatural }
+      : null;
 
-  const deviceW = DEVICES.find((d) => d.id === device)!.w;
+  const deviceW = device === "desktop" ? 0 : device === "tablet" ? 834 : 390;
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#0e1013] text-[#e8eaed]">
-      {/* ═══ 상단 툴바 ═══ */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[#1f2226] bg-[#121417] px-4">
-        <a
-          href="/admin"
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-[#9aa1ab] transition-colors hover:bg-[#1c1f23] hover:text-[#e8eaed]"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          관리자
-        </a>
-        <span className="h-5 w-px bg-[#26292e]" />
-        <select
-          value={page}
-          onChange={(e) => {
-            setPage(e.target.value);
-            setSel(null);
-            setRect(null);
-          }}
-          aria-label="편집할 페이지"
-          className="rounded-md border border-[#2a2e34] bg-[#15181c] px-2.5 py-1.5 text-[12.5px] font-bold text-[#e8eaed] outline-none focus:border-[#e8261e]"
-        >
-          {PAGES.map((p) => (
-            <option key={p.path} value={p.path}>{p.label}</option>
-          ))}
-        </select>
-
-        {/* 기기 전환 */}
-        <div className="mx-auto flex gap-0.5 rounded-lg bg-[#1a1d21] p-1">
-          {DEVICES.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              onClick={() => setDevice(d.id)}
-              title={d.label}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                device === d.id ? "bg-[#2a2e34] text-[#e8eaed]" : "text-[#7b828c] hover:text-[#c8ccd2]"
-              }`}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d={d.icon} />
-              </svg>
-              {d.label}
-            </button>
-          ))}
-        </div>
-
-        {/* 되돌리기 */}
-        <div className="flex gap-0.5">
-          <button
-            type="button"
-            onClick={undo}
-            disabled={hIndex.current <= 0}
-            title="되돌리기 (Ctrl+Z)"
-            className="grid h-8 w-8 place-items-center rounded-md text-[#9aa1ab] transition-colors hover:bg-[#1c1f23] hover:text-[#e8eaed] disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={redo}
-            disabled={hIndex.current >= history.current.length - 1}
-            title="다시 실행 (Ctrl+Shift+Z)"
-            className="grid h-8 w-8 place-items-center rounded-md text-[#9aa1ab] transition-colors hover:bg-[#1c1f23] hover:text-[#e8eaed] disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 7v6h-6M21 13a9 9 0 1 1-3-7.7L21 8" />
-            </svg>
-          </button>
-        </div>
-
-        <span className="h-5 w-px bg-[#26292e]" />
-
-        {status.kind === "ok" && <span className="text-[12.5px] font-bold text-[#4ade80]">✓ {status.msg}</span>}
-        {status.kind === "err" && (
-          <span className="max-w-[260px] truncate text-[12.5px] font-bold text-[#ff6a5e]" title={status.msg}>
-            ✕ {status.msg}
-          </span>
-        )}
-        {status.kind === "idle" && dirty && (
-          <span className="text-[12.5px] font-semibold text-[#fbbf24]">저장되지 않은 변경사항</span>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setPreviewMode(!preview)}
-          className={`rounded-md px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
-            preview ? "bg-[#2a2e34] text-[#e8eaed]" : "text-[#9aa1ab] hover:bg-[#1c1f23] hover:text-[#e8eaed]"
-          }`}
-        >
-          {preview ? "편집으로" : "미리보기"}
-        </button>
-        <button
-          type="button"
-          onClick={save}
-          disabled={status.kind === "busy" || !dirty}
-          className="rounded-md border border-[#2a2e34] px-4 py-1.5 text-[12.5px] font-bold text-[#c8ccd2] transition-colors hover:border-[#4a5058] hover:text-white disabled:opacity-40"
-        >
-          저장
-        </button>
-        <button
-          type="button"
-          onClick={publish}
-          disabled={status.kind === "busy"}
-          className="rounded-md bg-[#e8261e] px-4 py-1.5 text-[12.5px] font-bold text-white transition-colors hover:bg-[#c41c15] disabled:opacity-50"
-        >
-          게시
-        </button>
-      </header>
+      <Toolbar
+        device={device}
+        onDevice={setDevice}
+        preview={preview}
+        onPreview={setPreviewMode}
+        canUndo={hIndex.current > 0}
+        canRedo={hIndex.current < history.current.length - 1}
+        onUndo={undo}
+        onRedo={redo}
+        onSave={() => void saveDraft(draftRef.current)}
+        onPublish={publish}
+        saveState={saveState}
+        dirty={dirty}
+        unpublished={unpublished}
+        onOpenMedia={() => setMediaFor("__browse__")}
+      />
 
       <div className="flex min-h-0 flex-1">
-        {/* ═══ 왼쪽 섹션 목록 (드래그로 순서 변경) ═══ */}
-        {!preview && page === "/" && (
-          <aside className="w-[210px] shrink-0 overflow-y-auto border-r border-[#1f2226] bg-[#121417] py-3">
-            <h2 className="px-4 pb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7b828c]">섹션</h2>
-            <p className="px-4 pb-3 text-[11.5px] leading-relaxed text-[#6b727c]">
-              끌어서 순서를 바꾸세요
-            </p>
+        {/* 왼쪽 — 섹션 */}
+        {!preview && (
+          <aside className="flex w-[212px] shrink-0 flex-col border-r border-[#1f2226] bg-[#121417]">
+            <div className="flex items-center justify-between px-4 py-3">
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#7b828c]">섹션</h2>
+              <button
+                type="button"
+                onClick={() => setLibraryAt(layout.order.length)}
+                title="섹션 추가"
+                className="grid h-6 w-6 place-items-center rounded text-[#9aa1ab] transition-colors hover:bg-[#22262b] hover:text-[#e8eaed]"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            </div>
 
-            <div className="px-2">
-              {layout.order.map((id: string, i: number) => {
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+              {layout.order.map((id, i) => {
+                const info = sections.find((s) => s.id === id);
+                const label = info?.label ?? draft.customSections?.[id]?.label ?? id;
                 const hidden = layout.hidden.includes(id);
                 const active = sel?.kind === "section" && sel.path === id;
+                const isCustom = !!draft.customSections?.[id];
                 return (
                   <div key={id}>
                     {dropIdx === i && dragId && <div className="mx-1 my-1 h-[2px] rounded bg-[#e8261e]" />}
@@ -414,51 +498,24 @@ export default function Editor({ initial }: { initial: any }) {
                       }}
                       onDrop={(e) => {
                         e.preventDefault();
-                        onDrop(dropIdx ?? i);
+                        dropSection();
                       }}
                       onClick={() => {
-                        setSel({ kind: "section", path: id, label: SECTION_LABELS[id] ?? id });
-                        setRect(null);
-                        iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "scrollTo", section: id }, "*");
+                        setSel({ kind: "section", path: id, label });
+                        setSelRect(null);
+                        selectInCanvas(id);
                       }}
                       className={`group mb-0.5 flex cursor-grab items-center gap-2 rounded-md px-2.5 py-2.5 text-[12.5px] transition-colors active:cursor-grabbing ${
                         active ? "bg-[#e8261e]/15 text-[#ff8a80]" : "text-[#c8ccd2] hover:bg-[#1c1f23]"
                       } ${dragId === id ? "opacity-40" : ""}`}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 text-[#5c636d]">
-                        <circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" />
-                        <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
-                        <circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" />
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 text-[#5c636d]">
+                        <circle cx="9" cy="5" r="1.8" /><circle cx="15" cy="5" r="1.8" />
+                        <circle cx="9" cy="12" r="1.8" /><circle cx="15" cy="12" r="1.8" />
+                        <circle cx="9" cy="19" r="1.8" /><circle cx="15" cy="19" r="1.8" />
                       </svg>
-                      <span className={`flex-1 truncate ${hidden ? "line-through opacity-50" : ""}`}>
-                        {SECTION_LABELS[id] ?? id}
-                      </span>
-                      <button
-                        type="button"
-                        title={hidden ? "다시 보이기" : "숨기기"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLayout({
-                            ...layout,
-                            hidden: hidden ? layout.hidden.filter((x: string) => x !== id) : [...layout.hidden, id],
-                          });
-                        }}
-                        className="shrink-0 text-[#5c636d] opacity-0 transition-opacity hover:text-[#e8eaed] group-hover:opacity-100"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                          {hidden ? (
-                            <>
-                              <path d="M3 3l18 18" />
-                              <path d="M10.6 5.1A9 9 0 0 1 21 12a17 17 0 0 1-2.7 3.6M6.6 6.6A17 17 0 0 0 3 12a9 9 0 0 0 12.5 4.2" />
-                            </>
-                          ) : (
-                            <>
-                              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </>
-                          )}
-                        </svg>
-                      </button>
+                      <span className={`flex-1 truncate ${hidden ? "line-through opacity-50" : ""}`}>{label}</span>
+                      {isCustom && <span className="shrink-0 text-[9.5px] text-[#5c636d]">추가</span>}
                     </div>
                     {dropIdx === i + 1 && dragId && i === layout.order.length - 1 && (
                       <div className="mx-1 my-1 h-[2px] rounded bg-[#e8261e]" />
@@ -470,53 +527,28 @@ export default function Editor({ initial }: { initial: any }) {
           </aside>
         )}
 
-        {/* ═══ 가운데 미리보기 ═══ */}
-        <div className="relative min-w-0 flex-1 overflow-auto bg-[#0e1013] p-6">
+        {/* 가운데 — 캔버스 */}
+        <div className="relative min-w-0 flex-1 overflow-hidden bg-[#0e1013] p-6">
           <div
+            ref={frameBoxRef}
             className="relative mx-auto bg-white shadow-2xl transition-all duration-200"
-            style={{ width: deviceW ? deviceW : "100%", maxWidth: "100%", height: "calc(100dvh - 6.5rem)" }}
+            style={{ width: deviceW || "100%", maxWidth: "100%", height: "calc(100dvh - 6.5rem)" }}
           >
             <iframe
               ref={iframeRef}
-              key={page}
-              src={`${page}?__edit=1`}
+              src="/admin/preview?__edit=1"
               title="홈페이지 편집 미리보기"
               className="h-full w-full border-0"
             />
-
-            {/* 선택 표시 + 작은 버튼 */}
-            {!preview && rect && sel && sel.kind !== "section" && (
-              <div
-                className="pointer-events-none absolute z-10"
-                style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-              >
-                <div className="absolute -top-[26px] left-0 flex items-center gap-1 whitespace-nowrap rounded-md bg-[#e8261e] px-2 py-1 text-[11px] font-bold text-white">
-                  {sel.kind === "text" && "글자"}
-                  {sel.kind === "button" && "버튼"}
-                  {sel.kind === "image" && "사진"}
-                  {sel.kind === "video" && "영상"}
-                  {(sel.kind === "text" || sel.kind === "button") && (
-                    <button
-                      type="button"
-                      onClick={() => startInline(sel.path)}
-                      className="pointer-events-auto ml-1 rounded bg-white/20 px-1.5 py-0.5 hover:bg-white/30"
-                    >
-                      바로 고치기
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
-
           {preview && (
             <p className="mt-3 text-center text-[12px] text-[#7b828c]">
-              방문자에게 보이는 모습입니다 · ESC 를 누르면 편집으로 돌아갑니다
+              방문자에게 보이는 모습입니다 · ESC 로 편집으로 돌아갑니다
             </p>
           )}
         </div>
 
-        {/* ═══ 오른쪽 속성 패널 ═══ */}
+        {/* 오른쪽 — 설정 */}
         {!preview && (
           <aside className="w-[300px] shrink-0 overflow-y-auto overflow-x-hidden border-l border-[#1f2226] bg-[#121417]">
             <div className="flex h-11 items-center justify-between border-b border-[#1f2226] px-4">
@@ -525,26 +557,34 @@ export default function Editor({ initial }: { initial: any }) {
                   ? { text: "글자 설정", button: "버튼 설정", image: "사진 설정", video: "영상 설정", section: "섹션 설정" }[sel.kind]
                   : "설정"}
               </h2>
-              {sel && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSel(null);
-                    iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "deselect" }, "*");
-                  }}
-                  className="text-[#5c636d] transition-colors hover:text-[#e8eaed]"
-                  title="선택 해제"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              )}
+              <div className="flex items-center gap-1.5">
+                {device !== "desktop" && (
+                  <span className="rounded bg-[#2a2e34] px-1.5 py-0.5 text-[10px] font-bold text-[#9aa1ab]">
+                    {device === "tablet" ? "태블릿 전용" : "모바일 전용"}
+                  </span>
+                )}
+                {sel && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSel(null);
+                      iframeRef.current?.contentWindow?.postMessage({ __to: MSG, type: "deselect" }, "*");
+                    }}
+                    className="text-[#5c636d] transition-colors hover:text-[#e8eaed]"
+                    title="선택 해제 (ESC)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
 
             <Inspector
               sel={sel}
               draft={draft}
+              device={device}
               getValue={getValue}
               setValue={setValue}
               getStyle={getStyle}
@@ -552,10 +592,103 @@ export default function Editor({ initial }: { initial: any }) {
               layout={layout}
               setLayout={setLayout}
               onInline={startInline}
+              onPickMedia={(path) => setMediaFor(path)}
+              onDuplicate={duplicateSection}
+              onDelete={deleteSection}
+              isCustom={!!(sel && draft.customSections?.[sel.path])}
             />
           </aside>
         )}
       </div>
+
+      {/* 캔버스 위 겹침 층 */}
+      {!preview && canvasRect && (
+        <>
+          <SectionOverlay
+            sections={sections}
+            canvas={canvasRect}
+            hoverId={hoverSection}
+            selectedId={sel?.kind === "section" ? sel.path : null}
+            hiddenIds={layout.hidden}
+            onHover={setHoverSection}
+            onSelect={(id) => {
+              setSel({ kind: "section", path: id, label: sections.find((s) => s.id === id)?.label ?? id });
+              setSelRect(null);
+            }}
+            onMove={moveSection}
+            onDuplicate={duplicateSection}
+            onToggleHide={toggleHide}
+            onDelete={deleteSection}
+            onAddAt={(i) => setLibraryAt(i)}
+            dragId={dragId}
+            onDragStart={setDragId}
+            onDragOver={setDropIdx}
+            onDrop={dropSection}
+          />
+
+          <Manipulator
+            target={manipTarget}
+            canvas={canvasRect}
+            cropMode={cropMode}
+            getStyle={getStyle}
+            setStyleMany={setStyleMany}
+            onCropModeChange={setCropMode}
+          />
+
+          {sel && (sel.kind === "text" || sel.kind === "button") && selRect &&
+            selRect.y > -selRect.h && selRect.y < canvasRect.h && (
+            <div
+              className="fixed z-[62] flex items-center gap-1 rounded-md bg-[#e8261e] px-1.5 py-1 text-[11px] font-bold text-white shadow-lg"
+              style={{
+                left: canvasRect.x + selRect.x,
+                top: Math.max(canvasRect.y + 4, canvasRect.y + selRect.y - 30),
+              }}
+            >
+              <span className="px-1">{sel.kind === "text" ? "글자" : "버튼"}</span>
+              <button
+                type="button"
+                onClick={() => startInline(sel.path)}
+                className="rounded bg-white/20 px-1.5 py-0.5 hover:bg-white/30"
+              >
+                바로 고치기
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {libraryAt !== null && (
+        <SectionLibrary onPick={(key) => addSection(key, libraryAt)} onClose={() => setLibraryAt(null)} />
+      )}
+
+      {mediaFor && (
+        <MediaLibrary
+          media={(draft.media ?? []) as MediaItem[]}
+          onAddMedia={(items) => {
+            const next = clone(draftRef.current);
+            const seen = new Set(items.map((i) => i.url));
+            next.media = [...items, ...((next.media ?? []) as MediaItem[]).filter((m) => !seen.has(m.url))].slice(0, 300);
+            commit(next);
+          }}
+          onPick={(url) => {
+            if (mediaFor !== "__browse__") setValue(mediaFor, url);
+            setMediaFor(null);
+          }}
+          onClose={() => setMediaFor(null)}
+          browseOnly={mediaFor === "__browse__"}
+        />
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-lg px-5 py-3 text-[13px] font-bold shadow-2xl ${
+            toast.kind === "ok" ? "bg-[#15803d] text-white" : "bg-[#c41c15] text-white"
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
