@@ -2466,7 +2466,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
   const[viewFiles,setViewFiles]=useState(null);   /* 첨부 보기 {title,files} */
   const[expanded,setExpanded]=useState({});       /* 긴 내용 펼침 상태 (행id|칸key) */
   const isAdmin=['superadmin','admin'].includes(user.role);
-  const blank=()=>{const o={};cols.forEach(c=>{o[c.k]=c.type==='date'?today2():'';});return o;};
+  const blank=()=>{const o={};cols.forEach(c=>{if(c.type==='calc')return;o[c.k]=c.type==='date'?today2():'';});return o;};
   /* 줄 고유번호는 반드시 _id 사용 — 칸 이름(id, date 등)과 절대 겹치지 않게 */
   const newRowId=()=>'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
   /* 정렬: 설정값 기본, 열 제목을 누르면 그 열 기준 */
@@ -2538,7 +2538,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
     setBusy(false);
   };
   const openNew=()=>{setForm(blank());setEditId(null);setShowF(true);};
-  const openEdit=r=>{const o={};cols.forEach(c=>{o[c.k]=r[c.k]||'';});o._files=(r._files||[]).slice();setForm(o);setEditId(r._id);setShowF(true);};
+  const openEdit=r=>{const o={};cols.forEach(c=>{if(c.type==='calc')return;o[c.k]=r[c.k]||'';});o._files=(r._files||[]).slice();setForm(o);setEditId(r._id);setShowF(true);};
   const save=async()=>{
     const first=cols[0];
     if(!String(form[first.k]||'').trim())return alert(first.l+'을(를) 입력해주세요.');
@@ -2605,6 +2605,11 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
   /* 선택형 값은 옵션 순서에 따라 일정한 색의 배지로 표시 */
   const SEL_PAL=[['#1D4ED8','#EFF6FF','#BFDBFE'],['#B45309','#FFFBEB','#FDE68A'],['#15803D','#F0FDF4','#BBF7D0'],['#7C3AED','#F5F3FF','#DDD6FE'],['#DC2626','#FEF2F2','#FECACA'],['#0E7490','#ECFEFF','#A5F3FC']];
   const cell=(r,c)=>{
+    /* 자동 계산 칸 (예: 자숙 수율 = 자숙 후 ÷ 자숙 전) */
+    if(c.type==='calc'){
+      const t=(c.fn&&c.fn(r))||'';
+      return t?R('span',{style:{fontWeight:800,color:'#15803D',whiteSpace:'nowrap'}},t):R('span',{style:{color:'#D9D2CB'}},'-');
+    }
     const v=r[c.k]||'';
     if(!v)return R('span',{style:{color:'#D9D2CB'}},'-');
     if(c.type==='date')return R('span',{style:{whiteSpace:'nowrap',fontWeight:600,fontVariantNumeric:'tabular-nums'}},v);
@@ -2674,7 +2679,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
             R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'3px 8px',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
             R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'3px 8px',fontSize:12,cursor:'pointer',fontFamily:'inherit'}},'🗑'))
         ),
-        ...cols.slice(1).filter(c=>String(r[c.k]||'').trim()).map(c=>R('div',{key:c.k,style:{display:'flex',gap:8,padding:'3px 0',alignItems:'baseline'}},
+        ...cols.slice(1).filter(c=>c.type==='calc'?!!(c.fn&&c.fn(r)):String(r[c.k]||'').trim()).map(c=>R('div',{key:c.k,style:{display:'flex',gap:8,padding:'3px 0',alignItems:'baseline'}},
           R('span',{style:{color:'var(--tm)',fontSize:'0.85em',width:64,flexShrink:0}},c.l),
           R('span',{style:{flex:1,minWidth:0,wordBreak:'break-all'}},cell(r,c))
         )),
@@ -2694,7 +2699,9 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
           /* ── 빠른 입력 줄: 칸에 바로 치고 Tab으로 오른쪽, Enter로 등록 ── */
           R('tr',{key:'__quick',style:{background:'#FFFBF7'}},
             ...cols.map((c,ci)=>R('td',{key:c.k,style:{padding:'4px 6px'}},
-              c.type==='select'
+              c.type==='calc'
+                ?R('span',{style:{fontSize:11,fontWeight:800,color:'#15803D',whiteSpace:'nowrap'}},(c.fn&&c.fn(quick))||'자동')
+                :c.type==='select'
                 ?R('select',{value:quick[c.k]||'',
                     ref:ci===0?quickRef:null,
                     onChange:e=>setQuick(p=>Object.assign({},p,{[c.k]:e.target.value})),
@@ -2741,7 +2748,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
       footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
         R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
         R('button',{className:'btn bp',onClick:save,disabled:busy,style:{flex:2}},editId?'수정 저장':'등록'))},
-      ...cols.map(c=>R('div',{key:c.k,className:'fr'},
+      ...cols.filter(c=>c.type!=='calc').map(c=>R('div',{key:c.k,className:'fr'},
         R('label',{className:'lbl'},c.l+(c===cols[0]?' *':'')),
         c.type==='textarea'
           ?R('textarea',{className:'inp',value:form[c.k]||'',onChange:e=>setForm(p=>Object.assign({},p,{[c.k]:e.target.value})),placeholder:c.ph||'',style:{minHeight:90}})
@@ -5058,6 +5065,17 @@ const SHARED_PAGES={
     {k:'stage',l:'개발 단계',type:'select',w:110,opts:['샘플 제작','관능 평가','배합 개선','원가 검토','완료']},
     {k:'work',l:'실시 내용',type:'textarea',ph:'조건·시험 방법 등'},
     {k:'result',l:'결과/개선점',type:'textarea'}
+  ]},
+  rnd_mat:{title:'원물 테스트',ic:'⚖️',desc:'신규 원물의 실측 중량을 기록해 배합비·수율 계산에 활용합니다 · 자숙 수율 자동 계산 · 측정 사진 첨부 가능',storeKey:'bnf_rnd_mat',files:true,cols:[
+    {k:'date',l:'일자',type:'date',w:110},
+    {k:'name',l:'원물명',w:150,ph:'예) 냉동 새우 21/25'},
+    {k:'writer',l:'담당',w:80},
+    {k:'unit_w',l:'개당 중량(g)',type:'num',w:100,ph:'g'},
+    {k:'solid_w',l:'순수 고형물(g)',type:'num',w:105,ph:'g'},
+    {k:'raw_w',l:'자숙 전(g)',type:'num',w:95,ph:'g'},
+    {k:'cooked_w',l:'자숙 후(g)',type:'num',w:95,ph:'g'},
+    {k:'yield',l:'자숙 수율',type:'calc',w:85,fn:r=>{const a=+r.raw_w||0,b=+r.cooked_w||0;return(a>0&&b>0)?((b/a*100).toFixed(1)+'%'):'';}},
+    {k:'note',l:'비고/특이사항',type:'textarea',ph:'테스트 조건, 특이사항 등'}
   ]},
   qc_process:{title:'공정 검사',ic:'⚙',desc:'생산 공정 중 검사 기록',storeKey:'bnf_qc_process',cols:[
     {k:'date',l:'검사일',type:'date',w:110},
@@ -9328,12 +9346,12 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
       const sd=(data&&data.state_data)||{};
       const PAGES={work_requests:'workreq',bnf_pm_workorder:'pm_workorder',bnf_rnd_status:'rnd_status',
-        bnf_rnd_log:'rnd_log',bnf_qc_self:'qc_self',bnf_qc_process:'qc_process',bnf_qc_hygiene:'qc_hygiene',
+        bnf_rnd_log:'rnd_log',bnf_rnd_mat:'rnd_mat',bnf_qc_self:'qc_self',bnf_qc_process:'qc_process',bnf_qc_hygiene:'qc_hygiene',
         bnf_qc_claim:'qc_claim',bnf_pm_equip:'pm_equip',bnf_receivables:'receivables',bnf_crm:'crm',
         trade_entries:'trade_entry',approval_docs:'approval',bnf_files:'files',
         bnf_rnd_recipe:'rnd_recipe',recurring_tasks:'workreq',daily_tasks:'mytasks'};
       const LABELS={work_requests:'업무 현황',bnf_pm_workorder:'작업지시서',bnf_rnd_status:'연구개발 현황',
-        bnf_rnd_log:'연구개발 일지',bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',
+        bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',
         bnf_qc_claim:'클레임',bnf_pm_equip:'설비 점검',bnf_receivables:'미수금',bnf_crm:'거래처 CRM',
         trade_entries:'매입/매출 입력',approval_docs:'전자결재',bnf_files:'파일 공유',
         bnf_rnd_recipe:'확정 배합비',recurring_tasks:'주기 업무',daily_tasks:'업무'};
@@ -14042,6 +14060,7 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🔬 연구개발부서',type:'dept_rnd',items:[
     {id:'rnd_log',l:'연구개발 일지',ic:'📔'},
+    {id:'rnd_mat',l:'원물 테스트',ic:'⚖️'},
     {id:'rnd_status',l:'연구개발 현황',ic:'📊'},
     {id:'rnd_recipe',l:'확정 배합비',ic:'🧾'},
   ]},
@@ -14123,6 +14142,20 @@ function loadNavSections(){
               if(homeIdx>=0)newItems.splice(homeIdx+1,0,item);else newItems.unshift(item);
               changed=true;
             }
+            /* 연구개발 메뉴에 원물 테스트 없으면 연구개발 일지 다음에 추가 (2026-08-21) */
+            if(hasItem('rnd_log')&&!hasItem('rnd_mat')){
+              const item={id:'rnd_mat',l:'원물 테스트',ic:'⚖️'};
+              const ti=newItems.findIndex(it=>it&&it.id==='rnd_log');
+              if(ti>=0)newItems.splice(ti+1,0,item);
+              else newItems.some(f=>{
+                if(f&&f.kind==='folder'&&Array.isArray(f.items)){
+                  const fi=f.items.findIndex(x=>x&&x.id==='rnd_log');
+                  if(fi>=0){f.items.splice(fi+1,0,item);return true;}
+                }
+                return false;
+              });
+              changed=true;secChanged=true;
+            }
             /* 식품제조 신규 메뉴 자동 삽입 */
             if(s.type==='factory'){
               const newMenus=[
@@ -14170,7 +14203,7 @@ function loadNavSections(){
             });
             const DEPTS=[
               {t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서',items:[
-                {id:'rnd_log',l:'연구개발 일지',ic:'📔'},{id:'rnd_status',l:'연구개발 현황',ic:'📊'},{id:'rnd_recipe',l:'확정 배합비',ic:'🧾'}]},
+                {id:'rnd_log',l:'연구개발 일지',ic:'📔'},{id:'rnd_mat',l:'원물 테스트',ic:'⚖️'},{id:'rnd_status',l:'연구개발 현황',ic:'📊'},{id:'rnd_recipe',l:'확정 배합비',ic:'🧾'}]},
               {t:'dept_qc',m:'품질',label:'🧪 품질관리',items:[
                 {id:'qc_self',l:'자가품질검사',ic:'🧪'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
               {t:'dept_pm',m:'생산관리',label:'🏭 생산관리',items:[
@@ -14578,6 +14611,7 @@ const NAV_PAGES_INDEX=[
   {p:'trend',title:'업계 동향',ic:'📈',keys:['동향','트렌드','뉴스','업계','리포트']},
   {p:'manual',title:'업무 매뉴얼',ic:'📚',keys:['매뉴얼','메뉴얼','업무','지침','manual','sop']},
   {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
+  {p:'rnd_mat',title:'원물 테스트',ic:'⚖️',keys:['원물','테스트','중량','수율','자숙','고형물','rnd']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
   {p:'rnd_recipe',title:'확정 배합비',ic:'🧾',keys:['배합','레시피','확정','recipe']},
   {p:'qc_self',title:'자가품질검사',ic:'🧪',keys:['자가','품질','검사','자가품질']},
