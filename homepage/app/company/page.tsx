@@ -39,7 +39,7 @@ export default function CompanyPage() {
       <section className="border-b border-line">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <p className="kicker">About Us</p>
-          <h1 className="mt-3 text-[2rem] font-extrabold tracking-tight">
+          <h1 className="mt-3 display text-[clamp(1.9rem,4.5vw,2.8rem)]">
             새로운 식품문화를 선도합니다
           </h1>
           <div className="mt-8 grid gap-10 md:grid-cols-[1.4fr_1fr]">
@@ -67,7 +67,7 @@ export default function CompanyPage() {
               </p>
             </div>
             <aside className="rounded-xl border border-line bg-trust-soft p-7 text-[13.5px] leading-loose">
-              <h2 className="text-[12px] font-bold uppercase tracking-widest text-trust">
+              <h2 className="kicker">
                 At a Glance
               </h2>
               <dl className="mt-3 space-y-2">
@@ -86,7 +86,7 @@ export default function CompanyPage() {
       <section className="border-b border-line bg-surface">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <p className="kicker">History</p>
-          <h2 className="mt-3 text-[1.65rem] font-extrabold tracking-tight">
+          <h2 className="mt-3 display text-[1.55rem]">
             1990 → 오늘, 한 해도 멈추지 않은 확장
           </h2>
           <ol className="mt-10 max-w-2xl">
@@ -112,7 +112,7 @@ export default function CompanyPage() {
       {/* 인증 */}
       <section className="mx-auto max-w-6xl px-5 py-20">
         <p className="kicker">Certifications</p>
-        <h2 className="mt-3 text-[1.65rem] font-extrabold tracking-tight">인증 현황</h2>
+        <h2 className="mt-3 display text-[1.55rem]">인증 현황</h2>
         <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {CERTS.map((c) => (
             <li key={c} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-5 py-4 text-[13.5px] font-semibold">

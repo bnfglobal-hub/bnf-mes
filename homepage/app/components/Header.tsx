@@ -16,7 +16,7 @@ export default function Header() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-white/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-line bg-bg/70 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <Link href="/" className="flex items-center gap-2.5" onClick={() => setOpen(false)}>
           <span
@@ -25,11 +25,8 @@ export default function Header() {
           >
             B
           </span>
-          <span className="text-[15px] font-extrabold tracking-tight">
+          <span className="display display-slant text-[15px] text-ink">
             B&amp;F GLOBAL
-            <span className="ml-2 hidden text-[12px] font-semibold text-muted sm:inline">
-              ㈜비엔에프글로벌
-            </span>
           </span>
         </Link>
 
@@ -42,7 +39,7 @@ export default function Header() {
                 href={n.href}
                 aria-current={active ? "page" : undefined}
                 className={`rounded-md px-3.5 py-2 text-[13.5px] font-semibold transition-colors ${
-                  active ? "text-brand" : "text-ink hover:bg-brand-soft/60 hover:text-brand-deep"
+                  active ? "text-brand" : "text-ink/85 hover:text-brand"
                 }`}
               >
                 {n.label}
@@ -53,13 +50,13 @@ export default function Header() {
             href="https://smartstore.naver.com/bnfglobal"
             target="_blank"
             rel="noreferrer"
-            className="ml-2 rounded-md border border-line px-3.5 py-2 text-[13.5px] font-semibold text-muted transition-colors hover:border-line-strong hover:text-ink"
+            className="ml-2 rounded-md border border-line-strong px-3.5 py-2 text-[13.5px] font-semibold text-muted transition-colors hover:border-ink hover:text-ink"
           >
             쇼핑몰 ↗
           </a>
           <Link
             href="/contact"
-            className="ml-1 rounded-md bg-brand px-4 py-2 text-[13.5px] font-bold text-white transition-colors hover:bg-brand-deep"
+            className="ml-1 rounded-full bg-ink px-4.5 py-2 text-[13.5px] font-bold text-bg transition-colors hover:bg-brand hover:text-white"
           >
             OEM 견적 문의
           </Link>
@@ -90,13 +87,13 @@ export default function Header() {
       </div>
 
       {open && (
-        <nav aria-label="모바일 메뉴" className="border-t border-line bg-white px-5 py-3 md:hidden">
+        <nav aria-label="모바일 메뉴" className="border-t border-line bg-bg px-5 py-3 md:hidden">
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
               onClick={() => setOpen(false)}
-              className="block rounded-md px-3 py-3 text-[15px] font-semibold text-ink hover:bg-brand-soft/60"
+              className="block rounded-md px-3 py-3 text-[15px] font-semibold text-ink hover:text-brand"
             >
               {n.label}
             </Link>

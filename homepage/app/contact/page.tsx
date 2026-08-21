@@ -28,7 +28,7 @@ export default function ContactPage() {
       <section className="border-b border-line">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <p className="kicker">Contact · OEM</p>
-          <h1 className="mt-3 text-[2rem] font-extrabold tracking-tight">
+          <h1 className="mt-3 display text-[clamp(1.9rem,4.5vw,2.8rem)]">
             OEM 견적 · 문의
           </h1>
           <p className="mt-4 max-w-xl text-[14.5px] leading-relaxed text-muted">
@@ -72,7 +72,7 @@ export default function ContactPage() {
 
       <section className="mx-auto max-w-6xl px-5 py-20">
         <p className="kicker">Directions</p>
-        <h2 className="mt-3 text-[1.65rem] font-extrabold tracking-tight">오시는 길</h2>
+        <h2 className="mt-3 display text-[1.55rem]">오시는 길</h2>
         <div className="mt-8 grid gap-5 md:grid-cols-2">
           {LOCATIONS.map((l) => (
             <article key={l.n} className="rounded-xl border border-line bg-surface p-7">

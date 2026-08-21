@@ -68,7 +68,7 @@ export default function BusinessPage() {
       <section className="border-b border-line">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <p className="kicker">Business</p>
-          <h1 className="mt-3 text-[2rem] font-extrabold tracking-tight">사업분야</h1>
+          <h1 className="mt-3 display text-[clamp(1.9rem,4.5vw,2.8rem)]">사업분야</h1>
           <p className="mt-4 max-w-xl text-[14.5px] leading-relaxed text-muted">
             원료의 수입에서 제조, 유통, 그리고 문 앞까지의 물류 —
             식품이 지나는 모든 길을 한 회사가 책임집니다.
@@ -100,7 +100,7 @@ export default function BusinessPage() {
       <section className="border-b border-line bg-trust-soft">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <p className="kicker">Process</p>
-          <h2 className="mt-3 text-[1.65rem] font-extrabold tracking-tight">
+          <h2 className="mt-3 display text-[1.55rem]">
             식품 제조 프로세스
           </h2>
           <p className="mt-3 max-w-lg text-[14px] text-muted">
@@ -123,7 +123,7 @@ export default function BusinessPage() {
       {/* 포장 형태·규격 */}
       <section className="mx-auto max-w-6xl px-5 py-20">
         <p className="kicker">Packaging</p>
-        <h2 className="mt-3 text-[1.65rem] font-extrabold tracking-tight">포장 형태와 가능 규격</h2>
+        <h2 className="mt-3 display text-[1.55rem]">포장 형태와 가능 규격</h2>
         <div className="mt-10 grid gap-10 md:grid-cols-2">
           <div className="space-y-5">
             <article className="rounded-xl border border-line bg-surface p-6">
@@ -151,7 +151,7 @@ export default function BusinessPage() {
             <table className="w-full overflow-hidden rounded-xl border border-line text-left text-[13.5px]">
               <caption className="sr-only">포장 가능 규격표</caption>
               <thead>
-                <tr className="bg-trust-soft text-[12.5px] uppercase tracking-wide text-trust">
+                <tr className="bg-surface-2 text-[12.5px] uppercase tracking-wide text-muted">
                   <th scope="col" className="px-5 py-3.5 font-bold">유형</th>
                   <th scope="col" className="px-5 py-3.5 font-bold">가능 규격</th>
                 </tr>

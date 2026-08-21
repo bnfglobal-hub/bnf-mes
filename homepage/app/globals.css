@@ -1,28 +1,30 @@
 @import "tailwindcss";
 
-/* ═══ B&F GLOBAL 홈페이지 디자인 토큰 ═══
-   컨셉: 청결 · 신뢰 · 세련 · 투명
-   — 흰 바탕과 넉넉한 여백(청결), 로고 레드 단일 액센트(브랜드),
-     얇은 헤어라인과 반투명 헤더(투명), 정돈된 그리드(세련) */
+/* ═══ B&F GLOBAL 홈페이지 디자인 토큰 — v3 (Ciao Energy 레퍼런스) ═══
+   컨셉: 다크 시네마틱 · 제품이 주인공 · 포스터급 타이포 · 투명한 공정 고백
+   — 어두운 무대 위 스포트라이트를 받는 음식, 브랜드 레드 글로우,
+     대형 이탤릭 디스플레이, 나쁜 것에 취소선을 긋는 정직한 화법 */
 
 :root {
-  --bg: #fdfdfc;
-  --surface: #ffffff;
-  --ink: #15191e;
-  --muted: #5b636d;
-  --faint: #8b929b;
-  --line: #e9e7e3;
-  --line-strong: #d9d6d0;
+  --bg: #0b0c0e;
+  --surface: #14161a;
+  --surface-2: #1b1e23;
+  --ink: #f5f3ef;
+  --muted: #a8a29b;
+  --faint: #6e6963;
+  --line: rgba(245, 243, 239, 0.1);
+  --line-strong: rgba(245, 243, 239, 0.22);
   --brand: #e23a2c;
   --brand-deep: #c22c20;
-  --brand-soft: #fdf1ef;
+  --brand-soft: rgba(226, 58, 44, 0.12);
   --trust: #1c3d5a;
-  --trust-soft: #f2f6fa;
+  --trust-soft: #12161c;
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
@@ -55,11 +57,12 @@ h1, h2, h3 {
 }
 
 ::selection {
-  background: rgba(226, 58, 44, 0.14);
+  background: rgba(226, 58, 44, 0.35);
+  color: #fff;
 }
 
 :focus-visible {
-  outline: 2px solid rgba(226, 58, 44, 0.55);
+  outline: 2px solid rgba(226, 58, 44, 0.7);
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -73,17 +76,114 @@ h1, h2, h3 {
   }
 }
 
-/* 섹션 등장 모션: 상태 전달용 1회 페이드업 (스크롤 연출 최소화) */
-@keyframes rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+/* ── 포스터 디스플레이 타이포 (레퍼런스의 콘덴스드 이탤릭 대문자 번역) ── */
+.display {
+  font-weight: 900;
+  font-stretch: 92%;
+  letter-spacing: -0.045em;
+  line-height: 1.04;
+  text-transform: uppercase;
 }
-.rise { animation: rise 0.6s cubic-bezier(0.2, 0.6, 0.3, 1) both; }
+.display-slant {
+  font-style: italic;
+  transform: skewX(-4deg);
+}
 
 .kicker {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.22em;
   color: var(--brand);
   text-transform: uppercase;
+}
+
+/* ── 스포트라이트 무대 ── */
+.stage {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 38%, rgba(226, 58, 44, 0.16), transparent 65%),
+    radial-gradient(ellipse 55% 45% at 50% 42%, rgba(245, 200, 120, 0.08), transparent 70%),
+    var(--bg);
+}
+.stage-quality {
+  background:
+    radial-gradient(ellipse 60% 50% at 72% 45%, rgba(28, 61, 90, 0.55), transparent 70%),
+    var(--bg);
+}
+
+/* 접시 스포트라이트 그림자 */
+.dish-glow {
+  filter: drop-shadow(0 30px 60px rgba(226, 58, 44, 0.22)) drop-shadow(0 12px 28px rgba(0, 0, 0, 0.7));
+}
+
+/* ── 등장 모션: 1회 페이드업 ── */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise { animation: rise 0.7s cubic-bezier(0.2, 0.6, 0.3, 1) both; }
+
+/* ── 나쁜 것 취소선 (레퍼런스의 아스파탐 스트라이크) ── */
+.strike {
+  position: relative;
+  color: var(--faint);
+  font-weight: 700;
+}
+.strike::after {
+  content: "";
+  position: absolute;
+  left: -2%;
+  right: -2%;
+  top: 50%;
+  height: 2px;
+  background: var(--brand);
+  transform: rotate(-1.5deg);
+}
+
+/* ── FAQ 아코디언 ── */
+details.faq {
+  border-bottom: 1px solid var(--line);
+}
+details.faq summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 4px;
+  font-size: 15px;
+  font-weight: 700;
+  transition: color 0.15s ease;
+}
+details.faq summary::-webkit-details-marker { display: none; }
+details.faq summary:hover { color: var(--brand); }
+details.faq summary::after {
+  content: "+";
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--faint);
+  transition: transform 0.2s ease;
+}
+details.faq[open] summary::after { transform: rotate(45deg); color: var(--brand); }
+details.faq .faq-body {
+  padding: 0 4px 20px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+/* ── 가로 무한 마퀴 (품목 티커) ── */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 36s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
 }

@@ -25,7 +25,7 @@ export default function ProductsPage() {
       <section className="border-b border-line">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <p className="kicker">Products · B2B/B2C · OEM/ODM</p>
-          <h1 className="mt-3 text-[2rem] font-extrabold tracking-tight">식품 제조 품목</h1>
+          <h1 className="mt-3 display text-[clamp(1.9rem,4.5vw,2.8rem)]">식품 제조 품목</h1>
           <p className="mt-4 max-w-xl text-[14.5px] leading-relaxed text-muted">
             이천 HACCP 인증 공장에서 열 개 품목군을 제조합니다. 모든 품목은
             자사 브랜드 생산과 OEM/ODM 수탁 생산이 모두 가능합니다.
