@@ -21,7 +21,7 @@ echo.
 echo  ** 이 검은 창은 편집이 끝날 때까지 닫지 마세요 **
 echo.
 
-start "" /b cmd /c "timeout /t 6 >/dev/null & start http://localhost:3000/admin"
+start "" /b cmd /c "timeout /t 6 >nul & start http://localhost:3000/admin/editor"
 call npm run dev
 
 pause
