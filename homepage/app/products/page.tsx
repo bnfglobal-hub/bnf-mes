@@ -31,6 +31,28 @@ export default function ProductsPage() {
             자사 브랜드 생산과 OEM/ODM 수탁 생산이 모두 가능합니다.
           </p>
 
+          <div className="mt-10 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {[
+              { src: "/food-pho.png", n: "태국 소고기 쌀국수" },
+              { src: "/food-galbitang.png", n: "갈비탕" },
+              { src: "/food-uyuktang.png", n: "우육탕면" },
+              { src: "/food-buncha.png", n: "분짜" },
+            ].map((d) => (
+              <figure key={d.n}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={d.src}
+                  alt={`${d.n} 완성 조리 사진`}
+                  className="aspect-square w-full rounded-xl border border-line object-cover"
+                  loading="lazy"
+                  width={375}
+                  height={375}
+                />
+                <figcaption className="mt-2 text-[12.5px] font-bold text-muted">{d.n}</figcaption>
+              </figure>
+            ))}
+          </div>
+
           <ul className="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2">
             {ITEMS.map((it, i) => (
               <li key={it.t} className="bg-surface p-6">

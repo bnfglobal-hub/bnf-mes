@@ -125,8 +125,10 @@ export default function CompanyPage() {
         <img
           src="/certs.jpg"
           alt="HACCP 인증서 6종과 기업부설연구소 인정서, 벤처기업확인서, 이노비즈 확인서, 특허증 원본 이미지"
-          className="mt-10 w-full rounded-xl border border-line bg-white p-4"
+          className="mt-10 h-auto w-full rounded-xl border border-line bg-white p-4"
           loading="lazy"
+          width={727}
+          height={891}
         />
       </section>
     </>
