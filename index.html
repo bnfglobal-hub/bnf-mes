@@ -1180,32 +1180,43 @@ function PageProdSchedule(){
   const days=Array.from({length:7},(_,i)=>addDD(weekStart,i));
   const isAdmin=(()=>{try{const u=JSON.parse(localStorage.getItem('bnf_user')||'{}');return ['superadmin','admin','manager'].includes(u.role);}catch(e){return false;}})();
 
+  /* 저장 방식 변경(2026-08-24): 주차별로 스토리지 파일(sched/<주차>.jpg)에 독립 저장.
+     예전 방식(app_state id=6 한 덩어리)은 읽기가 한 번 실패하면 전체가 날아가는 구조였음.
+     예전에 저장된 주차는 그대로 fallback으로 표시한다. */
+  const schedPath=()=>'sched/'+weekStart+'.jpg';
   const loadImg=async()=>{
     setLoading(true);setImg(null);
     try{
-      /* 전송량 절감: 스케줄 이미지는 별도 행(id=6)에 보관 */
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
-      const sd=data&&data.state_data?data.state_data:{};
-      const imgs=sd.sched_images||{};
-      setImg(imgs[weekStart]||null);
+      const{data:ls}=await sbClient.storage.from('bnf-files').list('sched',{search:weekStart});
+      const f=Array.isArray(ls)?ls.find(x=>x.name===weekStart+'.jpg'):null;
+      if(f){
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(schedPath());
+        setImg((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(f.updated_at||f.created_at||''));
+      }else{
+        /* 예전 방식(app_state id=6)에 저장된 주차 */
+        const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
+        const sd=data&&data.state_data?data.state_data:{};
+        setImg((sd.sched_images||{})[weekStart]||null);
+      }
     }catch(e){console.warn('스케줄 이미지 로드 실패',e);}
     setLoading(false);
   };
   useEffect(()=>{loadImg();},[weekStart]);
   useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)loadImg();},15000);return()=>clearInterval(t);},[weekStart]);
 
-  /* 이미지 dataURL을 현재 주차에 저장 (공통) */
+  /* 이미지 dataURL을 현재 주차 파일로 저장 — 주차별 독립 파일이라 다른 주차에 영향 없음 */
   const saveImg=async(dataUrl)=>{
     setUploading(true);
     try{
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
-      const sd=data&&data.state_data?data.state_data:{};
-      const imgs=sd.sched_images||{};
-      const prev=sd.sched_images_prev||{};
-      if(imgs[weekStart])prev[weekStart]=imgs[weekStart];   /* 직전 이미지 보관(실수 복구용) */
-      imgs[weekStart]=dataUrl;
-      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs,sched_images_prev:prev},updated_at:new Date().toISOString()});
-      setImg(dataUrl);
+      const blob=await(await fetch(dataUrl)).blob();
+      const path=schedPath(),prevPath='sched/'+weekStart+'.prev.jpg';
+      /* 덮어쓰기 전 직전본 보관 (실수 복구용) — 없거나 실패해도 무시 */
+      try{await sbClient.storage.from('bnf-files').remove([prevPath]);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').copy(path,prevPath);}catch(e){}
+      const{error}=await sbClient.storage.from('bnf-files').upload(path,blob,{upsert:true,contentType:'image/jpeg'});
+      if(error)throw error;
+      const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+      setImg((pub&&pub.publicUrl||'')+'?t='+Date.now());
     }catch(err){alert('저장 실패: '+err.message);}
     setUploading(false);
   };
@@ -1260,13 +1271,21 @@ function PageProdSchedule(){
   const delImg=async()=>{
     if(!confirm('이 주차의 스케줄 이미지를 삭제할까요?'))return;
     try{
+      const path=schedPath(),prevPath='sched/'+weekStart+'.prev.jpg';
+      /* 스토리지 파일: 직전본으로 옮겨두고 삭제 */
+      try{await sbClient.storage.from('bnf-files').remove([prevPath]);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').copy(path,prevPath);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').remove([path]);}catch(e){}
+      /* 예전 방식(app_state id=6)에 저장된 주차면 그 키만 비운다.
+         읽기에 성공해 해당 주차가 실제로 보일 때만 저장 — 빈 읽기로 전체를 덮어쓰지 않도록 */
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
-      const sd=data&&data.state_data?data.state_data:{};
-      const imgs=sd.sched_images||{};
-      const prev=sd.sched_images_prev||{};
-      if(imgs[weekStart])prev[weekStart]=imgs[weekStart];   /* 직전 이미지 보관(실수 복구용) */
-      delete imgs[weekStart];
-      await sbClient.from('app_state').upsert({id:6,state_data:{sched_images:imgs,sched_images_prev:prev},updated_at:new Date().toISOString()});
+      const sd=data&&data.state_data?data.state_data:null;
+      if(sd&&sd.sched_images&&sd.sched_images[weekStart]){
+        const imgs=Object.assign({},sd.sched_images);
+        const prev=Object.assign({},sd.sched_images_prev||{});
+        prev[weekStart]=imgs[weekStart];delete imgs[weekStart];
+        await sbClient.from('app_state').upsert({id:6,state_data:Object.assign({},sd,{sched_images:imgs,sched_images_prev:prev}),updated_at:new Date().toISOString()});
+      }
       setImg(null);
     }catch(err){alert('삭제 실패: '+err.message);}
   };
