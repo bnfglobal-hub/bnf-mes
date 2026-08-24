@@ -814,8 +814,13 @@ body{font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;text-r
    해결: PC에서도 .inv-page가 페이지 세로 스크롤을 소유하고,
          재고목록(.inv-tbl)은 약 10행 높이의 내부 스크롤(헤더 고정)로 고정. */
 @media(min-width:769px){
-  .inv-page{height:100%!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior-y:contain}
-  .inv-tbl{max-height:440px!important;min-height:0!important;overflow:auto!important;margin-bottom:24px!important}
+  .inv-page{height:100%!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important}
+  /* 완제품 재고 현황 카드: 내부 스크롤 제거 → 페이지와 한 덩어리로 흐름
+     (창이 낮을 때 카드 내부 스크롤이 휠을 전부 삼켜 아래 재고목록으로 못 내려가던 문제) */
+  .inv-page .fav-stock-card{max-height:none!important}
+  .inv-page .fav-stock-card>div:last-child{overflow:visible!important;max-height:none!important;flex:none!important}
+  /* 재고목록: 약 10행 내부 스크롤 + 어떤 창 높이에서도 화면 안에 들어오게 */
+  .inv-tbl{max-height:min(440px,calc(100dvh - 150px))!important;min-height:0!important;overflow:auto!important;margin-bottom:24px!important}
 }
 
 /* ── 데스크톱에서만: 과한 라운드·그림자 억제 ── */
