@@ -2536,6 +2536,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
   const att=useAttach(storeKey,()=>form._files||[],v=>setForm(p=>Object.assign({},p,{_files:v})));
   const[viewFiles,setViewFiles]=useState(null);   /* 첨부 보기 {title,files} */
   const[expanded,setExpanded]=useState({});       /* 긴 내용 펼침 상태 (행id|칸key) */
+  const[detailId,setDetailId]=useState(null);     /* 클릭해서 아래로 펼친 행 */
   const isAdmin=['superadmin','admin'].includes(user.role);
   const blank=()=>{const o={};cols.forEach(c=>{if(c.type==='calc')return;o[c.k]=c.type==='date'?today2():'';});return o;};
   /* 줄 고유번호는 반드시 _id 사용 — 칸 이름(id, date 등)과 절대 겹치지 않게 */
@@ -2631,6 +2632,67 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
     await persist((rows||[]).filter(x=>x._id!==r._id));
   };
   const canEdit=r=>isAdmin||r._by===user.id;
+
+  /* ── 행 클릭 상세 + 댓글 ── */
+  const[cmtMap,setCmtMap]=useState({});   /* 행별 댓글 입력값 */
+  const rowLabel=r=>String(r[(cols.find(c=>c.type!=='date'&&c.type!=='calc')||cols[0]).k]||title);
+  const addComment=async(r)=>{
+    const t=String(cmtMap[r._id]||'').trim();if(!t)return;
+    const cm={text:t,by:user.name,byId:user.id,at:now2()};
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{_comments:[...(Array.isArray(x._comments)?x._comments:[]),cm]}):x));
+    setCmtMap(p=>Object.assign({},p,{[r._id]:''}));
+    /* 글쓴이에게 알림 (본인 글에 단 댓글은 제외) */
+    if(r._by&&r._by!==user.id){
+      try{pushNotif({to:r._by,from:user.id,fromName:user.name,type:'mention',
+        text:'"'+rowLabel(r).slice(0,30)+'" 글에 댓글: '+t.slice(0,40),page:(storeKey||'').replace(/^bnf_/,'')});}catch(e){}
+    }
+  };
+  const delComment=async(r,idx)=>{
+    const cm=(r._comments||[])[idx];if(!cm)return;
+    if(!(isAdmin||cm.byId===user.id))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('댓글을 삭제할까요?'))return;
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{_comments:(x._comments||[]).filter((_,i)=>i!==idx)}):x));
+  };
+  const commentsBlock=r=>{
+    const cmts=Array.isArray(r._comments)?r._comments:[];
+    return R('div',{style:{borderTop:'1px solid var(--bd)',paddingTop:10,marginTop:12}},
+      R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',marginBottom:6}},'💬 댓글 '+cmts.length+'건'),
+      ...cmts.map((cm,i)=>R('div',{key:i,style:{display:'flex',gap:8,alignItems:'baseline',padding:'4px 0',fontSize:12.5}},
+        R('span',{style:{fontWeight:700,flexShrink:0}},cm.by||'-'),
+        R('span',{style:{flex:1,minWidth:0,whiteSpace:'pre-wrap',wordBreak:'break-word'}},cm.text),
+        R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},fDate(cm.at)),
+        (isAdmin||cm.byId===user.id)&&R('button',{onClick:e=>{e.stopPropagation();delComment(r,i);},
+          style:{border:'none',background:'transparent',color:'#DC2626',fontSize:10.5,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'삭제')
+      )),
+      R('div',{style:{display:'flex',gap:6,marginTop:6}},
+        R('input',{className:'inp',value:cmtMap[r._id]||'',onChange:e=>{const v=e.target.value;setCmtMap(p=>Object.assign({},p,{[r._id]:v}));},placeholder:'댓글 입력 후 Enter',
+          onClick:e=>e.stopPropagation(),
+          onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();addComment(r);}},style:{flex:1,fontSize:12.5}}),
+        R('button',{className:'btn bp btn-sm',onClick:e=>{e.stopPropagation();addComment(r);},disabled:busy,
+          style:{padding:'6px 14px',fontSize:12}},'등록'))
+    );
+  };
+  const detailRow=r=>{
+    const fields=cols.filter(c=>{const v=c.type==='calc'?((c.fn&&c.fn(r))||''):r[c.k];return String(v||'').trim();});
+    return R('tr',{key:r._id+'_detail'},
+      R('td',{colSpan:cols.length+2,style:{background:'#FBFAF8',padding:'14px 18px',borderBottom:'2px solid var(--bd)'}},
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:'12px 28px'}},
+          ...fields.map(c=>{
+            const v=c.type==='calc'?(c.fn(r)):String(r[c.k]);
+            return R('div',{key:c.k,style:c.type==='textarea'?{gridColumn:'1 / -1'}:null},
+              R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',marginBottom:3}},c.l),
+              R('div',{style:{fontSize:13,whiteSpace:'pre-wrap',wordBreak:'break-word',lineHeight:1.65}},v));
+          })
+        ),
+        allowFiles&&(r._files||[]).length>0&&R('div',{style:{marginTop:12}},
+          R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',marginBottom:6}},'📎 첨부 '+r._files.length+'건'),
+          R(AttachView,{files:r._files})),
+        commentsBlock(r),
+        R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:10}},
+          '등록: '+(r._byName||'-')+' · '+fDate(r._at)+(r._editBy?(' · 마지막 수정: '+r._editBy+' · '+fDate(r._editAt)):''))
+      )
+    );
+  };
 
   /* ── 표에서 바로 입력 (Tab=오른쪽 칸, Enter=등록) ── */
   const[quick,setQuick]=useState(()=>blank());
@@ -2754,6 +2816,7 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
           R('span',{style:{color:'var(--tm)',fontSize:'0.85em',width:64,flexShrink:0}},c.l),
           R('span',{style:{flex:1,minWidth:0,wordBreak:'break-all'}},cell(r,c))
         )),
+        commentsBlock(r),
         R('div',{style:{fontSize:'0.8em',color:'#B0A69C',marginTop:6,paddingTop:6,borderTop:'1px solid var(--bd)'}},(r._byName||'-')+' · '+fDate(r._at))
       ))
     ):
@@ -2793,22 +2856,25 @@ function SharedTable({user,title,ic,desc,storeKey,cols,sort,files:allowFiles}){
           ),
           rows===null?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:20,color:'var(--tm)'}},R('span',{className:'ld'},'로딩 중 '))):
           list.length===0?R('tr',null,R('td',{colSpan:cols.length+2,style:{textAlign:'center',padding:22,color:'var(--tm)'}},'등록된 내용이 없습니다. 위 줄에 바로 입력하거나 [+ 추가]를 눌러주세요.')):
-          list.map((r,ri)=>R('tr',{key:r._id,
+          list.map((r,ri)=>R(React.Fragment,{key:r._id},R('tr',{
+            onClick:()=>setDetailId(d=>d===r._id?null:r._id),
             onDoubleClick:()=>{if(canEdit(r))openEdit(r);else alert('작성자 또는 관리자만 수정할 수 있습니다.');},
-            title:'더블클릭하면 수정',style:{cursor:'default',background:ri%2?'#FBFAF8':'#fff'}},
+            title:'클릭: 내용 펼쳐보기 · 더블클릭: 수정',
+            style:{cursor:'pointer',background:detailId===r._id?'#FFF7F2':(ri%2?'#FBFAF8':'#fff')}},
             ...cols.map(c=>{
               /* 같은 날짜가 이어지면 두 번째 줄부터 흐리게 — 날짜별 묶음이 한눈에 보이게 */
               const dimDate=c===cols[0]&&c.type==='date'&&ri>0&&String(list[ri-1][c.k]||'')===String(r[c.k]||'')&&String(r[c.k]||'');
               return R('td',{key:c.k,style:{fontSize:12,verticalAlign:'top',lineHeight:1.55}},
                 dimDate?R('span',{style:{whiteSpace:'nowrap',color:'#CFC7BF',fontVariantNumeric:'tabular-nums'}},String(r[c.k])):cell(r,c),
-                c===cols[0]&&filesBadge(r));
+                c===cols[0]&&filesBadge(r),
+                c===cols[0]&&Array.isArray(r._comments)&&r._comments.length>0&&R('span',{style:{fontSize:10,color:'#7C3AED',marginLeft:5,fontWeight:700}},'💬'+r._comments.length));
             }),
             R('td',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap',verticalAlign:'top'}},r._byName||'-',R('br'),fDate(r._at)),
-            R('td',{style:{whiteSpace:'nowrap',verticalAlign:'top'}},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
+            R('td',{style:{whiteSpace:'nowrap',verticalAlign:'top'},onClick:e=>e.stopPropagation()},canEdit(r)&&R('span',{style:{display:'inline-flex',gap:4}},
               R('button',{onClick:()=>openEdit(r),title:'수정',style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
               R('button',{onClick:()=>del(r),title:'삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')
             ))
-          ))
+          ),detailId===r._id&&detailRow(r)))
         )
       )
     ),
