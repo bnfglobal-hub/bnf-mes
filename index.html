@@ -11390,8 +11390,15 @@ function ImgModal({data,onClose,genImg}){
 /* ────── 작업지시서 이미지 모달 (원료 발주 → 이미지 올려 복사·인쇄) ────── */
 function WorkOrderImgModal({data,onClose}){
   const[img,setImg]=useState('');      /* dataURL */
+  const[html,setHtml]=useState('');    /* 엑셀 표 붙여넣기 (text/html) */
   const[busy,setBusy]=useState(false);
   const fileRef=useRef(null);
+  /* 엑셀 클립보드 HTML 정리: 스크립트·이벤트 제거, 표·스타일은 유지(병합·테두리 그대로) */
+  const cleanHtml=(raw)=>String(raw||'')
+    .replace(/<script[\s\S]*?<\/script>/gi,'')
+    .replace(/<link[^>]*>/gi,'')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi,'');
+  const htmlToText=(h)=>{const d=document.createElement('div');d.innerHTML=h;return d.innerText||'';};
   const load=(file)=>{
     if(!file){return;}
     if(!(file.type||'').startsWith('image/')){alert('이미지 파일만 올릴 수 있습니다.');return;}
@@ -11404,8 +11411,23 @@ function WorkOrderImgModal({data,onClose}){
   const onPaste=(e)=>{
     const items=(e.clipboardData&&e.clipboardData.items)||[];
     for(const it of items){if(it.type&&it.type.indexOf('image')>=0){const f=it.getAsFile();if(f){e.preventDefault();load(f);return;}}}
+    /* 엑셀 셀 복사 → 표(HTML)로 붙여넣기 */
+    const h=e.clipboardData&&e.clipboardData.getData&&e.clipboardData.getData('text/html');
+    if(h&&/<table/i.test(h)){e.preventDefault();setImg('');setHtml(cleanHtml(h));return;}
   };
   const copyImg=async()=>{
+    if(html){
+      try{
+        if(navigator.clipboard&&window.ClipboardItem){
+          await navigator.clipboard.write([new ClipboardItem({
+            'text/html':new Blob([html],{type:'text/html'}),
+            'text/plain':new Blob([htmlToText(html)],{type:'text/plain'})
+          })]);
+          bnfToast('작업지시서 표 복사됨 ✓ (엑셀·카톡 등에 붙여넣기)');
+        }else{throw new Error('unsupported');}
+      }catch(err){alert('표 복사가 지원되지 않는 브라우저입니다. [인쇄]를 이용해주세요.');}
+      return;
+    }
     if(!img)return;
     try{
       const blob=await (await fetch(img)).blob();
@@ -11416,11 +11438,15 @@ function WorkOrderImgModal({data,onClose}){
     }catch(err){alert('이미지 복사가 지원되지 않는 브라우저입니다. [저장] 후 붙여넣어 사용해주세요.');}
   };
   const printImg=()=>{
-    if(!img)return;
+    if(!img&&!html)return;
     const w=window.open('','_blank');
     if(!w){alert('팝업이 차단되어 인쇄창을 열 수 없습니다. 팝업 허용 후 다시 시도해주세요.');return;}
     const title=(data.prod&&data.prod.name||'작업지시서')+' '+(data.qty||'')+'개';
-    w.document.write('<html><head><title>'+title+'</title><style>@page{margin:8mm}body{margin:0;text-align:center}img{max-width:100%;height:auto}</style></head><body><img src="'+img+'" onload="setTimeout(function(){window.print();},200)"></body></html>');
+    if(html){
+      w.document.write('<html><head><title>'+title+'</title><style>@page{margin:8mm}body{margin:0}table{border-collapse:collapse}</style></head><body>'+html+'<script>setTimeout(function(){window.print();},300)<\/script></body></html>');
+    }else{
+      w.document.write('<html><head><title>'+title+'</title><style>@page{margin:8mm}body{margin:0;text-align:center}img{max-width:100%;height:auto}</style></head><body><img src="'+img+'" onload="setTimeout(function(){window.print();},200)"></body></html>');
+    }
     w.document.close();
   };
   return R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
@@ -11431,21 +11457,28 @@ function WorkOrderImgModal({data,onClose}){
           R('div',{style:{fontSize:12,color:'#6E645C'}},(data.prod&&data.prod.name||'')+' · '+(data.qty||'')+'개')),
         R('button',{onClick:onClose,style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')),
       R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
-        !img
+        html
+          ?R('div',null,
+              R('div',{style:{overflow:'auto',border:'1px solid var(--bd)',borderRadius:10,padding:10,background:'#fff'},
+                dangerouslySetInnerHTML:{__html:html}}),
+              R('div',{style:{textAlign:'center'}},
+                R('button',{className:'btn bs btn-sm',onClick:()=>setHtml(''),style:{marginTop:10}},'다른 내용으로 바꾸기')))
+        :!img
           ?R('div',{onDragOver:e=>e.preventDefault(),onDrop:e=>{e.preventDefault();load(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]);},
               onClick:()=>fileRef.current&&fileRef.current.click(),
               style:{border:'2px dashed var(--bd)',borderRadius:12,padding:'44px 20px',textAlign:'center',cursor:'pointer',background:'#FCFCFD'}},
               R('div',{style:{fontSize:40,marginBottom:10}},'🖼'),
-              R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},busy?'불러오는 중...':'작업지시서 이미지 올리기'),
-              R('div',{style:{fontSize:12,color:'var(--tm)'}},'여기를 눌러 사진 선택 · 끌어다 놓기 · Ctrl+V 붙여넣기'))
+              R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},busy?'불러오는 중...':'작업지시서 올리기'),
+              R('div',{style:{fontSize:12,color:'var(--tm)'}},'여기를 눌러 사진 선택 · 끌어다 놓기 · Ctrl+V 붙여넣기'),
+              R('div',{style:{fontSize:11.5,color:'#15803D',fontWeight:700,marginTop:6}},'💡 엑셀에서 표 범위를 복사(Ctrl+C)한 뒤 여기서 Ctrl+V 하면 표가 그대로 들어옵니다'))
           :R('div',{style:{textAlign:'center'}},
               R('img',{src:img,alt:'작업지시서',style:{maxWidth:'100%',borderRadius:8,border:'1px solid var(--bd)'}}),
               R('button',{className:'btn bs btn-sm',onClick:()=>setImg(''),style:{marginTop:10}},'다른 이미지로 바꾸기')),
         R('input',{ref:fileRef,type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{load(e.target.files&&e.target.files[0]);e.target.value='';}})
       ),
       R('div',{className:'mfoot'},
-        R('button',{className:'btn bp',style:{flex:1,padding:11},disabled:!img,onClick:copyImg},'📋 복사'),
-        R('button',{className:'btn',style:{flex:1,padding:11,background:'#0F766E',color:'#fff',fontWeight:700},disabled:!img,onClick:printImg},'🖨 인쇄'),
+        R('button',{className:'btn bp',style:{flex:1,padding:11},disabled:!img&&!html,onClick:copyImg},'📋 복사'),
+        R('button',{className:'btn',style:{flex:1,padding:11,background:'#0F766E',color:'#fff',fontWeight:700},disabled:!img&&!html,onClick:printImg},'🖨 인쇄'),
         img&&R('a',{href:img,download:((data.prod&&data.prod.name)||'작업지시서')+'.png',className:'btn bs',style:{padding:'11px 14px',textDecoration:'none',display:'inline-flex',alignItems:'center'}},'💾 저장'),
         R('button',{className:'btn bs',style:{padding:'11px 14px'},onClick:onClose},'닫기'))
     )
