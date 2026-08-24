@@ -808,6 +808,16 @@ body{font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;text-r
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
 }
 
+/* ═══ 재고 페이지 PC 스크롤 수정 (2026-08-24) ═══
+   모바일(≤768px)은 .inv-page를 스크롤 주인으로 고쳤지만 PC에는 규칙이 없어
+   완제품 현황이 길면 아래 재고목록으로 내려갈 방법이 없었다.
+   해결: PC에서도 .inv-page가 페이지 세로 스크롤을 소유하고,
+         재고목록(.inv-tbl)은 약 10행 높이의 내부 스크롤(헤더 고정)로 고정. */
+@media(min-width:769px){
+  .inv-page{height:100%!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior-y:contain}
+  .inv-tbl{max-height:440px!important;min-height:0!important;overflow:auto!important;margin-bottom:24px!important}
+}
+
 /* ── 데스크톱에서만: 과한 라운드·그림자 억제 ── */
 @media(min-width:769px){
   .card{border-radius:var(--radius-lg) !important}
