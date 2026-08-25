@@ -11595,6 +11595,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   const[showAllCombined,setShowAllCombined]=useState(false);
   const[orderedMats,setOrderedMats]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem('bnf_ordered_mats_v1')||'[]'));}catch(e){return new Set();}});
   const toggleOrdered=(code)=>{setOrderedMats(prev=>{const n=new Set(prev);n.has(code)?n.delete(code):n.add(code);localStorage.setItem('bnf_ordered_mats_v1',JSON.stringify([...n]));return n;});};
+  const[ordDoneOpen,setOrdDoneOpen]=useState(false); /* 발주 완료 구역 접기 (기본 접힘) */
   /* ── 제품 폴더 (생산계획 정리용) ── */
   const[prodFolders,setProdFolders]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_folders')||'null')||[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}catch(e){return[{id:'_root',name:'기본',color:'#D94F1E',order:0}];}});
   const[prodItemFolder,setProdItemFolder]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_item_folder')||'{}');}catch(e){return{};}});
@@ -11769,10 +11770,15 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             _list.forEach((r,_ri)=>{const ordered=orderedMats.has(r.code);
             const _prev=_ri>0?_list[_ri-1]:null;
             const _prevOrdered=_prev?orderedMats.has(_prev.code):false;
-            /* 발주 완료 구역 시작 헤더 */
+            /* 발주 완료 구역: 폴더처럼 접기 (헤더 클릭으로 펼침, 기본 접힘) */
             if(ordered&&(!_prev||!_prevOrdered)){
-              _out.push(R('tr',{key:'__done_hdr'},R('td',{colSpan:7,style:{padding:'8px 12px',background:'#DCFCE7',color:'#15803D',fontWeight:800,fontSize:'0.95em',borderTop:'2px solid #86EFAC'}},'✓ 발주 완료 ('+_list.filter(x=>orderedMats.has(x.code)).length+'건)')));
+              _out.push(R('tr',{key:'__done_hdr',onClick:()=>setOrdDoneOpen(v=>!v),style:{cursor:'pointer'}},
+                R('td',{colSpan:7,style:{padding:'8px 12px',background:'#DCFCE7',color:'#15803D',fontWeight:800,fontSize:'0.95em',borderTop:'2px solid #86EFAC',userSelect:'none'}},
+                  R('span',{style:{display:'inline-block',width:14,transition:'transform .15s',transform:ordDoneOpen?'rotate(90deg)':'none'}},'▶'),
+                  '✓ 발주 완료 ('+_list.filter(x=>orderedMats.has(x.code)).length+'건)',
+                  R('span',{style:{fontWeight:600,fontSize:'0.85em',marginLeft:8,color:'#4D7C5F'}},ordDoneOpen?'접기':'펼치기'))));
             }
+            if(ordered&&!ordDoneOpen)return; /* 접힌 상태면 완료 행은 숨김 */
             const _newGrp=_prev&&_prevOrdered===ordered&&supName(_prev)!==supName(r);
             _out.push(R('tr',{key:r.code,style:{background:ordered?'#F0FDF4':(r.short>0?'#FFF7F4':'#fff'),borderTop:_newGrp?'2px solid #D9D2CB':'none'}},
             R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'center'}},
