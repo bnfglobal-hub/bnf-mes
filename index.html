@@ -763,6 +763,11 @@ body{font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;text-r
 /* 사이드바: 흰 패널 + 여유 있는 항목, 활성은 소프트 브랜드 필 */
 .sb{background:var(--sb);border-right:1px solid var(--border)}
 .ni{padding:7.5px 10px;border-radius:9px;font-size:12.5px;margin:0 6px 1px;transition:background .13s var(--ease),color .13s var(--ease)}
+/* 메뉴 즐겨찾기 별 버튼: 평소엔 숨김, 항목에 마우스를 올리면 표시 (등록된 것은 항상 표시) */
+.ni .nfav{margin-left:auto;border:none;background:transparent;cursor:pointer;font-size:12px;color:#D9D2CB;opacity:0;padding:0 2px;line-height:1;font-family:inherit;flex-shrink:0;transition:opacity .12s,color .12s}
+.ni:hover .nfav{opacity:1}
+.ni .nfav:hover{color:#F59E0B}
+.ni .nfav.on{opacity:1;color:#F59E0B}
 .ni:hover{background:#F6F4F1}
 .ni.act{background:var(--brand-orange-soft);box-shadow:none;font-weight:700}
 .sb-folder>div:first-child{border-radius:9px}
@@ -7876,6 +7881,44 @@ function NewProductHome({onGoPage}){
         npRenderPipeline(p,(id,stage)=>{NP_OPEN_ID=id;NP_OPEN_STAGE=stage;onGoPage('newprod');})
       ))
     )
+  );
+}
+
+/* ═══ 나의 업무 · 개인 메모장 — 사용자별로 저장, 자동 저장, 기기 간 공유 ═══ */
+function MyMemoPad({user}){
+  const KEY='bnf_my_memos';
+  const[txt,setTxt]=useState('');
+  const[loaded,setLoaded]=useState(false);
+  const[saved,setSaved]=useState(true);
+  const tm=useRef(null);
+  useEffect(()=>{
+    sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle().then(({data})=>{
+      const mine=data&&data.v&&data.v[user.id];
+      if(typeof mine==='string')setTxt(mine);
+      setLoaded(true);
+    }).catch(()=>setLoaded(true));
+  },[]);
+  const onChange=(v)=>{
+    setTxt(v);setSaved(false);
+    if(tm.current)clearTimeout(tm.current);
+    tm.current=setTimeout(()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+        const ex=data&&data.state_data;
+        if(!ex)return; /* 읽기 실패 시 저장 중단 — 다른 키 보호 */
+        const all=Object.assign({},ex[KEY]||{});
+        all[user.id]=v;
+        return sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{[KEY]:all}),updated_at:new Date().toISOString()});
+      }).then(()=>setSaved(true)).catch(()=>{});
+    },800);
+  };
+  return R('div',{className:'card',style:{borderRadius:16,padding:'16px 18px',marginBottom:12}},
+    R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+      R('span',{style:{fontSize:14,fontWeight:800,color:'var(--t)'}},'📝 메모장'),
+      loaded&&R('span',{style:{fontSize:10.5,fontWeight:700,color:saved?'var(--ok)':'var(--p)'}},saved?'저장됨 ✓':'저장 중...'),
+      R('span',{style:{marginLeft:'auto',fontSize:10.5,color:'var(--tm)'}},'본인만 볼 수 있어요 · 자동 저장')),
+    !loaded?R('div',{style:{fontSize:12,color:'var(--tm)',padding:'8px 0'}},'불러오는 중...'):
+    R('textarea',{value:txt,onChange:e=>onChange(e.target.value),placeholder:'자유롭게 메모하세요 — 입력하면 자동으로 저장됩니다',
+      style:{width:'100%',boxSizing:'border-box',minHeight:150,border:'1px solid var(--bd)',borderRadius:10,padding:'12px 14px',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.7,background:'#FFFDF5'}})
   );
 }
 
@@ -17676,6 +17719,41 @@ function App(){
     }).catch(()=>{});
   };
   const navSectionsRef=useRef(null);
+  /* ── 사용자별 메뉴 즐겨찾기 (사이드바 최상단 고정, 기기 간 공유) ── */
+  const favLsKey='bnf_nav_favs_'+((user&&user.id)||'anon');
+  const[navFavs,setNavFavs]=useState(()=>{try{const v=JSON.parse(localStorage.getItem(favLsKey)||'[]');return Array.isArray(v)?v:[];}catch(e){return[];}});
+  useEffect(()=>{
+    if(!user)return;
+    sbClient.from('app_state').select('v:state_data->bnf_nav_favs').eq('id',1).maybeSingle().then(({data})=>{
+      const mine=data&&data.v&&data.v[user.id];
+      if(Array.isArray(mine)){setNavFavs(mine);try{localStorage.setItem(favLsKey,JSON.stringify(mine));}catch(e){}}
+    }).catch(()=>{});
+  },[user&&user.id]);
+  const navFavTimer=useRef(null);
+  const persistNavFavs=(next)=>{
+    setNavFavs(next);
+    try{localStorage.setItem(favLsKey,JSON.stringify(next));}catch(e){}
+    if(navFavTimer.current)clearTimeout(navFavTimer.current);
+    navFavTimer.current=setTimeout(()=>{
+      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
+        const ex=data&&data.state_data;
+        if(!ex)return; /* 읽기 실패 시 저장 중단 — 다른 키를 덮어쓰지 않도록 */
+        const all=Object.assign({},ex.bnf_nav_favs||{});
+        all[user.id]=next;
+        return sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_nav_favs:all}),updated_at:new Date().toISOString()});
+      }).catch(()=>{});
+    },600);
+  };
+  const toggleNavFav=(id)=>persistNavFavs(navFavs.includes(id)?navFavs.filter(x=>x!==id):[...navFavs,id]);
+  const findNavItem=(id)=>{
+    let hit=null;
+    (navSections||[]).forEach(s=>s&&(s.items||[]).forEach(i=>{
+      if(!i)return;
+      if(i.kind==='folder')(i.items||[]).forEach(c=>{if(c&&c.id===id)hit=c;});
+      else if(i.id===id)hit=i;
+    }));
+    return hit;
+  };
   const[navEditMode,setNavEditMode]=useState(false);
   useEffect(()=>{navEditRef.current=navEditMode;},[navEditMode]);
   useEffect(()=>{navSectionsRef.current=navSections;},[navSections]);
@@ -17846,7 +17924,10 @@ function App(){
         onClick:()=>{setPage(n.id);setSbOpen(false);},
         style:{paddingLeft:path.length>1?18:24,cursor:'pointer'}
       },
-        R('span',null,n.l)
+        R('span',null,n.l),
+        R('button',{className:'nfav'+(navFavs.includes(n.id)?' on':''),
+          title:navFavs.includes(n.id)?'즐겨찾기 해제':'즐겨찾기에 추가 (메뉴 맨 위 고정)',
+          onClick:e=>{e.stopPropagation();toggleNavFav(n.id);}},navFavs.includes(n.id)?'★':'☆')
       ));
     });
     return out;
@@ -18355,6 +18436,7 @@ function App(){
         ),
         R('button',{className:'btn bs btn-sm',onClick:()=>setPage('workreq'),title:'다른 직원에게 업무를 요청합니다'},'👤 업무 요청하기')
       ),
+      R(MyMemoPad,{user}),
       R(OngoingWork,{user,personal:true,storeKey:'mytasks_'+(user.id||user.email||'guest')})
     );
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
@@ -18582,6 +18664,19 @@ function App(){
             title:'초기화',
             style:{padding:'5px 8px',background:'#F4F1EE',color:'#6E645C',border:'none',borderRadius:6,cursor:'pointer',fontSize:10}
           },'↻')
+        ),
+        /* ── ⭐ 즐겨찾기 (사용자별 · 항목의 별을 눌러 추가) ── */
+        !navEditMode&&navFavs.length>0&&R('div',{className:'sb-folder',style:{marginBottom:6}},
+          R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',fontSize:12,fontWeight:700,color:'#B45309',margin:'2px 8px',userSelect:'none'}},'⭐ 즐겨찾기'),
+          ...navFavs.map(id=>{
+            const it=findNavItem(id);
+            if(!it||!navItemVisible(it))return null;
+            return R('div',{key:'fav_'+id,className:'ni'+(page===id?' act':''),
+              onClick:()=>{setPage(id);setSbOpen(false);},style:{paddingLeft:24,cursor:'pointer'}},
+              R('span',null,it.l),
+              R('button',{className:'nfav on',title:'즐겨찾기 해제',
+                onClick:e=>{e.stopPropagation();toggleNavFav(id);}},'★'));
+          })
         ),
         (()=>{ /* 자기 부서 폴더를 홈 폴더 바로 다음으로 (관리자는 그대로, 편집모드에서는 원래 순서) */
           const base=navSections.filter(s=>!s.adminOnly||isAdmin);
