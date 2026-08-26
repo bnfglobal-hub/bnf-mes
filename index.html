@@ -11923,11 +11923,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
         R('div',{style:{fontSize:10,opacity:0.85,marginTop:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},combined.prodNames.join(' + '))
       ),
       R('div',{style:{padding:'6px 14px 4px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
-        R('div',{style:{fontSize:11,fontWeight:700,color:'#6E645C',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',minWidth:0}},
-          '같은 원재료를 합산한 실제 필요량',
-          ...combined.prodNames.map((n,i)=>{const c=PRODPAL[i%PRODPAL.length];
-            return R('span',{key:i,title:n,style:{display:'inline-block',fontSize:9.5,fontWeight:800,color:c[0],background:c[1],border:'1px solid '+c[2],padding:'1px 8px',borderRadius:999,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(i+1)+' '+prodShort(n));})
-        ),
+        R('div',{style:{fontSize:11,fontWeight:700,color:'#6E645C'}},'같은 원재료를 합산한 실제 필요량 · 원재료 앞 색 표시는 사용되는 제품'),
         /* 글씨 크기 · 열 너비 직접 조절 */
         R('div',{style:{display:'flex',alignItems:'center',gap:5,marginLeft:'auto'}},
           R('span',{style:{fontSize:10,color:'#9A9088',fontWeight:700}},'글씨'),
@@ -11985,15 +11981,16 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'center'}},
               R('input',{type:'checkbox',checked:ordered,onChange:()=>toggleOrdered(r.code),title:ordered?'발주 완료':'발주 체크',style:{width:16,height:16,cursor:'pointer',accentColor:'#16A34A'}})),
             R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',fontWeight:r.short>0?700:500,color:ordered?'#9A9088':(r.short>0?'#991B1B':'#3D3630'),textDecoration:ordered?'line-through':'none',lineHeight:1.35,wordBreak:'break-all'}},
-              /* 이 원재료를 쓰는 제품 번호 칩 (위 범례와 같은 색) */
-              ...(()=>{const seen=new Set();const out=[];
+              /* 이 원재료를 쓰는 제품 풀네임 칩 (원재료명 위에 표시) */
+              (()=>{const seen=new Set();const out=[];
                 (r.prods||[]).forEach(pp=>{
                   if(seen.has(pp.name))return;seen.add(pp.name);
                   const i=combined.prodNames.indexOf(pp.name);
                   const c=PRODPAL[(i<0?0:i)%PRODPAL.length];
                   out.push(R('span',{key:pp.name,title:pp.name+' · 1개당 '+pp.amt+r.unit+' × '+pp.qty+'개',
-                    style:{display:'inline-block',fontSize:'0.72em',fontWeight:800,color:c[0],background:c[1],border:'1px solid '+c[2],borderRadius:999,padding:'0 6px',marginRight:3,textDecoration:'none',verticalAlign:'1px'}},i>=0?(i+1):'·'));
-                });return out;})(),
+                    style:{display:'inline-block',fontSize:'0.74em',fontWeight:700,color:c[0],background:c[1],border:'1px solid '+c[2],borderRadius:6,padding:'1px 6px',marginRight:3,marginBottom:2,textDecoration:'none',lineHeight:1.4,wordBreak:'keep-all'}},pp.name));
+                });
+                return out.length?R('div',{style:{marginBottom:3}},...out):null;})(),
               r.name,
               ordered&&R('span',{style:{fontSize:'0.82em',color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료')
             ),
