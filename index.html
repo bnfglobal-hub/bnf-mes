@@ -11981,16 +11981,16 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'center'}},
               R('input',{type:'checkbox',checked:ordered,onChange:()=>toggleOrdered(r.code),title:ordered?'발주 완료':'발주 체크',style:{width:16,height:16,cursor:'pointer',accentColor:'#16A34A'}})),
             R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',fontWeight:r.short>0?700:500,color:ordered?'#9A9088':(r.short>0?'#991B1B':'#3D3630'),textDecoration:ordered?'line-through':'none',lineHeight:1.35,wordBreak:'break-all'}},
-              /* 이 원재료를 쓰는 제품 풀네임 칩 (원재료명 위에 표시) */
-              (()=>{const seen=new Set();const out=[];
+              /* 이 원재료를 쓰는 제품 풀네임 칩 (원재료명 왼쪽에 표시) */
+              ...(()=>{const seen=new Set();const out=[];
                 (r.prods||[]).forEach(pp=>{
                   if(seen.has(pp.name))return;seen.add(pp.name);
                   const i=combined.prodNames.indexOf(pp.name);
                   const c=PRODPAL[(i<0?0:i)%PRODPAL.length];
                   out.push(R('span',{key:pp.name,title:pp.name+' · 1개당 '+pp.amt+r.unit+' × '+pp.qty+'개',
-                    style:{display:'inline-block',fontSize:'0.74em',fontWeight:700,color:c[0],background:c[1],border:'1px solid '+c[2],borderRadius:6,padding:'1px 6px',marginRight:3,marginBottom:2,textDecoration:'none',lineHeight:1.4,wordBreak:'keep-all'}},pp.name));
+                    style:{display:'inline-block',fontSize:'0.74em',fontWeight:700,color:c[0],background:c[1],border:'1px solid '+c[2],borderRadius:6,padding:'1px 6px',marginRight:4,marginBottom:1,textDecoration:'none',lineHeight:1.4,wordBreak:'keep-all',verticalAlign:'middle'}},pp.name));
                 });
-                return out.length?R('div',{style:{marginBottom:3}},...out):null;})(),
+                return out;})(),
               r.name,
               ordered&&R('span',{style:{fontSize:'0.82em',color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료')
             ),
