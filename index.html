@@ -11750,7 +11750,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   /* ── 통합 소요량 표: 열 너비 · 글씨 크기 사용자 조절 (브라우저에 저장) ── */
   const COLS=[
     {k:'ck',l:'발주',w:36,a:'center'},
-    {k:'nm',l:'원재료',w:250},
+    {k:'nm',l:'원재료',w:430}, /* 제품 풀네임 칩 + 원재료명이 한 줄에 들어가도록 넓게 */
     {k:'sup',l:'매입처',w:150},
     {k:'pr',l:'최근 매입단가',w:98,a:'right'},
     {k:'nd',l:'총 필요',w:86,a:'right'},
@@ -11758,7 +11758,13 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     {k:'sh',l:'부족',w:88,a:'right'}
   ];
   const CBTN={background:'#fff',border:'1px solid #E9E2DC',borderRadius:6,padding:'2px 7px',cursor:'pointer',fontSize:10,fontWeight:700,color:'#6E645C',fontFamily:'inherit',lineHeight:1.6};
-  const[colW,setColW]=useState(()=>{try{const v=JSON.parse(localStorage.getItem('bnf_prod_colw_v1')||'null');return(v&&typeof v==='object')?v:{};}catch(e){return{};}});
+  const[colW,setColW]=useState(()=>{try{
+    const v=JSON.parse(localStorage.getItem('bnf_prod_colw_v1')||'null');
+    const o=(v&&typeof v==='object')?v:{};
+    /* 원재료 칸을 넓힌 새 기본값(430) 적용: 예전 좁은 저장값은 무시 */
+    if(o.nm&&o.nm<300)delete o.nm;
+    return o;
+  }catch(e){return{};}});
   const[fontScale,setFontScale]=useState(()=>{try{return +localStorage.getItem('bnf_prod_fs_v1')||11;}catch(e){return 11;}});
   const wOf=k=>{const v=colW[k];if(v>0)return v;const c=COLS.find(x=>x.k===k);return c?c.w:100;};
   const setFS=v=>{const n=Math.min(20,Math.max(9,v));setFontScale(n);try{localStorage.setItem('bnf_prod_fs_v1',String(n));}catch(e){}};
