@@ -4517,6 +4517,128 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
   );
 }
 
+/* ═══ 인원배치 (생산관리) ══════════════════════════════
+   작업별 투입 인원과 공정별 담당자를 기록한다. app_state.bnf_pm_staffing */
+function PagePMStaffing({user}){
+  const KEY='bnf_pm_staffing';
+  const[rows,setRows]=useState(null);
+  const[emps,setEmps]=useState([]);
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[showF,setShowF]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const blankF=()=>({date:today2(),name:'',headcount:'',note:'',steps:[{proc:'',person:''}]});
+  const[form,setForm]=useState(blankF());
+  const isAdmin=['superadmin','admin','manager'].includes(user.role);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  useEffect(()=>{
+    load();
+    sbClient.from('emp').select('id,name').eq('status','active').order('name').then(({data})=>setEmps(data||[])).catch(()=>{});
+  },[]);
+  useBnfSyncReload(()=>load());
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=data&&data.state_data;
+      if(!existing)throw new Error('서버 상태를 읽지 못했습니다. 잠시 후 다시 시도해주세요.');
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+      setRows(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  const openNew=()=>{setForm(blankF());setEditId(null);setShowF(true);};
+  const openEdit=r=>{setForm({date:r.date||'',name:r.name||'',headcount:r.headcount||'',note:r.note||'',
+    steps:(Array.isArray(r.steps)&&r.steps.length?r.steps:[{proc:'',person:''}]).map(s=>({proc:s.proc||'',person:s.person||''}))});
+    setEditId(r._id);setShowF(true);};
+  const save=async()=>{
+    if(!form.name.trim())return alert('작업명을 입력해주세요.');
+    const steps=(form.steps||[]).map(s=>({proc:(s.proc||'').trim(),person:(s.person||'').trim()})).filter(s=>s.proc||s.person);
+    const rec={date:form.date||'',name:form.name.trim(),headcount:+form.headcount||0,note:(form.note||'').trim(),steps};
+    const list=(rows||[]).slice();
+    if(editId){
+      const i=list.findIndex(x=>x._id===editId);
+      if(i>=0)list[i]=Object.assign({},list[i],rec,{_editBy:user.name,_editAt:now2()});
+    }else{
+      list.unshift(Object.assign(rec,{_id:'ps'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),_by:user.id,_byName:user.name,_at:now2()}));
+    }
+    await persist(list);setShowF(false);setEditId(null);
+  };
+  const del=async(r)=>{
+    if(!(isAdmin||r._by===user.id))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('"'+r.name+'" 인원배치를 삭제할까요?'))return;
+    await persist((rows||[]).filter(x=>x._id!==r._id));
+  };
+  const setStep=(i,k,v)=>setForm(p=>Object.assign({},p,{steps:p.steps.map((s,j)=>j===i?Object.assign({},s,{[k]:v}):s)}));
+  const addStep=()=>setForm(p=>Object.assign({},p,{steps:[...p.steps,{proc:'',person:''}]}));
+  const rmStep=(i)=>setForm(p=>Object.assign({},p,{steps:p.steps.length>1?p.steps.filter((_,j)=>j!==i):p.steps}));
+  const list=(rows||[]).filter(r=>{
+    const s=q.trim().toLowerCase();if(!s)return true;
+    return [r.name,r.note].concat((r.steps||[]).flatMap(x=>[x.proc,x.person])).some(v=>String(v||'').toLowerCase().includes(s));
+  }).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b._at||'').localeCompare(String(a._at||'')));
+  const iconBtn=(border,color)=>({border:'1px solid '+border,background:'#fff',color,borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'});
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'👥 인원배치'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'작업별 투입 인원과 공정별 담당자를 관리합니다')),
+      R('button',{className:'btn bp',onClick:openNew,disabled:busy},'+ 인원배치 등록')
+    ),
+    R('div',{style:{marginBottom:10,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 작업명·공정·담당자 검색',style:{maxWidth:340}}),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},list.length+'건'),
+      busy&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'저장 중...')),
+    rows===null?R('div',{className:'card',style:{textAlign:'center',padding:30,color:'var(--tm)'}},'로딩 중...'):
+    list.length===0?R('div',{className:'card',style:{textAlign:'center',padding:30,color:'var(--tm)'}},'등록된 인원배치가 없습니다. [+ 인원배치 등록]으로 추가해주세요.'):
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:10}},
+      ...list.map(r=>R('div',{key:r._id,className:'card',style:{padding:'14px 16px'}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+          R('span',{style:{fontSize:14,fontWeight:800}},r.name),
+          r.headcount>0&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',padding:'2px 9px',borderRadius:999,whiteSpace:'nowrap'}},'작업인원 '+r.headcount+'명'),
+          r.date&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:600}},r.date),
+          (isAdmin||r._by===user.id)&&R('span',{style:{marginLeft:'auto',display:'inline-flex',gap:4}},
+            R('button',{onClick:()=>openEdit(r),title:'수정',style:iconBtn('var(--bd)','var(--t)')},'✏️'),
+            R('button',{onClick:()=>del(r),title:'삭제',style:iconBtn('#FECACA','#DC2626')},'🗑'))
+        ),
+        (r.steps||[]).length>0&&R('div',{style:{display:'flex',flexDirection:'column',gap:4,marginBottom:r.note?8:0}},
+          ...(r.steps||[]).map((s,i)=>R('div',{key:i,style:{display:'flex',gap:8,alignItems:'center',fontSize:12.5,padding:'5px 10px',background:'#FBFAF8',borderRadius:8}},
+            R('span',{style:{fontWeight:700,color:'#5D534B',minWidth:76,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},s.proc||'-'),
+            R('span',{style:{color:'#D9D2CB',flexShrink:0}},'→'),
+            R('span',{style:{fontWeight:700,color:'var(--p)',minWidth:0,wordBreak:'break-word'}},s.person||'-')))),
+        r.note&&R('div',{style:{fontSize:11.5,color:'var(--tm)',whiteSpace:'pre-wrap'}},r.note),
+        R('div',{style:{fontSize:10,color:'#B0A69C',marginTop:8,paddingTop:8,borderTop:'1px solid var(--bd)'}},(r._byName||'-')+' · '+fDate(r._at))
+      ))
+    ),
+    showF&&R(Modal2,{title:editId?'인원배치 수정':'인원배치 등록',onClose:()=>{setShowF(false);setEditId(null);},size:560,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:save,disabled:busy,style:{flex:2}},editId?'수정 저장':'등록'))},
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'작업명 *'),
+          R('input',{className:'inp',value:form.name,onChange:e=>setForm(p=>Object.assign({},p,{name:e.target.value})),placeholder:'예) 청국장'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'작업 일자'),
+          R('input',{type:'date',className:'inp',value:form.date,onChange:e=>setForm(p=>Object.assign({},p,{date:e.target.value}))}))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'작업인원(명)'),
+        R('input',{type:'number',min:'0',className:'inp',value:form.headcount,onChange:e=>setForm(p=>Object.assign({},p,{headcount:e.target.value})),placeholder:'예) 5',style:{maxWidth:140}})),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'공정별 담당자'),
+        R('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+          ...form.steps.map((s,i)=>R('div',{key:i,style:{display:'flex',gap:6,alignItems:'center'}},
+            R('input',{className:'inp',value:s.proc,onChange:e=>setStep(i,'proc',e.target.value),placeholder:'공정 (예: 배합·충진·포장)',style:{flex:1,minWidth:0}}),
+            R('input',{className:'inp',value:s.person,onChange:e=>setStep(i,'person',e.target.value),placeholder:'담당자',list:'pm-staff-emps',style:{flex:1,minWidth:0}}),
+            R('button',{onClick:()=>rmStep(i),title:'줄 삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'6px 10px',fontSize:12,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'×'))),
+          R('button',{onClick:addStep,style:{border:'1px dashed var(--bd)',background:'transparent',borderRadius:8,padding:'7px',fontSize:12,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit',fontWeight:700}},'+ 공정 추가')),
+        R('datalist',{id:'pm-staff-emps'},...emps.map(e2=>R('option',{key:e2.id,value:e2.name})))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'비고'),
+        R('textarea',{className:'inp',value:form.note,onChange:e=>setForm(p=>Object.assign({},p,{note:e.target.value})),placeholder:'특이사항, 교대 정보 등',style:{minHeight:60}}))
+    )
+  );
+}
+
 /* ═══ 업무 매뉴얼 ══════════════════════════════════════
    부서/분류별로 업무 지침을 글로 정리하고 파일(사진·PDF·엑셀)을 붙인다.
    app_state.bnf_manuals 에 저장 → 전 직원 공유. */
@@ -14408,6 +14530,7 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🏭 생산관리',type:'dept_pm',items:[
     {id:'pm_workorder',l:'작업지시서',ic:'📋'},
+    {id:'pm_staffing',l:'인원배치',ic:'👥'},
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
@@ -14543,7 +14666,7 @@ function loadNavSections(){
               {t:'dept_qc',m:'품질',label:'🧪 품질관리',items:[
                 {id:'qc_self',l:'자가품질검사',ic:'🧪'},{id:'qc_process',l:'공정 검사',ic:'⚙'},{id:'qc_hygiene',l:'위생 점검',ic:'🧼'},{id:'qc_claim',l:'클레임 관리',ic:'⚠'}]},
               {t:'dept_pm',m:'생산관리',label:'🏭 생산관리',items:[
-                {id:'pm_workorder',l:'작업지시서',ic:'📋'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
+                {id:'pm_workorder',l:'작업지시서',ic:'📋'},{id:'pm_staffing',l:'인원배치',ic:'👥'},{id:'pm_equip',l:'설비 점검',ic:'🔧'}]}
             ];
             const deepHas=(sec,id)=>{
               let f=false;
@@ -14633,6 +14756,7 @@ function loadNavSections(){
           };
           ensure({t:'dept_pm',m:'생산관리',label:'🏭 생산관리'},[
             {id:'pm_workorder',l:'작업지시서',ic:'📋',before:'pm_equip'},
+            {id:'pm_staffing',l:'인원배치',ic:'👥',before:'pm_equip'},
             {id:'pm_equip',l:'설비 점검',ic:'🔧'}]);
           ensure({t:'dept_qc',m:'품질',label:'🧪 품질관리'},[
             {id:'qc_self',l:'자가품질검사',ic:'🧪',before:'qc_process'}]);
@@ -14948,6 +15072,7 @@ const NAV_PAGES_INDEX=[
   {p:'manual',title:'업무 매뉴얼',ic:'📚',keys:['매뉴얼','메뉴얼','업무','지침','manual','sop']},
   {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
   {p:'rnd_mat',title:'원물 테스트',ic:'⚖️',keys:['원물','테스트','중량','수율','자숙','고형물','rnd']},
+  {p:'pm_staffing',title:'인원배치',ic:'👥',keys:['인원','배치','담당자','공정','작업인원','staffing']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
   {p:'rnd_recipe',title:'확정 배합비',ic:'🧾',keys:['배합','레시피','확정','recipe']},
   {p:'qc_self',title:'자가품질검사',ic:'🧪',keys:['자가','품질','검사','자가품질']},
@@ -18533,6 +18658,7 @@ function App(){
     if(page==='crm')return R(PageCRM,{user});
     if(page==='trend')return R(PageTrend,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
+    if(page==='pm_staffing')return R(PagePMStaffing,{user});
     if(page==='receivables')return R(PageReceivablesWrap,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
