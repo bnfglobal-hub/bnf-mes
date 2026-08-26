@@ -4574,6 +4574,13 @@ function PagePMStaffing({user}){
     if(!confirm('"'+r.name+'" 인원배치를 삭제할까요?'))return;
     await persist((rows||[]).filter(x=>x._id!==r._id));
   };
+  /* 담당자 명단에서 인원 자동 집계 — 쉼표 등으로 구분, '알바'는 나올 때마다 1명, 이름은 중복 제외 */
+  const staffStat=(steps)=>{
+    const toks=(steps||[]).flatMap(s=>String(s.person||'').split(/[,、\/·+&]/)).map(t=>t.trim()).filter(Boolean);
+    const alba=toks.filter(t=>/알바/.test(t)).length;
+    const named=new Set(toks.filter(t=>!/알바/.test(t)));
+    return{total:named.size+alba,named:named.size,alba};
+  };
   const setStep=(i,k,v)=>setForm(p=>Object.assign({},p,{steps:p.steps.map((s,j)=>j===i?Object.assign({},s,{[k]:v}):s)}));
   const addStep=()=>setForm(p=>Object.assign({},p,{steps:[...p.steps,{proc:'',person:''}]}));
   const rmStep=(i)=>setForm(p=>Object.assign({},p,{steps:p.steps.length>1?p.steps.filter((_,j)=>j!==i):p.steps}));
@@ -4597,14 +4604,25 @@ function PagePMStaffing({user}){
     list.length===0?R('div',{className:'card',style:{textAlign:'center',padding:30,color:'var(--tm)'}},'등록된 인원배치가 없습니다. [+ 인원배치 등록]으로 추가해주세요.'):
     R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:10}},
       ...list.map(r=>R('div',{key:r._id,className:'card',style:{padding:'14px 16px'}},
-        R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+        (()=>{const st=staffStat(r.steps);
+        return R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
           R('span',{style:{fontSize:14,fontWeight:800}},r.name),
-          r.headcount>0&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',padding:'2px 9px',borderRadius:999,whiteSpace:'nowrap'}},'작업인원 '+r.headcount+'명'),
+          st.total>0
+            ?R('span',{title:'담당자 명단에서 자동 집계 (이름 중복 제외, 알바는 표기된 만큼)',
+                style:{fontSize:10.5,fontWeight:800,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',padding:'2px 9px',borderRadius:999,whiteSpace:'nowrap'}},
+                '총 '+st.total+'명'+(st.alba>0?' (직원 '+st.named+'·알바 '+st.alba+')':''))
+            :r.headcount>0&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',padding:'2px 9px',borderRadius:999,whiteSpace:'nowrap'}},'작업인원 '+r.headcount+'명'),
           r.date&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:600}},r.date),
-          (isAdmin||r._by===user.id)&&R('span',{style:{marginLeft:'auto',display:'inline-flex',gap:4}},
-            R('button',{onClick:()=>openEdit(r),title:'수정',style:iconBtn('var(--bd)','var(--t)')},'✏️'),
-            R('button',{onClick:()=>del(r),title:'삭제',style:iconBtn('#FECACA','#DC2626')},'🗑'))
-        ),
+          R('span',{style:{marginLeft:'auto',display:'inline-flex',gap:4}},
+            R('button',{onClick:()=>{
+              const lines=[r.name+(r.date?' ('+r.date+')':'')+(st.total>0?' · 총 '+st.total+'명'+(st.alba>0?' (직원 '+st.named+'·알바 '+st.alba+')':''):'')]
+                .concat((r.steps||[]).map(s=>(s.proc||'-')+' → '+(s.person||'-')))
+                .concat(r.note?['비고: '+r.note]:[]);
+              bnfCopy(lines.join('\n'),'인원배치 복사');
+            },title:'내용 복사 (카톡 등에 붙여넣기)',style:iconBtn('var(--bd)','var(--t)')},'📋'),
+            (isAdmin||r._by===user.id)&&R('button',{onClick:()=>openEdit(r),title:'수정',style:iconBtn('var(--bd)','var(--t)')},'✏️'),
+            (isAdmin||r._by===user.id)&&R('button',{onClick:()=>del(r),title:'삭제',style:iconBtn('#FECACA','#DC2626')},'🗑'))
+        );})(),
         (r.steps||[]).length>0&&R('div',{style:{display:'flex',flexDirection:'column',gap:4,marginBottom:r.note?8:0}},
           ...(r.steps||[]).map((s,i)=>R('div',{key:i,style:{display:'flex',gap:8,alignItems:'center',fontSize:12.5,padding:'5px 10px',background:'#FBFAF8',borderRadius:8}},
             R('span',{style:{fontWeight:700,color:'#5D534B',minWidth:76,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},s.proc||'-'),
@@ -4624,7 +4642,11 @@ function PagePMStaffing({user}){
         R('div',{className:'fr'},R('label',{className:'lbl'},'작업 일자'),
           R('input',{type:'date',className:'inp',value:form.date,onChange:e=>setForm(p=>Object.assign({},p,{date:e.target.value}))}))),
       R('div',{className:'fr'},R('label',{className:'lbl'},'작업인원(명)'),
-        R('input',{type:'number',min:'0',className:'inp',value:form.headcount,onChange:e=>setForm(p=>Object.assign({},p,{headcount:e.target.value})),placeholder:'예) 5',style:{maxWidth:140}})),
+        R('div',{style:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
+          R('input',{type:'number',min:'0',className:'inp',value:form.headcount,onChange:e=>setForm(p=>Object.assign({},p,{headcount:e.target.value})),placeholder:'예) 5',style:{maxWidth:140}}),
+          (()=>{const st=staffStat(form.steps);
+            return st.total>0&&R('span',{style:{fontSize:11.5,fontWeight:700,color:'#1D4ED8'}},
+              '명단 집계: 총 '+st.total+'명'+(st.alba>0?' (직원 '+st.named+' · 알바 '+st.alba+')':''));})())),
       R('div',{className:'fr'},R('label',{className:'lbl'},'공정별 담당자'),
         R('div',{style:{display:'flex',flexDirection:'column',gap:6}},
           ...form.steps.map((s,i)=>R('div',{key:i,style:{display:'flex',gap:6,alignItems:'center'}},
@@ -11863,6 +11885,9 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     rows.sort((a,b)=>(b.short>0?1:0)-(a.short>0?1:0)||b.short-a.short||a.name.localeCompare(b.name,'ko'));
     return{rows,prodCount:activeProds.length,prodNames:activeProds.map(p=>p.name),shortCount:rows.filter(r=>r.short>0).length};
   },[prods,pqty,mats]);
+  /* 통합 소요량: 제품별 번호·색 (원재료가 어느 제품에 쓰이는지 표시) */
+  const PRODPAL=[['#1D4ED8','#EFF6FF','#BFDBFE'],['#B45309','#FFFBEB','#FDE68A'],['#15803D','#F0FDF4','#BBF7D0'],['#7C3AED','#F5F3FF','#DDD6FE'],['#DC2626','#FEF2F2','#FECACA'],['#0E7490','#ECFEFF','#A5F3FC'],['#BE185D','#FDF2F8','#FBCFE8'],['#4D7C0F','#F7FEE7','#D9F99D']];
+  const prodShort=n=>{const s=String(n||'').replace(/\[[^\]]*\]/g,'').trim();return (s||String(n||'')).slice(0,12);};
 
   /* 폴더별 제품 그룹핑 */
   const prodsByFolder=useMemo(()=>{
@@ -11893,7 +11918,11 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
         R('div',{style:{fontSize:10,opacity:0.85,marginTop:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},combined.prodNames.join(' + '))
       ),
       R('div',{style:{padding:'6px 14px 4px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
-        R('div',{style:{fontSize:11,fontWeight:700,color:'#6E645C'}},'같은 원재료를 합산한 실제 필요량'),
+        R('div',{style:{fontSize:11,fontWeight:700,color:'#6E645C',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',minWidth:0}},
+          '같은 원재료를 합산한 실제 필요량',
+          ...combined.prodNames.map((n,i)=>{const c=PRODPAL[i%PRODPAL.length];
+            return R('span',{key:i,title:n,style:{display:'inline-block',fontSize:9.5,fontWeight:800,color:c[0],background:c[1],border:'1px solid '+c[2],padding:'1px 8px',borderRadius:999,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(i+1)+' '+prodShort(n));})
+        ),
         /* 글씨 크기 · 열 너비 직접 조절 */
         R('div',{style:{display:'flex',alignItems:'center',gap:5,marginLeft:'auto'}},
           R('span',{style:{fontSize:10,color:'#9A9088',fontWeight:700}},'글씨'),
@@ -11951,9 +11980,17 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('td',{style:{padding:'6px 6px 6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'center'}},
               R('input',{type:'checkbox',checked:ordered,onChange:()=>toggleOrdered(r.code),title:ordered?'발주 완료':'발주 체크',style:{width:16,height:16,cursor:'pointer',accentColor:'#16A34A'}})),
             R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',fontWeight:r.short>0?700:500,color:ordered?'#9A9088':(r.short>0?'#991B1B':'#3D3630'),textDecoration:ordered?'line-through':'none',lineHeight:1.35,wordBreak:'break-all'}},
+              /* 이 원재료를 쓰는 제품 번호 칩 (위 범례와 같은 색) */
+              ...(()=>{const seen=new Set();const out=[];
+                (r.prods||[]).forEach(pp=>{
+                  if(seen.has(pp.name))return;seen.add(pp.name);
+                  const i=combined.prodNames.indexOf(pp.name);
+                  const c=PRODPAL[(i<0?0:i)%PRODPAL.length];
+                  out.push(R('span',{key:pp.name,title:pp.name+' · 1개당 '+pp.amt+r.unit+' × '+pp.qty+'개',
+                    style:{display:'inline-block',fontSize:'0.72em',fontWeight:800,color:c[0],background:c[1],border:'1px solid '+c[2],borderRadius:999,padding:'0 6px',marginRight:3,textDecoration:'none',verticalAlign:'1px'}},i>=0?(i+1):'·'));
+                });return out;})(),
               r.name,
-              ordered&&R('span',{style:{fontSize:'0.82em',color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료'),
-              !ordered&&r.prods.length>1&&R('span',{style:{fontSize:'0.82em',color:'#9A9088',fontWeight:500,marginLeft:5}},'('+r.prods.length+'개 제품 공용)')
+              ordered&&R('span',{style:{fontSize:'0.82em',color:'#16A34A',fontWeight:700,marginLeft:5,textDecoration:'none'}},'✓ 발주완료')
             ),
             /* 매입처: 재고 관리 입력값 우선, 없으면 이카운트 매입내역의 최근 거래처 */
             (()=>{const s=supOf(r.mat,r.name);
