@@ -4556,6 +4556,10 @@ function PagePMStaffing({user}){
   const openEdit=r=>{setForm({date:r.date||'',name:r.name||'',headcount:r.headcount||'',note:r.note||'',
     steps:(Array.isArray(r.steps)&&r.steps.length?r.steps:[{proc:'',person:''}]).map(s=>({proc:s.proc||'',person:s.person||''}))});
     setEditId(r._id);setShowF(true);};
+  /* 복제: 기존 배치를 그대로 불러와 새 항목으로 등록 (작업명·담당자만 고쳐서 저장) */
+  const openDup=r=>{setForm({date:today2(),name:r.name||'',headcount:r.headcount||'',note:r.note||'',
+    steps:(Array.isArray(r.steps)&&r.steps.length?r.steps:[{proc:'',person:''}]).map(s=>({proc:s.proc||'',person:s.person||''}))});
+    setEditId(null);setShowF(true);};
   const save=async()=>{
     if(!form.name.trim())return alert('작업명을 입력해주세요.');
     const steps=(form.steps||[]).map(s=>({proc:(s.proc||'').trim(),person:(s.person||'').trim()})).filter(s=>s.proc||s.person);
@@ -4620,6 +4624,7 @@ function PagePMStaffing({user}){
                 .concat(r.note?['비고: '+r.note]:[]);
               bnfCopy(lines.join('\n'),'인원배치 복사');
             },title:'내용 복사 (카톡 등에 붙여넣기)',style:iconBtn('var(--bd)','var(--t)')},'📋'),
+            R('button',{onClick:()=>openDup(r),title:'복제해서 새로 등록 (작업명만 바꿔 저장)',style:iconBtn('#BFDBFE','#1D4ED8')},'⧉ 복제'),
             (isAdmin||r._by===user.id)&&R('button',{onClick:()=>openEdit(r),title:'수정',style:iconBtn('var(--bd)','var(--t)')},'✏️'),
             (isAdmin||r._by===user.id)&&R('button',{onClick:()=>del(r),title:'삭제',style:iconBtn('#FECACA','#DC2626')},'🗑'))
         );})(),
