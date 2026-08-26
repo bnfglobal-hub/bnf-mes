@@ -1178,6 +1178,7 @@ function PageProdSchedule(){
   /* 주간 생산 스케줄 - 엑셀 캡처 이미지를 주차별로 올려서 보는 전용 뷰어 */
   const[weekStart,setWeekStart]=useState(getMonday(today2()));
   const[img,setImg]=useState(null);      /* 현재 주차 이미지 (dataURL) */
+  const[htmlDoc,setHtmlDoc]=useState(null); /* 엑셀 표 붙여넣기(HTML) 스케줄 */
   const[loading,setLoading]=useState(true);
   const[uploading,setUploading]=useState(false);
   const[zoomOpen,setZoomOpen]=useState(false);
@@ -1189,12 +1190,25 @@ function PageProdSchedule(){
      예전 방식(app_state id=6 한 덩어리)은 읽기가 한 번 실패하면 전체가 날아가는 구조였음.
      예전에 저장된 주차는 그대로 fallback으로 표시한다. */
   const schedPath=()=>'sched/'+weekStart+'.jpg';
+  const schedHtmlPath=()=>'sched/'+weekStart+'.html';
+  /* 엑셀 클립보드 HTML 정리 (스크립트·이벤트 제거, 표·서식 유지) */
+  const cleanHtml=(raw)=>String(raw||'')
+    .replace(/<script[\s\S]*?<\/script>/gi,'')
+    .replace(/<link[^>]*>/gi,'')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi,'');
   const loadImg=async()=>{
-    setLoading(true);setImg(null);
+    setLoading(true);setImg(null);setHtmlDoc(null);
     try{
       const{data:ls}=await sbClient.storage.from('bnf-files').list('sched',{search:weekStart});
       const f=Array.isArray(ls)?ls.find(x=>x.name===weekStart+'.jpg'):null;
-      if(f){
+      const fh=Array.isArray(ls)?ls.find(x=>x.name===weekStart+'.html'):null;
+      /* 이미지·표 둘 다 있으면 나중에 저장한 쪽을 보여준다 */
+      const useHtml=fh&&(!f||new Date(fh.updated_at||fh.created_at||0)>=new Date(f.updated_at||f.created_at||0));
+      if(useHtml){
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(schedHtmlPath());
+        const res=await fetch((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(fh.updated_at||fh.created_at||''));
+        if(res.ok)setHtmlDoc(await res.text());
+      }else if(f){
         const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(schedPath());
         setImg((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(f.updated_at||f.created_at||''));
       }else{
@@ -1222,6 +1236,21 @@ function PageProdSchedule(){
       if(error)throw error;
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       setImg((pub&&pub.publicUrl||'')+'?t='+Date.now());
+      setHtmlDoc(null);
+    }catch(err){alert('저장 실패: '+err.message);}
+    setUploading(false);
+  };
+
+  /* 엑셀 표(HTML)를 현재 주차 파일로 저장 */
+  const saveHtml=async(h)=>{
+    setUploading(true);
+    try{
+      const path=schedHtmlPath(),prevPath='sched/'+weekStart+'.prev.html';
+      try{await sbClient.storage.from('bnf-files').remove([prevPath]);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').copy(path,prevPath);}catch(e){}
+      const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([h],{type:'text/html'}),{upsert:true,contentType:'text/html'});
+      if(error)throw error;
+      setHtmlDoc(h);setImg(null);
     }catch(err){alert('저장 실패: '+err.message);}
     setUploading(false);
   };
@@ -1265,9 +1294,12 @@ function PageProdSchedule(){
       for(let i=0;i<items.length;i++){
         if(items[i].type.indexOf('image')!==-1){
           const file=items[i].getAsFile();
-          if(file){processFile(file);e.preventDefault();break;}
+          if(file){processFile(file);e.preventDefault();return;}
         }
       }
+      /* 엑셀 셀 복사 → 표(HTML) 그대로 저장 */
+      const h=e.clipboardData&&e.clipboardData.getData&&e.clipboardData.getData('text/html');
+      if(h&&/<table/i.test(h)){e.preventDefault();saveHtml(cleanHtml(h));}
     };
     window.addEventListener('paste',onPaste);
     return ()=>window.removeEventListener('paste',onPaste);
@@ -1277,10 +1309,13 @@ function PageProdSchedule(){
     if(!confirm('이 주차의 스케줄 이미지를 삭제할까요?'))return;
     try{
       const path=schedPath(),prevPath='sched/'+weekStart+'.prev.jpg';
-      /* 스토리지 파일: 직전본으로 옮겨두고 삭제 */
+      /* 스토리지 파일: 직전본으로 옮겨두고 삭제 (이미지·엑셀 표 모두) */
       try{await sbClient.storage.from('bnf-files').remove([prevPath]);}catch(e){}
       try{await sbClient.storage.from('bnf-files').copy(path,prevPath);}catch(e){}
       try{await sbClient.storage.from('bnf-files').remove([path]);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').remove(['sched/'+weekStart+'.prev.html']);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').copy(schedHtmlPath(),'sched/'+weekStart+'.prev.html');}catch(e){}
+      try{await sbClient.storage.from('bnf-files').remove([schedHtmlPath()]);}catch(e){}
       /* 예전 방식(app_state id=6)에 저장된 주차면 그 키만 비운다.
          읽기에 성공해 해당 주차가 실제로 보일 때만 저장 — 빈 읽기로 전체를 덮어쓰지 않도록 */
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
@@ -1316,7 +1351,17 @@ function PageProdSchedule(){
     R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',padding:'8px',background:'#FFF8F4',borderRadius:10,marginBottom:14}},fmtRange()),
 
     loading?R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'):
-    img?
+    htmlDoc?
+      R('div',null,
+        R('div',{style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:10,overflow:'auto',padding:10},
+          dangerouslySetInnerHTML:{__html:htmlDoc}}),
+        isAdmin&&R('div',{style:{display:'flex',gap:8,marginTop:10,justifyContent:'center',flexWrap:'wrap'}},
+          R('span',{style:{fontSize:11,color:'var(--tm)',alignSelf:'center'}},'엑셀에서 다시 복사해 Ctrl+V 하면 교체됩니다'),
+          R('button',{className:'btn bs',onClick:()=>fileRef.current&&fileRef.current.click()},uploading?'업로드 중...':'🖼 이미지로 올리기'),
+          R('button',{className:'btn bd',onClick:delImg},'삭제')
+        )
+      )
+    :img?
       R('div',null,
         R('div',{onClick:()=>setZoomOpen(true),title:'클릭하면 확대됩니다',style:{position:'relative',background:'#fff',border:'1px solid var(--bd)',borderRadius:10,overflow:'auto',padding:8,cursor:'zoom-in'}},
           R('div',{style:{position:'absolute',top:12,right:12,background:'rgba(0,0,0,0.55)',color:'#fff',fontSize:11,fontWeight:700,padding:'4px 10px',borderRadius:999,pointerEvents:'none',zIndex:2}},'🔍 확대'),
@@ -1331,7 +1376,7 @@ function PageProdSchedule(){
       R('div',{className:'card',style:{textAlign:'center',padding:'48px 20px',border:'2px dashed var(--bd)'}},
         R('div',{style:{fontSize:40,marginBottom:10}},'📅'),
         R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},'이 주차의 스케줄이 없습니다'),
-        R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:16}},isAdmin?'엑셀 스케줄을 캡처(Ctrl+Shift+S)한 뒤, 여기서 Ctrl+V로 붙여넣거나 아래 버튼으로 이미지를 올리세요':'관리자가 스케줄을 등록하면 여기에 표시됩니다'),
+        R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:16}},isAdmin?'엑셀에서 스케줄 범위를 복사(Ctrl+C)한 뒤 여기서 Ctrl+V 하면 표가 그대로 들어옵니다. 캡처 이미지 붙여넣기·파일 올리기도 가능합니다':'관리자가 스케줄을 등록하면 여기에 표시됩니다'),
         isAdmin&&R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),style:{padding:'10px 24px'}},uploading?'업로드 중...':'📷 이미지 파일 올리기')
       ),
     R('input',{ref:fileRef,type:'file',accept:'image/*',onChange:handleFile,style:{display:'none'}}),
