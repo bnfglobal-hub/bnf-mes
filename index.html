@@ -11747,16 +11747,31 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   },[]);
   /* ── 거래처 CRM 메모(발주방법) 끌어오기 — 매입처명으로 매칭 ── */
   const[crmNotes,setCrmNotes]=useState(null);
+  const[crmPhones,setCrmPhones]=useState(null); /* 이카운트 거래처 전화번호 (연락처 폴백) */
   useEffect(()=>{
     let dead=false;
-    sbClient.from('app_state').select('v:state_data->bnf_crm').eq('id',1).maybeSingle().then(({data})=>{
+    Promise.all([
+      sbClient.from('app_state').select('v:state_data->bnf_crm').eq('id',1).maybeSingle(),
+      sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle()
+    ]).then(([{data:a},{data:b}])=>{
       if(dead)return;
       const map={};
-      (Array.isArray(data&&data.v)?data.v:[]).forEach(m=>{const k=crmNorm(m.name);if(k&&m.note)map[k]=m.note;});
+      (Array.isArray(a&&a.v)?a.v:[]).forEach(m=>{const k=crmNorm(m.name);if(k&&m.note)map[k]=m.note;});
       setCrmNotes(map);
-    }).catch(()=>{if(!dead)setCrmNotes({});});
+      const ph={};
+      (((b&&b.v)||{}).list||[]).forEach(c=>{const k=crmNorm(c.name);const t=c.mobile||c.tel;if(k&&t&&!ph[k])ph[k]=t;});
+      setCrmPhones(ph);
+    }).catch(()=>{if(!dead){setCrmNotes({});setCrmPhones({});}});
     return()=>{dead=true;};
   },[]);
+  const crmPhoneOf=(name)=>{
+    if(!crmPhones)return'';
+    const k=crmNorm(name||'');
+    if(!k)return'';
+    if(crmPhones[k])return crmPhones[k];
+    const hit=Object.keys(crmPhones).find(n=>n.includes(k)||k.includes(n));
+    return hit?crmPhones[hit]:'';
+  };
   const crmNoteOf=(name)=>{
     if(!crmNotes)return'';
     const k=crmNorm(name||'');
@@ -11765,12 +11780,34 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     const hit=Object.keys(crmNotes).find(n=>n.includes(k)||k.includes(n));
     return hit?crmNotes[hit]:'';
   };
+  /* 발주방법 더블클릭 편집 → 거래처 CRM 메모로 저장 (양방향 연동) */
+  const[ordEdit,setOrdEdit]=useState(null); /* {name,note} */
+  const saveCrmNote=async()=>{
+    if(!ordEdit)return;
+    const supName=ordEdit.name,note=(ordEdit.note||'').trim();
+    try{
+      const cu=(()=>{try{return JSON.parse(localStorage.getItem('bnf_user')||'{}');}catch(e){return{};}})();
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=data&&data.state_data;
+      if(!existing)throw new Error('서버 상태를 읽지 못했습니다. 잠시 후 다시 시도해주세요.');
+      const list=Array.isArray(existing.bnf_crm)?existing.bnf_crm.slice():[];
+      const k=crmNorm(supName);
+      const i=list.findIndex(m=>crmNorm(m.name)===k);
+      if(i>=0)list[i]=Object.assign({},list[i],{note,_editAt:now2(),_editBy:cu.name||''});
+      else list.push({_id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:supName,kind:'매입처',note,_by:cu.id||'',_byName:cu.name||'',_at:now2()});
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{bnf_crm:list}),updated_at:new Date().toISOString()});
+      setCrmNotes(p=>Object.assign({},p||{},{[k]:note}));
+      setOrdEdit(null);
+      bnfToast('발주방법 저장됨 ✓ (거래처 CRM 메모와 연동)');
+    }catch(e){alert('저장 실패: '+e.message);}
+  };
   /* ── 통합 소요량 표: 열 너비 · 글씨 크기 사용자 조절 (브라우저에 저장) ── */
   const COLS=[
     {k:'ck',l:'발주',w:36,a:'center'},
     {k:'nm',l:'원재료',w:430}, /* 제품 풀네임 칩 + 원재료명이 한 줄에 들어가도록 넓게 */
     {k:'sup',l:'매입처',w:150},
-    {k:'ord',l:'발주방법',w:180}, /* 거래처 CRM 메모 자동 표시 */
+    {k:'ord',l:'발주방법',w:180}, /* 거래처 CRM 메모 자동 표시 · 더블클릭 편집 */
+    {k:'tel',l:'매입처 연락처',w:118},
     {k:'pr',l:'최근 매입단가',w:98,a:'right'},
     {k:'nd',l:'총 필요',w:86,a:'right'},
     {k:'st',l:'재고',w:76,a:'right'},
@@ -12034,11 +12071,24 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
                 s.name||'-',
                 s.from==='buy'&&R('span',{style:{fontSize:'0.78em',color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'));
             })(),
-            /* 발주방법: 거래처 CRM에 등록된 메모 자동 표시 */
+            /* 발주방법: 거래처 CRM 메모 자동 표시 · 더블클릭으로 바로 작성(CRM에 저장) */
             (()=>{const s=supOf(r.mat,r.name);const note=s.name?crmNoteOf(s.name):'';
-              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',color:note?'#3D3630':'#D9D2CB',fontSize:'0.92em',lineHeight:1.4},
-                title:note||'거래처 CRM에 메모를 등록하면 여기에 표시됩니다'},
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',color:note?'#3D3630':'#D9D2CB',fontSize:'0.92em',lineHeight:1.4,cursor:'pointer'},
+                title:(note?note+'\n\n':'')+'더블클릭하면 발주방법을 바로 작성합니다 (거래처 CRM 메모와 연동)',
+                onDoubleClick:()=>{
+                  if(!s.name)return alert('매입처 정보가 없는 품목입니다. 재고 관리에서 매입처를 먼저 입력해주세요.');
+                  setOrdEdit({name:s.name,note:note||''});
+                }},
                 note?R('span',{style:{display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word'}},note):'-');
+            })(),
+            /* 매입처 연락처: 재고 관리 입력값 우선, 없으면 이카운트 거래처 전화번호 */
+            (()=>{const s=supOf(r.mat,r.name);
+              const tel=(s.contact&&String(s.contact).trim())||(s.name?crmPhoneOf(s.name):'');
+              const num=String(tel||'').replace(/[^0-9+]/g,'');
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',fontSize:'0.92em',lineHeight:1.4,color:tel?'#3D3630':'#D9D2CB',wordBreak:'break-all'},title:tel||''},
+                tel?(num.length>=8
+                  ?R('a',{href:'tel:'+num,onClick:e=>e.stopPropagation(),style:{color:'var(--p)',textDecoration:'none',fontWeight:600}},tel)
+                  :tel):'-');
             })(),
             /* 최근 매입단가 (+ 부족량 기준 예상 발주금액) */
             (()=>{const s=supOf(r.mat,r.name);const est=s.price>0&&r.short>0?Math.round(s.price*r.short):0;
@@ -12174,6 +12224,15 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       );
     }),
     isAdmin&&R('button',{className:'btn bp',style:{width:'100%',padding:12,marginTop:4,fontSize:14},onClick:onOpenBOM},'+ 제품 + BOM 등록'),
+    ordEdit&&R(Modal2,{title:'📞 발주방법 · '+ordEdit.name,onClose:()=>setOrdEdit(null),size:480,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>setOrdEdit(null),style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:saveCrmNote,style:{flex:2}},'저장'))},
+      R('div',{className:'fr'},R('label',{className:'lbl'},'발주방법 / 메모'),
+        R('textarea',{className:'inp',value:ordEdit.note,onChange:e=>{const v=e.target.value;setOrdEdit(p=>Object.assign({},p,{note:v}));},
+          placeholder:'예) 발주서 작성 후 팩스 발주 032-727-1983',style:{minHeight:110},autoFocus:true})),
+      R('div',{style:{fontSize:11,color:'var(--tm)'}},'저장하면 거래처 CRM의 메모에도 그대로 반영됩니다.')
+    ),
     woModal&&R(WorkOrderImgModal,{data:woModal,onClose:()=>setWoModal(null)})
   );
 }
