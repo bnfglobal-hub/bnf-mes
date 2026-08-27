@@ -18011,6 +18011,65 @@ function App(){
     document.addEventListener('visibilitychange',onVis);
     return()=>{dead=true;clearInterval(iv);document.removeEventListener('visibilitychange',onVis);};
   },[user&&user.id]);
+  /* ── 다른 사용자의 새 작업 감지 → 관리자에게 알림 (데스크톱 팝업 + 화면 토스트) ──
+     작성(_at)·수정(_editAt) 시각이 마지막 확인 시각보다 새 항목을 모아 알려준다.
+     확인 시각은 기기별(localStorage) 저장 — 처음 켠 기기는 그 시점 이후 것만 알린다. */
+  useEffect(()=>{
+    if(!user||!['superadmin','admin','manager'].includes(user.role))return;
+    const LSK='bnf_acts_seen_'+user.id;
+    let last=+localStorage.getItem(LSK)||Date.now();
+    try{localStorage.setItem(LSK,String(last));}catch(e){}
+    const ACT_LABELS={work_requests:'업무 현황',bnf_pm_workorder:'작업지시서',bnf_pm_staffing:'인원배치',
+      bnf_rnd_status:'연구개발 현황',bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_rnd_recipe:'확정 배합비',
+      bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',bnf_qc_claim:'클레임',
+      bnf_pm_equip:'설비 점검',bnf_receivables:'미수금',bnf_crm:'거래처 CRM',trade_entries:'매입/매출 입력',
+      approval_docs:'전자결재',bnf_files:'파일 공유',bnf_docs:'회사 서류',bnf_manuals:'업무 매뉴얼',recurring_tasks:'주기 업무'};
+    let dead=false;
+    const scan=async()=>{
+      try{
+        const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+        if(dead)return;
+        const sd=(data&&data.state_data)||{};
+        const my=String(user.name||'').trim();
+        const out=[];
+        Object.keys(ACT_LABELS).forEach(k=>{
+          const v=sd[k];if(!Array.isArray(v))return;
+          v.forEach(it=>{
+            if(!it||typeof it!=='object')return;
+            const what=String(it.title||it.name||it.subject||it.text||it.client||it.body||'').replace(/\s+/g,' ').trim().slice(0,40);
+            const push=(atStr,byName,verb)=>{
+              if(!atStr||!byName)return;
+              const t=new Date(atStr).getTime();
+              if(!t||t<=last)return;
+              if(String(byName).trim()===my)return;
+              out.push({t,by:String(byName).trim(),label:ACT_LABELS[k],what,verb});
+            };
+            push(it._at||it.at,it._byName||it.byName||it._by_name,'등록');
+            push(it._editAt,it._editBy,'수정');
+          });
+        });
+        if(out.length){
+          out.sort((a,b)=>a.t-b.t);
+          last=Math.max(last,out[out.length-1].t);
+          try{localStorage.setItem(LSK,String(last));}catch(e){}
+          /* 너무 시끄럽지 않게 최근 3건만 알림 */
+          out.slice(-3).forEach(o=>{
+            const msg=o.by+'님이 '+o.label+(o.verb==='수정'?' 수정':' 작성')+(o.what?(': "'+o.what+'"'):'');
+            try{bnfToast('👀 '+msg);}catch(e){}
+            if(window.Notification&&Notification.permission==='granted'){
+              try{new Notification('B&F MES · '+o.label,{body:msg,tag:'act_'+o.t,
+                icon:'https://bnfglobal-hub.github.io/bnf-mes/icon-192.png'});}catch(e){}
+            }
+          });
+          if(out.length>3){try{bnfToast('👀 외 '+(out.length-3)+'건의 새 작업이 더 있습니다 (홈 화면 업무 현황 참고)');}catch(e){}}
+        }
+      }catch(e){}
+    };
+    const t=setInterval(()=>{if(!document.hidden)scan();},60000);
+    const onVis2=()=>{if(!document.hidden)scan();};
+    document.addEventListener('visibilitychange',onVis2);
+    return()=>{dead=true;clearInterval(t);document.removeEventListener('visibilitychange',onVis2);};
+  },[user&&user.id]);
   const[sbOpen,setSbOpen]=useState(false); /* 모바일 사이드바 토글 */
   /* ── 모바일 스와이프 제스처: 왼쪽 가장자리→오른쪽 = 메뉴 열기, 메뉴 열림 상태 왼쪽 스와이프 = 닫기 ── */
   useEffect(()=>{
