@@ -5083,8 +5083,7 @@ function PageCRM({user}){
           R('thead',null,R('tr',null,
             R('th',null,'거래처명'),R('th',{style:{width:66}},'구분'),R('th',{style:{width:90}},'대표자'),
             R('th',{style:{width:120}},'전화'),R('th',{style:{width:110}},'사업자번호'),
-            R('th',{style:{width:110,textAlign:'right'}},'누적 매출'),R('th',{style:{width:110,textAlign:'right'}},'누적 매입'),
-            R('th',{style:{width:56}},'등급'),R('th',{style:{width:96}},'다음 연락'))),
+            R('th',{style:{width:280}},'메모 (발주방법 등)'),R('th',{style:{width:96}},'다음 연락'))),
           R('tbody',null,...list.slice(0,500).map((c,i)=>R('tr',{key:i,style:{cursor:'pointer'},onClick:()=>openDetail(c)},
             R('td',{style:{fontWeight:600,fontSize:12.5}},c.name,
               c._src==='manual'&&R('span',{style:{fontSize:9.5,color:'var(--tm)',marginLeft:5}},'(수동)')),
@@ -5092,9 +5091,8 @@ function PageCRM({user}){
             R('td',{style:{fontSize:12}},c.ceo||'-'),
             R('td',{style:{fontSize:11.5}},c.mobile||c.tel||'-'),
             R('td',{style:{fontSize:11.5,color:'var(--tm)'}},c.code||'-'),
-            R('td',{style:{textAlign:'right',fontSize:12,color:c.salesAmt?'#15803D':'#D9D2CB',fontWeight:c.salesAmt?700:400}},c.salesAmt?nf(c.salesAmt):'-'),
-            R('td',{style:{textAlign:'right',fontSize:12,color:c.buyAmt?'#2563EB':'#D9D2CB',fontWeight:c.buyAmt?700:400}},c.buyAmt?nf(c.buyAmt):'-'),
-            R('td',{style:{fontSize:12,fontWeight:700,color:c.grade?'var(--p)':'#D9D2CB'}},c.grade||'-'),
+            R('td',{style:{fontSize:11.5,color:c.note?'#3D3630':'#D9D2CB'},title:c.note||''},
+              c.note?R('span',{style:{display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word',lineHeight:1.45}},c.note):'-'),
             R('td',{style:{fontSize:11.5,color:c.next&&c.next<=today2()?'#DC2626':'var(--tm)',fontWeight:c.next&&c.next<=today2()?700:400}},c.next||'-')
           )))
         )
