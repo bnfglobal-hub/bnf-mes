@@ -11745,11 +11745,32 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       .catch(()=>{if(!dead)setBuyHist({});});
     return()=>{dead=true;};
   },[]);
+  /* ── 거래처 CRM 메모(발주방법) 끌어오기 — 매입처명으로 매칭 ── */
+  const[crmNotes,setCrmNotes]=useState(null);
+  useEffect(()=>{
+    let dead=false;
+    sbClient.from('app_state').select('v:state_data->bnf_crm').eq('id',1).maybeSingle().then(({data})=>{
+      if(dead)return;
+      const map={};
+      (Array.isArray(data&&data.v)?data.v:[]).forEach(m=>{const k=crmNorm(m.name);if(k&&m.note)map[k]=m.note;});
+      setCrmNotes(map);
+    }).catch(()=>{if(!dead)setCrmNotes({});});
+    return()=>{dead=true;};
+  },[]);
+  const crmNoteOf=(name)=>{
+    if(!crmNotes)return'';
+    const k=crmNorm(name||'');
+    if(!k)return'';
+    if(crmNotes[k])return crmNotes[k];
+    const hit=Object.keys(crmNotes).find(n=>n.includes(k)||k.includes(n));
+    return hit?crmNotes[hit]:'';
+  };
   /* ── 통합 소요량 표: 열 너비 · 글씨 크기 사용자 조절 (브라우저에 저장) ── */
   const COLS=[
     {k:'ck',l:'발주',w:36,a:'center'},
     {k:'nm',l:'원재료',w:430}, /* 제품 풀네임 칩 + 원재료명이 한 줄에 들어가도록 넓게 */
     {k:'sup',l:'매입처',w:150},
+    {k:'ord',l:'발주방법',w:180}, /* 거래처 CRM 메모 자동 표시 */
     {k:'pr',l:'최근 매입단가',w:98,a:'right'},
     {k:'nd',l:'총 필요',w:86,a:'right'},
     {k:'st',l:'재고',w:76,a:'right'},
@@ -11974,7 +11995,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             /* 발주 완료 구역: 폴더처럼 접기 (헤더 클릭으로 펼침, 기본 접힘) */
             if(ordered&&(!_prev||!_prevOrdered)){
               _out.push(R('tr',{key:'__done_hdr',onClick:()=>setOrdDoneOpen(v=>!v),style:{cursor:'pointer'}},
-                R('td',{colSpan:7,style:{padding:'8px 12px',background:'#DCFCE7',color:'#15803D',fontWeight:800,fontSize:'0.95em',borderTop:'2px solid #86EFAC',userSelect:'none'}},
+                R('td',{colSpan:COLS.length,style:{padding:'8px 12px',background:'#DCFCE7',color:'#15803D',fontWeight:800,fontSize:'0.95em',borderTop:'2px solid #86EFAC',userSelect:'none'}},
                   R('span',{style:{display:'inline-block',width:14,transition:'transform .15s',transform:ordDoneOpen?'rotate(90deg)':'none'}},'▶'),
                   '✓ 발주 완료 ('+_list.filter(x=>orderedMats.has(x.code)).length+'건)',
                   R('span',{style:{fontWeight:600,fontSize:'0.85em',marginLeft:8,color:'#4D7C5F'}},ordDoneOpen?'접기':'펼치기'))));
@@ -12013,6 +12034,12 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
                 s.name||'-',
                 s.from==='buy'&&R('span',{style:{fontSize:'0.78em',color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'));
             })(),
+            /* 발주방법: 거래처 CRM에 등록된 메모 자동 표시 */
+            (()=>{const s=supOf(r.mat,r.name);const note=s.name?crmNoteOf(s.name):'';
+              return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',color:note?'#3D3630':'#D9D2CB',fontSize:'0.92em',lineHeight:1.4},
+                title:note||'거래처 CRM에 메모를 등록하면 여기에 표시됩니다'},
+                note?R('span',{style:{display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word'}},note):'-');
+            })(),
             /* 최근 매입단가 (+ 부족량 기준 예상 발주금액) */
             (()=>{const s=supOf(r.mat,r.name);const est=s.price>0&&r.short>0?Math.round(s.price*r.short):0;
               return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',color:ordered?'#9A9088':(s.price>0?'#3D3630':'#D9D2CB'),fontSize:'0.96em',whiteSpace:'nowrap'},
@@ -12026,7 +12053,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
               ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9A9088':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
               :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#059669',fontWeight:600,fontSize:'0.92em'}},'✓ 충분')
           ));});return _out;})(),
-          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:7,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:'1.05em',fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
+          combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:COLS.length,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:'1.05em',fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
       )
       )
