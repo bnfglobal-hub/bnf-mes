@@ -4550,6 +4550,18 @@ function PageRndSched({user}){
   const[dayView,setDayView]=useState(null);/* 날짜별 일정 패널 (YYYY-MM-DD) */
   const[drag,setDrag]=useState(null);
   const[dragOverD,setDragOverD]=useState(null);
+  const clickTmr=useRef(null); /* 클릭(상세)과 더블클릭(수정) 구분용 */
+  const oneOrTwo=(r,e)=>{ /* 클릭 250ms 안에 더블클릭이 오면 수정, 아니면 상세 */
+    e.stopPropagation();
+    if(clickTmr.current){clearTimeout(clickTmr.current);clickTmr.current=null;}
+    clickTmr.current=setTimeout(()=>{clickTmr.current=null;setSel(r);},250);
+  };
+  const dblEdit=(r,e,extra)=>{
+    e.stopPropagation();
+    if(clickTmr.current){clearTimeout(clickTmr.current);clickTmr.current=null;}
+    if(extra)extra();
+    if(canEdit(r))openEdit(r);else setSel(r);
+  };
   const blankF=(date)=>({title:'',product:'',customer:'',manager:user.name||'',participants:'',
     type:RS_TYPES[0],status:'예정',start:date||today2(),end:date||today2(),stime:'',etime:'',allDay:true,
     purpose:'',request:'',progress:'',test:'',notes:'',_files:[]});
@@ -4666,8 +4678,9 @@ function PageRndSched({user}){
     return R('div',{key:r._id+(d||''),draggable:canEdit(r),
       onDragStart:e=>{e.stopPropagation();setDrag({id:r._id});},
       onDragEnd:()=>{setDrag(null);setDragOverD(null);},
-      onClick:e=>{e.stopPropagation();setSel(r);},
-      title:'['+(r.type||'')+'] '+(r.title||'')+(r.product?(' · '+r.product):'')+(r.customer?(' · '+r.customer):'')+(r.manager?(' · '+r.manager):'')+' · '+(r.status||''),
+      onClick:e=>oneOrTwo(r,e),
+      onDoubleClick:e=>dblEdit(r,e),
+      title:'['+(r.type||'')+'] '+(r.title||'')+(r.product?(' · '+r.product):'')+(r.customer?(' · '+r.customer):'')+(r.manager?(' · '+r.manager):'')+' · '+(r.status||'')+(canEdit(r)?'\n클릭: 상세 · 더블클릭: 바로 수정':''),
       style:{fontSize:10.5,fontWeight:700,color:st.c,background:st.bg,border:'1px solid '+st.c+'33',
         borderRadius:(isS&&isE)?6:(isS?'6px 0 0 6px':(isE?'0 6px 6px 0':0)),
         padding:'2px 6px',marginBottom:2,cursor:'pointer',
@@ -4684,7 +4697,9 @@ function PageRndSched({user}){
   /* 날짜별 상세 패널 목록 항목 */
   const dayItem=(r)=>{
     const st=stOf(r.status);
-    return R('div',{key:r._id,onClick:()=>{setSel(r);},
+    return R('div',{key:r._id,onClick:e=>oneOrTwo(r,e),
+      onDoubleClick:e=>dblEdit(r,e,()=>setDayView(null)),
+      title:canEdit(r)?'클릭: 상세 · 더블클릭: 바로 수정':'클릭: 상세',
       style:{display:'flex',gap:10,alignItems:'flex-start',padding:'8px 10px',border:'1px solid var(--bd)',borderRadius:10,marginBottom:6,cursor:'pointer',background:'#fff'}},
       R('div',{style:{fontSize:12,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0,fontVariantNumeric:'tabular-nums'}},r.allDay?'종일':(r.stime||'-')),
       R('div',{style:{flex:1,minWidth:0}},
