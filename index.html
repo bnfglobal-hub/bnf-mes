@@ -11767,6 +11767,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   },[]);
   /* 품목별 발주방법 (기타구매·비품처럼 묶음 매입처일 때는 품목 단위로 저장) */
   const[itemNotes,setItemNotes]=useState(null);
+  const[prodQ,setProdQ]=useState(''); /* 제품명 검색 */
   const isGenericSup=(name)=>/기타구매|비품/.test(String(name||''));
   const crmPhoneOf=(name)=>{
     if(!crmPhones)return'';
@@ -12134,6 +12135,10 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     ),
     /* ── 폴더 바 ── */
     prods.length>0&&R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:10,padding:'8px 4px'}},
+      R('input',{value:prodQ,onChange:e=>setProdQ(e.target.value),placeholder:'🔍 제품명 검색',
+        style:{flex:'1 1 200px',minWidth:150,maxWidth:320,padding:'7px 12px',border:'1px solid var(--bd)',borderRadius:9,fontSize:12.5,fontFamily:'inherit'}}),
+      prodQ.trim()&&R('button',{onClick:()=>setProdQ(''),title:'검색 지우기',
+        style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer',fontFamily:'inherit',color:'var(--tm)'}},'✕'),
       R('span',{style:{fontSize:11,color:'#9A9088',fontWeight:600}},'📁 폴더'),
       R('span',{style:{fontSize:10,color:'#D9D2CB'}},'· 제품 우측 드롭다운으로 폴더 이동'),
       R('div',{style:{flex:1}}),
@@ -12141,9 +12146,11 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     ),
     /* ── 폴더별 제품 그룹 ── */
     ...prodFolders.map(folder=>{
-      const folderProds=prodsByFolder[folder.id]||[];
+      const pq=prodQ.trim().toLowerCase();
+      const folderProds=(prodsByFolder[folder.id]||[]).filter(p=>!pq||String(p.name||'').toLowerCase().includes(pq));
+      if(pq&&folderProds.length===0)return null; /* 검색 중엔 결과 없는 폴더 숨김 */
       if(folder.id==='_root'&&folderProds.length===0&&prodFolders.length>1)return null;
-      const isCollapsed=collapsedPF[folder.id];
+      const isCollapsed=pq?false:collapsedPF[folder.id]; /* 검색 중엔 접힌 폴더도 펼쳐서 보여줌 */
       return R('div',{key:folder.id,style:{marginBottom:12}},
         /* 폴더 헤더 */
         R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'7px 12px',background:folder.color+'12',borderLeft:'4px solid '+folder.color,borderRadius:8,marginBottom:8}},
