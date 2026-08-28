@@ -4517,6 +4517,332 @@ function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel
   );
 }
 
+/* ═══ 연구개발 스케줄 (월간 달력) ══════════════════════
+   제품 개발·샘플·테스트·고객사 피드백 일정을 달력으로 관리.
+   app_state.bnf_rnd_sched = [{_id,title,product,customer,devId,manager,participants,
+     type,status,start,end,stime,etime,allDay,purpose,request,progress,test,notes,_files,...}] */
+const RS_TYPES=['신규 제품 개발','기존 제품 개선','샘플 제작','샘플 발송','관능 테스트','원료 테스트','배합 테스트','생산 테스트','현장 테스트','고객사 미팅','고객사 피드백','수정 개발','원가 검토','표시사항 검토','품질 테스트','기타'];
+const RS_STATUS=[
+  {v:'예정',c:'#1D4ED8',bg:'#EFF6FF'},
+  {v:'진행중',c:'#B45309',bg:'#FFFBEB'},
+  {v:'샘플 완료',c:'#0E7490',bg:'#ECFEFF'},
+  {v:'고객사 피드백 대기',c:'#7C3AED',bg:'#F5F3FF'},
+  {v:'수정중',c:'#BE185D',bg:'#FDF2F8'},
+  {v:'생산 테스트 예정',c:'#4D7C0F',bg:'#F7FEE7'},
+  {v:'개발 완료',c:'#15803D',bg:'#F0FDF4'},
+  {v:'보류',c:'#6E645C',bg:'#F4F1EE'},
+  {v:'취소',c:'#9A9088',bg:'#FBFAF8'}
+];
+function PageRndSched({user}){
+  const KEY='bnf_rnd_sched';
+  const[rows,setRows]=useState(null);
+  const[emps,setEmps]=useState([]);
+  const[ym,setYm]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const[view,setView]=useState('cal'); /* cal | list (모바일용 목록) */
+  const[fMgr,setFMgr]=useState('전체');
+  const[fSt,setFSt]=useState('전체');
+  const[fTy,setFTy]=useState('전체');
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[showF,setShowF]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const[sel,setSel]=useState(null);        /* 상세보기 */
+  const[dayView,setDayView]=useState(null);/* 날짜별 일정 패널 (YYYY-MM-DD) */
+  const[drag,setDrag]=useState(null);
+  const[dragOverD,setDragOverD]=useState(null);
+  const blankF=(date)=>({title:'',product:'',customer:'',manager:user.name||'',participants:'',
+    type:RS_TYPES[0],status:'예정',start:date||today2(),end:date||today2(),stime:'',etime:'',allDay:true,
+    purpose:'',request:'',progress:'',test:'',notes:'',_files:[]});
+  const[form,setForm]=useState(blankF());
+  const att=useAttach(KEY,()=>form._files||[],v=>setForm(p=>Object.assign({},p,{_files:v})));
+  const isAdmin=['superadmin','admin','manager'].includes(user.role);
+  const canEdit=r=>isAdmin||r._by===user.id;
+  const stOf=(v)=>RS_STATUS.find(x=>x.v===v)||RS_STATUS[0];
+  const pad2=n=>String(n).padStart(2,'0');
+
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  useEffect(()=>{
+    load();
+    sbClient.from('emp').select('id,name').eq('status','active').order('name').then(({data})=>setEmps(data||[])).catch(()=>{});
+  },[]);
+  useBnfSyncReload(()=>{if(!showF&&!sel)load();});
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=data&&data.state_data;
+      if(!existing)throw new Error('서버 상태를 읽지 못했습니다. 잠시 후 다시 시도해주세요.');
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+      setRows(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+
+  const openNew=(date)=>{setForm(blankF(date));setEditId(null);setShowF(true);};
+  const openEdit=r=>{
+    setForm({title:r.title||'',product:r.product||'',customer:r.customer||'',manager:r.manager||'',participants:r.participants||'',
+      type:r.type||RS_TYPES[0],status:r.status||'예정',start:r.start||today2(),end:r.end||r.start||today2(),
+      stime:r.stime||'',etime:r.etime||'',allDay:r.allDay!==false,
+      purpose:r.purpose||'',request:r.request||'',progress:r.progress||'',test:r.test||'',notes:r.notes||'',
+      _files:(r._files||[]).slice()});
+    setEditId(r._id);setSel(null);setShowF(true);
+  };
+  const save=async()=>{
+    if(!form.title.trim())return alert('일정명을 입력해주세요.');
+    if(att.upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
+    const rec=Object.assign({},form,{title:form.title.trim(),_files:(form._files||[]).filter(x=>x&&!x.pending&&x.path)});
+    if(!rec.end||rec.end<rec.start)rec.end=rec.start;
+    const list=(rows||[]).slice();
+    if(editId){
+      const i=list.findIndex(x=>x._id===editId);
+      if(i>=0)list[i]=Object.assign({},list[i],rec,{_editBy:user.name,_editAt:now2()});
+    }else{
+      list.unshift(Object.assign(rec,{_id:'rs'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+        _by:user.id,_byName:user.name,_at:now2()}));
+    }
+    await persist(list);setShowF(false);setEditId(null);
+  };
+  const del=async(r)=>{
+    if(!canEdit(r))return alert('작성자 또는 관리자만 삭제할 수 있습니다.');
+    if(!confirm('"'+r.title+'" 일정을 삭제할까요?'))return;
+    const paths=(r._files||[]).map(x=>x&&x.path).filter(Boolean);
+    if(paths.length){try{await sbClient.storage.from('bnf-files').remove(paths);}catch(e){}}
+    await persist((rows||[]).filter(x=>x._id!==r._id));
+    setSel(null);
+  };
+  const markDone=async(r)=>{
+    if(!canEdit(r))return alert('작성자 또는 관리자만 변경할 수 있습니다.');
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{status:'개발 완료',_editBy:user.name,_editAt:now2()}):x));
+    setSel(null);
+  };
+  /* 드래그로 날짜 이동 (기간 전체를 그만큼 이동, 확인 후 저장) */
+  const dropOn=async(d)=>{
+    if(!drag)return;
+    const r=(rows||[]).find(x=>x._id===drag.id);
+    setDrag(null);setDragOverD(null);
+    if(!r||!d||d===r.start)return;
+    if(!canEdit(r))return alert('작성자 또는 관리자만 옮길 수 있습니다.');
+    if(!confirm('"'+r.title+'" 일정을 '+d+'(으)로 변경하시겠습니까?'))return;
+    const s=r.start||d,e0=r.end||s;
+    const delta=Math.round((new Date(d)-new Date(s))/86400000);
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{start:d,end:addDD(e0,delta),_editBy:user.name,_editAt:now2()}):x));
+  };
+
+  /* 필터·검색 */
+  const filtered=(rows||[]).filter(r=>{
+    if(fMgr!=='전체'&&String(r.manager||'').indexOf(fMgr)<0)return false;
+    if(fSt!=='전체'&&r.status!==fSt)return false;
+    if(fTy!=='전체'&&r.type!==fTy)return false;
+    const s=q.trim().toLowerCase();
+    if(s&&![r.title,r.product,r.customer,r.manager,r.participants,r.purpose,r.request,r.progress,r.test,r.notes]
+      .some(v=>String(v||'').toLowerCase().includes(s)))return false;
+    return true;
+  });
+  const onDay=(d)=>filtered.filter(r=>{const s=r.start||'';const e=r.end||s;return s&&d>=s&&d<=e;})
+    .sort((a,b)=>String(a.allDay?'':'z'+(a.stime||'')).localeCompare(String(b.allDay?'':'z'+(b.stime||'')))||String(a.stime||'').localeCompare(String(b.stime||'')));
+
+  /* 달력 격자 (월요일 시작) */
+  const daysIn=new Date(ym.y,ym.m+1,0).getDate();
+  const startIdx=(new Date(ym.y,ym.m,1).getDay()+6)%7;
+  const cells=[];
+  for(let i=0;i<startIdx;i++)cells.push(null);
+  for(let d=1;d<=daysIn;d++)cells.push(ym.y+'-'+pad2(ym.m+1)+'-'+pad2(d));
+  while(cells.length%7!==0)cells.push(null);
+  const today=today2();
+  const mStart=ym.y+'-'+pad2(ym.m+1)+'-01', mEnd=ym.y+'-'+pad2(ym.m+1)+'-'+pad2(daysIn);
+  const inMonth=filtered.filter(r=>(r.start||'')<=mEnd&&(r.end||r.start||'')>=mStart);
+  const cntSt=(v)=>inMonth.filter(r=>r.status===v).length;
+
+  /* 일정 칩 */
+  const chip=(r,d,full)=>{
+    const st=stOf(r.status);
+    const isS=d?d===(r.start||''):true, isE=d?d===(r.end||r.start||''):true;
+    const label=(isS&&!r.allDay&&r.stime?r.stime+' ':'')+'['+(r.type||'').slice(0,6)+'] '+(r.title||r.product||'')+(isS&&r.manager?' · '+r.manager:'');
+    return R('div',{key:r._id+(d||''),draggable:canEdit(r),
+      onDragStart:e=>{e.stopPropagation();setDrag({id:r._id});},
+      onDragEnd:()=>{setDrag(null);setDragOverD(null);},
+      onClick:e=>{e.stopPropagation();setSel(r);},
+      title:'['+(r.type||'')+'] '+(r.title||'')+(r.product?(' · '+r.product):'')+(r.customer?(' · '+r.customer):'')+(r.manager?(' · '+r.manager):'')+' · '+(r.status||''),
+      style:{fontSize:10.5,fontWeight:700,color:st.c,background:st.bg,border:'1px solid '+st.c+'33',
+        borderRadius:(isS&&isE)?6:(isS?'6px 0 0 6px':(isE?'0 6px 6px 0':0)),
+        padding:'2px 6px',marginBottom:2,cursor:'pointer',
+        overflow:'hidden',textOverflow:'ellipsis',whiteSpace:full?'normal':'nowrap',wordBreak:full?'break-word':'normal'}},
+      (isS||full)?label:'…');
+  };
+  const statChip=(label,n,v,color)=>R('button',{key:label,onClick:()=>setFSt(fSt===v?'전체':v),
+    style:{display:'inline-flex',gap:5,alignItems:'center',border:'1px solid '+(fSt===v?'var(--p)':'var(--bd)'),
+      background:fSt===v?'var(--pb)':'#fff',borderRadius:999,padding:'4px 11px',fontSize:11,fontWeight:700,
+      color:color||'var(--t)',cursor:'pointer',fontFamily:'inherit'}},
+    label,R('span',{style:{fontWeight:900}},n));
+  const SELS={border:'1px solid var(--bd)',borderRadius:8,padding:'6px 8px',fontSize:12,fontFamily:'inherit',background:'#fff',cursor:'pointer'};
+
+  /* 날짜별 상세 패널 목록 항목 */
+  const dayItem=(r)=>{
+    const st=stOf(r.status);
+    return R('div',{key:r._id,onClick:()=>{setSel(r);},
+      style:{display:'flex',gap:10,alignItems:'flex-start',padding:'8px 10px',border:'1px solid var(--bd)',borderRadius:10,marginBottom:6,cursor:'pointer',background:'#fff'}},
+      R('div',{style:{fontSize:12,fontWeight:800,color:'var(--tm)',width:44,flexShrink:0,fontVariantNumeric:'tabular-nums'}},r.allDay?'종일':(r.stime||'-')),
+      R('div',{style:{flex:1,minWidth:0}},
+        R('div',{style:{fontSize:13,fontWeight:700}},r.title||'-',r.product&&R('span',{style:{fontWeight:500,color:'var(--tm)'}},' · '+r.product)),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'['+(r.type||'')+']'+(r.customer?(' '+r.customer):'')+(r.manager?(' · '+r.manager):''))),
+      R('span',{style:{fontSize:10,fontWeight:800,color:st.c,background:st.bg,padding:'2px 8px',borderRadius:999,flexShrink:0,whiteSpace:'nowrap'}},r.status));
+  };
+  const fmtDow=(d)=>['일','월','화','수','목','금','토'][new Date(d+'T00:00:00').getDay()];
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'🗓 연구개발 스케줄'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'개발·샘플·테스트·고객사 일정을 달력으로 관리합니다 · 날짜 더블클릭=등록, 일정 드래그=날짜 이동')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('button',{className:'btn bs',style:{padding:'6px 12px'},onClick:()=>setYm(p=>({y:p.m===0?p.y-1:p.y,m:p.m===0?11:p.m-1}))},'◀'),
+        R('button',{className:'btn bs',style:{padding:'6px 12px'},onClick:()=>{const d=new Date();setYm({y:d.getFullYear(),m:d.getMonth()});}},'오늘'),
+        R('button',{className:'btn bs',style:{padding:'6px 12px'},onClick:()=>setYm(p=>({y:p.m===11?p.y+1:p.y,m:p.m===11?0:p.m+1}))},'▶'),
+        R('span',{style:{fontSize:15,fontWeight:800,minWidth:96,textAlign:'center'}},ym.y+'년 '+(ym.m+1)+'월'),
+        R('button',{className:'btn bs btn-sm',onClick:()=>setView(v=>v==='cal'?'list':'cal')},view==='cal'?'☰ 목록':'🗓 달력'),
+        R('button',{className:'btn bp',onClick:()=>openNew(),disabled:busy},'+ 일정 등록'))),
+    /* 이번 달 현황 */
+    R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:10}},
+      R('span',{style:{fontSize:11.5,fontWeight:800,color:'var(--tm)'}},'이번 달'),
+      statChip('전체',inMonth.length,'전체'),
+      ...RS_STATUS.filter(s=>['예정','진행중','고객사 피드백 대기','수정중','생산 테스트 예정','개발 완료','보류'].includes(s.v))
+        .map(s=>statChip(s.v,cntSt(s.v),s.v,s.c))),
+    /* 필터·검색 */
+    R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:10}},
+      R('select',{value:fMgr,onChange:e=>setFMgr(e.target.value),style:SELS,title:'담당자 필터'},
+        R('option',{value:'전체'},'담당자 전체'),
+        ...Array.from(new Set([].concat(emps.map(e2=>e2.name),(rows||[]).map(r=>r.manager).filter(Boolean)))).sort((a,b)=>String(a).localeCompare(String(b),'ko')).map(n=>R('option',{key:n,value:n},n))),
+      R('select',{value:fSt,onChange:e=>setFSt(e.target.value),style:SELS,title:'진행상태 필터'},
+        R('option',{value:'전체'},'상태 전체'),...RS_STATUS.map(s=>R('option',{key:s.v,value:s.v},s.v))),
+      R('select',{value:fTy,onChange:e=>setFTy(e.target.value),style:SELS,title:'일정유형 필터'},
+        R('option',{value:'전체'},'유형 전체'),...RS_TYPES.map(t=>R('option',{key:t,value:t},t))),
+      R('input',{value:q,onChange:e=>setQ(e.target.value),placeholder:'🔍 제품명·일정명·고객사·담당자·내용 검색',
+        style:{flex:'1 1 220px',minWidth:160,maxWidth:360,padding:'6px 12px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,fontFamily:'inherit'}}),
+      (fMgr!=='전체'||fSt!=='전체'||fTy!=='전체'||q)&&R('button',{onClick:()=>{setFMgr('전체');setFSt('전체');setFTy('전체');setQ('');},
+        style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer',fontFamily:'inherit',color:'var(--tm)'}},'✕ 필터 해제'),
+      busy&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'저장 중...')),
+    rows===null?R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'):
+    view==='list'
+      /* ── 목록 보기 (모바일 친화) ── */
+      ?R('div',null,
+          inMonth.length===0?R('div',{className:'card',style:{textAlign:'center',padding:30,color:'var(--tm)'}},'이번 달 일정이 없습니다.'):
+          inMonth.slice().sort((a,b)=>String(a.start||'').localeCompare(String(b.start||''))).map(r=>R('div',{key:r._id,style:{marginBottom:2}},
+            R('div',{style:{fontSize:11,fontWeight:800,color:'var(--tm)',margin:'10px 2px 4px'}},r.start+(r.end&&r.end!==r.start?(' ~ '+r.end):'')+' ('+fmtDow(r.start)+')'),
+            dayItem(r))))
+      /* ── 월간 달력 ── */
+      :R('div',{style:{overflowX:'auto'}},
+        R('div',{style:{minWidth:840}},
+          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:0,border:'1px solid var(--bd)',borderRadius:'12px 12px 0 0',overflow:'hidden'}},
+            ...['월','화','수','목','금','토','일'].map((d,i)=>R('div',{key:d,style:{padding:'8px 0',textAlign:'center',fontSize:11.5,fontWeight:800,background:'#F9F8F6',color:i>=5?'#B45309':'var(--tm)',borderRight:i<6?'1px solid var(--bd)':'none'}},d))),
+          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',border:'1px solid var(--bd)',borderTop:'none',borderRadius:'0 0 12px 12px',overflow:'hidden'}},
+            ...cells.map((d,i)=>{
+              const items=d?onDay(d):[];
+              const isToday=d===today;
+              const MAX=3;
+              return R('div',{key:i,
+                onDoubleClick:()=>{if(d)openNew(d);},
+                onClick:()=>{if(d&&items.length)setDayView(d);},
+                onDragOver:e=>{if(drag&&d){e.preventDefault();setDragOverD(d);}},
+                onDragLeave:()=>{if(dragOverD===d)setDragOverD(null);},
+                onDrop:e=>{if(drag&&d){e.preventDefault();dropOn(d);}},
+                title:d?(items.length?'클릭: 이 날짜 일정 보기 · 더블클릭: 일정 등록':'더블클릭: 일정 등록'):'',
+                style:{minHeight:96,padding:'5px 6px',background:dragOverD===d?'#FFF3EC':(isToday?'#FFF8F4':(d?'#fff':'#FBFAF8')),
+                  borderRight:(i%7)<6?'1px solid var(--bd)':'none',
+                  borderBottom:i<cells.length-7?'1px solid var(--bd)':'none',
+                  outline:dragOverD===d?'2px dashed var(--p)':'none',outlineOffset:-2,
+                  cursor:d?'pointer':'default',overflow:'hidden'}},
+                d&&R('div',{style:{display:'flex',alignItems:'center',gap:5,marginBottom:3}},
+                  R('span',{style:{fontSize:11.5,fontWeight:800,color:isToday?'#fff':((i%7)>=5?'#B45309':'var(--tm)'),
+                    background:isToday?'var(--p)':'transparent',borderRadius:999,minWidth:20,height:20,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}},+d.slice(8)),
+                  isToday&&R('span',{style:{fontSize:9.5,fontWeight:800,color:'var(--p)'}},'오늘')),
+                ...items.slice(0,MAX).map(r=>chip(r,d)),
+                items.length>MAX&&R('div',{onClick:e=>{e.stopPropagation();setDayView(d);},
+                  style:{fontSize:10,fontWeight:800,color:'var(--p)',cursor:'pointer',padding:'1px 4px'}},'+'+(items.length-MAX)+'개 더보기'));
+            })))),
+    /* ── 날짜별 일정 패널 ── */
+    dayView&&R(Modal2,{title:'📋 '+dayView+' ('+fmtDow(dayView)+') 일정 '+onDay(dayView).length+'건',onClose:()=>setDayView(null),size:520,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>setDayView(null),style:{flex:1}},'닫기'),
+        R('button',{className:'btn bp',onClick:()=>{const d=dayView;setDayView(null);openNew(d);},style:{flex:1}},'+ 이 날짜에 등록'))},
+      onDay(dayView).length===0?R('div',{style:{textAlign:'center',color:'var(--tm)',padding:16}},'일정이 없습니다.'):
+      R('div',null,...onDay(dayView).map(dayItem))),
+    /* ── 상세보기 ── */
+    sel&&(()=>{const st=stOf(sel.status);
+      return R(Modal2,{title:'🗓 '+(sel.title||'일정 상세'),onClose:()=>setSel(null),size:560,
+        footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+          canEdit(sel)&&sel.status!=='개발 완료'&&R('button',{className:'btn bok',onClick:()=>markDone(sel),style:{flex:1,color:'#fff'}},'✓ 완료 처리'),
+          canEdit(sel)&&R('button',{className:'btn bd',onClick:()=>del(sel),style:{flex:1}},'삭제'),
+          canEdit(sel)&&R('button',{className:'btn bs',onClick:()=>openEdit(sel),style:{flex:1}},'✏️ 수정'),
+          R('button',{className:'btn bp',onClick:()=>setSel(null),style:{flex:1}},'닫기'))},
+        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}},
+          R('span',{style:{fontSize:11,fontWeight:800,color:st.c,background:st.bg,padding:'3px 10px',borderRadius:999}},sel.status||'-'),
+          R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)',background:'#F4F1EE',padding:'3px 10px',borderRadius:999}},sel.type||'-')),
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'8px 20px',marginBottom:10}},
+          ...[['제품명',sel.product],['고객사',sel.customer],['담당 연구원',sel.manager],['공동 담당자',sel.participants],
+             ['기간',(sel.start||'')+(sel.end&&sel.end!==sel.start?(' ~ '+sel.end):'')+(sel.allDay?' (종일)':(sel.stime?(' '+sel.stime+(sel.etime?(' ~ '+sel.etime):'')):''))]]
+            .filter(x=>String(x[1]||'').trim())
+            .map(x=>R('div',{key:x[0]},
+              R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',marginBottom:2}},x[0]),
+              R('div',{style:{fontSize:13,fontWeight:600}},x[1])))),
+        ...[['개발 목적',sel.purpose],['요청사항',sel.request],['진행 내용',sel.progress],['테스트 내용',sel.test],['특이사항/메모',sel.notes]]
+          .filter(x=>String(x[1]||'').trim())
+          .map(x=>R('div',{key:x[0],style:{marginBottom:10}},
+            R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',marginBottom:3}},x[0]),
+            R('div',{style:{fontSize:13,whiteSpace:'pre-wrap',wordBreak:'break-word',lineHeight:1.65}},x[1]))),
+        (sel._files||[]).length>0&&R('div',{style:{marginBottom:10}},
+          R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',marginBottom:5}},'📎 첨부 '+sel._files.length+'건'),
+          R(AttachView,{files:sel._files})),
+        R('div',{style:{fontSize:10.5,color:'var(--tm)',paddingTop:8,borderTop:'1px solid var(--bd)'}},
+          '등록: '+(sel._byName||'-')+' · '+fDate(sel._at)+(sel._editBy?(' · 마지막 수정: '+sel._editBy+' · '+fDate(sel._editAt)):'')));})(),
+    /* ── 등록/수정 모달 ── */
+    showF&&R(Modal2,{title:editId?'일정 수정':'일정 등록',onClose:()=>{setShowF(false);setEditId(null);},size:600,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>{setShowF(false);setEditId(null);},style:{flex:1}},'취소'),
+        R('button',{className:'btn bp',onClick:save,disabled:busy,style:{flex:2}},editId?'수정 저장':'등록'))},
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'일정명 *'),
+          R('input',{className:'inp',value:form.title,onChange:e=>setForm(p=>Object.assign({},p,{title:e.target.value})),placeholder:'예) 1차 샘플 발송',autoFocus:true})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'제품명/개발품명'),
+          R('input',{className:'inp',value:form.product,onChange:e=>setForm(p=>Object.assign({},p,{product:e.target.value})),placeholder:'예) 마라소스'}))),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'고객사'),
+          R('input',{className:'inp',value:form.customer,onChange:e=>setForm(p=>Object.assign({},p,{customer:e.target.value})),placeholder:'예) A프랜차이즈'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'담당 연구원'),
+          R('input',{className:'inp',value:form.manager,onChange:e=>setForm(p=>Object.assign({},p,{manager:e.target.value})),list:'rs-emps',placeholder:'담당자'}))),
+      R('datalist',{id:'rs-emps'},...emps.map(e2=>R('option',{key:e2.id,value:e2.name}))),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'공동 담당자'),
+          R('input',{className:'inp',value:form.participants,onChange:e=>setForm(p=>Object.assign({},p,{participants:e.target.value})),placeholder:'쉼표로 구분'})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'일정 유형'),
+          R('select',{className:'inp',value:form.type,onChange:e=>setForm(p=>Object.assign({},p,{type:e.target.value}))},
+            ...RS_TYPES.map(t=>R('option',{key:t,value:t},t))))),
+      R('div',{className:'fg'},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'시작일'),
+          R('input',{type:'date',className:'inp',value:form.start,onChange:e=>setForm(p=>Object.assign({},p,{start:e.target.value}))})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'종료일'),
+          R('input',{type:'date',className:'inp',value:form.end,onChange:e=>setForm(p=>Object.assign({},p,{end:e.target.value}))}))),
+      R('div',{style:{display:'flex',gap:10,alignItems:'center',marginBottom:10,flexWrap:'wrap'}},
+        R('label',{style:{display:'inline-flex',gap:6,alignItems:'center',fontSize:12.5,fontWeight:700,cursor:'pointer'}},
+          R('input',{type:'checkbox',checked:!!form.allDay,onChange:e=>setForm(p=>Object.assign({},p,{allDay:e.target.checked}))}),'종일 일정'),
+        !form.allDay&&R('input',{type:'time',className:'inp',value:form.stime,onChange:e=>setForm(p=>Object.assign({},p,{stime:e.target.value})),style:{maxWidth:120},title:'시작시간'}),
+        !form.allDay&&R('span',{style:{color:'var(--tm)'}},'~'),
+        !form.allDay&&R('input',{type:'time',className:'inp',value:form.etime,onChange:e=>setForm(p=>Object.assign({},p,{etime:e.target.value})),style:{maxWidth:120},title:'종료시간'}),
+        R('span',{style:{fontSize:11,color:'var(--tm)'}},'진행 상태'),
+        R('select',{className:'inp',value:form.status,onChange:e=>setForm(p=>Object.assign({},p,{status:e.target.value})),style:{maxWidth:170}},
+          ...RS_STATUS.map(s=>R('option',{key:s.v,value:s.v},s.v)))),
+      ...[['purpose','개발 목적'],['request','요청사항'],['progress','진행 내용'],['test','테스트 내용'],['notes','특이사항/메모']]
+        .map(([k,l])=>R('div',{key:k,className:'fr'},R('label',{className:'lbl'},l),
+          R('textarea',{className:'inp',value:form[k],onChange:e=>{const v=e.target.value;setForm(p=>Object.assign({},p,{[k]:v}));},style:{minHeight:46}}))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'첨부 (이미지·PDF·엑셀 등)'),att.Box('파일 선택'))
+    )
+  );
+}
+
 /* ═══ 인원배치 (생산관리) ══════════════════════════════
    작업별 투입 인원과 공정별 담당자를 기록한다. app_state.bnf_pm_staffing */
 function PagePMStaffing({user}){
@@ -9790,12 +10116,12 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
       const sd=(data&&data.state_data)||{};
       const PAGES={work_requests:'workreq',bnf_pm_workorder:'pm_workorder',bnf_rnd_status:'rnd_status',
-        bnf_rnd_log:'rnd_log',bnf_rnd_mat:'rnd_mat',bnf_qc_self:'qc_self',bnf_qc_process:'qc_process',bnf_qc_hygiene:'qc_hygiene',
+        bnf_rnd_log:'rnd_log',bnf_rnd_mat:'rnd_mat',bnf_rnd_sched:'rnd_sched',bnf_qc_self:'qc_self',bnf_qc_process:'qc_process',bnf_qc_hygiene:'qc_hygiene',
         bnf_qc_claim:'qc_claim',bnf_pm_equip:'pm_equip',bnf_receivables:'receivables',bnf_crm:'crm',
         trade_entries:'trade_entry',approval_docs:'approval',bnf_files:'files',
         bnf_rnd_recipe:'rnd_recipe',recurring_tasks:'workreq',daily_tasks:'mytasks'};
       const LABELS={work_requests:'업무 현황',bnf_pm_workorder:'작업지시서',bnf_rnd_status:'연구개발 현황',
-        bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',
+        bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_rnd_sched:'연구개발 스케줄',bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',
         bnf_qc_claim:'클레임',bnf_pm_equip:'설비 점검',bnf_receivables:'미수금',bnf_crm:'거래처 CRM',
         trade_entries:'매입/매출 입력',approval_docs:'전자결재',bnf_files:'파일 공유',
         bnf_rnd_recipe:'확정 배합비',recurring_tasks:'주기 업무',daily_tasks:'업무'};
@@ -14686,6 +15012,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'files',l:'파일 공유',ic:'📁'},
   ]},
   {label:'🔬 연구개발부서',type:'dept_rnd',items:[
+    {id:'rnd_sched',l:'연구개발 스케줄',ic:'🗓'},
     {id:'rnd_log',l:'연구개발 일지',ic:'📔'},
     {id:'rnd_mat',l:'원물 테스트',ic:'⚖️'},
     {id:'rnd_status',l:'연구개발 현황',ic:'📊'},
@@ -14770,20 +15097,21 @@ function loadNavSections(){
               if(homeIdx>=0)newItems.splice(homeIdx+1,0,item);else newItems.unshift(item);
               changed=true;
             }
-            /* 연구개발 메뉴에 원물 테스트 없으면 연구개발 일지 다음에 추가 (2026-08-21) */
-            if(hasItem('rnd_log')&&!hasItem('rnd_mat')){
-              const item={id:'rnd_mat',l:'원물 테스트',ic:'⚖️'};
-              const ti=newItems.findIndex(it=>it&&it.id==='rnd_log');
-              if(ti>=0)newItems.splice(ti+1,0,item);
+            /* 연구개발 메뉴 신규 항목 자동 삽입 (원물 테스트 2026-08-21 · 스케줄 2026-08-28) */
+            [['rnd_mat',{id:'rnd_mat',l:'원물 테스트',ic:'⚖️'},'rnd_log'],
+             ['rnd_sched',{id:'rnd_sched',l:'연구개발 스케줄',ic:'🗓'},'rnd_log']].forEach(([id,item,anchor])=>{
+              if(!hasItem(anchor)||hasItem(id))return;
+              const ti=newItems.findIndex(it=>it&&it.id===anchor);
+              if(ti>=0)newItems.splice(id==='rnd_sched'?ti:ti+1,0,item);
               else newItems.some(f=>{
                 if(f&&f.kind==='folder'&&Array.isArray(f.items)){
-                  const fi=f.items.findIndex(x=>x&&x.id==='rnd_log');
-                  if(fi>=0){f.items.splice(fi+1,0,item);return true;}
+                  const fi=f.items.findIndex(x=>x&&x.id===anchor);
+                  if(fi>=0){f.items.splice(id==='rnd_sched'?fi:fi+1,0,item);return true;}
                 }
                 return false;
               });
               changed=true;secChanged=true;
-            }
+            });
             /* 식품제조 신규 메뉴 자동 삽입 */
             if(s.type==='factory'){
               const newMenus=[
@@ -15242,6 +15570,7 @@ const NAV_PAGES_INDEX=[
   {p:'rnd_log',title:'연구개발 일지',ic:'📔',keys:['연구','일지','개발','rnd']},
   {p:'rnd_mat',title:'원물 테스트',ic:'⚖️',keys:['원물','테스트','중량','수율','자숙','고형물','rnd']},
   {p:'pm_staffing',title:'인원배치',ic:'👥',keys:['인원','배치','담당자','공정','작업인원','staffing']},
+  {p:'rnd_sched',title:'연구개발 스케줄',ic:'🗓',keys:['스케줄','일정','달력','캘린더','샘플','테스트','개발일정','schedule','calendar']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
   {p:'rnd_recipe',title:'확정 배합비',ic:'🧾',keys:['배합','레시피','확정','recipe']},
   {p:'qc_self',title:'자가품질검사',ic:'🧪',keys:['자가','품질','검사','자가품질']},
@@ -18027,7 +18356,7 @@ function App(){
     let last=+localStorage.getItem(LSK)||Date.now();
     try{localStorage.setItem(LSK,String(last));}catch(e){}
     const ACT_LABELS={work_requests:'업무 현황',bnf_pm_workorder:'작업지시서',bnf_pm_staffing:'인원배치',
-      bnf_rnd_status:'연구개발 현황',bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_rnd_recipe:'확정 배합비',
+      bnf_rnd_status:'연구개발 현황',bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_rnd_sched:'연구개발 스케줄',bnf_rnd_recipe:'확정 배합비',
       bnf_qc_self:'자가품질검사',bnf_qc_process:'공정 검사',bnf_qc_hygiene:'위생 점검',bnf_qc_claim:'클레임',
       bnf_pm_equip:'설비 점검',bnf_receivables:'미수금',bnf_crm:'거래처 CRM',trade_entries:'매입/매출 입력',
       approval_docs:'전자결재',bnf_files:'파일 공유',bnf_docs:'회사 서류',bnf_manuals:'업무 매뉴얼',recurring_tasks:'주기 업무'};
@@ -18887,6 +19216,7 @@ function App(){
     if(page==='trend')return R(PageTrend,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(page==='pm_staffing')return R(PagePMStaffing,{user});
+    if(page==='rnd_sched')return R(PageRndSched,{user});
     if(page==='receivables')return R(PageReceivablesWrap,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
