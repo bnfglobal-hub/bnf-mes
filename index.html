@@ -763,6 +763,8 @@ body{font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;text-r
 /* 사이드바: 흰 패널 + 여유 있는 항목, 활성은 소프트 브랜드 필 */
 .sb{background:var(--sb);border-right:1px solid var(--border)}
 .ni{padding:7.5px 10px;border-radius:9px;font-size:12.5px;margin:0 6px 1px;transition:background .13s var(--ease),color .13s var(--ease)}
+/* 연구개발 스케줄 달력 칸: 마우스 올리면 살짝 밝기 변화 */
+.rs-cell:hover{filter:brightness(0.985)}
 /* 메뉴 즐겨찾기 별 버튼: 평소엔 숨김, 항목에 마우스를 올리면 표시 (등록된 것은 항상 표시) */
 .ni .nfav{margin-left:auto;border:none;background:transparent;cursor:pointer;font-size:12px;color:#D9D2CB;opacity:0;padding:0 2px;line-height:1;font-family:inherit;flex-shrink:0;transition:opacity .12s,color .12s}
 .ni:hover .nfav{opacity:1}
@@ -4658,13 +4660,16 @@ function PageRndSched({user}){
   const onDay=(d)=>filtered.filter(r=>{const s=r.start||'';const e=r.end||s;return s&&d>=s&&d<=e;})
     .sort((a,b)=>String(a.allDay?'':'z'+(a.stime||'')).localeCompare(String(b.allDay?'':'z'+(b.stime||'')))||String(a.stime||'').localeCompare(String(b.stime||'')));
 
-  /* 달력 격자 (월요일 시작) */
+  /* 달력 격자 (월요일 시작) — 앞뒤 빈 칸은 이전/다음 달 날짜로 채워 그대로 사용 가능,
+     항상 6주를 보여줘 다음 달 첫 주까지 한 화면에서 등록·조회·드래그할 수 있다 */
   const daysIn=new Date(ym.y,ym.m+1,0).getDate();
   const startIdx=(new Date(ym.y,ym.m,1).getDay()+6)%7;
+  const firstD=ym.y+'-'+pad2(ym.m+1)+'-01';
+  const lastD=ym.y+'-'+pad2(ym.m+1)+'-'+pad2(daysIn);
   const cells=[];
-  for(let i=0;i<startIdx;i++)cells.push(null);
-  for(let d=1;d<=daysIn;d++)cells.push(ym.y+'-'+pad2(ym.m+1)+'-'+pad2(d));
-  while(cells.length%7!==0)cells.push(null);
+  for(let i=startIdx;i>0;i--)cells.push({d:addDD(firstD,-i),cur:false});
+  for(let d=1;d<=daysIn;d++)cells.push({d:ym.y+'-'+pad2(ym.m+1)+'-'+pad2(d),cur:true});
+  for(let i=1;cells.length<42;i++)cells.push({d:addDD(lastD,i),cur:false});
   const today=today2();
   const mStart=ym.y+'-'+pad2(ym.m+1)+'-01', mEnd=ym.y+'-'+pad2(ym.m+1)+'-'+pad2(daysIn);
   const inMonth=filtered.filter(r=>(r.start||'')<=mEnd&&(r.end||r.start||'')>=mStart);
@@ -4752,29 +4757,36 @@ function PageRndSched({user}){
       /* ── 월간 달력 ── */
       :R('div',{style:{overflowX:'auto'}},
         R('div',{style:{minWidth:840}},
-          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:0,border:'1px solid var(--bd)',borderRadius:'12px 12px 0 0',overflow:'hidden'}},
-            ...['월','화','수','목','금','토','일'].map((d,i)=>R('div',{key:d,style:{padding:'8px 0',textAlign:'center',fontSize:11.5,fontWeight:800,background:'#F9F8F6',color:i>=5?'#B45309':'var(--tm)',borderRight:i<6?'1px solid var(--bd)':'none'}},d))),
-          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',border:'1px solid var(--bd)',borderTop:'none',borderRadius:'0 0 12px 12px',overflow:'hidden'}},
-            ...cells.map((d,i)=>{
-              const items=d?onDay(d):[];
+          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:0,border:'1px solid var(--bd)',borderBottom:'none',borderRadius:'14px 14px 0 0',overflow:'hidden'}},
+            ...['월','화','수','목','금','토','일'].map((d,i)=>R('div',{key:d,style:{padding:'9px 0',textAlign:'center',fontSize:11.5,fontWeight:800,letterSpacing:2,background:'#F9F8F6',
+              color:i===5?'#2563EB':(i===6?'#DC2626':'var(--tm)'),borderRight:i<6?'1px solid var(--bd)':'none'}},d))),
+          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',border:'1px solid var(--bd)',borderRadius:'0 0 14px 14px',overflow:'hidden'}},
+            ...cells.map((c2,i)=>{
+              const d=c2.d,cur=c2.cur;
+              const items=onDay(d);
               const isToday=d===today;
               const MAX=3;
-              return R('div',{key:i,
-                onDoubleClick:()=>{if(d)openNew(d);},
-                onClick:()=>{if(d&&items.length)setDayView(d);},
-                onDragOver:e=>{if(drag&&d){e.preventDefault();setDragOverD(d);}},
+              const wk=i%7; /* 5=토 6=일 */
+              const numColor=isToday?'#fff':(cur?(wk===5?'#2563EB':(wk===6?'#DC2626':'#4A403A')):'#C9BFB6');
+              return R('div',{key:i,className:'rs-cell',
+                onDoubleClick:()=>openNew(d),
+                onClick:()=>{if(items.length)setDayView(d);},
+                onDragOver:e=>{if(drag){e.preventDefault();setDragOverD(d);}},
                 onDragLeave:()=>{if(dragOverD===d)setDragOverD(null);},
-                onDrop:e=>{if(drag&&d){e.preventDefault();dropOn(d);}},
-                title:d?(items.length?'클릭: 이 날짜 일정 보기 · 더블클릭: 일정 등록':'더블클릭: 일정 등록'):'',
-                style:{minHeight:96,padding:'5px 6px',background:dragOverD===d?'#FFF3EC':(isToday?'#FFF8F4':(d?'#fff':'#FBFAF8')),
-                  borderRight:(i%7)<6?'1px solid var(--bd)':'none',
+                onDrop:e=>{if(drag){e.preventDefault();dropOn(d);}},
+                title:(items.length?'클릭: 이 날짜 일정 보기 · 더블클릭: 일정 등록':'더블클릭: 일정 등록')+(cur?'':' ('+(d<firstD?'지난달':'다음 달')+')'),
+                style:{minHeight:100,padding:'6px 6px',
+                  background:(drag&&dragOverD===d)?'#FFF3EC':(isToday?'#FFF8F4':(cur?'#fff':'#FCFBFA')),
+                  borderRight:wk<6?'1px solid var(--bd)':'none',
                   borderBottom:i<cells.length-7?'1px solid var(--bd)':'none',
-                  outline:dragOverD===d?'2px dashed var(--p)':'none',outlineOffset:-2,
-                  cursor:d?'pointer':'default',overflow:'hidden'}},
-                d&&R('div',{style:{display:'flex',alignItems:'center',gap:5,marginBottom:3}},
-                  R('span',{style:{fontSize:11.5,fontWeight:800,color:isToday?'#fff':((i%7)>=5?'#B45309':'var(--tm)'),
-                    background:isToday?'var(--p)':'transparent',borderRadius:999,minWidth:20,height:20,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}},+d.slice(8)),
-                  isToday&&R('span',{style:{fontSize:9.5,fontWeight:800,color:'var(--p)'}},'오늘')),
+                  outline:(drag&&dragOverD===d)?'2px dashed var(--p)':'none',outlineOffset:-2,
+                  cursor:'pointer',overflow:'hidden',transition:'background .12s'}},
+                R('div',{style:{display:'flex',alignItems:'center',gap:5,marginBottom:4}},
+                  R('span',{style:{fontSize:11.5,fontWeight:800,color:numColor,fontVariantNumeric:'tabular-nums',
+                    background:isToday?'var(--p)':'transparent',borderRadius:999,minWidth:21,height:21,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px',
+                    boxShadow:isToday?'0 1px 3px rgba(217,79,30,.35)':'none'}},+d.slice(8)),
+                  isToday&&R('span',{style:{fontSize:9.5,fontWeight:800,color:'var(--p)'}},'오늘'),
+                  !cur&&(+d.slice(8)===1)&&R('span',{style:{fontSize:9.5,fontWeight:800,color:'#B0A69C'}},(+d.slice(5,7))+'월')),
                 ...items.slice(0,MAX).map(r=>chip(r,d)),
                 items.length>MAX&&R('div',{onClick:e=>{e.stopPropagation();setDayView(d);},
                   style:{fontSize:10,fontWeight:800,color:'var(--p)',cursor:'pointer',padding:'1px 4px'}},'+'+(items.length-MAX)+'개 더보기'));
