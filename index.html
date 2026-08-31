@@ -17828,11 +17828,26 @@ function PageShipSort({mats,hqItems}){
           R('button',{onClick:()=>setKurlyOpen(false),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')
         ),
         R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
+          /* ── 다가오는 발주 안내: 날짜를 고를 필요 없이 알아서 알려준다 ── */
+          kurlyUp===null
+            ?R('div',{style:{padding:'11px 14px',background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:10,fontSize:12.5,fontWeight:700,color:'var(--p)',marginBottom:10}},
+              '📡 컬리에서 다가오는 발주를 확인하는 중입니다... (10~20초)')
+            :kurlyUp.filter(x=>x.date>=today2()).length===0
+              ?R('div',{style:{padding:'11px 14px',background:'#FBFAF8',border:'1px solid var(--bd)',borderRadius:10,fontSize:12,color:'var(--tm)',marginBottom:10}},
+                '앞으로 잡힌 컬리 발주가 없습니다. (사무실 PC 수집기가 꺼져 있으면 확인되지 않습니다)')
+              :R('div',{style:{padding:'11px 14px',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:10,marginBottom:10,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+                R('span',{style:{fontSize:13,fontWeight:800,color:'#15803D'}},'📢 다가오는 발주 있음 →'),
+                ...kurlyUp.filter(x=>x.date>=today2()).map(x=>R('button',{key:x.date,
+                  onClick:()=>{setKurlyDate(x.date);refreshKurly(x.date);},
+                  style:{border:'1px solid '+(kurlyDate===x.date?'#15803D':'#86EFAC'),
+                    background:kurlyDate===x.date?'#15803D':'#fff',color:kurlyDate===x.date?'#fff':'#15803D',
+                    borderRadius:999,padding:'6px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
+                  x.date.slice(5).replace('-','/')+dowLabel(x.date)+(x.created?' · 발주 '+x.created+'건':'')))),
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}},
-            R('span',{style:{fontSize:12,color:'var(--tm)'}},'입고예정일'),
+            R('span',{style:{fontSize:12,color:'var(--tm)'}},'다른 날짜 보기'),
             R('select',{value:kurlyDate,onChange:e=>{const d=e.target.value;setKurlyDate(d);
                 if(!(((kurly&&kurly.rows)||[]).some(r=>r.date===d)))refreshKurly(d);},
-              style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12.5,fontFamily:'inherit',background:'#fff'}},
+              style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit',background:'#fff'}},
               ...(()=>{
                 const t=today2();
                 const set=new Set([].concat(((kurly&&kurly.dates)||[]),((kurlyUp||[]).map(x=>x.date))));
@@ -17845,8 +17860,6 @@ function PageShipSort({mats,hqItems}){
                     +(d<t?' (지남)':''));
                 });
               })()),
-            kurlyUp===null&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'📡 다가오는 발주일 확인 중...'),
-            Array.isArray(kurlyUp)&&kurlyUp.length===0&&R('span',{style:{fontSize:11,color:'var(--tm)'}},'앞으로 잡힌 발주 없음(또는 수집기 꺼짐)'),
             R('button',{className:'btn bw btn-sm',onClick:()=>refreshKurly(),disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기'),
             R('a',{href:'https://partner-portal.kurly.com/purchase-order/purchase-order-plan-schedule/detail?scheduledReceivingDate='+(kurlyDate||today2())+'&neoPurchaseOrderPlanGoodsStatuses=CREATED',
               target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →'),
@@ -17855,7 +17868,8 @@ function PageShipSort({mats,hqItems}){
               title:'입고예약시간·출고유형·소비기한을 자동 입력하고, 검증 통과 후 승인하면 거래명세서까지 생성'},cfmBusy||'✅ 컬리 발주 확정')
           ),
           kurlyRows.length===0
-            ? R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},'이 날짜에 발주가 없습니다.')
+            ? R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},
+                kurlyUp===null?'잠시만요 — 발주가 있는 날짜를 찾으면 자동으로 표시됩니다.':(kurlyBusy||'이 날짜에 발주가 없습니다.'))
             : R('div',null,
                 ...Object.entries(kurlyByCenter).map(([c,b])=>R('div',{key:c,style:{marginBottom:12}},
                   R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#FBFAF8',border:'1px solid #E9E2DC',borderRadius:9,padding:'7px 11px',marginBottom:6}},
