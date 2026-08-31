@@ -17626,6 +17626,15 @@ function PageShipSort({mats,hqItems}){
       .then(({data})=>{if(data&&data.v&&typeof data.v==='object')setShipExpLast(data.v);}).catch(()=>{});
   },[]);
   const expPrevOf=(name)=>shipExpLast[normExpName(name)]||null;
+  const expPrevList=(pv)=>pv?(Array.isArray(pv.exps)&&pv.exps.length?pv.exps:(pv.exp?[pv.exp]:[])):[];
+  /* 직전 출고에서 그 제품에 쓰인 소비기한 목록에 없으면 '변동'으로 판단
+     (같은 출고에서 센터마다 기한이 다른 제품도 오탐 없이) */
+  const expChanged=(name,exp)=>{
+    if(!exp)return null;
+    const pv=expPrevOf(name);
+    const list=expPrevList(pv);
+    return(pv&&list.length&&list.indexOf(exp)<0)?{pv,list}:null;
+  };
   const[cfm,setCfm]=useState(null);        /* {token,date,rows,...} 채움 완료 → 승인 대기 */
   const[cfmBusy,setCfmBusy]=useState('');
   const[cfmDone,setCfmDone]=useState(null);
@@ -17697,7 +17706,9 @@ function PageShipSort({mats,hqItems}){
         const ex=st&&st.state_data;
         if(ex){
           const map=Object.assign({},ex.bnf_ship_exp_last||{});
-          rowsSnap.forEach(x=>{const k=normExpName(x.name);if(k&&x.exp)map[k]={exp:x.exp,date:dateSnap,at:new Date().toISOString()};});
+          const acc={};
+          rowsSnap.forEach(x=>{const k=normExpName(x.name);if(k&&x.exp){(acc[k]=acc[k]||new Set()).add(x.exp);}});
+          Object.keys(acc).forEach(k=>{map[k]={exps:Array.from(acc[k]),date:dateSnap,at:new Date().toISOString()};});
           await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_ship_exp_last:map}),updated_at:new Date().toISOString()});
           setShipExpLast(map);
         }
@@ -18342,14 +18353,14 @@ function PageShipSort({mats,hqItems}){
             (()=>{
               const seen={},diffs=[];
               centers.forEach(({d})=>Object.entries(d.items||{}).forEach(([name,v])=>{
-                const pv=expPrevOf(name);
-                if(pv&&v.exp&&pv.exp!==v.exp&&!seen[name]){seen[name]=1;diffs.push({name,prev:pv,now:v.exp});}
+                const ch=expChanged(name,v.exp);
+                if(ch&&!seen[name+'|'+v.exp]){seen[name+'|'+v.exp]=1;diffs.push({name,list:ch.list,pdate:ch.pv.date,now:v.exp});}
               }));
               if(!diffs.length)return null;
               return R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'10px 14px',marginBottom:12,maxWidth:720}},
-                R('div',{style:{fontSize:12.5,fontWeight:800,color:'#B45309',marginBottom:4}},'⚠ 지난 출고와 소비기한이 달라진 제품 '+diffs.length+'개 — 확인해주세요'),
-                ...diffs.map(x=>R('div',{key:x.name,style:{fontSize:11.5,color:'#92400E',padding:'2px 0'}},
-                  x.name+' : 지난 출고('+(x.prev.date||'-')+') '+x.prev.exp+' → 이번 '+x.now)));
+                R('div',{style:{fontSize:12.5,fontWeight:800,color:'#B45309',marginBottom:4}},'⚠ 지난 출고와 소비기한이 달라진 제품 '+diffs.length+'건 — 확인해주세요'),
+                ...diffs.map((x,i)=>R('div',{key:i,style:{fontSize:11.5,color:'#92400E',padding:'2px 0'}},
+                  x.name+' : 지난 출고('+(x.pdate||'-')+') '+x.list.join(', ')+' → 이번 '+x.now)));
             })(),
             ...centers.map(({key,center,d})=>{
               const pallet=d.totalBox/30;
@@ -18374,11 +18385,11 @@ function PageShipSort({mats,hqItems}){
                     R('div',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},name),
                     R('div',{style:{fontWeight:700}},v.box),
                     R('div',{style:{color:'#6E645C'}},fN(v.total)),
-                    (()=>{const pv=expPrevOf(name);const diff=pv&&v.exp&&pv.exp!==v.exp;
+                    (()=>{const ch=expChanged(name,v.exp);
                       return R('div',{style:{color:'#DC2626',fontWeight:600},
-                        title:diff?('지난 출고('+(pv.date||'-')+') 소비기한 '+pv.exp+' → 이번 '+v.exp):''},
+                        title:ch?('지난 출고('+(ch.pv.date||'-')+') 소비기한 '+ch.list.join(', ')+' → 이번 '+v.exp):''},
                         v.exp||'-',
-                        diff&&R('div',{style:{fontSize:9.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'⚠ 지난 '+pv.exp));
+                        ch&&R('div',{style:{fontSize:9.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'⚠ 지난 '+ch.list.join(', ')));
                     })(),
                     st
                       ? R('div',{style:{fontSize:11,whiteSpace:'nowrap'}},
