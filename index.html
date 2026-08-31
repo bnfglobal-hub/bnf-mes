@@ -17606,6 +17606,14 @@ function PageShipSort({mats,hqItems}){
   /* ── 컬리 발주 확정 ──
      사무실 PC의 수집기가 컬리 포털에 값을 채우고, 여기서 사람이 확인·승인한 뒤에만
      거래명세서를 생성한다. 승인 전에는 아무것도 제출되지 않는다. */
+  /* 직전 출고(거래명세서 생성 시점)의 제품별 소비기한 — 이번 출고와 다르면 표시 */
+  const[shipExpLast,setShipExpLast]=useState({});
+  const normExpName=s=>String(s||'').replace(/\s+/g,'').toLowerCase();
+  useEffect(()=>{
+    sbClient.from('app_state').select('v:state_data->bnf_ship_exp_last').eq('id',1).maybeSingle()
+      .then(({data})=>{if(data&&data.v&&typeof data.v==='object')setShipExpLast(data.v);}).catch(()=>{});
+  },[]);
+  const expPrevOf=(name)=>shipExpLast[normExpName(name)]||null;
   const[cfm,setCfm]=useState(null);        /* {token,date,rows,...} 채움 완료 → 승인 대기 */
   const[cfmBusy,setCfmBusy]=useState('');
   const[cfmDone,setCfmDone]=useState(null);
@@ -17670,6 +17678,18 @@ function PageShipSort({mats,hqItems}){
       const j=await r.json();
       setCfmBusy('');
       if(j.error){alert('생성을 중단했습니다.\n\n'+j.error);return;}
+      /* 이번 출고의 제품별 소비기한을 '직전 출고' 기록으로 저장 (다음 출고 때 비교용) */
+      try{
+        const rowsSnap=(cfm.rows||[]).slice(),dateSnap=cfm.date;
+        const{data:st}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+        const ex=st&&st.state_data;
+        if(ex){
+          const map=Object.assign({},ex.bnf_ship_exp_last||{});
+          rowsSnap.forEach(x=>{const k=normExpName(x.name);if(k&&x.exp)map[k]={exp:x.exp,date:dateSnap,at:new Date().toISOString()};});
+          await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_ship_exp_last:map}),updated_at:new Date().toISOString()});
+          setShipExpLast(map);
+        }
+      }catch(e){}
       setCfmDone(j);setCfm(null);
       if(j.ok===false)alert('생성 버튼은 눌렀지만 완료 문구를 확인하지 못했습니다.\n컬리 포털에서 꼭 직접 확인해주세요.');
       else alert('✅ 거래명세서 생성 완료!\n컬리 포털의 [거래명세서 내역]에서 확인할 수 있습니다.');
@@ -18292,6 +18312,19 @@ function PageShipSort({mats,hqItems}){
                 R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayTsv,'✓ 표 복사됨'),title:'엑셀에 붙여넣을 수 있는 표로 복사'},'📊 엑셀용')
               )
             ),
+            /* ── 직전 출고와 소비기한이 달라진 제품 경고 ── */
+            (()=>{
+              const seen={},diffs=[];
+              centers.forEach(({d})=>Object.entries(d.items||{}).forEach(([name,v])=>{
+                const pv=expPrevOf(name);
+                if(pv&&v.exp&&pv.exp!==v.exp&&!seen[name]){seen[name]=1;diffs.push({name,prev:pv,now:v.exp});}
+              }));
+              if(!diffs.length)return null;
+              return R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'10px 14px',marginBottom:12,maxWidth:720}},
+                R('div',{style:{fontSize:12.5,fontWeight:800,color:'#B45309',marginBottom:4}},'⚠ 지난 출고와 소비기한이 달라진 제품 '+diffs.length+'개 — 확인해주세요'),
+                ...diffs.map(x=>R('div',{key:x.name,style:{fontSize:11.5,color:'#92400E',padding:'2px 0'}},
+                  x.name+' : 지난 출고('+(x.prev.date||'-')+') '+x.prev.exp+' → 이번 '+x.now)));
+            })(),
             ...centers.map(({key,center,d})=>{
               const pallet=d.totalBox/30;
               const c=colorMap[center]||{hdr:'#6E645C',hdrD:'#5D534B',sum:'#FBFAF8',sumT:'#5D534B'};
@@ -18315,7 +18348,12 @@ function PageShipSort({mats,hqItems}){
                     R('div',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},name),
                     R('div',{style:{fontWeight:700}},v.box),
                     R('div',{style:{color:'#6E645C'}},fN(v.total)),
-                    R('div',{style:{color:'#DC2626',fontWeight:600}},v.exp||'-'),
+                    (()=>{const pv=expPrevOf(name);const diff=pv&&v.exp&&pv.exp!==v.exp;
+                      return R('div',{style:{color:'#DC2626',fontWeight:600},
+                        title:diff?('지난 출고('+(pv.date||'-')+') 소비기한 '+pv.exp+' → 이번 '+v.exp):''},
+                        v.exp||'-',
+                        diff&&R('div',{style:{fontSize:9.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'⚠ 지난 '+pv.exp));
+                    })(),
                     st
                       ? R('div',{style:{fontSize:11,whiteSpace:'nowrap'}},
                           R('span',{style:{color:'#6E645C'}},fN(st.stock),st.unit),
