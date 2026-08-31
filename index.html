@@ -17584,6 +17584,7 @@ function PageShipSort({mats,hqItems}){
   /* 다가오는 발주일 자동 탐색 — 수집기가 포털의 '발주 내역' 화면에서 입고예정일 목록을 읽어온다.
      발주가 있는 가장 가까운 날짜를 자동 선택하고 내역까지 바로 불러온다. */
   const[kurlyUp,setKurlyUp]=useState(null);   /* [{date,sku,created}] · null=확인 중 */
+  const[kurlyMore,setKurlyMore]=useState(false); /* '다른 날짜 보기' 펼침 */
   const loadUpcoming=async()=>{
     setKurlyUp(null);
     try{
@@ -17865,8 +17866,17 @@ function PageShipSort({mats,hqItems}){
                     background:kurlyDate===x.date?'#15803D':'#fff',color:kurlyDate===x.date?'#fff':'#15803D',
                     borderRadius:999,padding:'6px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
                   x.date.slice(5).replace('-','/')+dowLabel(x.date)+(x.created?' · 발주 '+x.created+'건':'')))),
+          /* 주요 동작 버튼 한 줄 + '다른 날짜 보기'는 눌러야 펼쳐짐 */
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}},
-            R('span',{style:{fontSize:12,color:'var(--tm)'}},'다른 날짜 보기'),
+            R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
+              onClick:()=>{setKurlyOpen(false);cfmPrepare(kurlyDate);},
+              title:'입고예약시간·출고유형·소비기한을 자동 입력하고, 검증 통과 후 승인하면 거래명세서까지 생성'},cfmBusy||'✅ 컬리 발주 확정'),
+            R('a',{href:'https://partner-portal.kurly.com/purchase-order/purchase-order-plan-schedule/detail?scheduledReceivingDate='+(kurlyDate||today2())+'&neoPurchaseOrderPlanGoodsStatuses=CREATED',
+              target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →'),
+            R('button',{onClick:()=>setKurlyMore(v=>!v),
+              style:{border:'none',background:'transparent',color:'var(--tm)',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',marginLeft:'auto'}},
+              kurlyMore?'다른 날짜 접기 ▴':'다른 날짜 보기 ▾')),
+          kurlyMore&&R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}},
             R('select',{value:kurlyDate,onChange:e=>{const d=e.target.value;setKurlyDate(d);
                 if(!(((kurly&&kurly.rows)||[]).some(r=>r.date===d)))refreshKurly(d);},
               style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit',background:'#fff'}},
@@ -17882,16 +17892,10 @@ function PageShipSort({mats,hqItems}){
                     +(d<t?' (지남)':''));
                 });
               })()),
-            R('button',{className:'btn bw btn-sm',onClick:()=>refreshKurly(),disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기'),
-            R('a',{href:'https://partner-portal.kurly.com/purchase-order/purchase-order-plan-schedule/detail?scheduledReceivingDate='+(kurlyDate||today2())+'&neoPurchaseOrderPlanGoodsStatuses=CREATED',
-              target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →'),
-            R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
-              onClick:()=>{setKurlyOpen(false);cfmPrepare(kurlyDate);},
-              title:'입고예약시간·출고유형·소비기한을 자동 입력하고, 검증 통과 후 승인하면 거래명세서까지 생성'},cfmBusy||'✅ 컬리 발주 확정')
-          ),
-          kurlyRows.length===0
+            R('button',{className:'btn bw btn-sm',onClick:()=>refreshKurly(),disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기')),
+          (kurlyUp===null||kurlyRows.length===0)
             ? R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},
-                kurlyUp===null?'잠시만요 — 발주가 있는 날짜를 찾으면 자동으로 표시됩니다.':(kurlyBusy||'이 날짜에 발주가 없습니다.'))
+                kurlyUp===null?'잠시만요 — 발주가 있는 날짜를 찾으면 내용이 자동으로 표시됩니다.':(kurlyBusy||'이 날짜에 발주가 없습니다.'))
             : R('div',null,
                 ...Object.entries(kurlyByCenter).map(([c,b])=>R('div',{key:c,style:{marginBottom:12}},
                   R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#FBFAF8',border:'1px solid #E9E2DC',borderRadius:9,padding:'7px 11px',marginBottom:6}},
