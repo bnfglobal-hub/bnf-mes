@@ -17542,8 +17542,10 @@ function PageShipSort({mats,hqItems}){
       const v=data&&data.v;
       if(v&&Array.isArray(v.rows)){
         setKurly(v);
+        /* 기본 선택은 오늘 이후의 가장 가까운 날짜 — 과거 저장본이 기본으로 뜨지 않게 */
         const ds=(v.dates||[]).slice().sort();
-        setKurlyDate(p=>p||ds[0]||'');
+        const t=today2();
+        setKurlyDate(p=>p||ds.find(d=>d>=t)||t);
         return v;
       }
     }catch(e){}
@@ -17552,17 +17554,23 @@ function PageShipSort({mats,hqItems}){
   useEffect(()=>{loadKurly();},[]);
   useBnfSyncReload(()=>loadKurly());
   /* PC에서 열었고 수집기가 켜져 있으면 지금 즉시 다시 읽어온다 */
-  const refreshKurly=async()=>{
+  const refreshKurly=async(dArg)=>{
+    const d=(typeof dArg==='string'&&dArg)||kurlyDate||today2();
     setKurlyBusy('컬리에서 불러오는 중...');
     try{
       const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
-      const r=await fetch('http://127.0.0.1:8788/orders?date='+(kurlyDate||today2()),{signal:ctl.signal});
+      const r=await fetch('http://127.0.0.1:8788/orders?date='+d,{signal:ctl.signal});
       clearTimeout(tm);
       const j=await r.json();
       if(j&&j.error==='LOGIN_REQUIRED'){setKurlyBusy('');await kurlyLogin();return;}
       if(j&&Array.isArray(j.rows)){
-        const rows=j.rows.map(x=>Object.assign({},x,{date:j.date}));
-        setKurly(p=>({at:new Date().toISOString(),dates:[j.date],rows}));
+        const fresh=j.rows.map(x=>Object.assign({},x,{date:j.date}));
+        /* 다른 날짜 저장본은 유지하고 이 날짜만 갱신 */
+        setKurly(p=>{
+          const keep=((p&&p.rows)||[]).filter(x=>x.date!==j.date);
+          const dates=Array.from(new Set([].concat((p&&p.dates)||[],[j.date]))).sort();
+          return{at:new Date().toISOString(),dates,rows:keep.concat(fresh)};
+        });
         setKurlyBusy('');
         return;
       }
@@ -17572,6 +17580,27 @@ function PageShipSort({mats,hqItems}){
       setKurlyBusy('');
       alert('PC 수집기에 연결하지 못했습니다.\n사무실 PC에서 "컬리 발주 수집기"를 켜두면 즉시 새로 읽어올 수 있습니다.\n(지금 보이는 내용은 마지막으로 저장된 발주입니다)');
     }
+  };
+  /* 다가오는 발주일 자동 탐색 — 수집기가 포털의 '발주 내역' 화면에서 입고예정일 목록을 읽어온다.
+     발주가 있는 가장 가까운 날짜를 자동 선택하고 내역까지 바로 불러온다. */
+  const[kurlyUp,setKurlyUp]=useState(null);   /* [{date,sku,created}] · null=확인 중 */
+  const loadUpcoming=async()=>{
+    setKurlyUp(null);
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
+      const r=await fetch('http://127.0.0.1:8788/dates',{signal:ctl.signal});
+      clearTimeout(tm);
+      const j=await r.json();
+      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyUp([]);await kurlyLogin();return;}
+      if(j&&Array.isArray(j.dates)){
+        setKurlyUp(j.dates);
+        const t=today2();
+        const pick=(j.dates.find(x=>x.date>=t&&(x.created==null||x.created>0))||{}).date;
+        if(pick){setKurlyDate(pick);refreshKurly(pick);}
+        return;
+      }
+      setKurlyUp([]);
+    }catch(e){setKurlyUp([]);}   /* 수집기 꺼짐(휴대폰 등) — 저장본으로 표시 */
   };
   /* ── 컬리 발주 확정 ──
      사무실 PC의 수집기가 컬리 포털에 값을 채우고, 여기서 사람이 확인·승인한 뒤에만
@@ -17757,7 +17786,7 @@ function PageShipSort({mats,hqItems}){
               : '아직 불러온 발주가 없습니다. 사무실 PC의 컬리 수집기를 실행해주세요.')
         ),
         R('div',{style:{display:'flex',gap:6}},
-          R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);}},'🛒 컬리 발주 확인'),
+          R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);loadUpcoming();}},'🛒 컬리 발주 확인'),
           R('button',{className:'btn bp btn-sm',onClick:cfmPrepare,disabled:!!cfmBusy},cfmBusy||'✅ 컬리 발주 확정')
         )
       )
@@ -17801,10 +17830,24 @@ function PageShipSort({mats,hqItems}){
         R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}},
             R('span',{style:{fontSize:12,color:'var(--tm)'}},'입고예정일'),
-            R('select',{value:kurlyDate,onChange:e=>setKurlyDate(e.target.value),
+            R('select',{value:kurlyDate,onChange:e=>{const d=e.target.value;setKurlyDate(d);
+                if(!(((kurly&&kurly.rows)||[]).some(r=>r.date===d)))refreshKurly(d);},
               style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12.5,fontFamily:'inherit',background:'#fff'}},
-              ...(((kurly&&kurly.dates)||[]).slice().sort().map(d=>R('option',{key:d,value:d},d+dowLabel(d))))),
-            R('button',{className:'btn bw btn-sm',onClick:refreshKurly,disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기'),
+              ...(()=>{
+                const t=today2();
+                const set=new Set([].concat(((kurly&&kurly.dates)||[]),((kurlyUp||[]).map(x=>x.date))));
+                for(let i=0;i<=14;i++)set.add(addDD(t,i));
+                if(kurlyDate)set.add(kurlyDate);
+                return Array.from(set).sort().map(d=>{
+                  const up=(kurlyUp||[]).find(x=>x.date===d);
+                  return R('option',{key:d,value:d},d+dowLabel(d)
+                    +(up&&up.created?(' · 발주 '+up.created+'건'):'')
+                    +(d<t?' (지남)':''));
+                });
+              })()),
+            kurlyUp===null&&R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'📡 다가오는 발주일 확인 중...'),
+            Array.isArray(kurlyUp)&&kurlyUp.length===0&&R('span',{style:{fontSize:11,color:'var(--tm)'}},'앞으로 잡힌 발주 없음(또는 수집기 꺼짐)'),
+            R('button',{className:'btn bw btn-sm',onClick:()=>refreshKurly(),disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기'),
             R('a',{href:'https://partner-portal.kurly.com/purchase-order/purchase-order-plan-schedule/detail?scheduledReceivingDate='+(kurlyDate||today2())+'&neoPurchaseOrderPlanGoodsStatuses=CREATED',
               target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →'),
             R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
