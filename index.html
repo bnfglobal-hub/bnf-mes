@@ -18502,7 +18502,8 @@ function App(){
           last=Math.max(last,out[out.length-1].t);
           try{localStorage.setItem(LSK,String(last));}catch(e){}
           /* 너무 시끄럽지 않게 최근 3건만 알림 */
-          out.slice(-3).forEach(o=>{
+          const top=out.slice(-3);
+          top.forEach(o=>{
             const msg=o.by+'님이 '+o.label+(o.verb==='수정'?' 수정':' 작성')+(o.what?(': "'+o.what+'"'):'');
             try{bnfToast('👀 '+msg);}catch(e){}
             if(window.Notification&&Notification.permission==='granted'){
@@ -18510,6 +18511,18 @@ function App(){
                 icon:'https://bnfglobal-hub.github.io/bnf-mes/icon-192.png'});}catch(e){}
             }
           });
+          /* 휴대폰에도 같이 — 본인 전 기기로 웹푸시 발송 (같은 tag라 기기당 1번만 표시) */
+          try{
+            const SB='https://fchxlplnacyycuddvdmu.supabase.co';
+            const KEY='sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli';
+            fetch(SB+'/functions/v1/send-push',{method:'POST',
+              headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY,'apikey':KEY},
+              body:JSON.stringify({items:top.map(o=>({to:user.id,tag:'act_'+o.t,
+                title:'B&F MES · '+o.label,
+                body:o.by+'님이 '+o.label+(o.verb==='수정'?' 수정':' 작성')+(o.what?(': "'+o.what+'"'):''),
+                url:'https://bnfglobal-hub.github.io/bnf-mes/'}))})
+            }).catch(()=>{});
+          }catch(e){}
           if(out.length>3){try{bnfToast('👀 외 '+(out.length-3)+'건의 새 작업이 더 있습니다 (홈 화면 업무 현황 참고)');}catch(e){}}
         }
       }catch(e){}
