@@ -17619,8 +17619,29 @@ function PageShipSort({mats,hqItems}){
       alert('사무실 PC의 컬리 수집기가 꺼져 있습니다.\nPC에서 bnf-kurly-order 폴더의 "1-컬리 로그인.bat"을 실행해주세요.');
     }
   };
-  const cfmPrepare=async()=>{
-    const d=kurlyDate||today2();
+  const cfmPrepare=async(dArg)=>{
+    let d=(typeof dArg==='string'&&dArg)||'';
+    /* 날짜를 지정하지 않았으면(툴바 버튼 등) 다가오는 발주일을 자동으로 찾는다 */
+    if(!d){
+      setCfmBusy('다가오는 발주일 확인 중...');
+      try{
+        const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
+        const r=await fetch(BRIDGE+'/dates',{signal:ctl.signal});clearTimeout(tm);
+        const j=await r.json();
+        if(j&&j.error==='LOGIN_REQUIRED'){setCfmBusy('');await kurlyLogin();return;}
+        if(j&&Array.isArray(j.dates)){
+          setKurlyUp(j.dates);
+          const t=today2();
+          d=((j.dates.find(x=>x.date>=t&&(x.created==null||x.created>0)))||{}).date||'';
+        }
+      }catch(e){}
+      setCfmBusy('');
+      if(!d){
+        alert('앞으로 잡힌 컬리 발주를 찾지 못했습니다.\n(사무실 PC의 "컬리 발주 수집기"가 켜져 있어야 합니다)');
+        return;
+      }
+    }
+    setKurlyDate(d);
     if(!confirm('['+d+dowLabel(d)+'] 발주를 확정 준비합니다.\n\n· 입고예약시간 15:00~15:59\n· 출고유형 A유형\n· 소비기한 = 각 품목의 직전입고 날짜\n\n값만 채우고, 거래명세서 생성은 확인 후 승인해야 실행됩니다.'))return;
     setCfmBusy('컬리 포털에 값을 채우는 중... (1~2분)');setCfmDone(null);
     try{
@@ -17787,7 +17808,8 @@ function PageShipSort({mats,hqItems}){
         ),
         R('div',{style:{display:'flex',gap:6}},
           R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);loadUpcoming();}},'🛒 컬리 발주 확인'),
-          R('button',{className:'btn bp btn-sm',onClick:cfmPrepare,disabled:!!cfmBusy},cfmBusy||'✅ 컬리 발주 확정')
+          R('button',{className:'btn bp btn-sm',onClick:()=>cfmPrepare(),disabled:!!cfmBusy,
+            title:'다가오는 발주일을 자동으로 찾아 확정을 준비합니다'},cfmBusy||'✅ 컬리 발주 확정')
         )
       )
     ),
@@ -17864,7 +17886,7 @@ function PageShipSort({mats,hqItems}){
             R('a',{href:'https://partner-portal.kurly.com/purchase-order/purchase-order-plan-schedule/detail?scheduledReceivingDate='+(kurlyDate||today2())+'&neoPurchaseOrderPlanGoodsStatuses=CREATED',
               target:'_blank',rel:'noreferrer',className:'btn bw btn-sm',style:{textDecoration:'none'}},'컬리 포털 열기 →'),
             R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
-              onClick:()=>{setKurlyOpen(false);cfmPrepare();},
+              onClick:()=>{setKurlyOpen(false);cfmPrepare(kurlyDate);},
               title:'입고예약시간·출고유형·소비기한을 자동 입력하고, 검증 통과 후 승인하면 거래명세서까지 생성'},cfmBusy||'✅ 컬리 발주 확정')
           ),
           kurlyRows.length===0
