@@ -1198,27 +1198,41 @@ function PageProdSchedule(){
     .replace(/<script[\s\S]*?<\/script>/gi,'')
     .replace(/<link[^>]*>/gi,'')
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi,'');
+  const[srcWeek,setSrcWeek]=useState(null); /* 지금 화면에 표시 중인 스케줄이 저장된 주차 */
   const loadImg=async()=>{
-    setLoading(true);setImg(null);setHtmlDoc(null);
+    setLoading(true);setImg(null);setHtmlDoc(null);setSrcWeek(null);
     try{
-      const{data:ls}=await sbClient.storage.from('bnf-files').list('sched',{search:weekStart});
-      const f=Array.isArray(ls)?ls.find(x=>x.name===weekStart+'.jpg'):null;
-      const fh=Array.isArray(ls)?ls.find(x=>x.name===weekStart+'.html'):null;
-      /* 이미지·표 둘 다 있으면 나중에 저장한 쪽을 보여준다 */
-      const useHtml=fh&&(!f||new Date(fh.updated_at||fh.created_at||0)>=new Date(f.updated_at||f.created_at||0));
-      if(useHtml){
-        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(schedHtmlPath());
-        const res=await fetch((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(fh.updated_at||fh.created_at||''));
-        if(res.ok)setHtmlDoc(await res.text());
-      }else if(f){
-        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(schedPath());
-        setImg((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(f.updated_at||f.created_at||''));
-      }else{
-        /* 예전 방식(app_state id=6)에 저장된 주차 */
-        const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
-        const sd=data&&data.state_data?data.state_data:{};
-        setImg((sd.sched_images||{})[weekStart]||null);
+      /* 특정 주차의 저장본(이미지·표)을 불러온다. 둘 다 있으면 나중에 저장한 쪽 */
+      const loadWeek=async(wk)=>{
+        const{data:ls}=await sbClient.storage.from('bnf-files').list('sched',{search:wk});
+        const f=Array.isArray(ls)?ls.find(x=>x.name===wk+'.jpg'):null;
+        const fh=Array.isArray(ls)?ls.find(x=>x.name===wk+'.html'):null;
+        const useHtml=fh&&(!f||new Date(fh.updated_at||fh.created_at||0)>=new Date(f.updated_at||f.created_at||0));
+        if(useHtml){
+          const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('sched/'+wk+'.html');
+          const res=await fetch((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(fh.updated_at||fh.created_at||''));
+          if(res.ok){setHtmlDoc(await res.text());setSrcWeek(wk);return true;}
+        }
+        if(f){
+          const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('sched/'+wk+'.jpg');
+          setImg((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(f.updated_at||f.created_at||''));
+          setSrcWeek(wk);return true;
+        }
+        return false;
+      };
+      if(await loadWeek(weekStart)){setLoading(false);return;}
+      /* 예전 방식(app_state id=6)에 저장된 주차 */
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
+      const sd=data&&data.state_data?data.state_data:{};
+      if((sd.sched_images||{})[weekStart]){
+        setImg(sd.sched_images[weekStart]);setSrcWeek(weekStart);setLoading(false);return;
       }
+      /* 이 주차 저장본이 없으면 — 가장 최근에 등록한 스케줄을 계속 보여준다
+         (삭제하기 전까지 데이터 유지 · 새 주가 되어도 빈 화면 대신 직전 스케줄 표시) */
+      const{data:all}=await sbClient.storage.from('bnf-files').list('sched',{limit:1000});
+      const weeks=Array.from(new Set((all||[]).map(x=>{const m=/^(\d{4}-\d{2}-\d{2})\.(jpg|html)$/.exec(x.name||'');return m?m[1]:null;}).filter(Boolean))).sort();
+      const latest=weeks[weeks.length-1];
+      if(latest&&latest!==weekStart)await loadWeek(latest);
     }catch(e){console.warn('스케줄 이미지 로드 실패',e);}
     setLoading(false);
   };
@@ -1238,7 +1252,7 @@ function PageProdSchedule(){
       if(error)throw error;
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       setImg((pub&&pub.publicUrl||'')+'?t='+Date.now());
-      setHtmlDoc(null);
+      setHtmlDoc(null);setSrcWeek(weekStart);
     }catch(err){alert('저장 실패: '+err.message);}
     setUploading(false);
   };
@@ -1252,7 +1266,7 @@ function PageProdSchedule(){
       try{await sbClient.storage.from('bnf-files').copy(path,prevPath);}catch(e){}
       const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([h],{type:'text/html'}),{upsert:true,contentType:'text/html'});
       if(error)throw error;
-      setHtmlDoc(h);setImg(null);
+      setHtmlDoc(h);setImg(null);setSrcWeek(weekStart);
     }catch(err){alert('저장 실패: '+err.message);}
     setUploading(false);
   };
@@ -1308,27 +1322,28 @@ function PageProdSchedule(){
   },[weekStart,isAdmin]);
 
   const delImg=async()=>{
-    if(!confirm('이 주차의 스케줄 이미지를 삭제할까요?'))return;
+    const wk=srcWeek||weekStart;   /* 화면에 표시 중인 저장본을 지운다 */
+    if(!confirm('지금 표시 중인 스케줄('+wk+' 주 등록본)을 삭제할까요?'))return;
     try{
-      const path=schedPath(),prevPath='sched/'+weekStart+'.prev.jpg';
+      const path='sched/'+wk+'.jpg',prevPath='sched/'+wk+'.prev.jpg';
       /* 스토리지 파일: 직전본으로 옮겨두고 삭제 (이미지·엑셀 표 모두) */
       try{await sbClient.storage.from('bnf-files').remove([prevPath]);}catch(e){}
       try{await sbClient.storage.from('bnf-files').copy(path,prevPath);}catch(e){}
       try{await sbClient.storage.from('bnf-files').remove([path]);}catch(e){}
-      try{await sbClient.storage.from('bnf-files').remove(['sched/'+weekStart+'.prev.html']);}catch(e){}
-      try{await sbClient.storage.from('bnf-files').copy(schedHtmlPath(),'sched/'+weekStart+'.prev.html');}catch(e){}
-      try{await sbClient.storage.from('bnf-files').remove([schedHtmlPath()]);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').remove(['sched/'+wk+'.prev.html']);}catch(e){}
+      try{await sbClient.storage.from('bnf-files').copy('sched/'+wk+'.html','sched/'+wk+'.prev.html');}catch(e){}
+      try{await sbClient.storage.from('bnf-files').remove(['sched/'+wk+'.html']);}catch(e){}
       /* 예전 방식(app_state id=6)에 저장된 주차면 그 키만 비운다.
          읽기에 성공해 해당 주차가 실제로 보일 때만 저장 — 빈 읽기로 전체를 덮어쓰지 않도록 */
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',6).maybeSingle();
       const sd=data&&data.state_data?data.state_data:null;
-      if(sd&&sd.sched_images&&sd.sched_images[weekStart]){
+      if(sd&&sd.sched_images&&sd.sched_images[wk]){
         const imgs=Object.assign({},sd.sched_images);
         const prev=Object.assign({},sd.sched_images_prev||{});
-        prev[weekStart]=imgs[weekStart];delete imgs[weekStart];
+        prev[wk]=imgs[wk];delete imgs[wk];
         await sbClient.from('app_state').upsert({id:6,state_data:Object.assign({},sd,{sched_images:imgs,sched_images_prev:prev}),updated_at:new Date().toISOString()});
       }
-      setImg(null);
+      setImg(null);setHtmlDoc(null);setSrcWeek(null);
     }catch(err){alert('삭제 실패: '+err.message);}
   };
 
@@ -1351,6 +1366,8 @@ function PageProdSchedule(){
       )
     ),
     R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',padding:'8px',background:'#FFF8F4',borderRadius:10,marginBottom:14}},fmtRange()),
+    srcWeek&&srcWeek!==weekStart&&!loading&&R('div',{style:{textAlign:'center',fontSize:11.5,fontWeight:700,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'7px 12px',marginBottom:12}},
+      '📌 이 주에 등록된 스케줄이 없어 '+srcWeek+' 주에 등록한 스케줄을 계속 표시하고 있습니다 (삭제하기 전까지 유지 · 새로 붙여넣으면 이번 주 것으로 등록됩니다)'),
 
     loading?R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'):
     htmlDoc?
@@ -18640,10 +18657,20 @@ function App(){
         }
       }catch(e){}
     };
-    const t=setInterval(()=>{if(!document.hidden)scan();},60000);
+    const t=setInterval(()=>{if(!document.hidden)scan();},60000);   /* 안전망(1분) */
     const onVis2=()=>{if(!document.hidden)scan();};
     document.addEventListener('visibilitychange',onVis2);
-    return()=>{dead=true;clearInterval(t);document.removeEventListener('visibilitychange',onVis2);};
+    /* 실시간: 다른 기기가 저장하면 Realtime이 bnf-sync를 쏜다 → 2초 안에 바로 알림
+       (연속 저장은 2초로 묶어 한 번만 확인) */
+    let syncTm=null;
+    const onSync2=()=>{
+      if(document.hidden)return;
+      if(syncTm)clearTimeout(syncTm);
+      syncTm=setTimeout(()=>{syncTm=null;scan();},2000);
+    };
+    window.addEventListener('bnf-sync',onSync2);
+    return()=>{dead=true;clearInterval(t);if(syncTm)clearTimeout(syncTm);
+      document.removeEventListener('visibilitychange',onVis2);window.removeEventListener('bnf-sync',onSync2);};
   },[user&&user.id]);
   const[sbOpen,setSbOpen]=useState(false); /* 모바일 사이드바 토글 */
   /* ── 모바일 스와이프 제스처: 왼쪽 가장자리→오른쪽 = 메뉴 열기, 메뉴 열림 상태 왼쪽 스와이프 = 닫기 ── */
