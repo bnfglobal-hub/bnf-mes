@@ -18703,14 +18703,13 @@ function App(){
         }
       }catch(e){}
     };
-    const t=setInterval(()=>{if(!document.hidden)scan();},60000);   /* 안전망(1분) */
+    const t=setInterval(()=>scan(),60000);   /* 안전망(1분) — 탭 숨김 상태에서도 확인 */
     const onVis2=()=>{if(!document.hidden)scan();};
     document.addEventListener('visibilitychange',onVis2);
     /* 실시간: 다른 기기가 저장하면 Realtime이 bnf-sync를 쏜다 → 2초 안에 바로 알림
-       (연속 저장은 2초로 묶어 한 번만 확인) */
+       (연속 저장은 2초로 묶어 한 번만 확인 · 탭이 숨겨져 있어도 OS 팝업은 떠야 하므로 실행) */
     let syncTm=null;
     const onSync2=()=>{
-      if(document.hidden)return;
       if(syncTm)clearTimeout(syncTm);
       syncTm=setTimeout(()=>{syncTm=null;scan();},2000);
     };
@@ -19064,8 +19063,9 @@ function App(){
       }catch(e){}
     };
     check();
-    const t=setInterval(()=>{if(!document.hidden)check();},25000);
-    /* 다른 화면 변화(bnf-sync) 때도 즉시 확인 */
+    /* 다른 창을 보고 있어도(탭 숨김) OS 팝업은 떠야 하므로 숨김 여부와 무관하게 확인 */
+    const t=setInterval(()=>check(),25000);
+    /* 다른 화면 변화(bnf-sync = Realtime/폴링 감지) 때 즉시 확인 */
     const onSync=()=>check();
     window.addEventListener('bnf-sync',onSync);
     return()=>{clearInterval(t);window.removeEventListener('bnf-sync',onSync);};
