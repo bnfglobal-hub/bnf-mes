@@ -12162,7 +12162,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   useEffect(()=>{
     let dead=false;
     Promise.all([
-      sbClient.from('app_state').select('v:state_data->bnf_crm,n:state_data->bnf_order_notes').eq('id',1).maybeSingle(),
+      sbClient.from('app_state').select('v:state_data->bnf_crm,n:state_data->bnf_order_notes,q:state_data->bnf_incoming_qty').eq('id',1).maybeSingle(),
       sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle()
     ]).then(([{data:a},{data:b}])=>{
       if(dead)return;
@@ -12170,6 +12170,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       (Array.isArray(a&&a.v)?a.v:[]).forEach(m=>{const k=crmNorm(m.name);if(k&&m.note)map[k]=m.note;});
       setCrmNotes(map);
       setItemNotes((a&&a.n&&typeof a.n==='object')?a.n:{});
+      setIncomingQty((a&&a.q&&typeof a.q==='object')?a.q:{});
       const ph={};
       (((b&&b.v)||{}).list||[]).forEach(c=>{const k=crmNorm(c.name);const t=c.mobile||c.tel;if(k&&t&&!ph[k])ph[k]=t;});
       setCrmPhones(ph);
@@ -12178,6 +12179,29 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
   },[]);
   /* 품목별 발주방법 (기타구매·비품처럼 묶음 매입처일 때는 품목 단위로 저장) */
   const[itemNotes,setItemNotes]=useState(null);
+  /* 입고 예정 수량 — 발주해둔 원재료 수량을 넣으면 부족 계산에 반영 (서버 공유) */
+  const[incomingQty,setIncomingQty]=useState({});
+  const incomingRef=useRef({});
+  useEffect(()=>{incomingRef.current=incomingQty;},[incomingQty]);
+  const incTimer=useRef(null);
+  const setIncoming=(code,val)=>{
+    setIncomingQty(p=>{
+      const n=Object.assign({},p);
+      if(val===''||!(+val>0))delete n[code];
+      else n[code]={qty:+val,at:new Date().toISOString()};
+      return n;
+    });
+    if(incTimer.current)clearTimeout(incTimer.current);
+    incTimer.current=setTimeout(async()=>{
+      try{
+        const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+        const ex=data&&data.state_data;
+        if(!ex)return; /* 읽기 실패 시 저장 중단 — 다른 키 보호 */
+        await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_incoming_qty:incomingRef.current}),updated_at:new Date().toISOString()});
+      }catch(e){}
+    },700);
+  };
+  const incOf=(code)=>+(((incomingQty||{})[code]||{}).qty)||0;
   const[prodQ,setProdQ]=useState(''); /* 제품명 검색 */
   const isGenericSup=(name)=>/기타구매|비품/.test(String(name||''));
   const crmPhoneOf=(name)=>{
@@ -12238,7 +12262,8 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
     {k:'pr',l:'최근 매입단가',w:98,a:'right'},
     {k:'nd',l:'총 필요',w:86,a:'right'},
     {k:'st',l:'재고',w:76,a:'right'},
-    {k:'sh',l:'부족',w:88,a:'right'}
+    {k:'inc',l:'입고예정',w:86,a:'right'}, /* 발주해둔 수량 입력 → 부족 계산에 반영 */
+    {k:'sh',l:'부족',w:96,a:'right'}
   ];
   const CBTN={background:'#fff',border:'1px solid #E9E2DC',borderRadius:6,padding:'2px 7px',cursor:'pointer',fontSize:10,fontWeight:700,color:'#6E645C',fontFamily:'inherit',lineHeight:1.6};
   const[colW,setColW]=useState(()=>{try{
@@ -12535,9 +12560,30 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             })(),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:700,color:ordered?'#9A9088':'#3D3630'}},r.needed.toFixed(2),' ',r.unit),
             R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#6E645C'}},(+r.stock).toFixed(2),' ',r.unit),
-            r.short>0
-              ?R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9A9088':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit)
-              :R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#059669',fontWeight:600,fontSize:'0.92em'}},'✓ 충분')
+            /* 입고예정: 발주해둔 수량 입력 → 부족이 (재고+입고예정) 기준으로 다시 계산 */
+            (()=>{const inc=incOf(r.code);
+              return R('td',{style:{padding:'4px 6px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right'}},
+                R('input',{type:'number',min:0,value:(incomingQty[r.code]||{}).qty||'',placeholder:'-',
+                  onChange:ev=>setIncoming(r.code,ev.target.value),
+                  title:'발주해서 입고 예정인 수량('+r.unit+') — 입력하면 부족이 예상치로 계산됩니다. 입고 후에는 지워주세요.',
+                  style:{width:64,textAlign:'right',fontWeight:700,fontSize:'0.96em',fontFamily:'inherit',
+                    border:'1px solid '+(inc>0?'#93C5FD':'var(--bd)'),background:inc>0?'#EFF6FF':'#fff',color:inc>0?'#1D4ED8':'#3D3630',
+                    borderRadius:6,padding:'3px 5px'}}));
+            })(),
+            (()=>{const inc=incOf(r.code);
+              const short2=Math.max(0,r.needed-(+r.stock||0)-inc);
+              if(r.short<=0)
+                return R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#059669',fontWeight:600,fontSize:'0.92em'}},'✓ 충분');
+              if(inc>0&&short2<=0)
+                return R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',color:'#059669',fontWeight:700,fontSize:'0.9em'},
+                  title:'실재고 기준 부족 '+r.short.toFixed(2)+r.unit+' — 입고예정 '+inc+r.unit+' 반영 시 충분'},'✓ 입고 시 충분');
+              if(inc>0)
+                return R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9A9088':'#B45309',textDecoration:ordered?'line-through':'none'},
+                  title:'실재고 기준 부족 '+r.short.toFixed(2)+r.unit+' · 입고예정 '+inc+r.unit+' 반영한 예상 부족'},
+                  '-',short2.toFixed(2),' ',r.unit,
+                  R('div',{style:{fontSize:'0.78em',color:'#2563EB',fontWeight:700}},'입고예정 반영'));
+              return R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9A9088':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit);
+            })()
           ));});return _out;})(),
           combined.shortCount===0&&!showAllCombined&&R('tr',null,R('td',{colSpan:COLS.length,style:{padding:'12px',textAlign:'center',color:'#059669',fontSize:'1.05em',fontWeight:600}},'✓ 동시 생산해도 모든 원재료가 충분합니다'))
         )
