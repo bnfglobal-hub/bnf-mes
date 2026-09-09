@@ -866,6 +866,75 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{
 /* 스크린리더 전용 텍스트 유틸 */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
+/* ═══════════════════════════════════════════════════════════════
+   2026-09-10 iOS 폴리시 레이어 — Apple iPhone 감성 (톤앤매너 유지)
+   원칙: CSS 전용 · 기능 무변경 · 웜 뉴트럴 + 오렌지 브랜드 그대로
+         iOS 내비바 글래스 블러 · 연속 라운드 · 세그먼티드 컨트롤
+         시트 모달 스프링 · 눌림 스케일 피드백 · Apple 이징(.32,.72,0,1)
+   ═══════════════════════════════════════════════════════════════ */
+:root{
+  --radius:14px; --radius-lg:16px;
+  --ease-ios:cubic-bezier(.32,.72,0,1);           /* Apple 시트/전환 커브 */
+  --shadow-card:0 1px 1px rgba(28,22,19,.03),0 5px 16px rgba(28,22,19,.05);
+  --shadow-float:0 24px 60px rgba(28,22,19,.18),0 8px 20px rgba(28,22,19,.07);
+  --fill-quart:rgba(120,109,97,.07);              /* iOS quaternaryFill 웜톤 */
+  --fill-tert:rgba(120,109,97,.12);               /* iOS tertiaryFill 웜톤 */
+}
+
+/* ── 타이포: SF 느낌 — 또렷한 제목, 좁은 자간 ── */
+.pg-title{font-size:17px;font-weight:800;letter-spacing:-0.022em}
+.card-title{font-weight:700;letter-spacing:-0.015em}
+
+/* ── 헤더 = iOS 내비게이션 바: 반투명 + 강한 블러 + 헤어라인 ── */
+.hdr{background:rgba(252,251,250,.78);backdrop-filter:saturate(1.8) blur(20px);-webkit-backdrop-filter:saturate(1.8) blur(20px);border-bottom:.5px solid rgba(60,50,40,.14);box-shadow:none}
+
+/* ── 사이드바: iOS 설정 리스트 — 라운드 선택 필 + 눌림 피드백 ── */
+.ni{border-radius:10px;transition:background .18s var(--ease-ios),color .18s var(--ease-ios)}
+.ni:hover{background:var(--fill-quart)}
+.ni:active{background:var(--fill-tert)}
+.sb{border-right:.5px solid rgba(60,50,40,.10)}
+
+/* ── 카드: 연속 라운드 + 확산형 소프트 그림자 ── */
+.card{box-shadow:var(--shadow-card)}
+.card:hover{border-color:var(--border)}
+
+/* ── 버튼: iOS 플랫 틴트 + 눌림 스케일(모멘터리라 fixed 자식 문제 없음) ── */
+.btn{border-radius:10px;transition:background .15s var(--ease-ios),border-color .15s var(--ease-ios),box-shadow .15s var(--ease-ios),transform .15s var(--ease-ios),opacity .15s var(--ease-ios)}
+.btn:active{transform:scale(.96)}
+.btn.bp{background:var(--p);box-shadow:none}
+.btn.bp:hover{background:var(--pd);box-shadow:none}
+.btn.bp:active{box-shadow:none}
+.btn.bok{background:var(--success)}
+.btn.bs:hover,.btn.bw:hover{background:var(--fill-quart);border-color:var(--border-strong)}
+
+/* ── 입력: 큰 라운드 + iOS 포커스 링 ── */
+.inp,input.inp,select.inp,textarea.inp{border-radius:10px}
+.inp:focus,input:focus,select:focus,textarea:focus{border-color:var(--p);box-shadow:0 0 0 3.5px rgba(217,79,30,.14)}
+
+/* ── 탭 = iOS 세그먼티드 컨트롤 ── */
+.tab-row{background:var(--fill-tert);border-radius:11px;padding:2.5px}
+.tab{border-radius:8.5px;transition:background .18s var(--ease-ios),color .18s var(--ease-ios),opacity .12s var(--ease-ios)}
+.tab.act{background:#FFFFFF;color:var(--t);box-shadow:0 1px 4px rgba(28,22,19,.12),0 0 1px rgba(28,22,19,.08)}
+.tab:active:not(.act){opacity:.55}
+
+/* ── 표: 인셋 그룹 리스트 감성 — 헤어라인 구분선 ── */
+.tw{border-radius:var(--radius);border:.5px solid var(--border)}
+.tw th{background:rgba(120,109,97,.05);border-bottom:.5px solid var(--border)}
+.tw td{border-bottom:.5px solid #F2EFEC}
+
+/* ── 모달 = iOS 시트: 아래서 떠오르는 스프링 + 깊은 백드롭 블러 ── */
+@keyframes iosSheet{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.mbg{background:rgba(28,22,19,.32);backdrop-filter:blur(6px) saturate(1.2);-webkit-backdrop-filter:blur(6px) saturate(1.2);animation:fadeIn .2s var(--ease-ios)}
+.mbox{border-radius:20px;animation:iosSheet .32s var(--ease-ios);box-shadow:var(--shadow-float);border:.5px solid rgba(60,50,40,.10)}
+
+/* ── 페이지 전환: iOS 크로스페이드 (transform 금지 규칙 유지) ── */
+.pg.fa{animation:pgIn .22s var(--ease-ios)}
+
+/* ── 스크롤바: iOS 오버레이 느낌 — 얇고 투명하게 ── */
+.pg::-webkit-scrollbar,.tw::-webkit-scrollbar,.mbody::-webkit-scrollbar,.sb::-webkit-scrollbar{width:7px;height:7px}
+.pg::-webkit-scrollbar-thumb,.tw::-webkit-scrollbar-thumb,.mbody::-webkit-scrollbar-thumb,.sb::-webkit-scrollbar-thumb{background:rgba(120,109,97,.28);border-radius:99px;border:2px solid transparent;background-clip:content-box}
+.pg::-webkit-scrollbar-thumb:hover,.tw::-webkit-scrollbar-thumb:hover{background:rgba(120,109,97,.45);background-clip:content-box}
+
 </style>
 <script>
 window._deferredPrompt=null;
