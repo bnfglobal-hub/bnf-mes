@@ -10448,8 +10448,11 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   };
   const pickEcRow=(r)=>{
     setLinkCode(r.c||'');setLinkUnit(r.u||'');
-    /* 환산 미설정 상태면 품목명 [규격*N]의 입수량으로 미리 채움 (BOX일 때 유용) */
-    if((+linkConv||1)===1){const n=parseUnits(r.n);if(n>0)setLinkConv(String(n));}
+    /* 환산 미설정 상태면 규격의 입수량으로 미리 채움 — 본사는 [3.59kgx2]처럼 x 표기, 공장은 *30 표기 둘 다 지원 */
+    if((+linkConv||1)===1){
+      const m=String(r.u||r.n||'').match(/[*xX×]\s*(\d+(?:\.\d+)?)\s*\]?\s*$/);
+      if(m&&+m[1]>0)setLinkConv(m[1]);
+    }
   };
   const printStockForm=()=>{
     const items=hqItems.map(h=>{const m=mats.find(x=>x.c===h.matCode)||{};return {n:m.n||h.matName||'',u:m.u||''};}).filter(x=>x.n);
