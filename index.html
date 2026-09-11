@@ -10865,7 +10865,10 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
         ?feedRows.filter(r=>String(r.n||'').toLowerCase().includes(q)||String(r.c||'').includes(linkQ.trim())).slice(0,30)
         :feedRows.map(r=>({...r,_sc:dice2(myName,nrm(r.n))})).sort((a,b)=>b._sc-a._sc).slice(0,20));
       const cv=(+linkConv>0)?+linkConv:1;
-      const preview=Math.round((+linkRow.hqStock||0)*cv*100)/100;
+      /* 코드가 연결돼 있으면 이카운트 실수량을 기준으로 미리보기 (저장 후 수집기가 이 값으로 갱신) */
+      const ecRow=(feedRows&&linkCode.trim())?feedRows.find(r=>r.c===linkCode.trim()):null;
+      const baseQty=ecRow?(+ecRow.q||0):(+linkRow.hqStock||0);
+      const preview=Math.round(baseQty*cv*100)/100;
       return R('div',{onClick:()=>setLinkRow(null),style:{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:10005,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'18px',overflowY:'auto'}},
         R('div',{onClick:e=>e.stopPropagation(),style:{background:'#fff',borderRadius:14,maxWidth:560,width:'100%',padding:'18px',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}},
           R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
@@ -10901,7 +10904,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
             R('div',null,
               R('div',{style:{fontSize:10,fontWeight:700,color:'#1D4ED8',marginBottom:3}},'환산 (1'+(linkUnit||'단위')+' = ?'+mu+')'),
               R('input',{type:'number',step:'any',value:linkConv,onChange:e=>setLinkConv(e.target.value),style:{width:'100%',padding:'8px 10px',border:'1.5px solid #93C5FD',borderRadius:8,fontSize:13,fontWeight:800,color:'#1D4ED8',textAlign:'right'}}))),
-          R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:12}},'미리보기: 본사재고 ',R('b',null,String(+linkRow.hqStock||0)),(linkUnit?linkUnit:''),' × ',cv,' = ',R('b',{style:{color:'#0369a1'}},String(preview)+mu),' + 공장재고 ',String(+mat.s||0),mu,' = ',R('b',{style:{color:'var(--p)'}},String(Math.round((preview+(+mat.s||0))*100)/100)+mu)),
+          R('div',{style:{fontSize:11.5,color:'var(--tm)',marginBottom:12,background:'#FBFAF8',border:'1px solid var(--bd)',borderRadius:8,padding:'8px 11px',lineHeight:1.8}},
+            '본사재고 ',R('b',{style:{color:'#0369a1'}},String(baseQty)),(ecRow?' (이카운트 실시간)':''),' × ',R('b',null,String(cv)),' = ',R('b',{style:{color:'#0369a1'}},String(preview)+' '+mu),R('br'),
+            '총재고 = ',String(preview),' + 공장재고 ',String(+mat.s||0),' = ',R('b',{style:{color:'var(--p)'}},String(Math.round((preview+(+mat.s||0))*100)/100)+' '+mu)),
           R('div',{style:{display:'flex',gap:8}},
             (linkRow.hqCode||linkRow.hqConv)&&R('button',{onClick:()=>{onUpdHQ(linkRow.id,'hqCode','');onUpdHQ(linkRow.id,'hqUnit','');onUpdHQ(linkRow.id,'hqConv',1);setLinkRow(null);},style:{border:'1px solid #FECACA',background:'#fff',color:'#B91C1C',borderRadius:9,padding:'10px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'연동 해제'),
             R('button',{onClick:()=>setLinkRow(null),style:{flex:1,border:'1px solid var(--bd)',background:'#fff',borderRadius:9,padding:'10px',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'취소'),
