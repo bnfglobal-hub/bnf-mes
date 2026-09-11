@@ -10852,7 +10852,15 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       const mu=mat.u||'공장단위';
       const feedRows=(ecFeed&&ecFeed!=='none'&&Array.isArray(ecFeed.rows))?ecFeed.rows:null;
       const q=linkQ.trim().toLowerCase();
-      const shown=feedRows?feedRows.filter(r=>!q||String(r.n||'').toLowerCase().includes(q)||String(r.c||'').includes(linkQ.trim())).slice(0,30):[];
+      /* 본사·공장 품목명 체계가 달라서(브랜드 접두어·규격 표기 차이) 단순 검색이 잘 안 맞음
+         → 검색어가 없으면 현재 품목명과 비슷한 순서로 자동 정렬해 보여줌 */
+      const nrm=s=>String(s||'').toLowerCase().replace(/\[[^\]]*\]/g,' ').replace(/\([^)]*\)/g,' ').replace(/[^가-힣a-z0-9]/g,'');
+      const bg2=s=>{const o=[];for(let i=0;i<s.length-1;i++)o.push(s.slice(i,i+2));return o;};
+      const dice2=(a,b)=>{if(!a||!b)return 0;if(a===b)return 1;const A=bg2(a),B=bg2(b);if(!A.length||!B.length)return 0;const m={};A.forEach(g=>{m[g]=(m[g]||0)+1;});let hit=0;B.forEach(g=>{if(m[g]>0){m[g]--;hit++;}});return 2*hit/(A.length+B.length);};
+      const myName=nrm(mat.n||linkRow.matName);
+      const shown=!feedRows?[]:(q
+        ?feedRows.filter(r=>String(r.n||'').toLowerCase().includes(q)||String(r.c||'').includes(linkQ.trim())).slice(0,30)
+        :feedRows.map(r=>({...r,_sc:dice2(myName,nrm(r.n))})).sort((a,b)=>b._sc-a._sc).slice(0,20));
       const cv=(+linkConv>0)?+linkConv:1;
       const preview=Math.round((+linkRow.hqStock||0)*cv*100)/100;
       return R('div',{onClick:()=>setLinkRow(null),style:{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:10005,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'18px',overflowY:'auto'}},
@@ -10867,7 +10875,8 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
           /* 이카운트 본사 품목 목록 (수집 연결 후 표시) */
           feedRows
             ?R('div',{style:{marginBottom:12}},
-              R('input',{value:linkQ,onChange:e=>setLinkQ(e.target.value),placeholder:'🔍 이카운트 본사 품목 검색 (이름/코드)',style:{width:'100%',padding:'8px 11px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,marginBottom:6}}),
+              R('input',{value:linkQ,onChange:e=>setLinkQ(e.target.value),placeholder:'🔍 이카운트 본사 품목 검색 (이름/코드) — 비워두면 비슷한 이름순 자동 표시',style:{width:'100%',padding:'8px 11px',border:'1px solid var(--bd)',borderRadius:8,fontSize:12,marginBottom:4}}),
+              !q&&R('div',{style:{fontSize:10,color:'#1D4ED8',fontWeight:700,marginBottom:4}},'💡 현재 품목명과 비슷한 순서로 보여드려요 — 맞는 것을 클릭하세요 (본사는 품목명 체계가 달라 이름이 다를 수 있음)'),
               R('div',{style:{maxHeight:200,overflowY:'auto',border:'1px solid var(--bd)',borderRadius:8}},
                 shown.length===0?R('div',{style:{padding:'14px',textAlign:'center',color:'var(--tm)',fontSize:11}},'검색 결과 없음'):
                 shown.map(r=>R('div',{key:r.c,onClick:()=>pickEcRow(r),
