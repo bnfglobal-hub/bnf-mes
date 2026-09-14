@@ -10818,6 +10818,15 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     R('td',{style:{textAlign:'right',fontSize:12,color:'#6E645C'}},row.fSt),
     R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)',background:'#fff5f0'}},row.totalStock.toFixed(1)),
     R('td',{style:{textAlign:'right'}},R(EC,{rk:(row.matId||0)+'mu'+rk,initVal:row.mu,type:'number',onSave:v=>row.matId&&onUpdMat(row.matId,'mu',+v),placeholder:'0',className:'ci',style:{textAlign:'right',color:'#7c3aed'}})),
+    /* 개월분: 총재고 ÷ 월사용량 = 재고로 몇 개월 쓸 수 있는지 */
+    (()=>{
+      const mo=(+row.mu>0)?Math.round(row.totalStock/row.mu*10)/10:null;
+      const col=mo===null?'#C9C2BB':(mo<1?'#DC2626':(mo<2?'#B45309':'#059669'));
+      const bg=mo===null?'transparent':(mo<1?'#FEF2F2':(mo<2?'#FFFBEB':'#F0FDF4'));
+      return R('td',{style:{textAlign:'right',fontWeight:800,color:col,background:bg,whiteSpace:'nowrap'},
+        title:mo===null?'월사용량을 입력하면 계산됩니다':('총재고 '+row.totalStock.toFixed(1)+' ÷ 월사용량 '+row.mu+' = '+mo+'개월분')},
+        mo===null?'-':(mo+'개월'));
+    })(),
     R('td',{style:{textAlign:'right',fontWeight:800,color:row.short>0?'#dc2626':'#059669',fontSize:13,background:row.short>0?'#fef2f2':'#f0fdf4'}},row.short>0?'-'+row.short.toFixed(1):'충분'),
     R('td',{style:{fontSize:11,color:'#9A9088'}},row.unit),
     R('td',null,R(EC,{rk:row.id+'nt'+rk,initVal:row.note||'',onSave:v=>onUpdHQ(row.id,'note',v),placeholder:'메모',className:'ci',style:{fontSize:11}})),
@@ -10839,6 +10848,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       R('th',{style:{width:75,textAlign:'right'}},'공장재고'),
       R('th',{style:{width:80,textAlign:'right',background:'#fff5f0'}},'총재고'),
       R('th',{style:{width:78,textAlign:'right'}},'월사용량'),
+      R('th',{style:{width:62,textAlign:'right'},title:'총재고 ÷ 월사용량 — 현 재고로 몇 개월 쓸 수 있는지 (1개월 미만 빨강 · 2개월 미만 주황)'},'개월분'),
       R('th',{style:{width:80,textAlign:'right',background:'#fef2f2'}},'부족수량'),
       R('th',{style:{width:34}},'단위'),
       R('th',{style:{width:80}},'메모'),
@@ -10964,7 +10974,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
                 rows.filter(r=>r.short>0).length>0&&R('span',{style:{marginLeft:6,fontSize:10,background:'#FEE2E2',color:'#B91C1C',padding:'1px 8px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+rows.filter(r=>r.short>0).length)
               ),
               !isCollapsed&&R('div',{style:{overflow:'auto'}},
-                R('table',{style:{minWidth:1010,width:'100%'}},
+                R('table',{style:{minWidth:1075,width:'100%'}},
                   tableHeader,
                   R('tbody',null,...rows.map(row=>renderRow(row,f.color)))
                 )
@@ -10975,7 +10985,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       : R('div',{style:{background:'#fff',border:'2px solid '+((folders.find(f=>f.id===selectedFolder)||{}).color||'#E9E2DC')+'33',borderRadius:12,overflow:'auto'}},
           visibleRows.length===0
             ? R('div',{style:{padding:'30px',textAlign:'center',color:'var(--tm)',fontSize:12}},'이 폴더에 품목이 없습니다. 다른 폴더의 행을 드래그해서 이동하거나 위에서 검색해 추가하세요.')
-            : R('table',{style:{minWidth:1010,width:'100%'}},
+            : R('table',{style:{minWidth:1075,width:'100%'}},
                 tableHeader,
                 R('tbody',null,...visibleRows.map(row=>renderRow(row,(folders.find(f=>f.id===selectedFolder)||{}).color)))
               )
