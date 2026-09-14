@@ -10798,12 +10798,12 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170,borderLeft:'3px solid '+(folderColor||'#E9E2DC')}},row.matName),
     R('td',{style:{textAlign:'right'}},
       R(EC,{rk:row.id+'hq'+rk,initVal:row.hqStock,type:'number',onSave:v=>onUpdHQ(row.id,'hqStock',+v),className:'ci',style:{textAlign:'right',fontWeight:700,color:'#0369a1'}}),
-      (row.hqCode||row.conv!==1)&&R('div',{style:{fontSize:9.5,color:'#0369a1',whiteSpace:'nowrap'}},
-        (row.hqCode?'🔗':''),(row.conv!==1?(' ≈'+row.hqEff+(row.unit||'')):(row.hqUnit?' '+row.hqUnit:'')))),
+      (row.hqCode||row.hqUnit)&&R('div',{style:{fontSize:9.5,color:'#0369a1',whiteSpace:'nowrap'}},(row.hqCode?'🔗 ':'')+(row.hqUnit||''))),
     R('td',{style:{textAlign:'center'}},R('button',{onClick:e=>{e.stopPropagation();openLink(row);},
-      title:'이카운트 본사(171542) 연동·단위 환산 설정 — 본사 1단위 = ? '+(row.unit||'공장단위'),
+      title:'이카운트 본사(171542) 연동·단위 환산 설정 — 본사 1박스 = ? '+(row.unit||'공장단위'),
       style:{border:'1px solid '+(row.conv!==1||row.hqCode?'#93C5FD':'var(--bd)'),background:(row.conv!==1||row.hqCode)?'#EFF6FF':'#fff',color:(row.conv!==1||row.hqCode)?'#1D4ED8':'#9A9088',borderRadius:6,padding:'2px 7px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit',whiteSpace:'nowrap'}},
       row.conv!==1?('×'+row.conv):'설정')),
+    R('td',{style:{textAlign:'right',fontWeight:800,color:'#0369a1',background:'#F0F7FF'},title:'본사재고 '+(+row.hqStock||0)+' × '+row.conv+' = '+row.hqEff+(row.unit||'')},row.hqEff),
     R('td',{style:{textAlign:'right',fontSize:12,color:'#6E645C'}},row.fSt),
     R('td',{style:{textAlign:'right',fontWeight:800,color:'var(--p)',background:'#fff5f0'}},row.totalStock.toFixed(1)),
     R('td',{style:{textAlign:'right'}},R(EC,{rk:(row.matId||0)+'mu'+rk,initVal:row.mu,type:'number',onSave:v=>row.matId&&onUpdMat(row.matId,'mu',+v),placeholder:'0',className:'ci',style:{textAlign:'right',color:'#7c3aed'}})),
@@ -10822,8 +10822,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       R('th',{style:{width:24}}),
       /* 나머지 고정폭 합이 754px이므로 최소폭을 충분히 줘야 품목명이 눌리지 않음 */
       R('th',{style:{width:230,minWidth:180}},'품목명'),
-      R('th',{style:{width:75,textAlign:'right'},title:'본사 창고 수량 (환산 설정 시 공장 단위로 변환되어 합산)'},'본사재고'),
-      R('th',{style:{width:52,textAlign:'center'},title:'본사 1단위 = 공장 단위 몇인지 (예: 1박스=20개 → ×20)'},'환산'),
+      R('th',{style:{width:70,textAlign:'right'},title:'본사 창고 수량 (박스 단위)'},'본사재고'),
+      R('th',{style:{width:48,textAlign:'center'},title:'본사 1박스 = 공장 단위 몇인지 (규격의 입수량 자동, 예: [3.59kgx2] → ×2)'},'환산'),
+      R('th',{style:{width:80,textAlign:'right',background:'#F0F7FF'},title:'본사재고 × 환산 = 공장 단위로 통일한 본사 보유량'},'본사 합계'),
       R('th',{style:{width:75,textAlign:'right'}},'공장재고'),
       R('th',{style:{width:80,textAlign:'right',background:'#fff5f0'}},'총재고'),
       R('th',{style:{width:78,textAlign:'right'}},'월사용량'),
@@ -10952,7 +10953,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
                 rows.filter(r=>r.short>0).length>0&&R('span',{style:{marginLeft:6,fontSize:10,background:'#FEE2E2',color:'#B91C1C',padding:'1px 8px',borderRadius:10,fontWeight:700}},'⚠ 부족 '+rows.filter(r=>r.short>0).length)
               ),
               !isCollapsed&&R('div',{style:{overflow:'auto'}},
-                R('table',{style:{minWidth:940,width:'100%'}},
+                R('table',{style:{minWidth:1010,width:'100%'}},
                   tableHeader,
                   R('tbody',null,...rows.map(row=>renderRow(row,f.color)))
                 )
@@ -10963,7 +10964,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
       : R('div',{style:{background:'#fff',border:'2px solid '+((folders.find(f=>f.id===selectedFolder)||{}).color||'#E9E2DC')+'33',borderRadius:12,overflow:'auto'}},
           visibleRows.length===0
             ? R('div',{style:{padding:'30px',textAlign:'center',color:'var(--tm)',fontSize:12}},'이 폴더에 품목이 없습니다. 다른 폴더의 행을 드래그해서 이동하거나 위에서 검색해 추가하세요.')
-            : R('table',{style:{minWidth:940,width:'100%'}},
+            : R('table',{style:{minWidth:1010,width:'100%'}},
                 tableHeader,
                 R('tbody',null,...visibleRows.map(row=>renderRow(row,(folders.find(f=>f.id===selectedFolder)||{}).color)))
               )
