@@ -3793,6 +3793,152 @@ function PageAI({user}){
   );
 }
 
+/* ═══ 레시피 검색 (연구개발부) ══════════════════════════
+   "양념치킨소스" → 배합비·투입순서·가열조건 / "LA갈비 잡내제거" → 기술 방법.
+   AI(ask-gpt 엣지함수) 답변 + 내부 기록(확정 배합비·연구개발 현황) 동시 검색.
+   검색 결과는 app_state.bnf_recipe_lib 에 보관돼 전 직원이 다시 볼 수 있음. */
+function PageRecipeSearch({user}){
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState('');
+  const[cur,setCur]=useState(null);       /* {q,a} 현재 결과 */
+  const[lib,setLib]=useState(null);       /* 보관함 [{id,q,a,by,at}] */
+  const[libQ,setLibQ]=useState('');
+  const[openId,setOpenId]=useState(null);
+  const[intRows,setIntRows]=useState([]); /* 내부 기록 원본 */
+  const[intHit,setIntHit]=useState(null); /* 이번 검색의 내부 매칭 */
+  const[intOpen,setIntOpen]=useState(null);
+  const SB='https://fchxlplnacyycuddvdmu.supabase.co';
+  const AKEY='sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli';
+  const isAdmin=['superadmin','admin','manager'].includes(user.role);
+  const SYS='너는 20년 경력의 식품 R&D 전문가다(소스·양념·분말·육가공·면류). ㈜비엔에프글로벌(식품제조사) 연구원이 실무에 바로 쓸 수 있도록 한국어로 구체적인 수치와 함께 답한다.\n'
+    +'질문이 특정 제품의 레시피라면 반드시 아래 구조로 답한다:\n'
+    +'■ 배합비 (합계 100% 기준 — 한 줄에 "원료명 ─ 12.5%" 형식, 시판 표준 스타일의 출발점 배합)\n'
+    +'■ 투입 순서·공정 (1. 2. 3. 단계별로 어떤 원료를 언제 투입하고 어떻게 처리하는지)\n'
+    +'■ 가열·살균 조건 (온도·시간, 필요 시 목표 Brix/pH/점도)\n'
+    +'■ 핵심 포인트 (실패 원인, 점도·색·보존성 조절, 보관 조건)\n'
+    +'기술 질문(잡내 제거, 연육, 갈변 방지 등)이라면:\n'
+    +'■ 원인·원리 → ■ 방법별 처리 조건 (재료·농도·시간·온도를 방법마다 구체적으로) → ■ 추천 조합 (실무 최적 순서) → ■ 주의사항.\n'
+    +'수치는 현실적인 범위로 제시한다. 마크다운 기호(#, *, |, 표)는 쓰지 말고 ■ 와 번호, ─ 만 사용한다.';
+  /* 보관함 + 내부 기록 로드 */
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('lib:state_data->bnf_recipe_lib,rc:state_data->bnf_rnd_recipe,st:state_data->bnf_rnd_status').eq('id',1).maybeSingle();
+      setLib(Array.isArray(data&&data.lib)?data.lib:[]);
+      const rows=[];
+      (Array.isArray(data&&data.rc)?data.rc:[]).forEach(r=>rows.push({src:'확정 배합비',...r}));
+      (Array.isArray(data&&data.st)?data.st:[]).forEach(r=>rows.push({src:'연구개발 현황',...r}));
+      setIntRows(rows);
+    }catch(e){if(lib===null)setLib([]);}
+  };
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+  const saveLib=async(list)=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const ex=data&&data.state_data;
+      if(!ex)return; /* 서버 상태를 못 읽으면 저장 중단 (전체 덮어쓰기 사고 방지) */
+      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_recipe_lib:list.slice(0,200)}),updated_at:new Date().toISOString()});
+    }catch(e){}
+  };
+  const findInternal=(qq)=>{
+    const toks=String(qq).toLowerCase().split(/\s+/).filter(Boolean);
+    if(!toks.length)return[];
+    return intRows.filter(r=>{
+      const t=((r.product||'')+' '+(r.client||'')+' '+(r.body||'')+' '+(r.note||'')).toLowerCase();
+      return toks.every(k=>t.includes(k));
+    }).slice(0,8);
+  };
+  const search=async(qArg)=>{
+    const qq=String(typeof qArg==='string'?qArg:q).trim();
+    if(!qq||busy)return;
+    setQ(qq);setErr('');setBusy(true);setCur(null);setIntOpen(null);
+    setIntHit(findInternal(qq));
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
+      const r=await fetch(SB+'/functions/v1/ask-gpt',{method:'POST',signal:ctl.signal,
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+AKEY,'apikey':AKEY},
+        body:JSON.stringify({messages:[{role:'system',content:SYS},{role:'user',content:qq}]})});
+      clearTimeout(tm);
+      const j=await r.json();
+      if(j.error){setErr(j.error==='NO_KEY'?(j.msg||'API 키가 설정되지 않았습니다.'):'오류: '+j.error);setBusy(false);return;}
+      const a=j.reply||'(빈 응답)';
+      setCur({q:qq,a});
+      /* 보관함 자동 저장 (전 직원 공유) */
+      const item={id:'rl'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),q:qq,a,by:(user&&user.name)||'',at:new Date().toISOString()};
+      const next=[item,...(lib||[])].slice(0,200);
+      setLib(next);saveLib(next);
+    }catch(e){setErr(e&&e.name==='AbortError'?'응답이 너무 오래 걸립니다. 다시 시도해주세요.':'연결 실패: '+(e&&e.message||e));}
+    setBusy(false);
+  };
+  const delItem=(id)=>{
+    if(!confirm('이 검색 기록을 보관함에서 삭제할까요?'))return;
+    const next=(lib||[]).filter(x=>x.id!==id);
+    setLib(next);saveLib(next);
+  };
+  /* ■ 섹션 제목을 강조해서 렌더링 */
+  const renderA=(a)=>R('div',{style:{fontSize:13,lineHeight:1.85,whiteSpace:'pre-wrap',wordBreak:'break-word'}},
+    ...String(a||'').split('\n').map((ln,i)=>{
+      if(/^\s*■/.test(ln))return R('div',{key:i,style:{fontWeight:800,color:'var(--p)',marginTop:i?12:0,marginBottom:2,fontSize:13.5}},ln.trim());
+      return R('div',{key:i},ln||' ');
+    }));
+  const EXAMPLES=['양념치킨소스 배합비','LA갈비 잡내제거','수비드 연육 작업 조건','마라소스 배합비','돈코츠 육수 공정'];
+  const libShown=(lib||[]).filter(x=>{const k=libQ.trim().toLowerCase();return !k||String(x.q||'').toLowerCase().includes(k);});
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🔎 레시피 검색'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'제품명을 입력하면 배합비·투입순서·가열조건을, 기술 키워드는 처리 방법을 알려드립니다 · 결과는 팀 보관함에 자동 저장'))),
+    /* 검색 카드 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',gap:8}},
+        R('input',{value:q,onChange:e=>setQ(e.target.value),onKeyDown:e=>{if(e.key==='Enter')search();},disabled:busy,
+          placeholder:'예) 양념치킨소스 · LA갈비 잡내제거 · 연육 작업',
+          style:{flex:1,border:'1.5px solid var(--p)',borderRadius:10,padding:'11px 14px',fontSize:14,fontFamily:'inherit'}}),
+        R('button',{className:'btn bp',onClick:()=>search(),disabled:busy||!q.trim(),style:{padding:'0 22px',fontSize:14,fontWeight:800,borderRadius:10}},busy?'검색 중…':'검색')),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:10}},
+        R('span',{style:{fontSize:10.5,color:'var(--tm)',alignSelf:'center',fontWeight:700}},'예시'),
+        ...EXAMPLES.map(ex=>R('button',{key:ex,onClick:()=>!busy&&search(ex),
+          style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:999,padding:'4px 11px',fontSize:11,color:'#3D3630',cursor:'pointer',fontFamily:'inherit'}},ex)))),
+    err&&R('div',{style:{background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',borderRadius:10,padding:'10px 14px',fontSize:12.5,marginBottom:12,whiteSpace:'pre-wrap'}},'⚠ '+err),
+    /* 내부 기록 매칭 */
+    intHit&&intHit.length>0&&R('div',{className:'card',style:{marginBottom:12,border:'1px solid #BFDBFE',background:'#F8FAFF'}},
+      R('div',{style:{fontSize:12.5,fontWeight:800,color:'#1D4ED8',marginBottom:8}},'📂 우리 회사 내부 기록 '+intHit.length+'건 일치 — 등록된 실제 배합·기록을 먼저 확인하세요'),
+      ...intHit.map((r,i)=>R('div',{key:i,style:{borderTop:i?'1px solid #DBEAFE':'none',padding:'7px 2px'}},
+        R('div',{onClick:()=>setIntOpen(intOpen===i?null:i),style:{display:'flex',gap:8,alignItems:'center',cursor:'pointer'}},
+          R('span',{style:{fontSize:9.5,background:'#DBEAFE',color:'#1D4ED8',borderRadius:5,padding:'1px 6px',fontWeight:800,flexShrink:0}},r.src),
+          R('span',{style:{fontSize:12.5,fontWeight:700}},r.product||'(제품명 없음)'),
+          r.client&&R('span',{style:{fontSize:11,color:'var(--tm)'}},'· '+r.client),
+          R('span',{style:{marginLeft:'auto',fontSize:11,color:'#93A3B8'}},intOpen===i?'▲ 접기':'▼ 내용 보기')),
+        intOpen===i&&R('div',{style:{fontSize:12,lineHeight:1.8,whiteSpace:'pre-wrap',background:'#fff',border:'1px solid #DBEAFE',borderRadius:8,padding:'9px 12px',marginTop:6}},
+          (r.body||'(내용 없음)')+(r.note?'\n\n[비고] '+r.note:''))))),
+    /* 현재 검색 결과 */
+    busy&&R('div',{className:'card',style:{marginBottom:12,textAlign:'center',padding:'26px'}},R('span',{className:'ld'},'레시피 찾는 중 ')),
+    cur&&!busy&&R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8}},
+        R('div',{style:{fontSize:14,fontWeight:800}},'🍳 '+cur.q),
+        R('div',{style:{display:'flex',gap:6,flexShrink:0}},
+          R('button',{className:'btn bs btn-sm',onClick:()=>bnfCopy(cur.q+'\n\n'+cur.a,'레시피 복사됨')},'📋 복사'),
+          R('button',{className:'btn bs btn-sm',onClick:()=>search(cur.q)},'↻ 다시 생성'))),
+      renderA(cur.a),
+      R('div',{style:{fontSize:10,color:'#9A9088',marginTop:12,borderTop:'1px solid var(--bd)',paddingTop:8}},'⚠ AI가 제안하는 표준 출발점 배합입니다. 실제 양산 전 반드시 시제·관능 평가로 검증하세요.')),
+    /* 팀 보관함 */
+    R('div',{className:'card'},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8,flexWrap:'wrap'}},
+        R('div',{style:{fontSize:13,fontWeight:800}},'🗂 검색 보관함 ',R('span',{style:{color:'var(--tm)',fontWeight:600,fontSize:11}},'(전 직원 공유 · 최근 200건)')),
+        R('input',{value:libQ,onChange:e=>setLibQ(e.target.value),placeholder:'🔍 보관함에서 찾기',
+          style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',fontSize:12,width:200}})),
+      lib===null?R('div',{style:{color:'var(--tm)',fontSize:12,padding:'14px 0'}},R('span',{className:'ld'},'불러오는 중 ')):
+      libShown.length===0?R('div',{style:{color:'var(--tm)',fontSize:12,padding:'14px 0',textAlign:'center'}},libQ?'검색 결과가 없습니다':'아직 저장된 검색이 없습니다. 위에서 검색하면 자동으로 쌓입니다.'):
+      R('div',null,...libShown.slice(0,50).map(x=>R('div',{key:x.id,style:{borderTop:'1px solid #F4F1EE',padding:'8px 2px'}},
+        R('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+          R('span',{onClick:()=>setOpenId(openId===x.id?null:x.id),style:{fontSize:12.5,fontWeight:700,cursor:'pointer',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},x.q),
+          R('span',{style:{fontSize:10,color:'#9A9088',flexShrink:0}},(x.by?x.by+' · ':'')+String(x.at||'').slice(5,10).replace('-','/')),
+          R('button',{onClick:()=>setOpenId(openId===x.id?null:x.id),style:{border:'none',background:'none',cursor:'pointer',fontSize:11,color:'var(--tm)',padding:2}},openId===x.id?'▲':'▼'),
+          (isAdmin||x.by===((user&&user.name)||''))&&R('button',{onClick:()=>delItem(x.id),style:{border:'none',background:'none',cursor:'pointer',fontSize:12,color:'#FCA5A5',padding:2}},'✕')),
+        openId===x.id&&R('div',{style:{background:'#FBFAF8',border:'1px solid var(--bd)',borderRadius:10,padding:'12px 14px',marginTop:6}},renderA(x.a))))))
+  );
+}
+
 /* ═══ 매입처 공문 (품질관리부) ══════════════════════════
    매입처에서 온 공문을 게시판처럼 올리고, 파일 첨부·미리보기.
    app_state.bnf_vendor_docs 에 저장 → 전 직원 공유. */
@@ -15329,6 +15475,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'rnd_mat',l:'원물 테스트',ic:'⚖️'},
     {id:'rnd_status',l:'연구개발 현황',ic:'📊'},
     {id:'rnd_recipe',l:'확정 배합비',ic:'🧾'},
+    {id:'rnd_search',l:'레시피 검색',ic:'🔎'},
   ]},
   {label:'🧪 품질관리',type:'dept_qc',items:[
     {id:'qc_self',l:'자가품질검사',ic:'🧪'},
@@ -15411,7 +15558,8 @@ function loadNavSections(){
             }
             /* 연구개발 메뉴 신규 항목 자동 삽입 (원물 테스트 2026-08-21 · 스케줄 2026-08-28) */
             [['rnd_mat',{id:'rnd_mat',l:'원물 테스트',ic:'⚖️'},'rnd_log'],
-             ['rnd_sched',{id:'rnd_sched',l:'연구개발 스케줄',ic:'🗓'},'rnd_log']].forEach(([id,item,anchor])=>{
+             ['rnd_sched',{id:'rnd_sched',l:'연구개발 스케줄',ic:'🗓'},'rnd_log'],
+             ['rnd_search',{id:'rnd_search',l:'레시피 검색',ic:'🔎'},'rnd_recipe']].forEach(([id,item,anchor])=>{
               if(!hasItem(anchor)||hasItem(id))return;
               const ti=newItems.findIndex(it=>it&&it.id===anchor);
               if(ti>=0)newItems.splice(id==='rnd_sched'?ti:ti+1,0,item);
@@ -15885,6 +16033,7 @@ const NAV_PAGES_INDEX=[
   {p:'rnd_sched',title:'연구개발 스케줄',ic:'🗓',keys:['스케줄','일정','달력','캘린더','샘플','테스트','개발일정','schedule','calendar']},
   {p:'rnd_status',title:'연구개발 현황',ic:'📊',keys:['연구','현황','과제','개발']},
   {p:'rnd_recipe',title:'확정 배합비',ic:'🧾',keys:['배합','레시피','확정','recipe']},
+  {p:'rnd_search',title:'레시피 검색',ic:'🔎',keys:['레시피','배합비','검색','잡내','연육','소스','공정','가열','recipe','search']},
   {p:'qc_self',title:'자가품질검사',ic:'🧪',keys:['자가','품질','검사','자가품질']},
   {p:'qc_process',title:'공정 검사',ic:'⚙',keys:['공정','검사','품질']},
   {p:'qc_hygiene',title:'위생 점검',ic:'🧼',keys:['위생','점검','청소','품질']},
@@ -19710,6 +19859,7 @@ function App(){
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(page==='pm_staffing')return R(PagePMStaffing,{user});
     if(page==='rnd_sched')return R(PageRndSched,{user});
+    if(page==='rnd_search')return R(PageRecipeSearch,{user});
     if(page==='receivables')return R(PageReceivablesWrap,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
