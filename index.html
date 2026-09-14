@@ -1013,6 +1013,16 @@ function bnfToast(msg){
     setTimeout(function(){d.style.opacity='0';setTimeout(function(){d.remove();},200);},1300);
   }catch(e){}
 }
+/* 본사재고 환산계수 — 본사는 박스 단위, 공장은 ea 단위이므로
+   규격 [3.59kgx2]/[1kg*10] 끝의 입수량(2/10)을 자동으로 곱해 통일한다.
+   사용자가 모달에서 1이 아닌 값을 직접 저장했으면 그 값이 우선. */
+function hqConvOf(h){
+  const c=+((h&&h.hqConv)||0);
+  if(c>0&&c!==1)return c;
+  const m=String((h&&h.hqUnit)||'').match(/[*xX×]\s*(\d+(?:\.\d+)?)\s*\]?\s*$/);
+  if(m&&+m[1]>0)return +m[1];
+  return 1;
+}
 function bnfCopy(text,label){
   var t=String(text==null?'':text);
   if(!t)return;
@@ -10577,7 +10587,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[linkQ,setLinkQ]=useState('');
   const[ecFeed,setEcFeed]=useState(null); /* null=미로딩, 'none'=없음, {at,rows} */
   const openLink=(row)=>{
-    setLinkRow(row);setLinkCode(row.hqCode||'');setLinkUnit(row.hqUnit||'');setLinkConv(String((+row.hqConv>0)?+row.hqConv:1));setLinkQ('');
+    setLinkRow(row);setLinkCode(row.hqCode||'');setLinkUnit(row.hqUnit||'');setLinkConv(String(hqConvOf(row)));setLinkQ('');
     if(ecFeed===null){
       sbClient.from('app_state').select('v:state_data->bnf_hq_ec').eq('id',1).maybeSingle()
         .then(({data})=>setEcFeed(data&&data.v&&Array.isArray(data.v.rows)?data.v:'none'))
@@ -10759,8 +10769,8 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const fl=useMemo(()=>{if(!search)return[];const q=search.toLowerCase();return mats.filter(m=>String(m.n||'').toLowerCase().includes(q)||m.c.includes(search)).slice(0,12);},[search,mats]);
   const rowsAll=hqItems.map(h=>{
     const mat=mats.find(m=>m.c===h.matCode)||{};
-    /* 환산계수: 본사 1단위(BOX 등)가 공장 단위(kg/개)로 몇인지. 미설정=1(같은 단위) */
-    const conv=(+h.hqConv>0)?+h.hqConv:1;
+    /* 환산계수: 직접 설정값 우선, 없으면 규격 [3.59kgx2]의 입수량 자동 */
+    const conv=hqConvOf(h);
     const hqEff=Math.round((+h.hqStock||0)*conv*100)/100;
     const totalStock=hqEff+(+mat.s||0);
     return{...h,folder:h.folder||'_root',matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,conv,hqEff,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
@@ -11022,7 +11032,7 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
             R('button',{onClick:()=>setLinkRow(null),style:{border:'none',background:'none',fontSize:18,cursor:'pointer',color:'#9A9088'}},'✕')),
           R('div',{style:{marginBottom:12,fontSize:11,color:'#1E40AF',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8,padding:'8px 11px',lineHeight:1.7}},
             '본사(이카운트 171542)와 공장(600860)은 같은 품목이라도 단위가 다릅니다.',R('br'),
-            R('b',null,'환산계수'),' = 본사 1단위가 공장 단위(',mu,')로 몇인지. 예: 본사 1박스 = 20개 → 20 · 본사 1개 = 0.5kg → 0.5',R('br'),
+            R('b',null,'환산계수'),' = 본사 1박스가 공장 단위(',mu,')로 몇인지. 규격의 입수량([3.59kgx2]→2, [1kg*10]→10)은 ',R('b',null,'자동 적용'),'되며, 다른 값을 입력하면 그 값이 우선합니다.',R('br'),
             '총재고 = 본사재고 × 환산 + 공장재고 (',mu,' 기준)'),
           /* 이카운트 본사 품목 목록 (수집 연결 후 표시) */
           feedRows
@@ -17044,7 +17054,7 @@ function PageShipSort({mats,hqItems}){
       const h=(hqItems||[]).find(x=>x.matCode===mapped);
       if(h){
         const mt=(mats||[]).find(m=>m.c===h.matCode)||{};
-        return{stock:(+h.hqStock||0)*((+h.hqConv>0)?+h.hqConv:1)+(+mt.s||0),unit:mt.u||h.unit||'ea',source:'본사(수동)',matchedName:h.matName||mt.n||mapped,code:h.matCode||mt.c||''};
+        return{stock:(+h.hqStock||0)*hqConvOf(h)+(+mt.s||0),unit:mt.u||h.unit||'ea',source:'본사(수동)',matchedName:h.matName||mt.n||mapped,code:h.matCode||mt.c||''};
       }
       const m=(mats||[]).find(x=>x.c===mapped);
       if(m)return{stock:+(m.s||0),unit:m.u||'ea',source:'재고(수동)',matchedName:m.n||mapped,code:m.c||''};
@@ -17094,7 +17104,7 @@ function PageShipSort({mats,hqItems}){
     });
     if(best&&bestScore>=60){
       const mt=(mats||[]).find(m=>m.c===best.matCode)||{};
-      return{stock:(+best.hqStock||0)*((+best.hqConv>0)?+best.hqConv:1)+(+mt.s||0),unit:mt.u||best.unit||'ea',source:'본사',matchedName:best.matName||mt.n||'',code:best.matCode||mt.c||''};
+      return{stock:(+best.hqStock||0)*hqConvOf(best)+(+mt.s||0),unit:mt.u||best.unit||'ea',source:'본사',matchedName:best.matName||mt.n||'',code:best.matCode||mt.c||''};
     }
     /* 2) 원재료/완제품 mats에서 */
     const allMats=(mats||[]);
@@ -17112,7 +17122,7 @@ function PageShipSort({mats,hqItems}){
     const map={};
     (hqItems||[]).forEach(h=>{
       const mt=(mats||[]).find(m=>m.c===h.matCode)||{};
-      map[h.matCode]={code:h.matCode,name:h.matName||mt.n||h.matCode,stock:(+h.hqStock||0)*((+h.hqConv>0)?+h.hqConv:1)+(+mt.s||0),unit:mt.u||h.unit||'ea',src:'본사'};
+      map[h.matCode]={code:h.matCode,name:h.matName||mt.n||h.matCode,stock:(+h.hqStock||0)*hqConvOf(h)+(+mt.s||0),unit:mt.u||h.unit||'ea',src:'본사'};
     });
     (mats||[]).forEach(m=>{
       if(!map[m.c])map[m.c]={code:m.c,name:m.n||m.c,stock:+(m.s||0),unit:m.u||'ea',src:'재고'};
