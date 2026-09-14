@@ -10586,13 +10586,18 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   const[linkConv,setLinkConv]=useState('1');
   const[linkQ,setLinkQ]=useState('');
   const[ecFeed,setEcFeed]=useState(null); /* null=미로딩, 'none'=없음, {at,rows} */
+  /* 이카운트 본사 수집값을 항상 로드 — 연동 품목은 저장값 대신 이 값을 실시간 표시
+     (열린 브라우저가 옛 목록을 다시 저장해 수치가 되돌아가는 경합 방지) */
+  const loadFeed=()=>{
+    sbClient.from('app_state').select('v:state_data->bnf_hq_ec').eq('id',1).maybeSingle()
+      .then(({data})=>setEcFeed(data&&data.v&&Array.isArray(data.v.rows)?data.v:'none'))
+      .catch(()=>setEcFeed(p=>p===null?'none':p));
+  };
+  useEffect(()=>{loadFeed();},[]);
+  useBnfSyncReload(()=>loadFeed());
   const openLink=(row)=>{
     setLinkRow(row);setLinkCode(row.hqCode||'');setLinkUnit(row.hqUnit||'');setLinkConv(String(hqConvOf(row)));setLinkQ('');
-    if(ecFeed===null){
-      sbClient.from('app_state').select('v:state_data->bnf_hq_ec').eq('id',1).maybeSingle()
-        .then(({data})=>setEcFeed(data&&data.v&&Array.isArray(data.v.rows)?data.v:'none'))
-        .catch(()=>setEcFeed('none'));
-    }
+    if(ecFeed===null)loadFeed();
   };
   const saveLink=()=>{
     if(!linkRow)return;
@@ -10767,13 +10772,17 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
 
   /* 폴더별 행 그룹핑 */
   const fl=useMemo(()=>{if(!search)return[];const q=search.toLowerCase();return mats.filter(m=>String(m.n||'').toLowerCase().includes(q)||m.c.includes(search)).slice(0,12);},[search,mats]);
+  const feedMap=useMemo(()=>{const m={};if(ecFeed&&ecFeed!=='none'&&Array.isArray(ecFeed.rows))ecFeed.rows.forEach(r=>{if(r&&r.c)m[r.c]=r;});return m;},[ecFeed]);
   const rowsAll=hqItems.map(h=>{
     const mat=mats.find(m=>m.c===h.matCode)||{};
     /* 환산계수: 직접 설정값 우선, 없으면 규격 [3.59kgx2]의 입수량 자동 */
     const conv=hqConvOf(h);
-    const hqEff=Math.round((+h.hqStock||0)*conv*100)/100;
+    /* 연동 품목은 이카운트 수집값을 실시간 표시 (저장값보다 우선) */
+    const fr=h.hqCode?feedMap[h.hqCode]:null;
+    const hqRaw=fr?(+fr.q||0):(+h.hqStock||0);
+    const hqEff=Math.round(hqRaw*conv*100)/100;
     const totalStock=hqEff+(+mat.s||0);
-    return{...h,folder:h.folder||'_root',matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,conv,hqEff,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
+    return{...h,folder:h.folder||'_root',matName:mat.n||h.matName,unit:mat.u||'',fSt:mat.s||0,mu:mat.mu||0,conv,hqRaw,live:!!fr,hqEff,totalStock,short:Math.max(0,(+mat.mu||0)-totalStock),matId:mat.id};
   });
   const shortItems=rowsAll.filter(r=>r.short>0).sort((a,b)=>b.short-a.short);
   const folderCounts=useMemo(()=>{const c={};rowsAll.forEach(r=>{c[r.folder]=(c[r.folder]||0)+1;});return c;},[rowsAll]);
@@ -10797,8 +10806,10 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     R('td',{style:{width:24,textAlign:'center',color:'#D9D2CB',fontSize:14,cursor:'move'},title:'드래그로 폴더 이동'},'⋮⋮'),
     R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170,borderLeft:'3px solid '+(folderColor||'#E9E2DC')}},row.matName),
     R('td',{style:{textAlign:'right'}},
-      R(EC,{rk:row.id+'hq'+rk,initVal:row.hqStock,type:'number',onSave:v=>onUpdHQ(row.id,'hqStock',+v),className:'ci',style:{textAlign:'right',fontWeight:700,color:'#0369a1'}}),
-      (row.hqCode||row.hqUnit)&&R('div',{style:{fontSize:9.5,color:'#0369a1',whiteSpace:'nowrap'}},(row.hqCode?'🔗 ':'')+(row.hqUnit||''))),
+      row.live
+        ?R('div',{title:'이카운트 본사(171542) 실시간 수집값 — 5분마다 자동 갱신',style:{fontWeight:700,color:'#0369a1',fontSize:13}},row.hqRaw)
+        :R(EC,{rk:row.id+'hq'+rk,initVal:row.hqStock,type:'number',onSave:v=>onUpdHQ(row.id,'hqStock',+v),className:'ci',style:{textAlign:'right',fontWeight:700,color:'#0369a1'}}),
+      (row.hqCode||row.hqUnit)&&R('div',{style:{fontSize:9.5,color:'#0369a1',whiteSpace:'nowrap'}},(row.live?'🔗 실시간 ':(row.hqCode?'🔗 ':''))+(row.hqUnit||''))),
     R('td',{style:{textAlign:'center'}},R('button',{onClick:e=>{e.stopPropagation();openLink(row);},
       title:'이카운트 본사(171542) 연동·단위 환산 설정 — 본사 1박스 = ? '+(row.unit||'공장단위'),
       style:{border:'1px solid '+(row.conv!==1||row.hqCode?'#93C5FD':'var(--bd)'),background:(row.conv!==1||row.hqCode)?'#EFF6FF':'#fff',color:(row.conv!==1||row.hqCode)?'#1D4ED8':'#9A9088',borderRadius:6,padding:'2px 7px',cursor:'pointer',fontSize:10,fontWeight:700,fontFamily:'inherit',whiteSpace:'nowrap'}},
