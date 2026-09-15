@@ -17932,6 +17932,43 @@ function PageShipSort({mats,hqItems}){
     setParsed(result);saveShipsort(result,shipDate);
   };
 
+  /* 특정 (날짜·센터)의 출고일자 변경 — 미정→날짜 지정, 날짜 이동, 빈 값이면 미정으로 */
+  const moveCenterDate=(k)=>{
+    if(!parsed||!parsed.byCenter||!parsed.byCenter[k])return;
+    const{date,center}=parseCkey(k);
+    const cur=(date&&date!=='미정')?date:'';
+    const inp=prompt('"'+center+'" 출고일자를 입력하세요 (예: 2026-09-20)\n비워두면 "미정"으로 돌아갑니다.',cur||today2());
+    if(inp===null)return;
+    let nd=String(inp).trim().replace(/[.\/]/g,'-');
+    if(nd&&!/^\d{4}-\d{2}-\d{2}$/.test(nd)){alert('날짜 형식이 올바르지 않습니다. 예: 2026-09-20');return;}
+    const newK=ckey(nd,center);
+    if(newK===k)return;
+    const byCenter={...parsed.byCenter};
+    const src=byCenter[k];
+    if(byCenter[newK]){
+      if(!confirm('"'+center+'"는 '+(nd||'미정')+'에 이미 있습니다. 두 카드의 품목을 합칠까요?'))return;
+      const dst={...byCenter[newK],items:{...(byCenter[newK].items||{})}};
+      Object.entries(src.items||{}).forEach(([n,v])=>{
+        const ex=dst.items[n];
+        dst.items[n]=ex?{...ex,box:(+ex.box||0)+(+v.box||0),total:(+ex.total||0)+(+v.total||0)}:v;
+      });
+      dst.totalBox=(+dst.totalBox||0)+(+src.totalBox||0);
+      byCenter[newK]=dst;
+    }else byCenter[newK]=src;
+    delete byCenter[k];
+    /* 중복 방지 시그니처의 날짜도 함께 이동 (같은 발주 파일 재업로드 시 중복 판정 유지) */
+    const oldDates=(date==='미정'||!date)?['','미정']:[date];
+    const sources=(Array.isArray(parsed.sources)?parsed.sources:[]).map(s=>{
+      for(const od of oldDates){
+        const pref=center+'#'+od+'#';
+        if(s.startsWith(pref))return center+'#'+nd+'#'+s.slice(pref.length);
+      }
+      return s;
+    });
+    const result={byCenter,prodTotal:recomputeProdTotal(byCenter),sources};
+    setParsed(result);saveShipsort(result,shipDate);
+  };
+
   /* 센터별 집계 - 기존 데이터에 누적, 중복 파일은 자동 제외 */
   /* ── 이카운트 '판매 전표' 업로드용 엑셀 만들기 ──
      API 검증 전까지 사용하는 방식: 파일을 만들어 이카운트 [엑셀 자료 올리기]에 올리면 전표가 등록된다.
@@ -18805,7 +18842,9 @@ function PageShipSort({mats,hqItems}){
               return R('div',{key:key,className:'card',style:{marginBottom:12,padding:0,overflow:'hidden',maxWidth:720}},
                 R('div',{style:{padding:'10px 14px',background:'linear-gradient(135deg,'+c.hdr+','+c.hdrD+')',color:'#fff',fontWeight:800,fontSize:14,display:'flex',justifyContent:'space-between',alignItems:'center'}},
                   R('span',null,center),
-                  R('button',{onClick:()=>removeCenter(key),title:'이 센터 빼기',className:'no-capture',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'✕ 빼기')
+                  R('div',{className:'no-capture',style:{display:'flex',gap:6,flexShrink:0}},
+                    R('button',{onClick:()=>moveCenterDate(key),title:'출고일자 수정 — 미정을 날짜로 지정하거나 다른 날짜로 이동',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'📅 날짜'),
+                    R('button',{onClick:()=>removeCenter(key),title:'이 센터 빼기',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✕ 빼기'))
                 ),
                 R('div',{className:'hscroll'},R('div',{style:{minWidth:540}},
                 R('div',{style:{...rowSty,padding:'5px 12px',background:'#FAFAFA',fontSize:10,color:'#6E645C',fontWeight:600}},
