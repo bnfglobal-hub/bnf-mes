@@ -5182,6 +5182,17 @@ function PagePMStaffing({user}){
   };
   const setStep=(i,k,v)=>setForm(p=>Object.assign({},p,{steps:p.steps.map((s,j)=>j===i?Object.assign({},s,{[k]:v}):s)}));
   const addStep=()=>setForm(p=>Object.assign({},p,{steps:[...p.steps,{proc:'',person:''}]}));
+  const stepKey=(i,field)=>e=>{
+    if(e.key!=='Enter')return;
+    if(e.nativeEvent&&e.nativeEvent.isComposing)return; // 한글 조합 중 엔터 무시
+    e.preventDefault();
+    if(field==='proc'){
+      const el=document.querySelector('[data-pm-step-person="'+i+'"]'); if(el)el.focus();
+    }else{
+      if(i===form.steps.length-1)addStep();
+      setTimeout(()=>{const el=document.querySelector('[data-pm-step-proc="'+(i+1)+'"]'); if(el)el.focus();},30);
+    }
+  };
   const rmStep=(i)=>setForm(p=>Object.assign({},p,{steps:p.steps.length>1?p.steps.filter((_,j)=>j!==i):p.steps}));
   const list=(rows||[]).filter(r=>{
     const s=q.trim().toLowerCase();if(!s)return true;
@@ -5250,8 +5261,8 @@ function PagePMStaffing({user}){
       R('div',{className:'fr'},R('label',{className:'lbl'},'공정별 담당자'),
         R('div',{style:{display:'flex',flexDirection:'column',gap:6}},
           ...form.steps.map((s,i)=>R('div',{key:i,style:{display:'flex',gap:6,alignItems:'center'}},
-            R('input',{className:'inp',value:s.proc,onChange:e=>setStep(i,'proc',e.target.value),placeholder:'공정 (예: 배합·충진·포장)',style:{flex:1,minWidth:0}}),
-            R('input',{className:'inp',value:s.person,onChange:e=>setStep(i,'person',e.target.value),placeholder:'담당자',list:'pm-staff-emps',style:{flex:1,minWidth:0}}),
+            R('input',{className:'inp',value:s.proc,onChange:e=>setStep(i,'proc',e.target.value),onKeyDown:stepKey(i,'proc'),'data-pm-step-proc':i,placeholder:'공정 (예: 배합·충진·포장)',style:{flex:1,minWidth:0}}),
+            R('input',{className:'inp',value:s.person,onChange:e=>setStep(i,'person',e.target.value),onKeyDown:stepKey(i,'person'),'data-pm-step-person':i,placeholder:'담당자',list:'pm-staff-emps',style:{flex:1,minWidth:0}}),
             R('button',{onClick:()=>rmStep(i),title:'줄 삭제',style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'6px 10px',fontSize:12,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'×'))),
           R('button',{onClick:addStep,style:{border:'1px dashed var(--bd)',background:'transparent',borderRadius:8,padding:'7px',fontSize:12,color:'var(--tm)',cursor:'pointer',fontFamily:'inherit',fontWeight:700}},'+ 공정 추가')),
         R('datalist',{id:'pm-staff-emps'},...emps.map(e2=>R('option',{key:e2.id,value:e2.name})))),
