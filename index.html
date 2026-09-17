@@ -12502,9 +12502,10 @@ function WorkOrderImgModal({data,onClose}){
 }
 
 /* ────── PAGE: 생산계획 ────── */
-function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOpenBOM}){
+function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOpenBOM,onSetProds,onAddMat}){
   const[confirmData,setConfirmData]=useState(null);
   const[woModal,setWoModal]=useState(null);   /* 작업지시서 이미지 모달 {prod,qty} */
+  const[bomEdit,setBomEdit]=useState(null);   /* 원료 발주에서 바로 BOM 수정 {prod} */
   /* ── 매입내역(이카운트 구매현황) 에서 품목별 거래처·단가 끌어오기 ──
      매입단가 조회와 같은 데이터(app_state.purchase_prices)를 그대로 사용한다. */
   const[buyHist,setBuyHist]=useState(null);
@@ -13025,6 +13026,7 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
             R('button',{className:'btn',style:{background:'#0F766E',color:'#fff',padding:'7px 10px',fontSize:11},onClick:()=>setWoModal({prod:p,qty}),title:'작업지시서 이미지 올려 복사·인쇄'},'📄 작업지시서'),
             R('button',{className:'btn bp',style:{fontSize:11,padding:'7px 10px'},disabled:!qty,onClick:()=>qty&&onOpenImg({prod:p,qty,rows})},'📋 이미지'),
             qty>0&&R('button',{onClick:()=>setPqty(pv=>({...pv,[p.id]:''})),title:'초기화',style:{padding:'6px 8px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,cursor:'pointer'}},'✕'),
+            isAdmin&&onSetProds&&R('button',{className:'btn bw',style:{padding:'7px 10px',fontSize:11},onClick:()=>setBomEdit(p),title:'이 제품의 BOM(원재료 구성) 바로 수정'},'✏️ BOM'),
             R('select',{value:getProdFolder(p.id),onChange:e=>moveProdToFolder(p.id,e.target.value),title:'폴더 이동',style:{padding:'6px 6px',border:'1px solid #E9E2DC',borderRadius:8,fontSize:10,background:'#fff',cursor:'pointer',maxWidth:90}},
               ...prodFolders.map(f=>R('option',{key:f.id,value:f.id},f.name))
             )
@@ -13082,6 +13084,11 @@ function PageProd({mats,prods,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOp
       );
     }),
     isAdmin&&R('button',{className:'btn bp',style:{width:'100%',padding:12,marginTop:4,fontSize:14},onClick:onOpenBOM},'+ 제품 + BOM 등록'),
+    /* 원료 발주에서 바로 BOM 수정 — 제품 BOM 페이지와 동일한 모달 공유 */
+    bomEdit&&R(BOMModal,{mats,cats:cats||[],editProd:bomEdit,onAddMat,
+      onSave:updated=>{onSetProds&&onSetProds(pp=>pp.map(x=>x.id===updated.id?updated:x));bnfToast('BOM 저장 완료: '+updated.name);},
+      onClose:()=>setBomEdit(null)
+    }),
     ordEdit&&R(Modal2,{title:'📞 발주방법 · '+(ordEdit.mode==='item'?(ordEdit.label||'')+' (이 품목만)':ordEdit.name),onClose:()=>setOrdEdit(null),size:480,
       footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
         R('button',{className:'btn bs',onClick:()=>setOrdEdit(null),style:{flex:1}},'취소'),
@@ -19899,7 +19906,7 @@ function App(){
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
     if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
     if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true),onAddMat:addMatQuick});
-    if(page==='prod')return R(PageProd,{mats,prods,pqty,setPqty,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);}});
+    if(page==='prod')return R(PageProd,{mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);},onSetProds:setProds,onAddMat:addMatQuick});
     if(page==='prodResult')return R(PageProdResult,{user,prods,mats});
     if(page==='expiry')return R(PageExpiry,{user,prods});
     if(page==='shipment')return R(PageShipment,{user,prods});
