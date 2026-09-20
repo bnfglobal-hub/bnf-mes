@@ -11980,7 +11980,8 @@ function BOMModal({mats,cats,editProd,onSave,onClose,onAddMat}){
     onClose();
   };
   return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
-    R('div',{className:'mbox',style:{maxWidth:600,margin:'auto',borderRadius:16}},
+    /* resize:both — 오른쪽 아래 모서리를 끌어 창 크기 조절 가능 */
+    R('div',{className:'mbox',style:{width:'min(600px,96vw)',maxWidth:'96vw',margin:'auto',borderRadius:16,resize:'both',overflow:'hidden',minWidth:340,minHeight:320}},
       R('div',{className:'mhdr'},
         R('span',{style:{fontSize:15,fontWeight:700}},editProd?'BOM 수정':'제품 + BOM 등록'),
         R('button',{onClick:onClose,style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')
