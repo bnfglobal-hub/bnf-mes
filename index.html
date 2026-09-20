@@ -12086,7 +12086,12 @@ function BOMModal({mats,cats,editProd,onSave,onClose,onAddMat}){
                   else save();
                 }
               },placeholder:'수량',style:{width:60,border:'1px solid #E9E2DC',borderRadius:6,padding:'3px 5px',fontSize:12,textAlign:'center'}}),
-              R('span',{style:{fontSize:11,color:'#9A9088'}},b.unit),
+              R('select',{value:b.unit||'kg',onClick:e=>e.stopPropagation(),
+                onChange:e=>{e.stopPropagation();const u=e.target.value;setBom(p=>p.map((x,i)=>i===bi?{...x,unit:u}:x));},
+                title:'단위 변경 (표기만 바뀌며 수량은 자동 환산되지 않습니다)',
+                style:{fontSize:11,color:'#6E645C',border:'1px solid #E9E2DC',borderRadius:6,padding:'2px 3px',background:'#fff',cursor:'pointer',fontFamily:'inherit'}},
+                ...(['kg','g','ea','box','L','ml','롤','매'].includes(b.unit)||!b.unit?[]:[R('option',{key:'_cur',value:b.unit},b.unit)]),
+                ...['kg','g','ea','box','L','ml','롤','매'].map(u=>R('option',{key:u,value:u},u))),
               R('span',{style:{fontSize:10,color:'#9A9088',margin:'0 4px'}},editIdx===bi?'▲':'▼'),
               R('button',{onClick:e=>{e.stopPropagation();setBom(p=>p.filter((_,i)=>i!==bi));},style:{background:'none',border:'none',cursor:'pointer',color:'#dc2626',fontSize:17,padding:'0 2px'}},'×')
             ),
