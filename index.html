@@ -935,6 +935,85 @@ input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{
 .pg::-webkit-scrollbar-thumb,.tw::-webkit-scrollbar-thumb,.mbody::-webkit-scrollbar-thumb,.sb::-webkit-scrollbar-thumb{background:rgba(120,109,97,.28);border-radius:99px;border:2px solid transparent;background-clip:content-box}
 .pg::-webkit-scrollbar-thumb:hover,.tw::-webkit-scrollbar-thumb:hover{background:rgba(120,109,97,.45);background-clip:content-box}
 
+/* ═══════════════════════════════════════════════════════════════
+   2026-09-22 Apple HIG 심화 레이어 v2 — 웜 뉴트럴 + 오렌지 유지
+   원칙: CSS 전용 · 기능 무변경 · Operate(밀도·스캔성) 우선
+         대형 타이틀 · 진짜 소재(스크롤이 비치는 블러) · 헤어라인
+         iOS 버튼 위계(틴트 필) · 눌림 피드백 · 시트 그래버
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 전역: iOS 기본 감각 ── */
+*{-webkit-tap-highlight-color:transparent}
+.pg,.mbody,.sb{overscroll-behavior:contain}
+button[disabled],.btn:disabled{opacity:.4;cursor:default}
+
+/* ── 대형 타이틀: iOS Large Title 위계 (본문과 크기 격차 확대) ── */
+.pg-title{font-size:20px;font-weight:800;letter-spacing:-0.024em;line-height:1.25}
+@media(max-width:768px){.pg-title{font-size:18px}}
+.pg-hdr{margin-bottom:16px}
+
+/* ── 표 헤더 = 진짜 소재: 행이 아래로 스크롤되며 비쳐 보이는 블러
+      (th는 position:sticky라 실제로 콘텐츠가 뒤로 지나간다) ── */
+.tw thead th,.inv-tbl thead th{background:rgba(250,249,247,.82);
+  backdrop-filter:saturate(1.5) blur(12px);-webkit-backdrop-filter:saturate(1.5) blur(12px)}
+
+/* ── 버튼 위계: iOS 틴트 필 3단계 ──
+   Primary(bp)=오렌지 필 · Secondary(bs)=회색 틴트 필(테두리 없음) · Tertiary(bw)=흰 테두리 */
+.btn.bs{background:var(--fill-tert);border:none;color:var(--t)}
+.btn.bs:hover{background:rgba(120,109,97,.17);border:none}
+.btn.bs:active{background:rgba(120,109,97,.22)}
+.btn.bd2{border:none;background:rgba(220,38,38,.09)}
+.btn.bd2:hover{background:rgba(220,38,38,.14)}
+.btn.bok{background:var(--success)}
+
+/* ── 리스트·행 눌림 피드백 (iOS 셀 하이라이트) ── */
+.ls-row:active{background:var(--fill-tert)}
+.tw tbody tr:active td,.inv-tbl tbody tr:active td{background:#F3EEE9}
+.cb:active{background:var(--fill-tert)}
+
+/* ── 카드: 레티나 헤어라인 + 그룹 인셋 감성 ── */
+@media(min-resolution:2dppx){.card,.tw,.mbox{border-width:.5px}}
+
+/* ── 배지: SF 캡슐 — 약간의 높이·좁은 자간 ── */
+.bdg{padding:2.5px 10px;font-weight:600;letter-spacing:-0.01em}
+
+/* ── 사이드바: iOS 설정 리스트 — 활성 필 라운드 확대, 아이콘 정렬 ── */
+.ni{border-radius:9px}
+.ni.act{box-shadow:none}
+.ni.act::before{content:none}
+
+/* ── 헤더 아이콘 버튼: hover 시 원형 회색 필 (macOS 툴바) ── */
+@media(hover:hover){
+  .hdr button:not(.btn):hover{background:var(--fill-quart);border-radius:9px}
+}
+
+/* ── 모바일 시트: 상단 그래버 바 + 부드러운 등장 ── */
+@media(max-width:768px){
+  .mbox{position:relative}
+  .mbox::before{content:"";position:absolute;top:7px;left:50%;transform:translateX(-50%);
+    width:36px;height:5px;border-radius:99px;background:rgba(120,109,97,.28);z-index:5}
+  .mhdr{padding-top:20px}
+}
+
+/* ── 입력: iOS 폼 — 하이라이트 링을 살짝 넓고 연하게 ── */
+.inp:focus,input:focus,select:focus,textarea:focus{border-color:var(--p);box-shadow:0 0 0 4px rgba(217,79,30,.12)}
+
+/* ── 세그먼티드 컨트롤: 활성 탭 눌림 스케일 (transform은 모멘터리만) ── */
+.tab:active{transform:scale(.97)}
+.tab{transition:background .18s var(--ease-ios),color .18s var(--ease-ios),opacity .12s var(--ease-ios),transform .12s var(--ease-ios)}
+
+/* ── 구분선: 전부 헤어라인으로 (레티나) ── */
+@media(min-resolution:2dppx){
+  .mhdr{border-bottom-width:.5px}.mfoot{border-top-width:.5px}
+  .hdr{border-bottom-width:.5px}.sb{border-right-width:.5px}
+  td{border-bottom-width:.5px}
+}
+
+/* ── 모션 최소화 존중 (최종 확인) ── */
+@media(prefers-reduced-motion:reduce){
+  .tab:active,.btn:active{transform:none}
+}
+
 </style>
 <script>
 window._deferredPrompt=null;
