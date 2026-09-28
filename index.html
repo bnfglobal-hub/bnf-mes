@@ -7671,7 +7671,7 @@ async function pushNotif(list){
       const KEY='sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli';
       fetch(SB+'/functions/v1/send-push',{method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY,'apikey':KEY},
-        body:JSON.stringify({items:add.map(n=>({to:n.to,title:'B&F MES 알림',body:n.text,url:'https://bnfglobal-hub.github.io/bnf-mes/'+(n.page?('?p='+n.page):'')}))})
+        body:JSON.stringify({items:add.map(n=>({to:n.to,tag:n.id,title:'B&F MES 알림',body:n.text,url:'https://bnfglobal-hub.github.io/bnf-mes/'+(n.page?('?p='+n.page):'')}))})
       }).catch(()=>{});
     }catch(e){}
   }catch(e){console.warn('알림 생성 실패',e);}
@@ -19171,7 +19171,9 @@ function App(){
   useEffect(()=>{
     if(!user||!['superadmin','admin','manager'].includes(user.role))return;
     const LSK='bnf_acts_seen_'+user.id;
-    let last=+localStorage.getItem(LSK)||Date.now();
+    /* 실시간만 알림: 마지막 접속 이후 밀린 작업을 켜자마자 몰아서 알리지 않도록
+       기준 시각을 '지금-2분'보다 과거로 내려가지 않게 한다 (새로고침 직전 도착분만 커버) */
+    let last=Math.max(+localStorage.getItem(LSK)||0,Date.now()-2*60*1000);
     try{localStorage.setItem(LSK,String(last));}catch(e){}
     const ACT_LABELS={work_requests:'업무 현황',bnf_pm_workorder:'작업지시서',bnf_pm_staffing:'인원배치',
       bnf_rnd_status:'연구개발 현황',bnf_rnd_log:'연구개발 일지',bnf_rnd_mat:'원물 테스트',bnf_rnd_sched:'연구개발 스케줄',bnf_rnd_recipe:'확정 배합비',
@@ -19576,7 +19578,8 @@ function App(){
         const{data}=await sbClient.from('app_state').select('v:state_data->notifications').eq('id',1).maybeSingle();
         const arr=Array.isArray(data&&data.v)?data.v:[];
         const mine=arr.filter(n=>n&&n.to===user.id&&!n.read);
-        const fresh=mine.filter(n=>n.id&&!seen.has(n.id));
+        /* 실시간만 팝업: 10분 넘은 알림은 (읽지 않았어도) 팝업 없이 종 아이콘 숫자로만 */
+        const fresh=mine.filter(n=>n.id&&!seen.has(n.id)&&(!n.ts||(Date.now()-new Date(n.ts).getTime())<10*60*1000));
         mine.forEach(n=>{if(n.id)seen.add(n.id);});
         try{sessionStorage.setItem('bnf_notif_seen',JSON.stringify([...seen].slice(-300)));}catch(e){}
         if(!first&&fresh.length&&Notification.permission==='granted'){

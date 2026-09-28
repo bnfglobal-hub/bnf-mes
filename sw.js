@@ -10,6 +10,8 @@ self.addEventListener('push', function (event) {
   var title = data.title || 'B&F MES 알림';
   var body = data.body || '';
   var url = data.url || '/bnf-mes/';
+  /* 실시간만 표시: 발송된 지 10분 넘은 푸시(꺼져 있던 동안 쌓인 것)는 조용히 버림 */
+  if (data.ts && (Date.now() - data.ts) > 10 * 60 * 1000) return;
   event.waitUntil(
     self.registration.showNotification(title, {
       body: body,
