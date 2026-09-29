@@ -7608,12 +7608,29 @@ function PageAdmin({user}){
   const loadNav=()=>sbClient.from('app_state').select('v:state_data->bnf_nav_sections').eq('id',1).maybeSingle()
     .then(({data})=>{const v=data&&data.v;if(Array.isArray(v)&&v.length)setNavSecs(v);}).catch(()=>{});
   const load=async()=>{const[{data:e},{data:d}]=await Promise.all([db('emp').select('*,depts(name)').order('name'),db('depts').select('*').order('sort_order')]);setEmps(e||[]);setDepts(d||[]);};
+  /* 직원 추가: 규격에 맞는 기본값을 자동으로 채워 바로 추가 가능하게
+     (기존엔 기본 비밀번호가 1234(4자)라 '6자 이상' 검사에 항상 걸려 추가가 안 됐음) */
+  const openAddU=()=>{
+    const used=(emps||[]).map(e=>{const m=/^bnf\s*0*(\d+)$/i.exec(String(e.emp_no||'').trim());return m?+m[1]:null;}).filter(x=>x!==null);
+    const next=(used.length?Math.max.apply(null,used):0)+1;
+    const no='bnf'+String(next).padStart(3,'0');
+    setEditU(null);
+    setUf({emp_no:no,name:'신규직원'+String(next).padStart(2,'0'),email:no+'@bnf.local',password:'bnf123456',
+      dept_id:(depts&&depts[0]&&depts[0].id)||'',position:'사원',role:'employee',phone:'',
+      hire_date:today2(),annual_leave:15,menu_perms:{}});
+    setShowUF(true);
+  };
   const saveU=async()=>{
     if(!uf.name||!uf.email)return alert('이름/이메일 필수');
     const pwChanged=editU&&uf.password&&uf.password!==(editU.password||'');
     if((pwChanged||!editU)&&uf.password&&uf.password.length<6)return alert('비밀번호는 6자 이상이어야 합니다 (보안 규격)');
-    if(editU){await db('emp').update({...uf}).eq('id',editU.id);}
-    else{await db('emp').insert({...uf,status:'active',used_leave:0});}
+    if((emps||[]).some(e=>(!editU||e.id!==editU.id)&&String(e.email||'').trim().toLowerCase()===String(uf.email).trim().toLowerCase()))
+      return alert('이미 같은 이메일의 직원이 있습니다: '+uf.email);
+    let err=null;
+    if(editU){const r=await db('emp').update({...uf}).eq('id',editU.id);err=r.error;}
+    else{const r=await db('emp').insert({...uf,status:'active',used_leave:0});err=r.error;}
+    if(err)return alert('저장 실패: '+err.message);
+    try{bnfToast(editU?'✅ 직원 정보 수정됨':'✅ 직원 추가됨 — 초기 비밀번호: '+uf.password);}catch(e){}
     /* 비밀번호가 바뀌면 서버 인증(Auth) 계정도 함께 갱신 — 로그인 이중화 동기화 */
     if(pwChanged){
       try{
@@ -7637,7 +7654,7 @@ function PageAdmin({user}){
           R('span',{style:{width:8,height:8,borderRadius:'50%',background:'#22C55E',display:'inline-block'}}),
           R('span',{style:{fontSize:12,fontWeight:800,color:'#15803D'}},'현재 접속 ',onlineCnt,'명'),
           R('span',{style:{fontSize:10,color:'#4ADE80'}},'· 20초마다 갱신')),
-        R('button',{className:'btn bp',onClick:()=>{setEditU(null);setShowUF(true);}},'+ 직원 추가')),
+        R('button',{className:'btn bp',onClick:openAddU},'+ 직원 추가')),
       R('div',{className:'tw'},
         R('table',null,
           R('thead',null,R('tr',null,
