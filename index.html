@@ -4817,6 +4817,174 @@ function equipState(r){
   return{k:'ok',t:'D-'+d,c:'#15803D',bg:'#F0FDF4'};
 }
 
+/* ═══ 설비 제원 — 공장 설비 사양 대장 (app_state id=1 bnf_pm_equip_spec) ═══
+   [{_id,name,no,place,maker,model,year,spec,power,qty,owner,note,files:[],at,by}] */
+function PageEquipSpec({user}){
+  const KEY='bnf_pm_equip_spec';
+  const[rows,setRows]=useState(null);
+  const[q,setQ]=useState('');
+  const[placeF,setPlaceF]=useState('전체');
+  const[busy,setBusy]=useState(false);
+  const[upBusy,setUpBusy]=useState(false);
+  const[edit,setEdit]=useState(null);   /* 등록/수정 모달 대상 (null=닫힘, {}=신규) */
+  const[view,setView]=useState(null);   /* 상세 보기 대상 */
+  const fileRef=useRef(null);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      const{error}=await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+      if(error)throw error;
+      setRows(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  const upFiles=async(listIn)=>{
+    const files=Array.from(listIn||[]).filter(Boolean);
+    if(!files.length)return[];
+    setUpBusy(true);
+    const out=[];
+    for(const file of files){
+      try{
+        if(file.size>100*1024*1024){alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 건너뜁니다.');continue;}
+        const safe=(file.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path='pm_equip_spec/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,file);
+        if(error)throw error;
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+        out.push({name:file.name||'파일',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||''});
+      }catch(e){alert('"'+(file.name||'파일')+'" 업로드 실패: '+e.message);}
+    }
+    setUpBusy(false);
+    return out;
+  };
+  const save=async()=>{
+    const f=edit;
+    if(!f.name||!f.name.trim())return alert('설비명을 입력하세요.');
+    let next;
+    if(f._id)next=(rows||[]).map(r=>r._id===f._id?Object.assign({},f,{at:now2(),by:user.name}):r);
+    else next=[...(rows||[]),Object.assign({},f,{_id:'es'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),at:now2(),by:user.name})];
+    await persist(next);
+    setEdit(null);
+  };
+  const del=async(r)=>{
+    if(!confirm('['+r.name+'] 설비를 목록에서 삭제할까요?'))return;
+    await persist((rows||[]).filter(x=>x._id!==r._id));
+    setView(null);
+  };
+  if(rows===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
+  const places=Array.from(new Set(rows.map(r=>String(r.place||'').trim()).filter(Boolean)));
+  const nq=String(q||'').toLowerCase();
+  const shown=rows.filter(r=>
+    (placeF==='전체'||String(r.place||'').trim()===placeF)&&
+    (!nq||[r.name,r.no,r.maker,r.model,r.spec,r.power,r.owner,r.note].some(v=>String(v||'').toLowerCase().includes(nq))));
+  const imgOf=r=>((r.files||[]).find(f=>/^image\//.test(f.mime||''))||{}).url||'';
+  const fld=(l,k,ph,opt)=>R('div',opt&&opt.full?{style:{gridColumn:'1 / -1'}}:null,
+    R('label',{className:'lbl'},l),
+    (opt&&opt.ta)
+      ?R('textarea',{className:'inp',value:edit[k]||'',rows:2,onChange:e=>setEdit(p=>Object.assign({},p,{[k]:e.target.value})),placeholder:ph||'',style:{resize:'vertical',minHeight:54}})
+      :R('input',{className:'inp',value:edit[k]||'',onChange:e=>setEdit(p=>Object.assign({},p,{[k]:e.target.value})),placeholder:ph||''}));
+  const infoRow=(l,v)=>String(v||'').trim()?R('div',{style:{display:'flex',gap:8,padding:'6px 0',borderBottom:'1px solid var(--bd2,#F0EBE6)'}},
+    R('div',{style:{width:96,fontSize:11.5,fontWeight:700,color:'var(--tm)',flexShrink:0}},l),
+    R('div',{style:{fontSize:12.5,whiteSpace:'pre-wrap',wordBreak:'break-word'}},v)):null;
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'📐 설비 제원'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'공장 설비의 사양·위치·도입 정보를 한곳에서 관리합니다')),
+      R('button',{className:'btn bp',onClick:()=>setEdit({name:'',no:'',place:'',maker:'',model:'',year:'',spec:'',power:'',qty:'',owner:'',note:'',files:[]}),style:{padding:'8px 18px'}},'+ 설비 등록')),
+    R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12}},
+      R('input',{className:'inp',placeholder:'🔍 설비명·번호·제조사·모델·규격 검색',value:q,onChange:e=>setQ(e.target.value),style:{maxWidth:320}}),
+      R('button',{className:'btn btn-sm '+(placeF==='전체'?'bp':'bw'),onClick:()=>setPlaceF('전체')},'전체 '+rows.length),
+      ...places.map(p=>R('button',{key:p,className:'btn btn-sm '+(placeF===p?'bp':'bw'),onClick:()=>setPlaceF(placeF===p?'전체':p)},p+' '+rows.filter(r=>String(r.place||'').trim()===p).length))),
+    shown.length===0
+      ?R('div',{className:'card',style:{textAlign:'center',padding:'46px 20px',border:'2px dashed var(--bd)'}},
+         R('div',{style:{fontSize:38,marginBottom:8}},'📐'),
+         R('div',{style:{fontSize:13.5,fontWeight:700,marginBottom:4}},rows.length?'검색 결과가 없습니다':'등록된 설비가 없습니다'),
+         R('div',{style:{fontSize:12,color:'var(--tm)'}},'[+ 설비 등록]으로 설비명·제조사·모델·규격·전기 사양·사진을 등록해보세요'))
+      :R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}},
+        ...shown.map(r=>{
+          const img=imgOf(r);
+          return R('div',{key:r._id,className:'card',onClick:()=>setView(r),
+            style:{padding:0,overflow:'hidden',cursor:'pointer'}},
+            img?R('div',{style:{height:140,background:'#F4F1EE url('+img+') center/cover no-repeat'}}):
+                R('div',{style:{height:64,background:'#F4F1EE',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}},'🛠'),
+            R('div',{style:{padding:'12px 14px'}},
+              R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:4,flexWrap:'wrap'}},
+                R('span',{style:{fontSize:14.5,fontWeight:800}},r.name),
+                r.no&&R('span',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',background:'#F4F1EE',borderRadius:6,padding:'1px 7px'}},r.no)),
+              R('div',{style:{fontSize:11.5,color:'var(--tm)',display:'flex',gap:8,flexWrap:'wrap'}},
+                r.place&&R('span',null,'📍 '+r.place),
+                (r.maker||r.model)&&R('span',null,'🏭 '+[r.maker,r.model].filter(Boolean).join(' ')),
+                r.year&&R('span',null,'📆 '+r.year)),
+              (r.spec||r.power)&&R('div',{style:{fontSize:11.5,marginTop:6,color:'var(--t)',whiteSpace:'pre-wrap',maxHeight:54,overflow:'hidden'}},[r.spec,r.power].filter(Boolean).join(' · '))));
+        })),
+    /* ── 상세 보기 모달 ── */
+    view&&R(Portal,null,R('div',{className:'mbg',onClick:()=>setView(null)},
+      R('div',{className:'mbox',onClick:e=>e.stopPropagation(),style:{maxWidth:560,width:'100%',maxHeight:'92vh'}},
+        R('div',{className:'mhdr'},
+          R('div',null,
+            R('div',{style:{fontSize:15,fontWeight:800}},'📐 '+view.name),
+            R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},(view.by?'등록·수정: '+view.by:'')+(view.at?' · '+view.at:''))),
+          R('button',{onClick:()=>setView(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
+        R('div',{className:'mbody'},
+          infoRow('관리번호',view.no),infoRow('위치',view.place),infoRow('제조사',view.maker),infoRow('모델명',view.model),
+          infoRow('제작·도입',view.year),infoRow('규격·용량',view.spec),infoRow('전기 사양',view.power),infoRow('수량',view.qty),
+          infoRow('담당자',view.owner),infoRow('비고',view.note),
+          (view.files||[]).length>0&&R('div',{style:{marginTop:12}},
+            R('div',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)',marginBottom:6}},'📎 사진·파일'),
+            R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+              ...(view.files||[]).map((f,i)=>/^image\//.test(f.mime||'')
+                ?R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer'},R('img',{src:f.url,style:{width:96,height:96,objectFit:'cover',borderRadius:8,border:'1px solid var(--bd)'}}))
+                :R('a',{key:i,href:f.url,target:'_blank',rel:'noreferrer',className:'btn bw btn-sm'},'📄 '+f.name)))),
+          R('div',{style:{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}},
+            R('button',{className:'btn bd2 btn-sm',onClick:()=>del(view)},'삭제'),
+            R('button',{className:'btn bp',onClick:()=>{setEdit(Object.assign({},view));setView(null);}},'✏️ 수정'))))))
+    ,
+    /* ── 등록/수정 모달 ── */
+    edit&&R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+      R('div',{className:'mbox',style:{maxWidth:600,width:'100%',maxHeight:'92vh'}},
+        R('div',{className:'mhdr'},
+          R('div',{style:{fontSize:15,fontWeight:800}},edit._id?'✏️ 설비 수정':'➕ 설비 등록'),
+          R('button',{onClick:()=>setEdit(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
+        R('div',{className:'mbody'},
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            fld('설비명 *','name','예) 살균기 1호'),
+            fld('관리번호','no','예) EQ-2F-01'),
+            fld('위치','place','예) 2층 생산실'),
+            fld('제조사','maker','예) 한국기계'),
+            fld('모델명','model','예) HK-500'),
+            fld('제작·도입연도','year','예) 2023년 도입'),
+            fld('규격·용량','spec','예) 500L, 1600×900×1800mm',{full:1,ta:1}),
+            fld('전기 사양','power','예) 380V 3상, 15kW',{full:1}),
+            fld('수량','qty','예) 2대'),
+            fld('담당자','owner','예) 김철수'),
+            fld('비고','note','A/S 연락처, 소모품 등',{full:1,ta:1})),
+          R('div',{style:{marginTop:12}},
+            R('div',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)',marginBottom:6}},'📎 사진·파일 (설비 사진, 매뉴얼 PDF 등)'),
+            R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}},
+              ...(edit.files||[]).map((f,i)=>R('span',{key:i,style:{display:'inline-flex',gap:4,alignItems:'center',fontSize:11,background:'#F4F1EE',borderRadius:8,padding:'4px 8px'}},
+                /^image\//.test(f.mime||'')?R('img',{src:f.url,style:{width:30,height:30,objectFit:'cover',borderRadius:5}}):'📄',
+                f.name,
+                R('button',{onClick:()=>setEdit(p=>Object.assign({},p,{files:p.files.filter((_,j)=>j!==i)})),style:{background:'none',border:'none',cursor:'pointer',color:'var(--err)',fontWeight:800}},'×'))),
+              R('button',{className:'btn bw btn-sm',onClick:()=>fileRef.current&&fileRef.current.click()},upBusy?'업로드 중...':'+ 파일 추가'),
+              R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},
+                onChange:async e=>{const m=await upFiles(e.target.files);e.target.value='';if(m.length)setEdit(p=>Object.assign({},p,{files:[...(p.files||[]),...m]}));}}))),
+          R('div',{style:{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}},
+            R('button',{className:'btn bs',onClick:()=>setEdit(null)},'취소'),
+            R('button',{className:'btn bp',onClick:save,disabled:busy||upBusy},busy?'저장 중...':'저장'))))))
+  );
+}
+
 function PageCycleCheck({user,title,ic,desc,storeKey,nameLabel,namePh,placeLabel,resultOpts,seedList,withFiles,catsKey,catList}){
   const KEY=storeKey||'bnf_pm_equip';
   const withCats=!!catsKey;
@@ -16265,6 +16433,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'pm_workorder',l:'작업지시서',ic:'📋'},
     {id:'pm_staffing',l:'인원배치',ic:'👥'},
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
+    {id:'pm_spec',l:'설비 제원',ic:'📐'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -16319,6 +16488,13 @@ function loadNavSections(){
             }
             if(s.type==='admin'&&!hasItem('salesStat')){
               newItems.unshift({id:'salesStat',l:'매출 현황',ic:'💵'});
+              changed=true;
+            }
+            /* 생산관리 섹션에 설비 제원 없으면 설비 점검 다음에 추가 (2026-09-29) */
+            if(s.type==='dept_pm'&&!hasItem('pm_spec')){
+              const ei=newItems.findIndex(it=>it.id==='pm_equip');
+              const sItem={id:'pm_spec',l:'설비 제원',ic:'📐'};
+              if(ei>=0)newItems.splice(ei+1,0,sItem);else newItems.push(sItem);
               changed=true;
             }
             /* 관리자 섹션에 사업계획 없으면 원가분석 다음에 추가 (2026-09-29) */
@@ -20695,6 +20871,7 @@ function App(){
     if(page==='trend')return R(PageTrend,{user});
     if(page==='pm_workorder')return R(PageWorkOrder,{user});
     if(page==='pm_staffing')return R(PagePMStaffing,{user});
+    if(page==='pm_spec')return R(PageEquipSpec,{user});
     if(page==='rnd_sched')return R(PageRndSched,{user});
     if(page==='rnd_search')return R(PageRecipeSearch,{user});
     if(page==='receivables')return R(PageReceivablesWrap,{user});
