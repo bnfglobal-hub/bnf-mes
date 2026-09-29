@@ -1346,24 +1346,28 @@ const SCHED_GRID_SECS=[
   {k:'rnd',  l:'R&D',      n:2, bg:'#FCE4D6'},
   {k:'note', l:'비 고',    n:1, bg:'#FFFFFF'}
 ];
-function SchedGrid({weekStart}){
+function SchedGrid({weekStart,gridFs,gridColW,onColW}){
   /* weekStart는 월요일 — 양식은 일요일 시작이므로 하루 앞으로 */
   const sun=addDD(weekStart,-1);
   const days=Array.from({length:7},(_,i)=>addDD(sun,i));
   const DOW=['일','월','화','수','목','금','토'];
   const path='sched/'+weekStart+'-grid.json';
   const[cells,setCells]=useState(null);   /* {sec_row_day: text} */
+  const[styles,setStyles]=useState({});   /* {sec_row_day: {b:1, fs:14}} 칸별 서식 */
+  const[curKey,setCurKey]=useState(null); /* 마지막으로 선택한 칸 (서식 버튼 대상) */
   const[st,setSt]=useState('');           /* 저장 상태 표기 */
   const dirty=useRef(false);
   const timer=useRef(null);
   const cellsRef=useRef(null);
+  const stylesRef=useRef(null);
   cellsRef.current=cells;
+  stylesRef.current=styles;
   const load=async(silent)=>{
     if(!silent)setSt('불러오는 중...');
     try{
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
-      if(res.ok){const j=await res.json();if(!dirty.current)setCells((j&&j.cells)||{});}
+      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});}}
       else if(!dirty.current)setCells({});
     }catch(e){if(!dirty.current)setCells({});}
     if(!silent)setSt('');
@@ -1378,18 +1382,30 @@ function SchedGrid({weekStart}){
     const cur=cellsRef.current;if(!cur)return;
     setSt('저장 중...');
     try{
-      const body=JSON.stringify({cells:cur,at:new Date().toISOString()});
+      const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},at:new Date().toISOString()});
       const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
       dirty.current=false;
       setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
     }catch(e){setSt('저장 실패 — 잠시 후 자동 재시도');setTimeout(()=>{if(dirty.current||cellsRef.current)save();},5000);}
   };
-  const setCell=(key,v)=>{
+  const queueSave=()=>{
     dirty.current=true;
-    setCells(p=>({...(p||{}),[key]:v}));
     if(timer.current)clearTimeout(timer.current);
     timer.current=setTimeout(()=>save(),1200);
+  };
+  const setCell=(key,v)=>{setCells(p=>({...(p||{}),[key]:v}));queueSave();};
+  /* 선택한 칸의 서식(굵게·글자 크기) 변경 — 표와 함께 저장돼 전 직원 동일하게 보임 */
+  const setStyle=(patch)=>{
+    if(!curKey){alert('먼저 서식을 바꿀 칸을 클릭해 선택하세요.');return;}
+    setStyles(p=>{
+      const cur={...((p||{})[curKey]||{})};
+      Object.keys(patch).forEach(k=>{if(patch[k]===null)delete cur[k];else cur[k]=patch[k];});
+      const next={...(p||{})};
+      if(Object.keys(cur).length)next[curKey]=cur;else delete next[curKey];
+      return next;
+    });
+    queueSave();
   };
   const copyPrevWeek=async()=>{
     if(cells&&Object.values(cells).some(v=>String(v||'').trim())&&!confirm('이번 주 표에 이미 내용이 있습니다. 지난주 내용으로 덮어쓸까요?'))return;
@@ -1399,7 +1415,7 @@ function SchedGrid({weekStart}){
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
       if(!res.ok)return alert('지난주 편집 표가 없습니다.');
       const j=await res.json();
-      dirty.current=true;setCells((j&&j.cells)||{});
+      dirty.current=true;setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});
       if(timer.current)clearTimeout(timer.current);
       timer.current=setTimeout(()=>save(),400);
     }catch(e){alert('복사 실패: '+e.message);}
@@ -1430,11 +1446,36 @@ function SchedGrid({weekStart}){
   /* 섹션별 전역 행 번호 (키보드 이동용) */
   const secWithBase=(()=>{let b=0;return SCHED_GRID_SECS.map(s=>{const o={...s,base:b};b+=s.n;return o;});})();
   if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'표 불러오는 중...');
+  const baseFs=gridFs||12;
   const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
-  const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',fontSize:12,lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
+  const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
+  /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
+  const colw=i=>{const v=gridColW&&gridColW['c'+i];return v?{width:v}:(i===0?{width:74}:(i===1||i===7?{width:88}:{}));};
+  /* 머리글 경계 드래그 → 열 너비 조절 (전 주차 공통, 이 기기에 저장) */
+  const startResize=(i)=>e=>{
+    e.preventDefault();e.stopPropagation();
+    const startX=e.clientX;
+    const th=e.target.closest('th');
+    const startW=th?th.getBoundingClientRect().width:100;
+    const move=ev=>{const w=Math.max(46,Math.round(startW+(ev.clientX-startX)));if(onColW)onColW(p=>({...(p||{}),['c'+i]:w}));};
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);};
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+  };
+  const resizeHandle=(i)=>R('div',{onMouseDown:startResize(i),title:'드래그해서 열 너비 조절',
+    style:{position:'absolute',top:0,right:-4,width:8,height:'100%',cursor:'col-resize',zIndex:3}});
+  const curSt=curKey?((styles||{})[curKey]||{}):{};
+  const fmtBtn=(txt,on,fn,title)=>R('button',{className:'btn bw btn-sm',title:title,
+    onMouseDown:e=>e.preventDefault(),onClick:fn,
+    style:{fontWeight:800,minWidth:34,padding:'4px 8px',...(on?{borderColor:'var(--p)',color:'var(--p)',background:'var(--pb)'}:{})}},txt);
   return R('div',null,
-    R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
-      R('span',{style:{fontSize:11,color:'var(--tm)'}},'칸을 눌러 바로 입력 — 입력을 멈추면 자동 저장되어 전 직원에게 공유됩니다'),
+    R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},'칸 클릭 후 입력 · 자동 저장'),
+      R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
+      R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'선택 칸 서식:'),
+      fmtBtn('B',!!curSt.b,()=>setStyle({b:curSt.b?null:1}),'선택 칸 굵게 켜기/끄기'),
+      fmtBtn('가−',false,()=>setStyle({fs:Math.max(10,(curSt.fs||baseFs)-1)}),'선택 칸 글자 작게'),
+      fmtBtn('가+',false,()=>setStyle({fs:Math.min(20,(curSt.fs||baseFs)+1)}),'선택 칸 글자 크게'),
+      fmtBtn('⌫',false,()=>setStyle({b:null,fs:null}),'선택 칸 서식 지우기'),
       R('div',{style:{flex:1}}),
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
       R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
@@ -1442,14 +1483,13 @@ function SchedGrid({weekStart}){
     R('div',{style:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
       R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}},
         R('colgroup',null,
-          R('col',{style:{width:74}}),R('col',{style:{width:88}}),
-          ...[0,0,0,0,0].map((_,i)=>R('col',{key:i})),
-          R('col',{style:{width:88}})),
+          R('col',{style:colw(0)}),
+          ...days.map((_,i)=>R('col',{key:i,style:colw(i+1)}))),
         R('thead',null,R('tr',null,
-          R('th',{style:{...tdBase,background:'#F4F1EE',padding:'6px 4px',fontSize:11}},''),
+          R('th',{style:{...tdBase,position:'relative',background:'#F4F1EE',padding:'6px 4px',fontSize:11}},'',resizeHandle(0)),
           ...days.map((d,i)=>{const td=isToday(d);
-            return R('th',{key:d,style:{...tdBase,background:td?'#FFF3EC':'#F4F1EE',padding:'6px 4px',fontSize:12,fontWeight:800,color:i===0?'#DC2626':i===6?'#2563EB':'var(--t)'}},
-              fSD(d)+' ('+DOW[i]+')'+(td?' · 오늘':''));}))),
+            return R('th',{key:d,style:{...tdBase,position:'relative',background:td?'#FFF3EC':'#F4F1EE',padding:'6px 4px',fontSize:12,fontWeight:800,color:i===0?'#DC2626':i===6?'#2563EB':'var(--t)'}},
+              fSD(d)+' ('+DOW[i]+')'+(td?' · 오늘':''),resizeHandle(i+1));}))),
         R('tbody',null,
           ...secWithBase.flatMap(sec=>
             Array.from({length:sec.n},(_,ri)=>R('tr',{key:sec.k+ri},
@@ -1457,12 +1497,13 @@ function SchedGrid({weekStart}){
               ...days.map((d,di)=>{
                 const key=sec.k+'_'+ri+'_'+di;
                 /* 오늘 열도 섹션 색 그대로 (오늘 표시는 머리글에만) */
+                const stl=(styles||{})[key]||{};
                 return R('td',{key:key,style:{...tdBase,background:sec.bg}},
                   R('textarea',{value:cells[key]||'',rows:1,'data-sg':(sec.base+ri)+'_'+di,
                     onChange:e=>{setCell(key,e.target.value);autoH(e);},
                     onKeyDown:navKey(sec.base+ri,di),
-                    onFocus:autoH,onInput:autoH,
-                    style:taBase}));
+                    onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
+                    style:{...taBase,fontSize:stl.fs||baseFs,fontWeight:stl.b?800:400}}));
               })
             ))
           )
@@ -1482,6 +1523,11 @@ function PageProdSchedule(){
   const[zoomOpen,setZoomOpen]=useState(false);
   const[mode,setMode]=useState('auto');     /* auto | grid(직접 편집 표) | paste(이미지·엑셀) */
   const[hasGrid,setHasGrid]=useState(false);
+  /* 편집 표 보기 설정 (이 기기에 저장): 전체 글자 크기 · 열 너비 */
+  const[gridFs,setGridFs]=useState(()=>{try{return +localStorage.getItem('bnf_sg_fs')||12;}catch(e){return 12;}});
+  const[gridColW,setGridColW]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_sg_colw')||'{}');}catch(e){return{};}});
+  useEffect(()=>{try{localStorage.setItem('bnf_sg_fs',String(gridFs));}catch(e){}},[gridFs]);
+  useEffect(()=>{try{localStorage.setItem('bnf_sg_colw',JSON.stringify(gridColW));}catch(e){}},[gridColW]);
   const fileRef=useRef(null);
   const days=Array.from({length:7},(_,i)=>addDD(weekStart,i));
   const isAdmin=(()=>{try{const u=JSON.parse(localStorage.getItem('bnf_user')||'{}');return ['superadmin','admin','manager'].includes(u.role);}catch(e){return false;}})();
@@ -1675,6 +1721,14 @@ function PageProdSchedule(){
           [['grid','✏️ 직접 편집 표'],['paste','🖼 이미지·엑셀 붙여넣기']].map(([v,l])=>
             R('button',{key:v,className:'tab'+(effMode===v?' act':''),onClick:()=>setMode(v)},l))),
         effMode==='grid'?R('div',null,
+          /* 표 전체 보기 설정: 글자 크기 · 열 너비 초기화 */
+          R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:10,flexWrap:'wrap'}},
+            R('span',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)'}},'표 전체 글자'),
+            R('button',{className:'btn bw btn-sm',onClick:()=>setGridFs(f=>Math.max(10,f-1))},'가−'),
+            R('span',{style:{fontSize:12,fontWeight:800,minWidth:34,textAlign:'center'}},gridFs+'px'),
+            R('button',{className:'btn bw btn-sm',onClick:()=>setGridFs(f=>Math.min(18,f+1))},'가+'),
+            R('span',{style:{fontSize:10.5,color:'var(--tm)',marginLeft:8}},'열 너비: 날짜 머리글 오른쪽 경계를 잡고 드래그'),
+            Object.keys(gridColW).length>0&&R('button',{className:'btn bw btn-sm',onClick:()=>setGridColW({})},'열 너비 초기화')),
           /* 이번주 기준 +3주까지 한 화면에서 입력 (주차별로 따로 저장) */
           ...[0,7,14,21].map(off=>{
             const ws=addDD(weekStart,off);
@@ -1685,7 +1739,7 @@ function PageProdSchedule(){
                 R('span',{style:{fontSize:13.5,fontWeight:800,color:hasToday?'var(--p)':'var(--t)'}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
                 hasToday&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'이번주'),
                 off>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},'+'+(off/7)+'주')),
-              R(SchedGrid,{weekStart:ws}));
+              R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW}));
           })
         ):
         R('div',null,
