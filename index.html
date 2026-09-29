@@ -10045,11 +10045,15 @@ function PageTrade({kind}){
             ytdPrev>0?pctBadge(pct(ytd,ytdPrev),11):R('span',{style:{fontSize:10,color:'var(--tm)'}},'작년 데이터 없음'))
         )
       ),
-      /* ── 거래처 증감 분석 — 작년 동기 대비 하락·중단 거래처 (이카운트 거래처별 월집계) ── */
-      (comp==='hq'?custMHq:custM)&&(()=>{
-        const cmSrc=comp==='hq'?custMHq:custM;      /* 본사 탭이면 본사 집계, 그 외 이천공장 집계 */
-        const cmAt=comp==='hq'?custMHqAt:custMAt;
-        const srcLabel=comp==='hq'?'본사(171542)':'이천공장(600860)';
+      /* ── 거래처 증감 분석 — 작년 동기 대비 하락·중단 거래처 (이카운트 거래처별 월집계) ──
+         본사(171542)는 화면 자동수집의 거래처별 집계 정확도 검증이 끝날 때까지 표시하지 않는다
+         (연합계는 위하고와 대조 검증 완료, 거래처별은 조회조건 미반영 문제 조사 중) */
+      comp==='hq'&&R('div',{className:'card',style:{padding:'14px 16px',marginBottom:14,color:'var(--tm)',fontSize:12.5}},
+        '🧭 본사 거래처 증감 분석은 수집 정확도 검증 중입니다 — 준비되면 자동으로 표시됩니다. (이천공장 탭에서는 지금도 사용 가능)'),
+      comp!=='hq'&&custM&&(()=>{
+        const cmSrc=custM;
+        const cmAt=custMAt;
+        const srcLabel='이천공장(600860)';
         const f=isS?'sales':'buy';
         const who=isS?'매출처':'매입처';
         const maxM=(+year===cy)?(cmIdx+1):12;   /* 올해면 이번달까지, 과거 연도면 12개월 */
