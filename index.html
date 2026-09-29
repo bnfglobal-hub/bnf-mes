@@ -7223,29 +7223,32 @@ function PageApproval({user}){
       const myTurn=allDocs.filter(isMyTurn);
       const mineDocs=allDocs.filter(d=>d.writer_id===user.id);
       const cnt=st=>mineDocs.filter(d=>d.status===st).length;
-      const card=(label,value,color,bg,onClick)=>R('div',{key:label,onClick,
-        style:{flex:'1 1 130px',minWidth:120,background:bg,border:'1px solid '+color+'33',borderRadius:12,padding:'12px 14px',cursor:onClick?'pointer':'default'}},
-        R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:700,marginBottom:4}},label),
-        R('div',{style:{fontSize:24,fontWeight:900,color:color,lineHeight:1.1}},value,R('span',{style:{fontSize:12,fontWeight:700,marginLeft:2}},'건'))
+      const card=(label,value,color,bg,onClick,hot)=>R('div',{key:label,onClick,
+        style:{flex:hot?'1.4 1 180px':'1 1 150px',minWidth:140,background:bg,
+               border:hot?'2.5px solid '+color:'1px solid '+color+'33',borderRadius:14,
+               padding:hot?'18px 18px':'16px 16px',cursor:onClick?'pointer':'default',
+               boxShadow:hot?'0 4px 14px '+color+'2E':'none'}},
+        R('div',{style:{fontSize:hot?14:12.5,color:hot?color:'var(--tm)',fontWeight:800,marginBottom:6}},label),
+        R('div',{style:{fontSize:hot?40:32,fontWeight:900,color:color,lineHeight:1.05}},value,R('span',{style:{fontSize:15,fontWeight:700,marginLeft:3}},'건'))
       );
-      return R('div',{style:{marginBottom:14}},
+      return R('div',{style:{marginBottom:16}},
         R('div',{style:{display:'flex',gap:10,flexWrap:'wrap',marginBottom:myTurn.length?12:0}},
-          card('⏳ 내가 결재할 문서',myTurn.length,'#D94F1E','#FFF7ED',()=>setTab('pending')),
+          card('⏳ 내가 결재할 문서',myTurn.length,'#D94F1E','#FFF7ED',()=>setTab('pending'),true),
           card('📤 내 기안 · 결재중',cnt('결재중'),'#2563EB','#EFF6FF',()=>setTab('mine')),
           card('✅ 내 기안 · 승인',cnt('승인'),'#15803D','#F0FDF4',()=>setTab('mine')),
           card('❌ 내 기안 · 반려',cnt('반려'),'#DC2626','#FEF2F2',()=>setTab('mine'))
         ),
-        /* 결재할 문서 바로 보기 */
-        myTurn.length>0&&R('div',{className:'card',style:{border:'1px solid #FED7AA',background:'#FFFBF7'}},
-          R('div',{style:{fontSize:12,fontWeight:800,color:'#9A3412',marginBottom:8}},'⏳ 지금 내 차례인 결재 ',myTurn.length,'건'),
+        /* 결재할 문서 바로 보기 — 첫눈에 들어오게 크게 */
+        myTurn.length>0&&R('div',{className:'card',style:{border:'2px solid #FDBA74',background:'#FFFBF7'}},
+          R('div',{style:{fontSize:15.5,fontWeight:900,color:'#9A3412',marginBottom:10}},'⏳ 지금 내 차례인 결재 ',myTurn.length,'건 — 눌러서 바로 결재하세요'),
           ...myTurn.slice(0,5).map(d=>R('div',{key:d.id,onClick:()=>setSel(d),
-            style:{display:'flex',gap:8,alignItems:'center',padding:'7px 0',borderTop:'1px solid #FDE9D9',cursor:'pointer',fontSize:13}},
+            style:{display:'flex',gap:10,alignItems:'center',padding:'11px 8px',borderTop:'1px solid #FDE9D9',cursor:'pointer',fontSize:14.5,borderRadius:8}},
             R(Bdg2,{cls:'b-g',txt:fTypes.find(f=>f.v===d.form_type)?.l||'기안'}),
-            R('span',{style:{fontWeight:600,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},d.title),
-            R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},d.emp?.name||'',' · ',fDate(d.created_at)),
-            R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700,flexShrink:0}},'결재 →')
+            R('span',{style:{fontWeight:700,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},d.title),
+            R('span',{style:{fontSize:12,color:'var(--tm)',flexShrink:0}},d.emp?.name||'',' · ',fDate(d.created_at)),
+            R('span',{style:{fontSize:13,color:'#fff',background:'var(--p)',fontWeight:800,flexShrink:0,borderRadius:8,padding:'5px 13px'}},'결재 →')
           )),
-          myTurn.length>5&&R('div',{onClick:()=>setTab('pending'),style:{fontSize:11,color:'var(--p)',fontWeight:700,paddingTop:8,cursor:'pointer',textAlign:'right'}},'전체 ',myTurn.length,'건 보기 →')
+          myTurn.length>5&&R('div',{onClick:()=>setTab('pending'),style:{fontSize:12,color:'var(--p)',fontWeight:700,paddingTop:10,cursor:'pointer',textAlign:'right'}},'전체 ',myTurn.length,'건 보기 →')
         )
       );
     })(),
@@ -7253,7 +7256,14 @@ function PageApproval({user}){
       '⚠ 결재 문서를 불러오지 못했습니다: ',loadErr,
       R('div',{style:{fontSize:11.5,fontWeight:500,marginTop:4,color:'#B91C1C'}},'새로고침(F5) 후에도 반복되면 로그아웃 후 다시 로그인해주세요.'),
       R('button',{className:'btn bs',style:{marginTop:8,fontSize:12},onClick:()=>load()},'↻ 다시 시도')),
-    R('div',{className:'tab-row'},[['mine','내 기안'],['pending','결재 대기'],['involved','참여 문서']].map(([v,l])=>R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v)},l))),
+    (()=>{
+      const nMyTurn=allDocs.filter(isMyTurn).length;
+      return R('div',{className:'tab-row',style:{marginBottom:10}},
+        [['mine','📤 내 기안',0],['pending','⏳ 결재 대기',nMyTurn],['involved','👥 참여 문서',0]].map(([v,l,n])=>
+          R('button',{key:v,className:'tab'+(tab===v?' act':''),onClick:()=>setTab(v),
+            style:{fontSize:15,fontWeight:800,padding:'14px 10px'}},
+            l,n>0&&R('span',{style:{marginLeft:7,background:'#D94F1E',color:'#fff',fontSize:12,fontWeight:800,borderRadius:999,padding:'2px 9px'}},n))));
+    })(),
     R('div',{style:{fontSize:11,color:'var(--tm)',margin:'0 0 8px 2px'}},'🔒 결재 문서는 기안자·결재자·참조자만 볼 수 있습니다.'),
     R('div',{style:{marginBottom:10}},R('input',{className:'inp',value:docQ,onChange:e=>setDocQ(e.target.value),placeholder:'🔍 제목·기안자 검색',style:{maxWidth:320}})),
     R('div',{className:'tw'},
@@ -7268,10 +7278,10 @@ function PageApproval({user}){
             const nf=(d.content&&Array.isArray(d.content.__files))?d.content.__files.length:0;
             return R('tr',{key:d.id,style:{cursor:'pointer'},onClick:()=>setSel(d)},
               R('td',null,R(Bdg2,{cls:ASTAT[d.status]||'b-g',txt:d.status})),
-              R('td',{style:{fontSize:11,color:'var(--tm)'}},fTypes.find(f=>f.v===d.form_type)?.l),
-              R('td',{style:{fontWeight:500}},d.title,nf>0&&R('span',{style:{marginLeft:6,fontSize:11,color:'var(--tm)'}},'📎'+nf)),
-              R('td',{style:{fontSize:11,color:'var(--tm)'}},d.emp?.name),
-              R('td',{style:{fontSize:11,color:'var(--tm)'}},fDate(d.created_at)),
+              R('td',{style:{fontSize:12.5,color:'var(--tm)'}},fTypes.find(f=>f.v===d.form_type)?.l),
+              R('td',{style:{fontWeight:700,fontSize:14.5,padding:'13px 10px'}},d.title,nf>0&&R('span',{style:{marginLeft:6,fontSize:11,color:'var(--tm)'}},'📎'+nf)),
+              R('td',{style:{fontSize:12.5,color:'var(--tm)'}},d.emp?.name),
+              R('td',{style:{fontSize:12.5,color:'var(--tm)'}},fDate(d.created_at)),
               R('td',{style:{whiteSpace:'nowrap'}},canEdit(d)&&R('span',{style:{display:'inline-flex',gap:4}},
                 R('button',{title:'수정',onClick:e=>{e.stopPropagation();openEdit(d);},style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'✏️'),
                 R('button',{title:'삭제',onClick:e=>{e.stopPropagation();delDoc(d);},style:{border:'1px solid #FECACA',background:'#fff',color:'#DC2626',borderRadius:6,padding:'2px 7px',fontSize:11,cursor:'pointer',fontFamily:'inherit'}},'🗑')
@@ -7285,7 +7295,8 @@ function PageApproval({user}){
     showF&&R(Modal2,{title:editId?'결재 문서 수정':'결재 기안',onClose:()=>{setShowF(false);resetForm();},size:560,footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},R('button',{className:'btn bs',onClick:()=>{setShowF(false);resetForm();},style:{flex:1}},'취소'),R('button',{className:'btn bp',onClick:submit,disabled:upBusy,style:{flex:2}},upBusy?'업로드 중...':(editId?'수정 저장':'기안')))},draftBody()
     ),
     /* ── 목록 아래 바로 기안 입력 ── */
-    !showF&&R('div',{className:'card',style:{marginTop:14,padding:'20px 22px',border:'1.5px solid #FFDCCC',background:'linear-gradient(180deg,#FFFDFB,#FFF8F4)'}},
+    !showF&&R('div',{className:'card',style:{marginTop:14,padding:'20px 22px',border:'1.5px solid #FFDCCC',background:'linear-gradient(180deg,#FFFDFB,#FFF8F4)',
+        width:'100%',maxWidth:'50%',minWidth:360,boxSizing:'border-box'}},
       R('div',{style:{fontSize:14,fontWeight:800,marginBottom:12}},'✍ 바로 기안하기'),
       draftBody(),
       R('div',{style:{display:'flex',gap:8,marginTop:14}},
@@ -11193,26 +11204,27 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     if(!apprStat)return R('div',{className:'card'},R('div',{style:{fontSize:12,color:'var(--tm)'}},'📋 전자결재 불러오는 중...'));
     const{myTurn,mine}=apprStat;
     const cnt=st=>mine.filter(d=>d.status===st).length;
-    const pill=(label,value,color,bg)=>R('div',{key:label,style:{background:bg,borderRadius:10,padding:'9px 10px',textAlign:'center'}},
-      R('div',{style:{fontSize:19,fontWeight:900,color:color,lineHeight:1.1}},value),
-      R('div',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700,marginTop:2}},label));
+    const pill=(label,value,color,bg,hot)=>R('div',{key:label,style:{background:bg,borderRadius:12,padding:'16px 12px',textAlign:'center',
+        border:hot?'2px solid '+color:'1px solid '+color+'22'}},
+      R('div',{style:{fontSize:32,fontWeight:900,color:color,lineHeight:1.1}},value),
+      R('div',{style:{fontSize:13,color:hot?color:'var(--tm)',fontWeight:800,marginTop:5}},label));
     return R('div',{className:'card',style:{cursor:'pointer'},onClick:()=>onGoPage('approval')},
-      R('div',{style:{display:'flex',alignItems:'center',marginBottom:10}},
-        R('div',{className:'card-title',style:{margin:0}},'📋 전자결재'),
-        myTurn.length>0&&R('span',{style:{marginLeft:8,background:'#D94F1E',color:'#fff',fontSize:10,fontWeight:800,borderRadius:10,padding:'2px 8px'}},'내 차례 '+myTurn.length),
-        R('span',{style:{marginLeft:'auto',fontSize:11,color:'var(--p)',fontWeight:700}},'바로가기 →')
+      R('div',{style:{display:'flex',alignItems:'center',marginBottom:12}},
+        R('div',{className:'card-title',style:{margin:0,fontSize:16}},'📋 전자결재'),
+        myTurn.length>0&&R('span',{style:{marginLeft:10,background:'#D94F1E',color:'#fff',fontSize:12,fontWeight:800,borderRadius:12,padding:'3px 11px'}},'⏳ 내가 결재할 문서 '+myTurn.length+'건'),
+        R('span',{style:{marginLeft:'auto',fontSize:12,color:'var(--p)',fontWeight:700}},'바로가기 →')
       ),
-      R('div',{className:'appr-stats',style:{marginBottom:myTurn.length?10:0}},
-        pill('내 차례',myTurn.length,'#D94F1E','#FFF7ED'),
+      R('div',{className:'appr-stats',style:{marginBottom:myTurn.length?12:0}},
+        pill('⏳ 내가 결재할 문서',myTurn.length,'#D94F1E','#FFF7ED',myTurn.length>0),
         pill('내 기안 진행중',cnt('결재중'),'#2563EB','#EFF6FF'),
         pill('승인',cnt('승인'),'#15803D','#F0FDF4'),
         pill('반려',cnt('반려'),'#DC2626','#FEF2F2')
       ),
-      myTurn.length>0&&R('div',{style:{borderTop:'1px solid var(--bd)',paddingTop:8}},
-        ...myTurn.slice(0,3).map(d=>R('div',{key:d.id,style:{display:'flex',gap:6,alignItems:'center',fontSize:12,padding:'3px 0'}},
+      myTurn.length>0&&R('div',{style:{borderTop:'1px solid var(--bd)',paddingTop:10}},
+        ...myTurn.slice(0,3).map(d=>R('div',{key:d.id,style:{display:'flex',gap:8,alignItems:'center',fontSize:13.5,padding:'5px 0'}},
           R('span',{style:{color:'#D94F1E',fontWeight:800,flexShrink:0}},'⏳'),
-          R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},d.title),
-          R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},d.emp?.name||'')
+          R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:600}},d.title),
+          R('span',{style:{fontSize:11.5,color:'var(--tm)',flexShrink:0}},d.emp?.name||'')
         ))
       )
     );
