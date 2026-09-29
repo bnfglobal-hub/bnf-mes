@@ -1334,6 +1334,118 @@ function ImageZoomModal({src,title,onClose}){
   );
 }
 
+/* ═══ 주간 스케줄 편집 표 — 엑셀 양식 그대로 (일~토 · 휴무/일정/입출고/층별 생산/R&D/비고) ═══ */
+const SCHED_GRID_SECS=[
+  {k:'off',  l:'휴무',      n:1, bg:'#FFFFFF'},
+  {k:'work', l:'업무 일정', n:1, bg:'#FFFFFF'},
+  {k:'meet', l:'미팅 일정', n:1, bg:'#DDE3F8'},
+  {k:'in',   l:'입고 예정', n:3, bg:'#FFFFFF'},
+  {k:'out',  l:'출고 예정', n:3, bg:'#F5F2F6'},
+  {k:'f2',   l:'2층 생산',  n:2, bg:'#DEEAF6'},
+  {k:'f1',   l:'1층 생산',  n:4, bg:'#E2EFDA'},
+  {k:'rnd',  l:'R&D',      n:2, bg:'#FCE4D6'},
+  {k:'note', l:'비 고',    n:1, bg:'#FFFFFF'}
+];
+function SchedGrid({weekStart}){
+  /* weekStart는 월요일 — 양식은 일요일 시작이므로 하루 앞으로 */
+  const sun=addDD(weekStart,-1);
+  const days=Array.from({length:7},(_,i)=>addDD(sun,i));
+  const DOW=['일','월','화','수','목','금','토'];
+  const path='sched/'+weekStart+'-grid.json';
+  const[cells,setCells]=useState(null);   /* {sec_row_day: text} */
+  const[st,setSt]=useState('');           /* 저장 상태 표기 */
+  const dirty=useRef(false);
+  const timer=useRef(null);
+  const cellsRef=useRef(null);
+  cellsRef.current=cells;
+  const load=async(silent)=>{
+    if(!silent)setSt('불러오는 중...');
+    try{
+      const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+      const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+      if(res.ok){const j=await res.json();if(!dirty.current)setCells((j&&j.cells)||{});}
+      else if(!dirty.current)setCells({});
+    }catch(e){if(!dirty.current)setCells({});}
+    if(!silent)setSt('');
+  };
+  useEffect(()=>{dirty.current=false;setCells(null);load();},[weekStart]);
+  /* 다른 사람 수정 반영: 편집 중(dirty)이 아닐 때만 20초마다 */
+  useEffect(()=>{
+    const t=setInterval(()=>{if(!document.hidden&&!dirty.current)load(true);},20000);
+    return()=>clearInterval(t);
+  },[weekStart]);
+  const save=async()=>{
+    const cur=cellsRef.current;if(!cur)return;
+    setSt('저장 중...');
+    try{
+      const body=JSON.stringify({cells:cur,at:new Date().toISOString()});
+      const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+      if(error)throw error;
+      dirty.current=false;
+      setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+    }catch(e){setSt('저장 실패 — 잠시 후 자동 재시도');setTimeout(()=>{if(dirty.current||cellsRef.current)save();},5000);}
+  };
+  const setCell=(key,v)=>{
+    dirty.current=true;
+    setCells(p=>({...(p||{}),[key]:v}));
+    if(timer.current)clearTimeout(timer.current);
+    timer.current=setTimeout(()=>save(),1200);
+  };
+  const copyPrevWeek=async()=>{
+    if(cells&&Object.values(cells).some(v=>String(v||'').trim())&&!confirm('이번 주 표에 이미 내용이 있습니다. 지난주 내용으로 덮어쓸까요?'))return;
+    try{
+      const pv='sched/'+addDD(weekStart,-7)+'-grid.json';
+      const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(pv);
+      const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+      if(!res.ok)return alert('지난주 편집 표가 없습니다.');
+      const j=await res.json();
+      dirty.current=true;setCells((j&&j.cells)||{});
+      if(timer.current)clearTimeout(timer.current);
+      timer.current=setTimeout(()=>save(),400);
+    }catch(e){alert('복사 실패: '+e.message);}
+  };
+  const autoH=e=>{e.target.style.height='auto';e.target.style.height=Math.min(160,e.target.scrollHeight)+'px';};
+  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'표 불러오는 중...');
+  const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
+  const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',fontSize:12,lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
+  return R('div',null,
+    R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},'칸을 눌러 바로 입력 — 입력을 멈추면 자동 저장되어 전 직원에게 공유됩니다'),
+      R('div',{style:{flex:1}}),
+      st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
+      R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
+      R('button',{className:'btn bs btn-sm',onClick:copyPrevWeek},'📋 지난주 내용 복사')),
+    R('div',{style:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
+      R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}},
+        R('colgroup',null,
+          R('col',{style:{width:74}}),R('col',{style:{width:88}}),
+          ...[0,0,0,0,0].map((_,i)=>R('col',{key:i})),
+          R('col',{style:{width:88}})),
+        R('thead',null,R('tr',null,
+          R('th',{style:{...tdBase,background:'#F4F1EE',padding:'6px 4px',fontSize:11}},''),
+          ...days.map((d,i)=>{const td=isToday(d);
+            return R('th',{key:d,style:{...tdBase,background:td?'#FFF3EC':'#F4F1EE',padding:'6px 4px',fontSize:12,fontWeight:800,color:i===0?'#DC2626':i===6?'#2563EB':'var(--t)'}},
+              fSD(d)+' ('+DOW[i]+')'+(td?' · 오늘':''));}))),
+        R('tbody',null,
+          ...SCHED_GRID_SECS.flatMap(sec=>
+            Array.from({length:sec.n},(_,ri)=>R('tr',{key:sec.k+ri},
+              ri===0&&R('td',{rowSpan:sec.n,style:{...tdBase,background:'#F4F1EE',textAlign:'center',fontWeight:800,fontSize:12,verticalAlign:'middle',padding:'4px 2px'}},sec.l),
+              ...days.map((d,di)=>{
+                const key=sec.k+'_'+ri+'_'+di;
+                return R('td',{key:key,style:{...tdBase,background:isToday(d)?'#FFFDF5':sec.bg}},
+                  R('textarea',{value:cells[key]||'',rows:1,
+                    onChange:e=>{setCell(key,e.target.value);autoH(e);},
+                    onFocus:autoH,onInput:autoH,
+                    style:taBase}));
+              })
+            ))
+          )
+        )
+      )
+    ),
+    R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 색 구분: 미팅(파랑) · 2층 생산(하늘) · 1층 생산(초록) · R&D(주황) — 기존 엑셀 양식과 동일 · 주차별로 따로 저장'));
+}
+
 function PageProdSchedule(){
   /* 주간 생산 스케줄 - 엑셀 캡처 이미지를 주차별로 올려서 보는 전용 뷰어 */
   const[weekStart,setWeekStart]=useState(getMonday(today2()));
@@ -1342,6 +1454,8 @@ function PageProdSchedule(){
   const[loading,setLoading]=useState(true);
   const[uploading,setUploading]=useState(false);
   const[zoomOpen,setZoomOpen]=useState(false);
+  const[mode,setMode]=useState('auto');     /* auto | grid(직접 편집 표) | paste(이미지·엑셀) */
+  const[hasGrid,setHasGrid]=useState(false);
   const fileRef=useRef(null);
   const days=Array.from({length:7},(_,i)=>addDD(weekStart,i));
   const isAdmin=(()=>{try{const u=JSON.parse(localStorage.getItem('bnf_user')||'{}');return ['superadmin','admin','manager'].includes(u.role);}catch(e){return false;}})();
@@ -1358,11 +1472,12 @@ function PageProdSchedule(){
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi,'');
   const[srcWeek,setSrcWeek]=useState(null); /* 지금 화면에 표시 중인 스케줄이 저장된 주차 */
   const loadImg=async()=>{
-    setLoading(true);setImg(null);setHtmlDoc(null);setSrcWeek(null);
+    setLoading(true);setImg(null);setHtmlDoc(null);setSrcWeek(null);setHasGrid(false);
     try{
       /* 특정 주차의 저장본(이미지·표)을 불러온다. 둘 다 있으면 나중에 저장한 쪽 */
       const loadWeek=async(wk)=>{
         const{data:ls}=await sbClient.storage.from('bnf-files').list('sched',{search:wk});
+        if(wk===weekStart&&Array.isArray(ls)&&ls.find(x=>x.name===wk+'-grid.json'))setHasGrid(true);
         const f=Array.isArray(ls)?ls.find(x=>x.name===wk+'.jpg'):null;
         const fh=Array.isArray(ls)?ls.find(x=>x.name===wk+'.html'):null;
         const useHtml=fh&&(!f||new Date(fh.updated_at||fh.created_at||0)>=new Date(f.updated_at||f.created_at||0));
@@ -1464,6 +1579,8 @@ function PageProdSchedule(){
   useEffect(()=>{
     if(!isAdmin)return;
     const onPaste=(e)=>{
+      /* 편집 표의 칸(textarea)이나 다른 입력칸에 붙여넣는 중이면 개입하지 않는다 */
+      if(e.target&&/^(TEXTAREA|INPUT)$/.test(e.target.tagName))return;
       const items=(e.clipboardData||{}).items||[];
       for(let i=0;i<items.length;i++){
         if(items[i].type.indexOf('image')!==-1){
@@ -1524,6 +1641,15 @@ function PageProdSchedule(){
       )
     ),
     R('div',{style:{textAlign:'center',fontSize:15,fontWeight:800,color:'var(--p)',padding:'8px',background:'#FFF8F4',borderRadius:10,marginBottom:14}},fmtRange()),
+    /* ── 보기 전환: 직접 편집 표 ↔ 이미지·엑셀 붙여넣기 ── */
+    (()=>{
+      const effMode=mode!=='auto'?mode:(hasGrid?'grid':((img||htmlDoc)?'paste':'grid'));
+      return R('div',null,
+        R('div',{className:'tab-row',style:{maxWidth:420,marginBottom:12}},
+          [['grid','✏️ 직접 편집 표'],['paste','🖼 이미지·엑셀 붙여넣기']].map(([v,l])=>
+            R('button',{key:v,className:'tab'+(effMode===v?' act':''),onClick:()=>setMode(v)},l))),
+        effMode==='grid'?R(SchedGrid,{weekStart}):
+        R('div',null,
     srcWeek&&srcWeek!==weekStart&&!loading&&R('div',{style:{textAlign:'center',fontSize:11.5,fontWeight:700,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'7px 12px',marginBottom:12}},
       '📌 이 주에 등록된 스케줄이 없어 '+srcWeek+' 주에 등록한 스케줄을 계속 표시하고 있습니다 (삭제하기 전까지 유지 · 새로 붙여넣으면 이번 주 것으로 등록됩니다)'),
 
@@ -1555,7 +1681,10 @@ function PageProdSchedule(){
         R('div',{style:{fontSize:14,fontWeight:700,marginBottom:6}},'이 주차의 스케줄이 없습니다'),
         R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:16}},isAdmin?'엑셀에서 스케줄 범위를 복사(Ctrl+C)한 뒤 여기서 Ctrl+V 하면 표가 그대로 들어옵니다. 캡처 이미지 붙여넣기·파일 올리기도 가능합니다':'관리자가 스케줄을 등록하면 여기에 표시됩니다'),
         isAdmin&&R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),style:{padding:'10px 24px'}},uploading?'업로드 중...':'📷 이미지 파일 올리기')
-      ),
+      )
+        )
+      );
+    })(),
     R('input',{ref:fileRef,type:'file',accept:'image/*',onChange:handleFile,style:{display:'none'}}),
     R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:12,textAlign:'center'}},'※ 캡처 후 이 화면에서 Ctrl+V로 바로 붙여넣을 수 있습니다. 또는 이미지 파일을 올려도 됩니다. 주차별로 따로 저장됩니다.'),
     zoomOpen&&img&&R(ImageZoomModal,{src:img,title:'생산 스케줄 '+fmtRange(),onClose:()=>setZoomOpen(false)})
@@ -9483,6 +9612,8 @@ function PageTrade({kind}){
   const[dataHq,setDataHq]=useState({});      /* 본사 월별 (profit_analysis_hq) */
   const[custM,setCustM]=useState(null);      /* 거래처별 월 매출/매입 (id=4 customer_monthly, 600860) */
   const[custMAt,setCustMAt]=useState(null);
+  const[custMHq,setCustMHq]=useState(null);  /* 본사(171542) 거래처별 월 집계 (customer_monthly_hq) */
+  const[custMHqAt,setCustMHqAt]=useState(null);
   const[custQ,setCustQ]=useState('');        /* 거래처 분석 검색 */
   const[custOpen,setCustOpen]=useState(null);/* 월별 추이 펼친 거래처 key */
   const[custAll,setCustAll]=useState(false); /* 성장 거래처까지 전체 보기 */
@@ -9508,10 +9639,12 @@ function PageTrade({kind}){
         setLoaded(true);
       }).catch(()=>setLoaded(true));
       /* 거래처별 월 집계 (BNF Customer Sync가 매일 07:50 저장, 최근 36개월) */
-      sbClient.from('app_state').select('cm:state_data->customer_monthly,cma:state_data->>customer_monthly_at').eq('id',4).maybeSingle().then(({data:d})=>{
+      sbClient.from('app_state').select('cm:state_data->customer_monthly,cma:state_data->>customer_monthly_at,cmh:state_data->customer_monthly_hq,cmha:state_data->>customer_monthly_hq_at').eq('id',4).maybeSingle().then(({data:d})=>{
         if(!alive||!d)return;
         if(d.cm&&typeof d.cm==='object')setCustM(d.cm);
         if(d.cma)setCustMAt(d.cma);
+        if(d.cmh&&typeof d.cmh==='object')setCustMHq(d.cmh);
+        if(d.cmha)setCustMHqAt(d.cmha);
       }).catch(()=>{});
     };
     load();
@@ -9819,15 +9952,18 @@ function PageTrade({kind}){
             ytdPrev>0?pctBadge(pct(ytd,ytdPrev),11):R('span',{style:{fontSize:10,color:'var(--tm)'}},'작년 데이터 없음'))
         )
       ),
-      /* ── 거래처 증감 분석 — 작년 동기 대비 하락·중단 거래처 (이카운트 거래처별 월집계, 600860) ── */
-      comp!=='hq'&&custM&&(()=>{
+      /* ── 거래처 증감 분석 — 작년 동기 대비 하락·중단 거래처 (이카운트 거래처별 월집계) ── */
+      (comp==='hq'?custMHq:custM)&&(()=>{
+        const cmSrc=comp==='hq'?custMHq:custM;      /* 본사 탭이면 본사 집계, 그 외 이천공장 집계 */
+        const cmAt=comp==='hq'?custMHqAt:custMAt;
+        const srcLabel=comp==='hq'?'본사(171542)':'이천공장(600860)';
         const f=isS?'sales':'buy';
         const who=isS?'매출처':'매입처';
         const maxM=(+year===cy)?(cmIdx+1):12;   /* 올해면 이번달까지, 과거 연도면 12개월 */
         const acc={};
         const add=(y,slot)=>{
           for(let i=0;i<maxM;i++){
-            const mo=custM[y+'-'+MONTHS[i]];if(!mo)continue;
+            const mo=cmSrc[y+'-'+MONTHS[i]];if(!mo)continue;
             Object.keys(mo).forEach(k=>{
               const v=+((mo[k]||{})[f])||0;
               if(!v&&!acc[k])return;
@@ -9869,10 +10005,10 @@ function PageTrade({kind}){
               R('div',{style:{display:'grid',gridTemplateColumns:'44px repeat(12,minmax(52px,1fr))',gap:3,minWidth:640,fontSize:10.5}},
                 R('div',null,''),...MONTHS.map(mm=>R('div',{key:mm,style:{textAlign:'right',color:'var(--tm)',fontWeight:700}},(+mm)+'월')),
                 R('div',{style:{fontWeight:800,color:accent}},year),
-                ...MONTHS.map(mm=>{const mo=custM[year+'-'+mm];const v=+(((mo||{})[x.k]||{})[f])||0;
+                ...MONTHS.map(mm=>{const mo=cmSrc[year+'-'+mm];const v=+(((mo||{})[x.k]||{})[f])||0;
                   return R('div',{key:'c'+mm,style:{textAlign:'right',fontWeight:v?700:400,color:v?'var(--t)':'#D9D2CB'}},v?fmtW(v):'-');}),
                 R('div',{style:{fontWeight:800,color:'var(--tm)'}},year-1),
-                ...MONTHS.map(mm=>{const mo=custM[(year-1)+'-'+mm];const v=+(((mo||{})[x.k]||{})[f])||0;
+                ...MONTHS.map(mm=>{const mo=cmSrc[(year-1)+'-'+mm];const v=+(((mo||{})[x.k]||{})[f])||0;
                   return R('div',{key:'p'+mm,style:{textAlign:'right',color:v?'var(--tm)':'#D9D2CB'}},v?fmtW(v):'-');}))));
         });
         const secHdr=(t,arr,color,bg)=>arr.length>0&&R('div',{style:{margin:'12px 0 2px',display:'flex',alignItems:'center',gap:8}},
@@ -9888,7 +10024,7 @@ function PageTrade({kind}){
           R('div',{className:'card-hdr',style:{flexWrap:'wrap',gap:8}},
             R('div',null,
               R('div',{className:'card-title',style:{fontSize:14}},'🧭 '+who+' 증감 분석 — '+year+'년 1~'+maxM+'월 vs '+(year-1)+'년 동기'),
-              R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'이천공장(600860) 거래처별 집계 · 공급가액'+(custMAt?(' · '+fDate(custMAt)+' 수집'):'')+' · 행을 누르면 월별 추이')),
+              R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},srcLabel+' 거래처별 집계 · 공급가액'+(cmAt?(' · '+fDate(cmAt)+' 수집'):'')+' · 행을 누르면 월별 추이')),
             R('input',{className:'inp',value:custQ,onChange:e=>setCustQ(e.target.value),placeholder:'🔍 거래처 검색',style:{maxWidth:200,padding:'6px 10px',fontSize:12}})),
           R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:4}},
             chip2('⛔ 거래 중단 '+gone.length,'#B91C1C','#FEF2F2'),
