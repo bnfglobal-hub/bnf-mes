@@ -1346,7 +1346,7 @@ const SCHED_GRID_SECS=[
   {k:'rnd',  l:'R&D',      n:2, bg:'#FCE4D6'},
   {k:'note', l:'비 고',    n:1, bg:'#FFFFFF'}
 ];
-function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
+function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   /* weekStart는 월요일 — 양식은 일요일 시작이므로 하루 앞으로
      edit=false면 보기 전용(연속 보기), flat이면 바깥 테두리 없이 이어붙는 형태 */
   const sun=addDD(weekStart,-1);
@@ -1566,7 +1566,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
                           onKeyDown:navKey(sec,ri,di),
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
                           style:{...taBase,textAlign:'left',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                      :R('div',{style:{display:'flex',alignItems:'center',justifyContent:'flex-start',textAlign:'left',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
+                      :R('div',{onDoubleClick:()=>onDblCell&&onDblCell(sgId(sec.base+ri,di)),title:'더블클릭하면 편집',style:{display:'flex',alignItems:'center',justifyContent:'flex-start',textAlign:'left',cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이 조절 */
                     edit&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-3,height:6,cursor:'row-resize',zIndex:2}}));
@@ -1716,6 +1716,16 @@ function PageProdSchedule(){
   const[mode,setMode]=useState('auto');     /* auto | grid(직접 편집 표) | paste(이미지·엑셀) */
   const[hasGrid,setHasGrid]=useState(false);
   const[schedEdit,setSchedEdit]=useState(false); /* 기본은 보기(연속) — [✏️ 편집] 버튼으로 전환 */
+  const[weeksCnt,setWeeksCnt]=useState(4);       /* 한 화면에 보이는 주차 수 — [차주 스케줄 추가]로 늘림 */
+  /* 보기 모드에서 칸 더블클릭 → 편집 모드 전환 + 그 칸에 커서 */
+  const dblToEdit=(sg)=>{
+    setSchedEdit(true);
+    setTimeout(()=>{
+      const el=document.querySelector('textarea[data-sg="'+sg+'"]');
+      if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){}
+        try{el.scrollIntoView({block:'center'});}catch(e){}}
+    },450);
+  };
   /* 편집 표 보기 설정 (이 기기에 저장): 전체 글자 크기 · 열 너비 */
   const[gridFs,setGridFs]=useState(()=>{try{return +localStorage.getItem('bnf_sg_fs')||12;}catch(e){return 12;}});
   const[gridColW,setGridColW]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_sg_colw')||'{}');}catch(e){return{};}});
@@ -2070,24 +2080,34 @@ function PageProdSchedule(){
             R('button',{className:'btn '+(schedEdit?'bp':'bw'),onClick:()=>setSchedEdit(v=>!v),
               style:{padding:'7px 16px',fontWeight:800}},schedEdit?'✅ 편집 완료':'✏️ 편집')),
           schedEdit?
-            /* 편집 모드: 주차별 머리띠와 함께 (이번주 기준 +3주까지, 주차별로 따로 저장) */
-            R('div',null,...[0,7,14,21].map(off=>{
-              const ws=addDD(weekStart,off);
-              const sun=addDD(ws,-1);
-              const hasToday=Array.from({length:7},(_,i)=>addDD(sun,i)).some(isToday);
-              return R('div',{key:ws,style:{marginBottom:26}},
-                R('div',{style:{display:'flex',alignItems:'center',gap:8,margin:'0 0 8px',padding:'7px 12px',background:hasToday?'#FFF3EC':'#F6F3F0',borderLeft:'4px solid '+(hasToday?'var(--p)':'#D9D2CB'),borderRadius:8}},
-                  R('span',{style:{fontSize:13.5,fontWeight:800,color:hasToday?'var(--p)':'var(--t)'}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
-                  hasToday&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'이번주'),
-                  off>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},'+'+(off/7)+'주')),
-                R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true}));
-            }))
-          :
-            /* 보기 모드: 엑셀처럼 4주가 한 장으로 끊김 없이 이어짐 (주 사이 날짜 머리글로 구분) */
-            R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflow:'hidden',background:'#fff'}},
-              ...[0,7,14,21].map(off=>{
+            /* 편집 모드: 주차별 머리띠와 함께 (이번주 기준 연속 주차, 주차별로 따로 저장) */
+            R('div',null,
+              ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
                 const ws=addDD(weekStart,off);
-                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true});
+                const sun=addDD(ws,-1);
+                const hasToday=Array.from({length:7},(_,i)=>addDD(sun,i)).some(isToday);
+                return R('div',{key:ws,style:{marginBottom:26}},
+                  R('div',{style:{display:'flex',alignItems:'center',gap:8,margin:'0 0 8px',padding:'7px 12px',background:hasToday?'#FFF3EC':'#F6F3F0',borderLeft:'4px solid '+(hasToday?'var(--p)':'#D9D2CB'),borderRadius:8}},
+                    R('span',{style:{fontSize:13.5,fontWeight:800,color:hasToday?'var(--p)':'var(--t)'}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
+                    hasToday&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'이번주'),
+                    off>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},'+'+(off/7)+'주')),
+                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true}));
+              }),
+              /* 제일 하단: 차주 스케줄 추가 */
+              (()=>{
+                const nw=addDD(weekStart,weeksCnt*7);
+                const nsun=addDD(nw,-1);
+                return R('button',{onClick:()=>setWeeksCnt(n=>Math.min(26,n+1)),
+                  style:{display:'block',width:'100%',padding:'16px',border:'2px dashed var(--p)',borderRadius:12,
+                         background:'#FFF9F5',color:'var(--p)',fontSize:14.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
+                  '➕ 차주 스케줄 추가 — '+fSD(nsun)+' ~ '+fSD(addDD(nsun,6))+' 표 열기');
+              })())
+          :
+            /* 보기 모드: 엑셀처럼 주차들이 한 장으로 끊김 없이 이어짐 (칸 더블클릭 → 편집) */
+            R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflow:'hidden',background:'#fff'}},
+              ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
+                const ws=addDD(weekStart,off);
+                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true,onDblCell:dblToEdit});
               }))
         ):
         R('div',null,
