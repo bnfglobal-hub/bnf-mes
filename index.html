@@ -1357,6 +1357,9 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const[styles,setStyles]=useState({});   /* {sec_row_day: {b:1, fs:14}} 칸별 서식 */
   const[rows,setRows]=useState({});       /* {sec: 행수} 섹션별 줄 추가/삭제 (함께 저장) */
   const[rowh,setRowh]=useState({});       /* {sec_행번호: px} 드래그로 조절한 줄 높이 (함께 저장) */
+  const[merges,setMerges]=useState({});   /* {sec_행_요일:{rs,cs}} 엑셀식 셀 병합 (함께 저장) */
+  const[selRange,setSelRange]=useState(null); /* 드래그 선택 범위 {k,r1,r2,c1,c2} */
+  const dragSel=useRef(null);
   const[curKey,setCurKey]=useState(null); /* 마지막으로 선택한 칸 (서식 버튼 대상) */
   const[st,setSt]=useState('');           /* 저장 상태 표기 */
   const dirty=useRef(false);
@@ -1365,16 +1368,18 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const stylesRef=useRef(null);
   const rowsRef=useRef(null);
   const rowhRef=useRef(null);
+  const mergesRef=useRef(null);
   cellsRef.current=cells;
   stylesRef.current=styles;
   rowsRef.current=rows;
   rowhRef.current=rowh;
+  mergesRef.current=merges;
   const load=async(silent)=>{
     if(!silent)setSt('불러오는 중...');
     try{
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
-      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});}}
+      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});}}
       else if(!dirty.current)setCells({});
     }catch(e){if(!dirty.current)setCells({});}
     if(!silent)setSt('');
@@ -1389,7 +1394,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     const cur=cellsRef.current;if(!cur)return;
     setSt('저장 중...');
     try{
-      const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},rows:rowsRef.current||{},rowh:rowhRef.current||{},at:new Date().toISOString()});
+      const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},rows:rowsRef.current||{},rowh:rowhRef.current||{},merges:mergesRef.current||{},at:new Date().toISOString()});
       const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
       dirty.current=false;
@@ -1422,7 +1427,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
       if(!res.ok)return alert('지난주 편집 표가 없습니다.');
       const j=await res.json();
-      dirty.current=true;setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});
+      dirty.current=true;setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});
       if(timer.current)clearTimeout(timer.current);
       timer.current=setTimeout(()=>save(),400);
     }catch(e){alert('복사 실패: '+e.message);}
@@ -1467,6 +1472,62 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     const move=ev=>{const h=Math.max(26,Math.min(420,Math.round(startH+(ev.clientY-startY))));setRowh(p=>({...(p||{}),[rk]:h}));};
     const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);queueSave();};
     document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+  };
+  /* ── 엑셀식 셀 병합: 같은 구역 안에서 드래그로 범위 선택 → [⧉ 합치기] (2026-10-01) ── */
+  useEffect(()=>{
+    const up=()=>{dragSel.current=null;};
+    document.addEventListener('mouseup',up);
+    return()=>document.removeEventListener('mouseup',up);
+  },[]);
+  const coveredKeys=(()=>{
+    const out={};
+    Object.keys(merges||{}).forEach(ak=>{
+      const p=ak.split('_');if(p.length!==3)return;
+      const m=merges[ak]||{};
+      for(let r=+p[1];r<+p[1]+(m.rs||1);r++)for(let c=+p[2];c<+p[2]+(m.cs||1);c++){
+        const kk=p[0]+'_'+r+'_'+c;
+        if(kk!==ak)out[kk]=1;
+      }
+    });
+    return out;
+  })();
+  const inSel=(k,ri,di)=>{
+    const sr=selRange;
+    return !!(sr&&sr.k===k&&ri>=sr.r1&&ri<=sr.r2&&di>=sr.c1&&di<=sr.c2);
+  };
+  const doMerge=()=>{
+    const sr=selRange;if(!sr)return;
+    const rs=sr.r2-sr.r1+1,cs=sr.c2-sr.c1+1;
+    if(rs*cs<2){setSelRange(null);return;}
+    const ak=sr.k+'_'+sr.r1+'_'+sr.c1;
+    const nxCells={...(cellsRef.current||{})};
+    const texts=[];
+    for(let r=sr.r1;r<=sr.r2;r++)for(let c=sr.c1;c<=sr.c2;c++){
+      const k=sr.k+'_'+r+'_'+c;
+      const v=String(nxCells[k]||'').trim();
+      if(v)texts.push(v);
+      if(k!==ak)delete nxCells[k];
+    }
+    nxCells[ak]=texts.join('\n');
+    setCells(nxCells);
+    setMerges(p=>{
+      const nx={...(p||{})};
+      Object.keys(nx).forEach(k=>{
+        const pp=k.split('_');if(pp.length!==3||pp[0]!==sr.k)return;
+        const m=nx[k]||{};
+        const r0=+pp[1],c0=+pp[2],r1=r0+(m.rs||1)-1,c1=c0+(m.cs||1)-1;
+        if(!(r1<sr.r1||r0>sr.r2||c1<sr.c1||c0>sr.c2))delete nx[k];
+      });
+      nx[ak]={rs,cs};
+      return nx;
+    });
+    setSelRange(null);
+    queueSave();
+  };
+  const unmerge=()=>{
+    if(!curKey||!(merges||{})[curKey])return;
+    setMerges(p=>{const nx={...(p||{})};delete nx[curKey];return nx;});
+    queueSave();
   };
   /* ── 엑셀식 키보드 이동: ↑↓←→ 셀 이동 · Enter 아래 칸 · Shift+Enter 줄바꿈 · Alt+Enter 줄 추가 ──
      여러 줄 입력과 충돌하지 않게 ↑는 첫 줄, ↓는 마지막 줄, ←→는 커서가 양 끝일 때만 이동.
@@ -1537,6 +1598,12 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
       fmtBtn('⌫',false,()=>setStyle({b:null,fs:null}),'선택 칸 서식 지우기'),
       R('span',{style:{fontSize:11.5,fontWeight:800,color:'var(--p)',background:'var(--pb,#FFF3EC)',borderRadius:8,padding:'3px 9px'}},
         '전체 '+baseFs+'pt · 선택 칸 '+(curKey?((curSt.fs?Math.max(9,Math.min(26,curSt.fs+baseFs-12)):baseFs)+'pt'):'—')),
+      /* 드래그로 범위를 선택하면 합치기 버튼 표시, 병합된 칸을 클릭하면 해제 버튼 표시 */
+      selRange&&R('span',{style:{fontSize:11.5,fontWeight:800,color:'#1D4ED8'}},
+        (selRange.r2-selRange.r1+1)*(selRange.c2-selRange.c1+1)+'칸 선택'),
+      selRange&&fmtBtn('⧉ 셀 합치기',false,doMerge,'드래그로 선택한 칸을 하나로 합치기'),
+      selRange&&fmtBtn('✕',false,()=>setSelRange(null),'선택 취소'),
+      (!selRange&&curKey&&(merges||{})[curKey])&&fmtBtn('⧉ 합치기 해제',false,unmerge,'이 칸의 병합 풀기'),
       R('div',{style:{flex:1}}),
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
       R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
@@ -1567,10 +1634,25 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                       style:{width:20,height:20,lineHeight:'16px',padding:0,border:'1px solid var(--bd)',borderRadius:5,background:'#fff',cursor:'pointer',fontSize:12,fontWeight:800,color:'var(--err)'}},'−'))),
                 ...days.map((d,di)=>{
                   const key=sec.k+'_'+ri+'_'+di;
+                  if(coveredKeys[key])return null;   /* 병합에 덮인 칸은 그리지 않음 */
                   /* 오늘 열도 섹션 색 그대로 (오늘 표시는 머리글에만) */
                   const stl=(styles||{})[key]||{};
+                  const mg=(merges||{})[key];
+                  const rs=mg?Math.max(1,Math.min(mg.rs||1,sec.n-ri)):1;
+                  const cs=mg?Math.max(1,Math.min(mg.cs||1,7-di)):1;
+                  const sel=edit&&inSel(sec.k,ri,di);
                   /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
-                  return R('td',{key:key,style:{...tdBase,position:'relative',background:sec.bg,verticalAlign:'middle',...(edit?{height:mh}:{})}},
+                  return R('td',{key:key,rowSpan:rs>1?rs:undefined,colSpan:cs>1?cs:undefined,
+                    onMouseDown:edit?()=>{dragSel.current={k:sec.k,ri,di};setSelRange(null);}:undefined,
+                    onMouseEnter:edit?()=>{
+                      const d0=dragSel.current;
+                      if(!d0||d0.k!==sec.k)return;
+                      if(d0.ri===ri&&d0.di===di)return;
+                      setSelRange({k:sec.k,r1:Math.min(d0.ri,ri),r2:Math.max(d0.ri,ri),c1:Math.min(d0.di,di),c2:Math.max(d0.di,di)});
+                      try{window.getSelection().removeAllRanges();}catch(e){}
+                    }:undefined,
+                    style:{...tdBase,position:'relative',background:sec.bg,verticalAlign:'middle',...(edit?{height:mh}:{}),
+                           ...(sel?{boxShadow:'inset 0 0 0 2.5px var(--p)',background:'#FFEFE5'}:{})}},
                     edit
                       ?R('textarea',{value:cells[key]||'',rows:1,'data-sg':sgId(sec.base+ri,di),
                           onChange:e=>{setCell(key,e.target.value);autoH(e);},
@@ -1590,7 +1672,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
         )
       )
     ),
-    edit&&R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 색 구분: 미팅(파랑) · 2층 생산(하늘) · 1층 생산(초록) · R&D(주황) — 왼쪽 라벨의 ＋/−로 줄 추가·삭제, 칸 아래 경계를 드래그하면 줄 높이 조절 · 주차별로 따로 저장'));
+    edit&&R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 색 구분: 미팅(파랑) · 2층 생산(하늘) · 1층 생산(초록) · R&D(주황) — 왼쪽 라벨의 ＋/−로 줄 추가·삭제, 칸 경계 드래그로 크기 조절, 같은 구역에서 칸을 드래그하면 범위 선택 → [⧉ 셀 합치기] · 주차별로 따로 저장'));
 }
 
 /* ═══ 사업계획 — 어떤 카테고리 사업을 성장시킬지 정리하는 보드 (app_state id=8) ═══ */
