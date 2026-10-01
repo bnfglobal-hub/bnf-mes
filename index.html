@@ -1503,7 +1503,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const startResize=(i)=>e=>{
     e.preventDefault();e.stopPropagation();
     const startX=e.clientX;
-    const th=e.target.closest('th');
+    const th=e.target.closest('th,td');
     const startW=th?th.getBoundingClientRect().width:100;
     const move=ev=>{const w=Math.max(46,Math.round(startW+(ev.clientX-startX)));if(onColW)onColW(p=>({...(p||{}),['c'+i]:w}));};
     const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);};
@@ -1530,7 +1530,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
       R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
       R('button',{className:'btn bs btn-sm',onClick:copyPrevWeek},'📋 지난주 내용 복사')),
-    R('div',{style:flat?{overflowX:'auto',background:'#fff'}:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
+    R('div',{style:flat?{background:'#fff'}:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
       R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}},
         R('colgroup',null,
           R('col',{style:colw(0)}),
@@ -1567,9 +1567,11 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
                           style:{...taBase,textAlign:'left',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
                       :R('div',{onDoubleClick:()=>onDblCell&&onDblCell(sgId(sec.base+ri,di)),title:'더블클릭하면 편집',style:{display:'flex',alignItems:'center',justifyContent:'flex-start',textAlign:'left',cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
-                    /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이 조절 */
+                    /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
                     edit&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
-                      style:{position:'absolute',left:0,right:0,bottom:-3,height:6,cursor:'row-resize',zIndex:2}}));
+                      style:{position:'absolute',left:0,right:0,bottom:-3,height:6,cursor:'row-resize',zIndex:2}}),
+                    edit&&R('div',{onMouseDown:startResize(di+1),title:'드래그해서 열 너비 조절',
+                      style:{position:'absolute',top:0,right:-3,width:6,height:'100%',cursor:'col-resize',zIndex:2}}));
                 })
               );
             })
@@ -2126,7 +2128,7 @@ function PageProdSchedule(){
               })())
           :
             /* 보기 모드: 엑셀처럼 주차들이 한 장으로 끊김 없이 이어짐 (칸 더블클릭 → 편집) */
-            R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflow:'hidden',background:'#fff'}},
+            R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflowX:'auto',overflowY:'hidden',background:'#fff'}},
               ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
                 const ws=addDD(weekStart,off);
                 return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true,onDblCell:dblToEdit});
