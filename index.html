@@ -1574,7 +1574,35 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
   const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
   /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
-  const colw=i=>{const v=gridColW&&gridColW['c'+i];return v?{width:v}:(i===0?{width:74}:(i===1||i===7?{width:88}:{}));};
+  /* 열 너비: 드래그로 넓힌 합이 화면보다 커지면 비율은 유지한 채 전체를 축소 —
+     토요일 열이 화면 밖으로 밀려 안 보이던 문제 방지 (2026-10-01) */
+  const wrapRef=useRef(null);
+  const[wrapW,setWrapW]=useState(0);
+  useEffect(()=>{
+    const m=()=>{try{if(wrapRef.current)setWrapW(wrapRef.current.clientWidth);}catch(e){}};
+    m();
+    window.addEventListener('resize',m);
+    const t=setInterval(m,1500);
+    return()=>{window.removeEventListener('resize',m);clearInterval(t);};
+  },[]);
+  const hasCustomW=!!(gridColW&&Object.keys(gridColW).length);
+  const colPx=(()=>{
+    if(!hasCustomW)return null;
+    const base=i=>{const v=gridColW&&gridColW['c'+i];if(v)return +v;return i===0?74:(i===1||i===7?88:170);};
+    let arr=Array.from({length:8},(_,i)=>base(i));
+    const total=arr.reduce((x,y)=>x+y,0);
+    const fit=Math.max(700,(wrapW||0)-2);
+    if(wrapW>0&&total>fit){
+      const sc=fit/total;
+      arr=arr.map((w,i)=>Math.max(i===0?52:44,Math.round(w*sc)));
+    }
+    return arr;
+  })();
+  const colw=i=>{
+    if(colPx)return{width:colPx[i]};
+    const v=gridColW&&gridColW['c'+i];
+    return v?{width:v}:(i===0?{width:74}:(i===1||i===7?{width:88}:{}));
+  };
   /* 머리글 경계 드래그 → 열 너비 조절 (전 주차 공통, 이 기기에 저장) */
   const startResize=(i)=>e=>{
     e.preventDefault();e.stopPropagation();
@@ -1625,8 +1653,8 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
       R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
       R('button',{className:'btn bs btn-sm',onClick:copyPrevWeek},'📋 지난주 내용 복사')),
-    R('div',{style:flat?{background:'#fff'}:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
-      R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:980,tableLayout:'fixed'}},
+    R('div',{ref:wrapRef,style:flat?{background:'#fff'}:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
+      R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:hasCustomW?700:980,tableLayout:'fixed'}},
         R('colgroup',null,
           R('col',{style:colw(0)}),
           ...days.map((_,i)=>R('col',{key:i,style:colw(i+1)}))),
