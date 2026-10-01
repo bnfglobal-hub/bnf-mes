@@ -1429,7 +1429,18 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   };
   const autoH=e=>{e.target.style.height='auto';e.target.style.height=Math.min(160,e.target.scrollHeight)+'px';};
   /* ── 섹션별 줄 추가/삭제: 저장된 행수(rows)가 있으면 양식 기본값 대신 사용 ── */
-  const effN=s=>Math.max(1,Math.min(12,(rows&&rows[s.k]!=null)?+rows[s.k]:s.n));
+  /* 행 수: 저장된 값 > 내용이 있는 마지막 줄까지(최소 1줄) — 빈 주차는 섹션당 1줄로 시작 (2026-10-01) */
+  const effN=s=>{
+    if(rows&&rows[s.k]!=null)return Math.max(1,Math.min(12,+rows[s.k]));
+    const c=cells||{};
+    let maxRi=0;
+    for(let ri=1;ri<12;ri++){
+      for(let di=0;di<7;di++){
+        if(String(c[s.k+'_'+ri+'_'+di]||'').trim()){maxRi=ri;break;}
+      }
+    }
+    return Math.max(1,Math.min(12,maxRi+1));
+  };
   const addRow=k=>{
     const def=SCHED_GRID_SECS.find(s=>s.k===k);if(!def)return;
     const n=effN(def);if(n>=12)return;
