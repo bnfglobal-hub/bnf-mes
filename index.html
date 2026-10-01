@@ -1870,17 +1870,19 @@ function PageProdSchedule(){
     const DOW=['일','월','화','수','목','금','토'];
     const days7=Array.from({length:7},(_,i)=>addDD(sun,i));
     const rows=[];
+    let any=false;
     SCHED_GRID_SECS.forEach(s=>{
       const n=Math.max(1,Math.min(12,(j.rows&&j.rows[s.k]!=null)?+j.rows[s.k]:s.n));
-      let first=true;
-      for(let ri=0;ri<n;ri++){
-        const cells=days7.map((_,di)=>String(j.cells[s.k+'_'+ri+'_'+di]||'').trim());
-        if(!cells.some(Boolean))continue;
-        rows.push({label:first?s.l:'',bg:s.bg,cells,al:(j.aligns&&j.aligns[s.k])||'left'});
-        first=false;
-      }
+      /* 모든 구역을 표에 포함 — 내용이 있는 마지막 줄까지, 비어 있어도 최소 1줄(R&D·비고 등) */
+      const secRows=[];
+      for(let ri=0;ri<n;ri++)
+        secRows.push(days7.map((_,di)=>String(j.cells[s.k+'_'+ri+'_'+di]||'').trim()));
+      let last=0;
+      secRows.forEach((cells,ri)=>{if(cells.some(Boolean)){last=ri;any=true;}});
+      for(let ri=0;ri<=last;ri++)
+        rows.push({label:ri===0?s.l:'',bg:s.bg,cells:secRows[ri],al:(j.aligns&&j.aligns[s.k])||'left'});
     });
-    if(!rows.length)return null;
+    if(!any)return null;
     /* 요일은 자르지 않는다 — 일~토 7일 전체 표시 (빈 줄만 제외) */
     return{ws,days:days7.map((d,i)=>fSD(d)+'('+DOW[i]+')'),rows};
   };
