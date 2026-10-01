@@ -1763,11 +1763,8 @@ function PageProdSchedule(){
       }
     });
     if(!rows.length)return null;
-    let lastD=0;
-    rows.forEach(r=>r.cells.forEach((c,i)=>{if(c)lastD=Math.max(lastD,i);}));
-    const nd=lastD+1;
-    return{ws,days:days7.slice(0,nd).map((d,i)=>fSD(d)+'('+DOW[i]+')'),
-           rows:rows.map(r=>({label:r.label,bg:r.bg,cells:r.cells.slice(0,nd)}))};
+    /* 요일은 자르지 않는다 — 일~토 7일 전체 표시 (빈 줄만 제외) */
+    return{ws,days:days7.map((d,i)=>fSD(d)+'('+DOW[i]+')'),rows};
   };
   const drawWeek=(t)=>{
     const fs=14,lh=Math.round(fs*1.5),pad=7,labW=92,headH=32,titleH=38;
