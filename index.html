@@ -1524,6 +1524,8 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
       fmtBtn('가−',false,()=>setStyle({fs:Math.max(10,(curSt.fs||baseFs)-1)}),'선택 칸 글자 작게'),
       fmtBtn('가+',false,()=>setStyle({fs:Math.min(20,(curSt.fs||baseFs)+1)}),'선택 칸 글자 크게'),
       fmtBtn('⌫',false,()=>setStyle({b:null,fs:null}),'선택 칸 서식 지우기'),
+      R('span',{style:{fontSize:11.5,fontWeight:800,color:'var(--p)',background:'var(--pb,#FFF3EC)',borderRadius:8,padding:'3px 9px'}},
+        '전체 '+baseFs+'pt · 선택 칸 '+(curKey?((curSt.fs?Math.max(9,Math.min(26,curSt.fs+baseFs-12)):baseFs)+'pt'):'—')),
       R('div',{style:{flex:1}}),
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
       R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
@@ -1556,14 +1558,15 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
                   const key=sec.k+'_'+ri+'_'+di;
                   /* 오늘 열도 섹션 색 그대로 (오늘 표시는 머리글에만) */
                   const stl=(styles||{})[key]||{};
-                  return R('td',{key:key,style:{...tdBase,position:'relative',background:sec.bg}},
+                  /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
+                  return R('td',{key:key,style:{...tdBase,position:'relative',background:sec.bg,verticalAlign:'middle',...(edit?{height:mh}:{})}},
                     edit
                       ?R('textarea',{value:cells[key]||'',rows:1,'data-sg':sgId(sec.base+ri,di),
                           onChange:e=>{setCell(key,e.target.value);autoH(e);},
                           onKeyDown:navKey(sec,ri,di),
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
-                          style:{...taBase,minHeight:mh,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                      :R('div',{style:{whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'4px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
+                          style:{...taBase,textAlign:'left',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
+                      :R('div',{style:{display:'flex',alignItems:'center',justifyContent:'flex-start',textAlign:'left',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이 조절 */
                     edit&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-3,height:6,cursor:'row-resize',zIndex:2}}));
