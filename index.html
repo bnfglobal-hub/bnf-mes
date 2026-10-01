@@ -1766,10 +1766,11 @@ function PageProdSchedule(){
     /* 요일은 자르지 않는다 — 일~토 7일 전체 표시 (빈 줄만 제외) */
     return{ws,days:days7.map((d,i)=>fSD(d)+'('+DOW[i]+')'),rows};
   };
-  const drawWeek=(t)=>{
-    const fs=14,lh=Math.round(fs*1.5),pad=7,labW=92,headH=32,titleH=38;
-    const colW=Math.max(150,Math.round((1480-labW)/t.days.length));
-    const W=labW+colW*t.days.length;
+  /* 여러 주를 세로로 이어 한 장의 이미지로 (ts = buildTrimmed 결과 배열) */
+  const drawWeeks=(ts)=>{
+    const fs=14,lh=Math.round(fs*1.5),pad=7,labW=92,headH=32,titleH=38,gap=18;
+    const colW=Math.max(150,Math.round((1480-labW)/7));
+    const W=labW+colW*7;
     const cv=document.createElement('canvas');
     const ctx=cv.getContext('2d');
     const bodyFont='500 '+fs+'px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
@@ -1786,74 +1787,94 @@ function PageProdSchedule(){
       });
       return out.length?out:[''];
     };
-    const rowHs=t.rows.map(r=>Math.max(1,...r.cells.map(c=>wrap(c,colW).length))*lh+pad*2);
-    const H=titleH+headH+rowHs.reduce((a,b)=>a+b,0)+2;
+    const blocks=ts.map(t=>{
+      const rowHs=t.rows.map(r=>Math.max(1,...r.cells.map(c=>wrap(c,colW).length))*lh+pad*2);
+      return{t,rowHs,h:titleH+headH+rowHs.reduce((a,b)=>a+b,0)};
+    });
+    const H=blocks.reduce((a,b)=>a+b.h,0)+gap*(blocks.length-1)+2;
     cv.width=W*2;cv.height=H*2;
     ctx.scale(2,2);
     ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
-    ctx.font='800 17px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
-    ctx.fillStyle='#D94F1E';
-    ctx.fillText('생산 스케줄  '+t.days[0]+' ~ '+t.days[t.days.length-1],10,25);
-    let y=titleH;
-    ctx.fillStyle='#F4F1EE';ctx.fillRect(0,y,W,headH);
-    ctx.font='800 13.5px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
-    ctx.fillStyle='#43403C';
-    t.days.forEach((d,i)=>ctx.fillText(d,labW+colW*i+pad,y+21));
-    y+=headH;
-    const ys=[titleH,y];
-    t.rows.forEach((r,ri)=>{
-      const h=rowHs[ri];
-      ctx.fillStyle='#F4F1EE';ctx.fillRect(0,y,labW,h);
-      ctx.fillStyle=r.bg||'#fff';ctx.fillRect(labW,y,W-labW,h);
-      ctx.fillStyle='#2E2B28';
-      if(r.label){ctx.font='800 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';ctx.fillText(r.label,6,y+pad+fs-1);}
+    let yOff=0;
+    blocks.forEach(({t,rowHs})=>{
+      ctx.font='800 17px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+      ctx.fillStyle='#D94F1E';
+      ctx.fillText('생산 스케줄  '+t.days[0]+' ~ '+t.days[t.days.length-1],10,yOff+25);
+      let y=yOff+titleH;
+      ctx.fillStyle='#F4F1EE';ctx.fillRect(0,y,W,headH);
+      ctx.font='800 13.5px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+      ctx.fillStyle='#43403C';
+      t.days.forEach((d,i)=>ctx.fillText(d,labW+colW*i+pad,y+21));
+      y+=headH;
+      const ys=[yOff+titleH,y];
       ctx.font=bodyFont;
-      r.cells.forEach((c,ci)=>{
-        wrap(c,colW).forEach((ln,li)=>ctx.fillText(ln,labW+colW*ci+pad,y+pad+fs-2+li*lh));
+      t.rows.forEach((r,ri)=>{
+        const h=rowHs[ri];
+        ctx.fillStyle='#F4F1EE';ctx.fillRect(0,y,labW,h);
+        ctx.fillStyle=r.bg||'#fff';ctx.fillRect(labW,y,W-labW,h);
+        ctx.fillStyle='#2E2B28';
+        if(r.label){ctx.font='800 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';ctx.fillText(r.label,6,y+pad+fs-1);}
+        ctx.font=bodyFont;
+        r.cells.forEach((c,ci)=>{
+          wrap(c,colW).forEach((ln,li)=>ctx.fillText(ln,labW+colW*ci+pad,y+pad+fs-2+li*lh));
+        });
+        y+=h;ys.push(y);
       });
-      y+=h;ys.push(y);
+      ctx.strokeStyle='#CBC4BC';ctx.lineWidth=1;
+      ys.forEach(yy=>{ctx.beginPath();ctx.moveTo(0,yy+.5);ctx.lineTo(W,yy+.5);ctx.stroke();});
+      for(let i=0;i<=7;i++){
+        const x=(i===0?0:labW+colW*(i-1))+.5;
+        ctx.beginPath();ctx.moveTo(x,yOff+titleH);ctx.lineTo(x,y);ctx.stroke();
+      }
+      ctx.beginPath();ctx.moveTo(W-.5,yOff+titleH);ctx.lineTo(W-.5,y);ctx.stroke();
+      yOff=y+gap;
     });
-    ctx.strokeStyle='#CBC4BC';ctx.lineWidth=1;
-    ys.forEach(yy=>{ctx.beginPath();ctx.moveTo(0,yy+.5);ctx.lineTo(W,yy+.5);ctx.stroke();});
-    for(let i=0;i<=t.days.length;i++){
-      const x=(i===0?0:labW+colW*(i-1))+.5;
-      ctx.beginPath();ctx.moveTo(x,titleH);ctx.lineTo(x,y);ctx.stroke();
-    }
-    ctx.beginPath();ctx.moveTo(W-.5,titleH);ctx.lineTo(W-.5,y);ctx.stroke();
     return cv;
   };
-  const copyWeekImg=async()=>{
+  /* wsList의 주차들을 모아(내용 있는 주만) 트리밍 — 없으면 null */
+  const collectTrimmed=async(wsList)=>{
+    const out=[];
+    for(const ws of wsList){
+      const t=await buildTrimmed(ws);
+      if(t)out.push(t);
+    }
+    return out.length?out:null;
+  };
+  const shownWeeks=()=>Array.from({length:weeksCnt},(_,i)=>addDD(weekStart,i*7));
+  const copyWeekImg=async(wsList)=>{
     setShBusy(true);
     try{
-      const t=await buildTrimmed(weekStart);
-      if(!t){alert('이번 주 편집 표에 입력된 내용이 없습니다.');return;}
-      const cv=drawWeek(t);
+      const ts=await collectTrimmed(wsList);
+      if(!ts){alert('입력된 스케줄이 없습니다.');return;}
+      const cv=drawWeeks(ts);
       const blob=await new Promise(res=>cv.toBlob(res,'image/png'));
       try{
         if(!navigator.clipboard||!window.ClipboardItem)throw new Error('no-clipboard');
         await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
-        alert('📷 스케줄 이미지가 복사되었습니다.\n카톡 채팅창에서 붙여넣기(Ctrl+V) 하면 바로 공유됩니다.');
+        alert('📷 스케줄 이미지('+ts.length+'주)가 복사되었습니다.\n카톡 채팅창에서 붙여넣기(Ctrl+V) 하면 바로 공유됩니다.');
       }catch(e){
         const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);a.download='생산스케줄_'+weekStart+'.png';a.click();
+        a.href=URL.createObjectURL(blob);a.download='생산스케줄_'+ts[0].ws+(ts.length>1?'_외'+(ts.length-1)+'주':'')+'.png';a.click();
         alert('이 기기에선 이미지 복사가 지원되지 않아 파일로 저장했습니다.\n저장된 이미지를 카톡에 첨부해주세요.');
       }
     }finally{setShBusy(false);}
   };
-  const printWeek=async()=>{
-    const t=await buildTrimmed(weekStart);
-    if(!t)return alert('이번 주 편집 표에 입력된 내용이 없습니다.');
+  const printWeek=async(wsList)=>{
+    const ts=await collectTrimmed(wsList);
+    if(!ts)return alert('입력된 스케줄이 없습니다.');
     const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
-    const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄 '+t.ws+'</title>'+
-      '<style>body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:14px}'+
-      'h2{color:#D94F1E;font-size:18px;margin:0 0 10px}table{border-collapse:collapse;width:100%}'+
-      'th,td{border:1px solid #B9B2AA;padding:6px 8px;font-size:12.5px;vertical-align:top;word-break:break-word;text-align:left}'+
-      'th{background:#F4F1EE}td.lb{background:#F4F1EE;font-weight:800;width:84px}</style></head><body>'+
-      '<h2>생산 스케줄  '+esc(t.days[0])+' ~ '+esc(t.days[t.days.length-1])+'</h2>'+
+    const tbl=t=>'<h2>생산 스케줄  '+esc(t.days[0])+' ~ '+esc(t.days[t.days.length-1])+'</h2>'+
       '<table><tr><th></th>'+t.days.map(d=>'<th>'+esc(d)+'</th>').join('')+'</tr>'+
       t.rows.map(r=>'<tr><td class="lb">'+esc(r.label)+'</td>'+
         r.cells.map(c=>'<td style="background:'+(r.bg||'#fff')+'">'+esc(c)+'</td>').join('')+'</tr>').join('')+
-      '</table><scr'+'ipt>window.onload=function(){window.print();}</scr'+'ipt></body></html>';
+      '</table>';
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄</title>'+
+      '<style>body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:14px}'+
+      'h2{color:#D94F1E;font-size:18px;margin:14px 0 10px}table{border-collapse:collapse;width:100%;margin-bottom:8px}'+
+      'th,td{border:1px solid #B9B2AA;padding:6px 8px;font-size:12.5px;vertical-align:top;word-break:break-word;text-align:left}'+
+      'th{background:#F4F1EE}td.lb{background:#F4F1EE;font-weight:800;width:84px}</style></head><body>'+
+      ts.map(tbl).join('')+
+      '<scr'+'ipt>window.onload=function(){window.print();}</scr'+'ipt></body></html>';
     const w=window.open('','_blank');
     if(!w)return alert('팝업이 차단되어 인쇄 창을 열 수 없습니다. 브라우저 팝업 허용 후 다시 눌러주세요.');
     w.document.write(html);w.document.close();
@@ -2069,8 +2090,8 @@ function PageProdSchedule(){
             R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'(칸별 서식 글자도 함께 커짐)'),
             Object.keys(gridColW).length>0&&R('button',{className:'btn bw btn-sm',onClick:()=>setGridColW({})},'열 너비 초기화'),
             R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
-            R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:copyWeekImg,title:'입력된 곳까지만 이미지로 만들어 복사 — 카톡에 붙여넣기(Ctrl+V)'},shBusy?'만드는 중...':'📷 이미지 복사(카톡)'),
-            R('button',{className:'btn bw btn-sm',onClick:printWeek,title:'입력된 곳까지만 인쇄'},'🖨 인쇄'),
+            R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg(shownWeeks()),title:'화면의 모든 주차를 한 장의 이미지로 복사 — 카톡에 붙여넣기(Ctrl+V)'},shBusy?'만드는 중...':'📷 전체 이미지 복사(카톡)'),
+            R('button',{className:'btn bw btn-sm',onClick:()=>printWeek(shownWeeks()),title:'화면의 모든 주차를 인쇄'},'🖨 전체 인쇄'),
             R('button',{className:'btn bw btn-sm',onClick:openArchive,title:'지난 주차 전체 — 영구 보관'},'📜 보관함'),
             R('div',{style:{flex:1}}),
             /* 오른쪽 상단 편집 전환: 기본은 보기 전용(연속) */
@@ -2087,7 +2108,11 @@ function PageProdSchedule(){
                   R('div',{style:{display:'flex',alignItems:'center',gap:8,margin:'0 0 8px',padding:'7px 12px',background:hasToday?'#FFF3EC':'#F6F3F0',borderLeft:'4px solid '+(hasToday?'var(--p)':'#D9D2CB'),borderRadius:8}},
                     R('span',{style:{fontSize:13.5,fontWeight:800,color:hasToday?'var(--p)':'var(--t)'}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
                     hasToday&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'이번주'),
-                    off>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},'+'+(off/7)+'주')),
+                    off>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},'+'+(off/7)+'주'),
+                    R('div',{style:{flex:1}}),
+                    /* 이 주차만 한 주씩 복사·인쇄 */
+                    R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg([ws]),title:'이 주차만 이미지로 복사(카톡 붙여넣기)'},'📷 이 주 복사'),
+                    R('button',{className:'btn bw btn-sm',onClick:()=>printWeek([ws]),title:'이 주차만 인쇄'},'🖨 이 주 인쇄')),
                   R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true}));
               }),
               /* 제일 하단: 차주 스케줄 추가 */
