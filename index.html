@@ -7485,6 +7485,98 @@ function PageApproval({user}){
   );
 }
 
+/* ═══ 경영지원부: 휴무 현황 — 전자결재 휴가신청(leave) 기안을 일자별로 정리 ═══ */
+function PageGaLeave({user}){
+  const[docs,setDocs]=useState(null);
+  const[month,setMonth]=useState(today2().slice(0,7));
+  const[onlyOk,setOnlyOk]=useState(false);
+  const load=async()=>{
+    try{
+      const{data}=await db('approvals').select('id,title,content,status,created_at,emp!approvals_writer_id_fkey(name)')
+        .eq('form_type','leave').order('created_at',{ascending:false}).limit(1000);
+      setDocs(data||[]);
+    }catch(e){setDocs([]);}
+  };
+  useEffect(()=>{load();},[]);
+  const mvMonth=(d)=>{
+    const[y,m]=month.split('-').map(Number);
+    const nd=new Date(y,m-1+d,1);
+    setMonth(nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0'));
+  };
+  if(docs===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
+  const rows=docs.map(d=>({id:d.id,name:(d.emp&&d.emp.name)||'?',date:String((d.content&&d.content.start)||''),
+    type:(d.content&&d.content.leave_type)||'휴무',title:d.title||'',status:d.status||'',at:d.created_at}))
+    .filter(r=>!onlyOk||r.status==='승인');
+  const inMonth=rows.filter(r=>r.date&&r.date.slice(0,7)===month);
+  const noDate=rows.filter(r=>!r.date);
+  const byDate={};
+  inMonth.forEach(r=>{(byDate[r.date]=byDate[r.date]||[]).push(r);});
+  const dates=Object.keys(byDate).sort();
+  const DOW=['일','월','화','수','목','금','토'];
+  const stClr={'승인':{c:'#15803D',bg:'#F0FDF4'},'결재중':{c:'#B45309',bg:'#FFFBEB'},'반려':{c:'#DC2626',bg:'#FEF2F2'}};
+  const tyClr=t=>/반차/.test(t)?{c:'#1D4ED8',bg:'#EFF6FF'}:/병가/.test(t)?{c:'#B91C1C',bg:'#FEF2F2'}:/경조/.test(t)?{c:'#6B21A8',bg:'#FAF5FF'}:{c:'#C2410C',bg:'#FFF7ED'};
+  /* 인원별 이번달 휴무 횟수 */
+  const perCnt={};
+  inMonth.forEach(r=>{perCnt[r.name]=(perCnt[r.name]||0)+1;});
+  const badge=(t,c,bg)=>R('span',{style:{fontSize:11,fontWeight:800,color:c,background:bg,borderRadius:999,padding:'2px 9px'}},t);
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'🌴 휴무 현황'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'전자결재의 휴가신청 기안을 일자별로 정리해 보여줍니다')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        R('button',{className:'btn bs btn-sm',onClick:()=>mvMonth(-1)},'◀'),
+        R('input',{type:'month',className:'inp',value:month,onChange:e=>e.target.value&&setMonth(e.target.value),style:{width:150}}),
+        R('button',{className:'btn bs btn-sm',onClick:()=>mvMonth(1)},'▶'),
+        R('button',{className:'btn btn-sm '+(onlyOk?'bp':'bw'),onClick:()=>setOnlyOk(v=>!v)},onlyOk?'✅ 승인만 보는 중':'전체(결재중 포함)'))),
+    /* 이번달 요약: 인원별 휴무 횟수 */
+    R('div',{className:'card',style:{padding:'12px 16px',marginBottom:14}},
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+        R('span',{style:{fontSize:13.5,fontWeight:800}},month.replace('-','년 ')+'월 휴무 '),
+        R('span',{style:{fontSize:16,fontWeight:900,color:'var(--p)'}},inMonth.length+'건'),
+        R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
+        ...Object.entries(perCnt).sort((a,b)=>b[1]-a[1]).map(([n,c])=>
+          R('span',{key:n,style:{fontSize:12,fontWeight:700,background:'#F4F1EE',borderRadius:999,padding:'3px 11px'}},n+' '+c+'회')),
+        Object.keys(perCnt).length===0&&R('span',{style:{fontSize:12,color:'var(--tm)'}},'이 달 휴무 기안이 없습니다'))),
+    /* 일자별 목록 */
+    ...dates.map(dt=>{
+      const d=new Date(dt+'T00:00:00');
+      const dow=DOW[d.getDay()];
+      const td=dt===today2();
+      return R('div',{key:dt,className:'card',style:{padding:'12px 16px',marginBottom:10,
+          border:td?'2px solid var(--p)':'1px solid var(--bd)',background:td?'#FFF9F5':'#fff'}},
+        R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:8}},
+          R('span',{style:{fontSize:14.5,fontWeight:900,color:d.getDay()===0?'#DC2626':d.getDay()===6?'#2563EB':'var(--t)'}},
+            dt.slice(5).replace('-','/')+' ('+dow+')'),
+          td&&badge('오늘','#fff','var(--p)'),
+          R('span',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)'}},byDate[dt].length+'명')),
+        ...byDate[dt].map(r=>{
+          const sc=stClr[r.status]||{c:'#6B7280',bg:'#F3F4F6'};
+          const tc=tyClr(r.type);
+          return R('div',{key:r.id,style:{display:'flex',gap:8,alignItems:'center',padding:'7px 4px',borderTop:'1px solid var(--bd2,#F0EBE6)',flexWrap:'wrap'}},
+            R('span',{style:{fontSize:14,fontWeight:800,minWidth:64}},r.name),
+            badge(r.type,tc.c,tc.bg),
+            badge(r.status,sc.c,sc.bg),
+            R('span',{style:{flex:1,minWidth:120,fontSize:12,color:'var(--tm)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title),
+            R('span',{style:{fontSize:11,color:'var(--tm)',flexShrink:0}},'기안 '+String(r.at||'').slice(5,10).replace('-','/')));
+        }));
+    }),
+    dates.length===0&&R('div',{className:'card',style:{textAlign:'center',padding:'40px 20px',border:'2px dashed var(--bd)',color:'var(--tm)',fontSize:12.5}},
+      '이 달에 날짜가 지정된 휴무 기안이 없습니다'),
+    /* 날짜 미지정 기안 */
+    noDate.length>0&&R('div',{className:'card',style:{padding:'12px 16px',marginTop:4,background:'#FBFAF8'}},
+      R('div',{style:{fontSize:12.5,fontWeight:800,color:'var(--tm)',marginBottom:6}},'📎 날짜(기간) 미입력 휴가 기안 '+noDate.length+'건 — 기안일 기준'),
+      ...noDate.slice(0,15).map(r=>{
+        const sc=stClr[r.status]||{c:'#6B7280',bg:'#F3F4F6'};
+        return R('div',{key:r.id,style:{display:'flex',gap:8,alignItems:'center',padding:'6px 4px',borderTop:'1px solid var(--bd2,#F0EBE6)'}},
+          R('span',{style:{fontSize:13,fontWeight:800,minWidth:64}},r.name),
+          badge(r.type,'#C2410C','#FFF7ED'),badge(r.status,sc.c,sc.bg),
+          R('span',{style:{flex:1,fontSize:12,color:'var(--tm)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title),
+          R('span',{style:{fontSize:11,color:'var(--tm)'}},String(r.at||'').slice(0,10)));
+      })),
+    R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 전자결재에서 [휴가신청] 양식으로 기안하면 자동으로 이 화면에 정리됩니다 (사유는 표시하지 않음)'));
+}
+
 /* ═══ 근태관리 ══════════════════════════════════════ */
 function PageAttendance({user}){
   const[todayR,setTodayR]=useState(null);const[records,setRecords]=useState([]);const[loading,setLoading]=useState(true);
@@ -16606,6 +16698,9 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
     {id:'pm_spec',l:'설비 제원',ic:'📐'},
   ]},
+  {label:'🏢 경영지원부',type:'dept_ga',items:[
+    {id:'ga_leave',l:'휴무 현황',ic:'🌴'},
+  ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
     {id:'salesStat',l:'매출 현황',ic:'💵'},
@@ -16853,6 +16948,8 @@ function loadNavSections(){
           ensure({t:'factory',m:'이천공장',label:'🏭 비엔에프글로벌 이천공장'},[
             {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'},
             {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'}]);
+          ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
+            {id:'ga_leave',l:'휴무 현황',ic:'🌴'}]);
         }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
@@ -21082,6 +21179,7 @@ function App(){
     if(page==='org')return R(PageOrg,{user});
     if(page==='approval')return R(PageApproval,{user});
     if(page==='attendance')return R(PageAttendance,{user});
+    if(page==='ga_leave')return R(PageGaLeave,{user});
     if(page==='leave')return R(PageLeave,{user});
     if(page==='admin')return R(PageAdmin,{user});
     return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🚧'),'준비 중'));
