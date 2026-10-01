@@ -1457,16 +1457,28 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
     const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);queueSave();};
     document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
   };
-  /* ── 엑셀식 키보드 이동: ↑↓←→ 셀 이동 · Enter 아래 칸 · Shift+Enter 줄바꿈 ──
-     여러 줄 입력과 충돌하지 않게 ↑는 첫 줄, ↓는 마지막 줄, ←→는 커서가 양 끝일 때만 이동 */
+  /* ── 엑셀식 키보드 이동: ↑↓←→ 셀 이동 · Enter 아래 칸 · Shift+Enter 줄바꿈 · Alt+Enter 줄 추가 ──
+     여러 줄 입력과 충돌하지 않게 ↑는 첫 줄, ↓는 마지막 줄, ←→는 커서가 양 끝일 때만 이동.
+     셀 좌표는 주차(weekStart)까지 포함 — 4주가 한 화면이라 주차 없이 찾으면 항상
+     첫 번째 표로 이동해 버리던 문제(2026-10-01) 수정 */
   const NAV_ROWS=SCHED_GRID_SECS.reduce((a,s)=>a+effN(s),0);
+  const sgId=(r,c)=>weekStart+'_'+r+'_'+c;
   const focusCell=(r,c)=>{
-    const el=document.querySelector('textarea[data-sg="'+r+'_'+c+'"]');
+    const el=document.querySelector('textarea[data-sg="'+sgId(r,c)+'"]');
     if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){}
       try{el.scrollIntoView({block:'nearest',inline:'nearest'});}catch(e){}}
   };
-  const navKey=(r,c)=>e=>{
+  const navKey=(sec,ri,c)=>e=>{
     if(e.nativeEvent&&e.nativeEvent.isComposing)return; /* 한글 조합 중엔 개입 안 함 */
+    const r=sec.base+ri;
+    /* Alt+Enter: 이 구역에 줄 추가 후 새 줄 같은 요일 칸으로 이동 (클릭 없이) */
+    if(e.key==='Enter'&&e.altKey){
+      e.preventDefault();
+      if(sec.n>=12)return;
+      addRow(sec.k);
+      setTimeout(()=>focusCell(sec.base+sec.n,c),180);
+      return;
+    }
     const ta=e.target;
     const s=ta.selectionStart,en=ta.selectionEnd;
     const atStart=s===0&&en===0;
@@ -1505,7 +1517,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
     style:{fontWeight:800,minWidth:34,padding:'4px 8px',...(on?{borderColor:'var(--p)',color:'var(--p)',background:'var(--pb)'}:{})}},txt);
   return R('div',null,
     edit&&R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
-      R('span',{style:{fontSize:11,color:'var(--tm)'}},'칸 클릭 후 입력 · 자동 저장'),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},'칸 클릭 후 입력 · 자동 저장 · ↑↓←→ 칸 이동 · Alt+Enter 줄 추가'),
       R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
       R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'선택 칸 서식:'),
       fmtBtn('B',!!curSt.b,()=>setStyle({b:curSt.b?null:1}),'선택 칸 굵게 켜기/끄기'),
@@ -1546,9 +1558,9 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat}){
                   const stl=(styles||{})[key]||{};
                   return R('td',{key:key,style:{...tdBase,position:'relative',background:sec.bg}},
                     edit
-                      ?R('textarea',{value:cells[key]||'',rows:1,'data-sg':(sec.base+ri)+'_'+di,
+                      ?R('textarea',{value:cells[key]||'',rows:1,'data-sg':sgId(sec.base+ri,di),
                           onChange:e=>{setCell(key,e.target.value);autoH(e);},
-                          onKeyDown:navKey(sec.base+ri,di),
+                          onKeyDown:navKey(sec,ri,di),
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
                           style:{...taBase,minHeight:mh,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
                       :R('div',{style:{whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'4px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
