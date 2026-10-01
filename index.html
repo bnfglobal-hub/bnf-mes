@@ -1358,6 +1358,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const[rows,setRows]=useState({});       /* {sec: 행수} 섹션별 줄 추가/삭제 (함께 저장) */
   const[rowh,setRowh]=useState({});       /* {sec_행번호: px} 드래그로 조절한 줄 높이 (함께 저장) */
   const[merges,setMerges]=useState({});   /* {sec_행_요일:{rs,cs}} 엑셀식 셀 병합 (함께 저장) */
+  const[aligns,setAligns]=useState({});   /* {sec:'left'|'center'|'right'} 구역별 글자 정렬 (함께 저장) */
   const[selRange,setSelRange]=useState(null); /* 드래그 선택 범위 {k,r1,r2,c1,c2} */
   const dragSel=useRef(null);
   const[curKey,setCurKey]=useState(null); /* 마지막으로 선택한 칸 (서식 버튼 대상) */
@@ -1369,17 +1370,19 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const rowsRef=useRef(null);
   const rowhRef=useRef(null);
   const mergesRef=useRef(null);
+  const alignsRef=useRef(null);
   cellsRef.current=cells;
   stylesRef.current=styles;
   rowsRef.current=rows;
   rowhRef.current=rowh;
   mergesRef.current=merges;
+  alignsRef.current=aligns;
   const load=async(silent)=>{
     if(!silent)setSt('불러오는 중...');
     try{
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
-      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});}}
+      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});setAligns((j&&j.aligns)||{});}}
       else if(!dirty.current)setCells({});
     }catch(e){if(!dirty.current)setCells({});}
     if(!silent)setSt('');
@@ -1394,7 +1397,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     const cur=cellsRef.current;if(!cur)return;
     setSt('저장 중...');
     try{
-      const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},rows:rowsRef.current||{},rowh:rowhRef.current||{},merges:mergesRef.current||{},at:new Date().toISOString()});
+      const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},rows:rowsRef.current||{},rowh:rowhRef.current||{},merges:mergesRef.current||{},aligns:alignsRef.current||{},at:new Date().toISOString()});
       const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
       dirty.current=false;
@@ -1427,7 +1430,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
       if(!res.ok)return alert('지난주 편집 표가 없습니다.');
       const j=await res.json();
-      dirty.current=true;setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});
+      dirty.current=true;setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});setAligns((j&&j.aligns)||{});
       if(timer.current)clearTimeout(timer.current);
       timer.current=setTimeout(()=>save(),400);
     }catch(e){alert('복사 실패: '+e.message);}
@@ -1598,6 +1601,19 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
       fmtBtn('⌫',false,()=>setStyle({b:null,fs:null}),'선택 칸 서식 지우기'),
       R('span',{style:{fontSize:11.5,fontWeight:800,color:'var(--p)',background:'var(--pb,#FFF3EC)',borderRadius:8,padding:'3px 9px'}},
         '전체 '+baseFs+'pt · 선택 칸 '+(curKey?((curSt.fs?Math.max(9,Math.min(26,curSt.fs+baseFs-12)):baseFs)+'pt'):'—')),
+      R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'구역 정렬:'),
+      (()=>{
+        const sk=curKey?curKey.split('_')[0]:null;
+        const cur=sk?((aligns||{})[sk]||'left'):null;
+        const setAl=v=>{
+          if(!sk){alert('먼저 정렬을 바꿀 구역의 칸을 클릭하세요.');return;}
+          setAligns(p=>({...(p||{}),[sk]:v}));queueSave();
+        };
+        return R('span',{style:{display:'inline-flex',gap:3}},
+          fmtBtn('⬅',cur==='left',()=>setAl('left'),'이 구역 왼쪽 정렬'),
+          fmtBtn('↔',cur==='center',()=>setAl('center'),'이 구역 가운데 정렬'),
+          fmtBtn('➡',cur==='right',()=>setAl('right'),'이 구역 오른쪽 정렬'));
+      })(),
       /* 드래그로 범위를 선택하면 합치기 버튼 표시, 병합된 칸을 클릭하면 해제 버튼 표시 */
       selRange&&R('span',{style:{fontSize:11.5,fontWeight:800,color:'#1D4ED8'}},
         (selRange.r2-selRange.r1+1)*(selRange.c2-selRange.c1+1)+'칸 선택'),
@@ -1641,6 +1657,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                   const rs=mg?Math.max(1,Math.min(mg.rs||1,sec.n-ri)):1;
                   const cs=mg?Math.max(1,Math.min(mg.cs||1,7-di)):1;
                   const sel=edit&&inSel(sec.k,ri,di);
+                  const al=(aligns||{})[sec.k]||'left';
                   /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
                   return R('td',{key:key,rowSpan:rs>1?rs:undefined,colSpan:cs>1?cs:undefined,
                     onMouseDown:edit?(e)=>{
@@ -1663,8 +1680,8 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                           onChange:e=>{setCell(key,e.target.value);autoH(e);},
                           onKeyDown:navKey(sec,ri,di),
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
-                          style:{...taBase,textAlign:'left',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                      :R('div',{onDoubleClick:()=>onDblCell&&onDblCell(sgId(sec.base+ri,di)),title:'더블클릭하면 편집',style:{display:'flex',alignItems:'center',justifyContent:'flex-start',textAlign:'left',cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
+                          style:{...taBase,textAlign:al,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
+                      :R('div',{onDoubleClick:()=>onDblCell&&onDblCell(sgId(sec.base+ri,di)),title:'더블클릭하면 편집',style:{display:'flex',alignItems:'center',justifyContent:(al==='center'?'center':al==='right'?'flex-end':'flex-start'),textAlign:al,cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
                     edit&&rs===1&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-5,height:10,cursor:'row-resize',zIndex:3}}),
@@ -1858,7 +1875,7 @@ function PageProdSchedule(){
       for(let ri=0;ri<n;ri++){
         const cells=days7.map((_,di)=>String(j.cells[s.k+'_'+ri+'_'+di]||'').trim());
         if(!cells.some(Boolean))continue;
-        rows.push({label:first?s.l:'',bg:s.bg,cells});
+        rows.push({label:first?s.l:'',bg:s.bg,cells,al:(j.aligns&&j.aligns[s.k])||'left'});
         first=false;
       }
     });
@@ -1916,7 +1933,12 @@ function PageProdSchedule(){
         if(r.label){ctx.font='800 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';ctx.fillText(r.label,6,y+pad+fs-1);}
         ctx.font=bodyFont;
         r.cells.forEach((c,ci)=>{
-          wrap(c,colW).forEach((ln,li)=>ctx.fillText(ln,labW+colW*ci+pad,y+pad+fs-2+li*lh));
+          wrap(c,colW).forEach((ln,li)=>{
+            const lw=ctx.measureText(ln).width;
+            const x0=labW+colW*ci;
+            const x=r.al==='center'?x0+(colW-lw)/2:(r.al==='right'?x0+colW-pad-lw:x0+pad);
+            ctx.fillText(ln,x,y+pad+fs-2+li*lh);
+          });
         });
         y+=h;ys.push(y);
       });
@@ -1966,7 +1988,7 @@ function PageProdSchedule(){
     const tbl=t=>'<h2>생산 스케줄  '+esc(t.days[0])+' ~ '+esc(t.days[t.days.length-1])+'</h2>'+
       '<table><tr><th></th>'+t.days.map(d=>'<th>'+esc(d)+'</th>').join('')+'</tr>'+
       t.rows.map(r=>'<tr><td class="lb">'+esc(r.label)+'</td>'+
-        r.cells.map(c=>'<td style="background:'+(r.bg||'#fff')+'">'+esc(c)+'</td>').join('')+'</tr>').join('')+
+        r.cells.map(c=>'<td style="background:'+(r.bg||'#fff')+';text-align:'+(r.al||'left')+'">'+esc(c)+'</td>').join('')+'</tr>').join('')+
       '</table>';
     const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄</title>'+
       '<style>body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:14px}'+
