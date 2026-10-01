@@ -1886,12 +1886,23 @@ function PageProdSchedule(){
   /* 여러 주를 세로로 이어 한 장의 이미지로 (ts = buildTrimmed 결과 배열) */
   const drawWeeks=(ts)=>{
     const fs=14,lh=Math.round(fs*1.5),pad=7,labW=92,headH=32,titleH=38,gap=18;
-    const colW=Math.max(150,Math.round((1480-labW)/7));
-    const W=labW+colW*7;
     const cv=document.createElement('canvas');
     const ctx=cv.getContext('2d');
     const bodyFont='500 '+fs+'px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
     ctx.font=bodyFont;
+    /* 열 너비: 내용이 한 줄로 들어가게 자동 계산 — 화면에서 안 꺾이던 글이
+       복사 이미지에서 두 줄로 꺾이던 문제 해결 (2026-10-01). 너무 긴 글만 430px에서 줄바꿈 */
+    const colWs=Array.from({length:7},(_,ci)=>{
+      let w=150;
+      ts.forEach(t=>t.rows.forEach(r=>{
+        String(r.cells[ci]||'').split('\n').forEach(ln=>{
+          w=Math.max(w,ctx.measureText(ln).width*1.03+pad*2+4);
+        });
+      }));
+      return Math.min(430,Math.ceil(w));
+    });
+    const colX=ci=>{let x=labW;for(let i=0;i<ci;i++)x+=colWs[i];return x;};
+    const W=labW+colWs.reduce((a,b)=>a+b,0);
     const wrap=(txt,w)=>{
       const out=[];
       String(txt||'').split('\n').forEach(line=>{
@@ -1905,7 +1916,7 @@ function PageProdSchedule(){
       return out.length?out:[''];
     };
     const blocks=ts.map(t=>{
-      const rowHs=t.rows.map(r=>Math.max(1,...r.cells.map(c=>wrap(c,colW).length))*lh+pad*2);
+      const rowHs=t.rows.map(r=>Math.max(1,...r.cells.map((c,ci)=>wrap(c,colWs[ci]).length))*lh+pad*2);
       return{t,rowHs,h:titleH+headH+rowHs.reduce((a,b)=>a+b,0)};
     });
     const H=blocks.reduce((a,b)=>a+b.h,0)+gap*(blocks.length-1)+2;
@@ -1921,7 +1932,7 @@ function PageProdSchedule(){
       ctx.fillStyle='#F4F1EE';ctx.fillRect(0,y,W,headH);
       ctx.font='800 13.5px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
       ctx.fillStyle='#43403C';
-      t.days.forEach((d,i)=>ctx.fillText(d,labW+colW*i+pad,y+21));
+      t.days.forEach((d,i)=>ctx.fillText(d,colX(i)+pad,y+21));
       y+=headH;
       const ys=[yOff+titleH,y];
       ctx.font=bodyFont;
@@ -1933,10 +1944,11 @@ function PageProdSchedule(){
         if(r.label){ctx.font='800 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';ctx.fillText(r.label,6,y+pad+fs-1);}
         ctx.font=bodyFont;
         r.cells.forEach((c,ci)=>{
-          wrap(c,colW).forEach((ln,li)=>{
+          const cw=colWs[ci];
+          wrap(c,cw).forEach((ln,li)=>{
             const lw=ctx.measureText(ln).width;
-            const x0=labW+colW*ci;
-            const x=r.al==='center'?x0+(colW-lw)/2:(r.al==='right'?x0+colW-pad-lw:x0+pad);
+            const x0=colX(ci);
+            const x=r.al==='center'?x0+(cw-lw)/2:(r.al==='right'?x0+cw-pad-lw:x0+pad);
             ctx.fillText(ln,x,y+pad+fs-2+li*lh);
           });
         });
@@ -1945,10 +1957,10 @@ function PageProdSchedule(){
       ctx.strokeStyle='#CBC4BC';ctx.lineWidth=1;
       ys.forEach(yy=>{ctx.beginPath();ctx.moveTo(0,yy+.5);ctx.lineTo(W,yy+.5);ctx.stroke();});
       for(let i=0;i<=7;i++){
-        const x=(i===0?0:labW+colW*(i-1))+.5;
-        ctx.beginPath();ctx.moveTo(x,yOff+titleH);ctx.lineTo(x,y);ctx.stroke();
+        const x=(i===0?0:colX(i-1)+colWs[i-1])+.5;
+        ctx.beginPath();ctx.moveTo(i===0?.5:x,yOff+titleH);ctx.lineTo(i===0?.5:x,y);ctx.stroke();
       }
-      ctx.beginPath();ctx.moveTo(W-.5,yOff+titleH);ctx.lineTo(W-.5,y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(labW+.5,yOff+titleH);ctx.lineTo(labW+.5,y);ctx.stroke();
       yOff=y+gap;
     });
     return cv;
