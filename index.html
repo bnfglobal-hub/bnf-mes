@@ -7564,13 +7564,31 @@ function PageGaLeave({user}){
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
       R('div',null,
-        R('div',{className:'pg-title'},'🌴 휴무 현황'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'전자결재의 휴가신청 기안을 일자별로 정리해 보여줍니다')),
+        R('div',{className:'pg-title'},'🌴 휴무자 관리'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'전자결재의 휴가신청 기안을 모아 대시보드로 정리합니다')),
       R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
         R('button',{className:'btn bs btn-sm',onClick:()=>mvMonth(-1)},'◀'),
         R('input',{type:'month',className:'inp',value:month,onChange:e=>e.target.value&&setMonth(e.target.value),style:{width:150}}),
         R('button',{className:'btn bs btn-sm',onClick:()=>mvMonth(1)},'▶'),
         R('button',{className:'btn btn-sm '+(onlyOk?'bp':'bw'),onClick:()=>setOnlyOk(v=>!v)},onlyOk?'✅ 승인만 보는 중':'전체(결재중 포함)'))),
+    /* ── 대시보드 KPI: 오늘 휴무자 · 이번달 · 결재중 ── */
+    (()=>{
+      const todayRows=rows.filter(r=>r.date===today2());
+      const pendCnt=rows.filter(r=>r.status==='결재중').length;
+      const kpi=(label,value,sub,color,bg,hot)=>R('div',{key:label,
+        style:{flex:hot?'1.4 1 200px':'1 1 150px',minWidth:140,background:bg,borderRadius:14,
+               border:hot?'2px solid '+color:'1px solid '+color+'33',padding:'14px 16px'}},
+        R('div',{style:{fontSize:12.5,fontWeight:800,color:hot?color:'var(--tm)',marginBottom:5}},label),
+        R('div',{style:{fontSize:30,fontWeight:900,color:color,lineHeight:1.1}},value),
+        sub&&R('div',{style:{fontSize:12,fontWeight:700,color:color,marginTop:5,wordBreak:'keep-all'}},sub));
+      return R('div',{style:{display:'flex',gap:10,flexWrap:'wrap',marginBottom:14}},
+        kpi('🌴 오늘 휴무',todayRows.length+'명',
+            todayRows.length?todayRows.map(r=>r.name+'('+r.type+')').join(' · '):'전원 근무',
+            '#C2410C','#FFF7ED',true),
+        kpi(month.slice(5)+'월 휴무',inMonth.length+'건',null,'#1D4ED8','#EFF6FF'),
+        kpi('결재중(미승인)',pendCnt+'건',null,'#B45309','#FFFBEB'),
+        kpi('이 달 휴무 인원',Object.keys(perCnt).length+'명',null,'#15803D','#F0FDF4'));
+    })(),
     /* 이번달 요약: 인원별 휴무 횟수 */
     R('div',{className:'card',style:{padding:'12px 16px',marginBottom:14}},
       R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
@@ -16741,7 +16759,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'pm_spec',l:'설비 제원',ic:'📐'},
   ]},
   {label:'🏢 경영지원부',type:'dept_ga',items:[
-    {id:'ga_leave',l:'휴무 현황',ic:'🌴'},
+    {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -16991,7 +17009,11 @@ function loadNavSections(){
             {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'},
             {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'}]);
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
-            {id:'ga_leave',l:'휴무 현황',ic:'🌴'}]);
+            {id:'ga_leave',l:'휴무자 관리',ic:'🌴'}]);
+          /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
+          filtered.forEach(sec=>{(sec&&sec.items||[]).forEach(i=>{
+            if(i&&i.id==='ga_leave'&&i.l!=='휴무자 관리'){i.l='휴무자 관리';changed=true;}
+          });});
         }catch(e){}
         if(changed){try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(filtered));}catch(e){}}
         return filtered.length>0?filtered:DEFAULT_NAV_SECTIONS;
