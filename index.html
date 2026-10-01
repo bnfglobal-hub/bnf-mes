@@ -1643,13 +1643,18 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                   const sel=edit&&inSel(sec.k,ri,di);
                   /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
                   return R('td',{key:key,rowSpan:rs>1?rs:undefined,colSpan:cs>1?cs:undefined,
-                    onMouseDown:edit?()=>{dragSel.current={k:sec.k,ri,di};setSelRange(null);}:undefined,
+                    onMouseDown:edit?(e)=>{
+                      const rct=e.currentTarget.getBoundingClientRect();
+                      if(rct.right-e.clientX<9||rct.bottom-e.clientY<9)return;  /* 경계는 크기 조절 전용 */
+                      dragSel.current={k:sec.k,ri,di};setSelRange(null);
+                    }:undefined,
                     onMouseEnter:edit?()=>{
                       const d0=dragSel.current;
                       if(!d0||d0.k!==sec.k)return;
                       if(d0.ri===ri&&d0.di===di)return;
                       setSelRange({k:sec.k,r1:Math.min(d0.ri,ri),r2:Math.max(d0.ri,ri),c1:Math.min(d0.di,di),c2:Math.max(d0.di,di)});
                       try{window.getSelection().removeAllRanges();}catch(e){}
+                      try{if(document.activeElement&&document.activeElement.tagName==='TEXTAREA')document.activeElement.blur();}catch(e){}
                     }:undefined,
                     style:{...tdBase,position:'relative',background:sec.bg,verticalAlign:'middle',...(edit?{height:mh}:{}),
                            ...(sel?{boxShadow:'inset 0 0 0 2.5px var(--p)',background:'#FFEFE5'}:{})}},
@@ -1661,10 +1666,10 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                           style:{...taBase,textAlign:'left',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
                       :R('div',{onDoubleClick:()=>onDblCell&&onDblCell(sgId(sec.base+ri,di)),title:'더블클릭하면 편집',style:{display:'flex',alignItems:'center',justifyContent:'flex-start',textAlign:'left',cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
-                    edit&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
-                      style:{position:'absolute',left:0,right:0,bottom:-3,height:6,cursor:'row-resize',zIndex:2}}),
-                    edit&&R('div',{onMouseDown:startResize(di+1),title:'드래그해서 열 너비 조절',
-                      style:{position:'absolute',top:0,right:-3,width:6,height:'100%',cursor:'col-resize',zIndex:2}}));
+                    edit&&rs===1&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
+                      style:{position:'absolute',left:0,right:0,bottom:-5,height:10,cursor:'row-resize',zIndex:3}}),
+                    edit&&cs===1&&R('div',{onMouseDown:startResize(di+1),title:'드래그해서 열 너비 조절',
+                      style:{position:'absolute',top:0,right:-5,width:10,height:'100%',cursor:'col-resize',zIndex:3}}));
                 })
               );
             })
