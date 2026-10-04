@@ -7426,7 +7426,7 @@ function PageApproval({user}){
   };
   const fTypes=[{v:'leave',l:'휴가신청'},{v:'expense',l:'지출결의'},{v:'purchase',l:'구매요청'},{v:'general',l:'일반기안'}];
   const ASTAT={기안중:'b-g',결재중:'b-i',승인:'b-ok',반려:'b-e',취소:'b-g'};
-  const FLBL={leave_type:'휴가 종류',start:'기간',reason:'사유',body:'내용',amount:'금액',item:'품목',vendor:'거래처'};
+  const FLBL={applicant:'신청자',leave_type:'휴가 종류',start:'기간',reason:'사유',body:'내용',amount:'금액',item:'품목',vendor:'거래처'};
   const isImg=f=>!!f&&(/^image\//.test(f.mime||'')||/\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(f.name||''));
   const fBytes=b=>{if(!b)return'';const k=b/1024;if(k<1024)return' · '+k.toFixed(0)+'KB';return' · '+(k/1024).toFixed(1)+'MB';};
   const updC=(k,v)=>setForm(p=>({...p,content:{...p.content,[k]:v}}));
@@ -7473,6 +7473,14 @@ function PageApproval({user}){
     if(upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
     let line=buildLine(form.approvers);
     if(!line.length)return alert('결재자를 한 명 이상 지정해주세요.');
+    /* 휴가신청: 신청자를 맨 앞에 저장 (지정 안 했으면 기안자 본인) */
+    let fc=form.content;
+    if(fType==='leave'){
+      const aid=form.content.applicant_id||user.id;
+      const em=emps.find(x=>x.id===aid);
+      const{applicant,applicant_id,...rest}=form.content;
+      fc={applicant:(em&&em.name)||applicant||user.name,applicant_id:aid,...rest};
+    }
     try{
       if(editId){
         /* ── 수정 ── 기존 의견 로그는 보존 */
@@ -7485,7 +7493,7 @@ function PageApproval({user}){
           return(old&&old.id===s.id&&(old.status==='승인'||old.status==='반려'))?{...s,status:old.status,at:old.at}:s;
         });
         const first=line[0].id,last=line[line.length-1].id;
-        const content={...form.content,__refs:form.refs||[],__files:cleanFiles(),__opinions:keep,__line:line,
+        const content={...fc,__refs:form.refs||[],__files:cleanFiles(),__opinions:keep,__line:line,
           __edited:{by:user.name,at:now2()}};
         await db('approvals').update({form_type:fType,title:form.title,content,step1_id:first,step2_id:line.length>1?last:null,
           step1_status:line[0].status||'대기',step2_status:line.length>1?(line[line.length-1].status||'대기'):'대기',updated_at:now2()}).eq('id',editId);
@@ -7496,7 +7504,7 @@ function PageApproval({user}){
       }else{
         /* ── 신규 기안 ── */
         const first=line[0].id,last=line[line.length-1].id;
-        const content={...form.content,__refs:form.refs||[],__files:cleanFiles(),__line:line};
+        const content={...fc,__refs:form.refs||[],__files:cleanFiles(),__line:line};
         await db('approvals').insert({form_type:fType,title:form.title,content,writer_id:user.id,status:'결재중',step1_id:first,step2_id:line.length>1?last:null,step1_status:'대기',step2_status:'대기'});
         pushNotif([
           {to:first,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 결재를 요청했습니다.',page:'approval'},
@@ -7537,6 +7545,13 @@ function PageApproval({user}){
   };
   const renderFields=()=>{
     if(fType==='leave')return R('div',null,
+      /* 신청자: 실제 휴가 쓰는 사람 — 생산직은 경리가 대신 기안하는 경우가 많아 따로 지정 (기본: 기안자 본인) */
+      R('div',{className:'fr'},R('label',{className:'lbl'},'신청자 *'),
+        R('select',{className:'inp',value:form.content.applicant_id||user.id,onChange:e=>{const id=e.target.value;const em=emps.find(x=>x.id===id);
+          setForm(p=>({...p,content:{...p.content,applicant_id:id,applicant:em?em.name:''}}));}},
+          !emps.some(x=>x.id===(form.content.applicant_id||user.id))&&R('option',{value:form.content.applicant_id||user.id},form.content.applicant||user.name),
+          emps.map(em=>R('option',{key:em.id,value:em.id},em.name+(em.position?' '+em.position:'')+(em.id===user.id?' (본인)':'')))),
+        (form.content.applicant_id&&form.content.applicant_id!==user.id)&&R('div',{style:{fontSize:11,color:'#B45309',marginTop:4,fontWeight:600}},'대리 신청 — 기안자: '+user.name)),
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'휴가 종류'),R('select',{className:'inp',value:form.content.leave_type||'',onChange:e=>updC('leave_type',e.target.value)},R('option',{value:''},'선택'),R('option',{value:'연차'},'연차'),R('option',{value:'오전반차'},'오전반차'),R('option',{value:'오후반차'},'오후반차'),R('option',{value:'병가'},'병가'),R('option',{value:'경조사'},'경조사'))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'기간'),R('input',{type:'date',className:'inp',value:form.content.start||'',onChange:e=>updC('start',e.target.value)}))
@@ -7562,7 +7577,7 @@ function PageApproval({user}){
       R('div',{style:{display:'flex',gap:8,marginBottom:10}},R(Bdg2,{cls:ASTAT[sel.status]||'b-g',txt:sel.status}),R(Bdg2,{cls:'b-g',txt:fTypes.find(f=>f.v===sel.form_type)?.l||sel.form_type})),
       R('h2',{style:{fontSize:17,fontWeight:800,marginBottom:10}},sel.title),
       R('div',{style:{fontSize:12,color:'var(--tm)',paddingBottom:12,borderBottom:'1px solid var(--bd)',marginBottom:12,display:'flex',gap:10}},R('span',null,'기안자: ',sel.emp?.name),R('span',null,fDT(sel.created_at))),
-      Object.entries(sel.content||{}).filter(([k])=>k.indexOf('__')!==0).map(([k,v])=>R('div',{key:k,style:{display:'flex',gap:10,marginBottom:8,fontSize:13}},R('span',{style:{color:'var(--tm)',width:70,flexShrink:0}},FLBL[k]||k),R('span',{style:{fontWeight:500,whiteSpace:'pre-wrap'}},typeof v==='object'?JSON.stringify(v):String(v)))),
+      Object.entries(sel.content||{}).filter(([k])=>k.indexOf('__')!==0&&k!=='applicant_id').map(([k,v])=>R('div',{key:k,style:{display:'flex',gap:10,marginBottom:8,fontSize:13}},R('span',{style:{color:'var(--tm)',width:70,flexShrink:0}},FLBL[k]||k),R('span',{style:{fontWeight:500,whiteSpace:'pre-wrap'}},typeof v==='object'?JSON.stringify(v):String(v)))),
       /* 첨부파일 */
       (()=>{
         const fs=(sel.content&&Array.isArray(sel.content.__files))?sel.content.__files:[];
@@ -7825,7 +7840,7 @@ function PageGaLeave({user}){
     setMonth(nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0'));
   };
   if(docs===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
-  const rows=docs.map(d=>({id:d.id,name:(d.emp&&d.emp.name)||'?',date:String((d.content&&d.content.start)||''),
+  const rows=docs.map(d=>({id:d.id,name:(d.content&&d.content.applicant)||(d.emp&&d.emp.name)||'?',date:String((d.content&&d.content.start)||''),
     type:(d.content&&d.content.leave_type)||'휴무',title:d.title||'',status:d.status||'',at:d.created_at}))
     .filter(r=>!onlyOk||r.status==='승인');
   const inMonth=rows.filter(r=>r.date&&r.date.slice(0,7)===month);
