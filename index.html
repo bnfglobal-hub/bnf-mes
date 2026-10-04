@@ -1569,7 +1569,6 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   };
   /* 섹션별 전역 행 번호 (키보드 이동용) — 줄 추가/삭제 반영 */
   const secWithBase=(()=>{let b=0;return SCHED_GRID_SECS.map(s=>{const n=effN(s);const o={...s,n,base:b};b+=n;return o;});})();
-  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'표 불러오는 중...');
   const baseFs=gridFs||12;
   const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
   const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
@@ -1585,6 +1584,8 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     const t=setInterval(m,1500);
     return()=>{window.removeEventListener('resize',m);clearInterval(t);};
   },[]);
+  /* 훅은 항상 같은 순서로 호출돼야 하므로 로딩 중 조기 반환은 훅 뒤에 둔다 (백지화면 방지) */
+  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'표 불러오는 중...');
   const hasCustomW=!!(gridColW&&Object.keys(gridColW).length);
   const colPx=(()=>{
     if(!hasCustomW)return null;
