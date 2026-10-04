@@ -1854,7 +1854,19 @@ function PageBizPlan({user}){
 
 function PageProdSchedule(){
   /* 주간 생산 스케줄 - 엑셀 캡처 이미지를 주차별로 올려서 보는 전용 뷰어 */
-  const[weekStart,setWeekStart]=useState(getMonday(today2()));
+  /* 맨 위에 보이는 주차: 토요일이 되면 다음 주(일~토)가 맨 위로 올라온다 (2026-10-04).
+     지나간 주차는 화면에서만 내려가고 파일(sched/<주차>-grid.json)은 그대로 남아 [📜 보관함]·[◀ 지난주]로 조회 */
+  const schedTopWeek=()=>getMonday(addDD(today2(),2));
+  const[weekStart,setWeekStart]=useState(schedTopWeek);
+  /* 화면을 켜 둔 채 토요일이 되어도 자동으로 넘어가게 — 다른 주차를 직접 보고 있을 때는 건드리지 않는다 */
+  const topWkRef=useRef(weekStart);
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      const d=schedTopWeek(),prev=topWkRef.current;
+      if(d!==prev){topWkRef.current=d;setWeekStart(w=>w===prev?d:w);}
+    },60000);
+    return()=>clearInterval(t);
+  },[]);
   const[img,setImg]=useState(null);      /* 현재 주차 이미지 (dataURL) */
   const[htmlDoc,setHtmlDoc]=useState(null); /* 엑셀 표 붙여넣기(HTML) 스케줄 */
   const[loading,setLoading]=useState(true);
@@ -2234,7 +2246,7 @@ function PageProdSchedule(){
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
         R('button',{className:'btn bs',onClick:()=>setWeekStart(addDD(weekStart,-7)),style:{padding:'6px 12px'}},'◀ 지난주'),
-        R('button',{className:'btn bs',onClick:()=>setWeekStart(getMonday(today2())),style:{padding:'6px 10px'}},'이번주'),
+        R('button',{className:'btn bs',onClick:()=>setWeekStart(schedTopWeek()),style:{padding:'6px 10px'},title:'토요일부터는 다음 주가 맨 위'},'최신 주'),
         R('button',{className:'btn bs',onClick:()=>setWeekStart(addDD(weekStart,7)),style:{padding:'6px 12px'}},'다음주 ▶')
       )
     ),
