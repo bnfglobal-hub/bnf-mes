@@ -1366,6 +1366,11 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const[st,setSt]=useState('');           /* 저장 상태 표기 */
   const dirty=useRef(false);
   const timer=useRef(null);
+  /* 데이터 보호 (2026-10-04): 불러오기에 실패하면 빈 표로 열지 않는다(빈 표가 기존 내용을 덮어쓰는 사고 방지) */
+  const[loadErr,setLoadErr]=useState(false);
+  const alive=useRef(true);
+  const bakDone=useRef(false);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const cellsRef=useRef(null);
   const stylesRef=useRef(null);
   const rowsRef=useRef(null);
@@ -1380,12 +1385,21 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   alignsRef.current=aligns;
   const load=async(silent)=>{
     if(!silent)setSt('불러오는 중...');
+    let ok=false;
     try{
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
-      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});setAligns((j&&j.aligns)||{});}}
-      else if(!dirty.current)setCells({});
-    }catch(e){if(!dirty.current)setCells({});}
+      if(res.ok){const j=await res.json();ok=true;if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});setAligns((j&&j.aligns)||{});}}
+      else{
+        /* 파일이 '정말 없는 주차'인지 목록으로 확인한 뒤에만 빈 표로 연다 — 일시 오류면 빈 표로 열지 않음 */
+        const{data:ls,error}=await sbClient.storage.from('bnf-files').list('sched',{search:weekStart+'-grid.json'});
+        if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name===weekStart+'-grid.json')){ok=true;if(!dirty.current&&cellsRef.current===null)setCells({});}
+      }
+    }catch(e){}
+    if(!alive.current)return;
+    setLoadErr(!ok);
+    /* 아직 한 번도 못 불러왔으면 5초 뒤 재시도 (이미 떠 있는 표는 그대로 둔다) */
+    if(!ok&&cellsRef.current===null)setTimeout(()=>{if(alive.current&&cellsRef.current===null)load(silent);},5000);
     if(!silent)setSt('');
   };
   useEffect(()=>{dirty.current=false;setCells(null);load();},[weekStart]);
@@ -1398,6 +1412,12 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     const cur=cellsRef.current;if(!cur)return;
     setSt('저장 중...');
     try{
+      /* 덮어쓰기 전 백업: 그날 처음 저장하기 직전의 표를 sched-bak/<주차>-grid.<날짜>.json 으로 남긴다.
+         같은 날 백업이 이미 있으면 복사가 거절돼 '그날 첫 상태'가 유지된다. 자동 삭제 없음 */
+      if(!bakDone.current){
+        bakDone.current=true;
+        try{await sbClient.storage.from('bnf-files').copy(path,'sched-bak/'+weekStart+'-grid.'+today2()+'.json');}catch(e){}
+      }
       const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},rows:rowsRef.current||{},rowh:rowhRef.current||{},merges:mergesRef.current||{},aligns:alignsRef.current||{},at:new Date().toISOString()});
       const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
@@ -1585,7 +1605,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     return()=>{window.removeEventListener('resize',m);clearInterval(t);};
   },[]);
   /* 훅은 항상 같은 순서로 호출돼야 하므로 로딩 중 조기 반환은 훅 뒤에 둔다 (백지화면 방지) */
-  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'표 불러오는 중...');
+  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:loadErr?'#B91C1C':'var(--tm)'}},loadErr?'표를 불러오지 못했습니다 — 자동으로 다시 시도 중입니다 (기존 내용 보호를 위해 입력을 잠시 막아 둡니다)':'표 불러오는 중...');
   const hasCustomW=!!(gridColW&&Object.keys(gridColW).length);
   const colPx=(()=>{
     if(!hasCustomW)return null;
