@@ -7473,13 +7473,13 @@ function PageApproval({user}){
     if(upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
     let line=buildLine(form.approvers);
     if(!line.length)return alert('결재자를 한 명 이상 지정해주세요.');
-    /* 휴가신청: 신청자를 맨 앞에 저장 (지정 안 했으면 기안자 본인) */
+    /* 휴가신청: 신청자(직접 입력한 이름)를 맨 앞에 저장 — 비워 두면 안 됨, 손대지 않았으면 기안자 본인 */
     let fc=form.content;
     if(fType==='leave'){
-      const aid=form.content.applicant_id||user.id;
-      const em=emps.find(x=>x.id===aid);
       const{applicant,applicant_id,...rest}=form.content;
-      fc={applicant:(em&&em.name)||applicant||user.name,applicant_id:aid,...rest};
+      const nm=String(applicant!=null?applicant:user.name).trim();
+      if(!nm)return alert('신청자 이름을 입력해주세요.');
+      fc={applicant:nm,...rest};
     }
     try{
       if(editId){
@@ -7545,13 +7545,17 @@ function PageApproval({user}){
   };
   const renderFields=()=>{
     if(fType==='leave')return R('div',null,
-      /* 신청자: 실제 휴가 쓰는 사람 — 생산직은 경리가 대신 기안하는 경우가 많아 따로 지정 (기본: 기안자 본인) */
-      R('div',{className:'fr'},R('label',{className:'lbl'},'신청자 *'),
-        R('select',{className:'inp',value:form.content.applicant_id||user.id,onChange:e=>{const id=e.target.value;const em=emps.find(x=>x.id===id);
-          setForm(p=>({...p,content:{...p.content,applicant_id:id,applicant:em?em.name:''}}));}},
-          !emps.some(x=>x.id===(form.content.applicant_id||user.id))&&R('option',{value:form.content.applicant_id||user.id},form.content.applicant||user.name),
-          emps.map(em=>R('option',{key:em.id,value:em.id},em.name+(em.position?' '+em.position:'')+(em.id===user.id?' (본인)':'')))),
-        (form.content.applicant_id&&form.content.applicant_id!==user.id)&&R('div',{style:{fontSize:11,color:'#B45309',marginTop:4,fontWeight:600}},'대리 신청 — 기안자: '+user.name)),
+      /* 신청자: 실제 휴가 쓰는 사람 — 생산직은 경리가 대신 기안하는 경우가 많아 직접 입력 (기본: 기안자 본인).
+         직원 목록에 없는 사람(생산직 등)도 이름을 그대로 쓰면 된다. 목록 이름은 입력 중 추천으로만 보여준다 */
+      (()=>{
+        const ap=form.content.applicant!=null?form.content.applicant:user.name;
+        const proxy=String(ap||'').trim()&&String(ap).trim()!==user.name;
+        return R('div',{className:'fr'},R('label',{className:'lbl'},'신청자 *'),
+          R('input',{className:'inp',list:'appr-applicant-list',value:ap,placeholder:'휴가 쓰는 사람 이름 입력',autoComplete:'off',
+            onChange:e=>{const v=e.target.value;setForm(p=>({...p,content:{...p.content,applicant:v}}));}}),
+          R('datalist',{id:'appr-applicant-list'},emps.map(em=>R('option',{key:em.id,value:em.name}))),
+          proxy&&R('div',{style:{fontSize:11,color:'#B45309',marginTop:4,fontWeight:600}},'대리 신청 — 기안자: '+user.name));
+      })(),
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'휴가 종류'),R('select',{className:'inp',value:form.content.leave_type||'',onChange:e=>updC('leave_type',e.target.value)},R('option',{value:''},'선택'),R('option',{value:'연차'},'연차'),R('option',{value:'오전반차'},'오전반차'),R('option',{value:'오후반차'},'오후반차'),R('option',{value:'병가'},'병가'),R('option',{value:'경조사'},'경조사'))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'기간'),R('input',{type:'date',className:'inp',value:form.content.start||'',onChange:e=>updC('start',e.target.value)}))
