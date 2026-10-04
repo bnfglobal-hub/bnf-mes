@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "git fetch -q origin && if [ \"$(git branch --show-current)\" = main ]; then git merge --ff-only origin/main; fi 2>&1 || echo '최신 버전 자동 받기 실패 - 수동 확인 필요'",
+            "timeout": 60,
+            "statusMessage": "MES 최신 버전 받는 중..."
+          }
+        ]
+      }
+    ]
+  }
+}
