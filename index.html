@@ -1362,6 +1362,16 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const[aligns,setAligns]=useState({});   /* {sec:'left'|'center'|'right'} 구역별 글자 정렬 (함께 저장) */
   const[selRange,setSelRange]=useState(null); /* 드래그 선택 범위 {k,r1,r2,c1,c2} */
   const dragSel=useRef(null);
+  /* 표 폭 측정(열 너비 자동 맞춤용) — 훅은 조기 return보다 앞에 있어야 함(React #310 방지) */
+  const wrapRef=useRef(null);
+  const[wrapW,setWrapW]=useState(0);
+  useEffect(()=>{
+    const m=()=>{try{if(wrapRef.current)setWrapW(wrapRef.current.clientWidth);}catch(e){}};
+    m();
+    window.addEventListener('resize',m);
+    const t=setInterval(m,1500);
+    return()=>{window.removeEventListener('resize',m);clearInterval(t);};
+  },[]);
   const[curKey,setCurKey]=useState(null); /* 마지막으로 선택한 칸 (서식 버튼 대상) */
   const[st,setSt]=useState('');           /* 저장 상태 표기 */
   const dirty=useRef(false);
@@ -1576,15 +1586,6 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
   /* 열 너비: 드래그로 넓힌 합이 화면보다 커지면 비율은 유지한 채 전체를 축소 —
      토요일 열이 화면 밖으로 밀려 안 보이던 문제 방지 (2026-10-01) */
-  const wrapRef=useRef(null);
-  const[wrapW,setWrapW]=useState(0);
-  useEffect(()=>{
-    const m=()=>{try{if(wrapRef.current)setWrapW(wrapRef.current.clientWidth);}catch(e){}};
-    m();
-    window.addEventListener('resize',m);
-    const t=setInterval(m,1500);
-    return()=>{window.removeEventListener('resize',m);clearInterval(t);};
-  },[]);
   const hasCustomW=!!(gridColW&&Object.keys(gridColW).length);
   const colPx=(()=>{
     if(!hasCustomW)return null;
@@ -1883,6 +1884,7 @@ function PageProdSchedule(){
   const[shBusy,setShBusy]=useState(false);
   const[arcOpen,setArcOpen]=useState(false);
   const[arcList,setArcList]=useState(null);
+  const[arcSel,setArcSel]=useState({});   /* 보관함에서 체크한 주차 (복사·인쇄 대상) */
   const fetchGridW=async(ws)=>{
     try{
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('sched/'+ws+'-grid.json');
@@ -2045,7 +2047,7 @@ function PageProdSchedule(){
     w.document.write(html);w.document.close();
   };
   const openArchive=async()=>{
-    setArcOpen(true);setArcList(null);
+    setArcOpen(true);setArcList(null);setArcSel({});
     try{
       const{data:ls}=await sbClient.storage.from('bnf-files').list('sched',{limit:1000});
       const weeks=(ls||[]).map(x=>{const m=/^(\d{4}-\d{2}-\d{2})-grid\.json$/.exec(x.name||'');return m?m[1]:null;})
@@ -2336,27 +2338,41 @@ function PageProdSchedule(){
     R('input',{ref:fileRef,type:'file',accept:'image/*',onChange:handleFile,style:{display:'none'}}),
     R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:12,textAlign:'center'}},'※ 캡처 후 이 화면에서 Ctrl+V로 바로 붙여넣을 수 있습니다. 또는 이미지 파일을 올려도 됩니다. 주차별로 따로 저장됩니다.'),
     zoomOpen&&img&&R(ImageZoomModal,{src:img,title:'생산 스케줄 '+fmtRange(),onClose:()=>setZoomOpen(false)}),
-    /* ── 주차 보관함: 저장된 모든 주차(영구 보관) 바로 이동 ── */
+    /* ── 주차 보관함: 저장된 모든 주차(영구 보관) 바로 이동 + 원하는 주차만 골라 복사·인쇄 ── */
     arcOpen&&R(Portal,null,R('div',{className:'mbg',onClick:()=>setArcOpen(false)},
-      R('div',{className:'mbox',onClick:e=>e.stopPropagation(),style:{maxWidth:420,width:'100%',maxHeight:'86vh'}},
+      R('div',{className:'mbox',onClick:e=>e.stopPropagation(),style:{maxWidth:460,width:'100%',maxHeight:'86vh'}},
         R('div',{className:'mhdr'},
           R('div',null,
             R('div',{style:{fontSize:15,fontWeight:800}},'📜 생산 스케줄 보관함'),
-            R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'편집 표는 주차별로 영구 보관됩니다 — 자동 삭제 없음')),
+            R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'영구 보관 · 체크한 주차만 골라 복사(카톡)·인쇄할 수 있습니다')),
           R('button',{onClick:()=>setArcOpen(false),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
         R('div',{className:'mbody'},
-          arcList===null?R('div',{style:{textAlign:'center',padding:24,color:'var(--tm)'}},'불러오는 중...'):
-          arcList.length===0?R('div',{style:{textAlign:'center',padding:24,color:'var(--tm)'}},'저장된 편집 표가 아직 없습니다.'):
-          arcList.map(w=>{
-            const sun=addDD(w,-1);
-            const cur=w===weekStart;
-            return R('div',{key:w,onClick:()=>{setWeekStart(w);setArcOpen(false);},
-              style:{display:'flex',gap:8,alignItems:'center',padding:'10px 12px',borderRadius:10,cursor:'pointer',
-                     border:'1px solid '+(cur?'var(--p)':'var(--bd)'),marginBottom:7,background:cur?'#FFF7F2':'#fff'}},
-              R('span',{style:{fontSize:13.5,fontWeight:800,flex:1}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
-              cur&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'보는 중'),
-              R('span',{style:{fontSize:11,color:'var(--p)',fontWeight:700}},'열기 →'));
-          })))))
+          (()=>{
+            const sel=Object.keys(arcSel||{}).filter(w=>arcSel[w]).sort();
+            return R('div',null,
+              sel.length>0&&R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10,padding:'9px 12px',background:'#FFF7F2',border:'1.5px solid var(--p)',borderRadius:10}},
+                R('span',{style:{fontSize:12.5,fontWeight:800,color:'var(--p)'}},sel.length+'개 주차 선택'),
+                R('div',{style:{flex:1}}),
+                R('button',{className:'btn bp btn-sm',disabled:shBusy,onClick:()=>copyWeekImg(sel)},shBusy?'만드는 중...':'📷 선택 복사'),
+                R('button',{className:'btn bw btn-sm',onClick:()=>printWeek(sel)},'🖨 선택 인쇄'),
+                R('button',{className:'btn bs btn-sm',onClick:()=>setArcSel({})},'선택 해제')),
+              arcList===null?R('div',{style:{textAlign:'center',padding:24,color:'var(--tm)'}},'불러오는 중...'):
+              arcList.length===0?R('div',{style:{textAlign:'center',padding:24,color:'var(--tm)'}},'저장된 편집 표가 아직 없습니다.'):
+              R('div',null,...arcList.map(w=>{
+                const sun=addDD(w,-1);
+                const cur=w===weekStart;
+                const ck=!!(arcSel||{})[w];
+                return R('div',{key:w,
+                  style:{display:'flex',gap:9,alignItems:'center',padding:'10px 12px',borderRadius:10,
+                         border:'1.5px solid '+(ck?'var(--p)':(cur?'#F3C6AE':'var(--bd)')),marginBottom:7,background:ck?'#FFF3EC':(cur?'#FFFBF8':'#fff')}},
+                  R('input',{type:'checkbox',checked:ck,onChange:()=>setArcSel(p=>({...(p||{}),[w]:!ck})),
+                    style:{width:17,height:17,accentColor:'var(--p)',cursor:'pointer',flexShrink:0}}),
+                  R('span',{onClick:()=>setArcSel(p=>({...(p||{}),[w]:!ck})),
+                    style:{fontSize:13.5,fontWeight:800,flex:1,cursor:'pointer'}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
+                  cur&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'보는 중'),
+                  R('button',{className:'btn bw btn-sm',onClick:()=>{setWeekStart(w);setArcOpen(false);}},'열기 →'));
+              })));
+          })()))))
   );
 }
 
