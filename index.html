@@ -1015,6 +1015,87 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
   .tab:active,.btn:active{transform:none}
 }
 
+/* ═══ 모던 대시보드 · 마이크로 인터랙션 (2026-10-04) ═══
+   주의: 페이지·섹션 래퍼에는 transform을 남기지 않는다(position:fixed 모달 기준이 바뀜).
+   진입 애니메이션은 fill-mode backwards로 끝나면 transform:none 으로 돌아간다. */
+.card{transition:box-shadow .2s ease,border-color .2s ease}
+.btn{transition:background .15s ease,box-shadow .2s ease,border-color .15s ease,color .15s ease,transform .1s ease}
+.bp:hover{box-shadow:0 6px 16px -6px rgba(217,79,30,.55)}
+.bw:hover{border-color:#D9CFC7;box-shadow:0 2px 8px -3px rgba(60,35,20,.15)}
+.inp:focus{box-shadow:0 0 0 3px rgba(217,79,30,.14)}
+.ni{transition:background .15s ease,color .15s ease}
+@keyframes dashUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.home-sec{animation:dashUp .42s cubic-bezier(.2,.7,.2,1) backwards}
+.home-dash .card[style*="cursor: pointer"]{transition:box-shadow .22s ease,border-color .22s ease,transform .22s cubic-bezier(.2,.7,.2,1)}
+.home-dash .card[style*="cursor: pointer"]:hover{transform:translateY(-2px);box-shadow:0 14px 28px -16px rgba(60,35,20,.35);border-color:#E2D6CD}
+/* ═══ 로그인: 글래스모피즘 (2026-10-04) ═══ */
+.lg-bg{position:relative;display:flex;min-height:100vh;min-height:100dvh;overflow:hidden;padding:20px;
+  background:radial-gradient(120% 90% at 10% 0%,#4A1F10 0%,#1A0C07 55%,#0E0604 100%)}
+.lg-orb{position:absolute;border-radius:50%;filter:blur(60px);opacity:.55;pointer-events:none;animation:lgFloat 14s ease-in-out infinite}
+.lg-orb.o1{width:420px;height:420px;background:#D94F1E;top:-120px;left:-80px}
+.lg-orb.o2{width:360px;height:360px;background:#F59E0B;bottom:-140px;right:-60px;opacity:.35;animation-delay:-5s}
+.lg-orb.o3{width:260px;height:260px;background:#F07040;top:40%;left:58%;opacity:.28;animation-delay:-9s}
+@keyframes lgFloat{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(30px,-24px) scale(1.06)}66%{transform:translate(-22px,18px) scale(.96)}}
+.lg-card{position:relative;z-index:1;margin:auto;width:100%;max-width:400px;padding:40px 34px 34px;border-radius:24px;
+  background:rgba(255,255,255,.78);-webkit-backdrop-filter:blur(22px) saturate(160%);backdrop-filter:blur(22px) saturate(160%);
+  border:1px solid rgba(255,255,255,.55);box-shadow:0 30px 80px -20px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.7);
+  animation:lgIn .6s cubic-bezier(.2,.7,.2,1) backwards}
+@keyframes lgIn{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
+.lg-lbl{font-size:11.5px;font-weight:700;color:#6E645C;display:block;margin-bottom:5px}
+.lg-inp{width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid rgba(110,100,92,.22);background:rgba(255,255,255,.65);font-size:14px;color:#221A14;outline:none;
+  transition:border-color .2s ease,box-shadow .25s ease,background .2s ease}
+.lg-inp:hover{border-color:rgba(217,79,30,.35)}
+.lg-inp:focus{border-color:#D94F1E;background:#fff;box-shadow:0 0 0 4px rgba(217,79,30,.15),0 0 22px -4px rgba(217,79,30,.45)}
+.lg-btn{width:100%;padding:14px;border:none;border-radius:12px;cursor:pointer;font-family:inherit;font-size:15px;font-weight:800;color:#fff;
+  background:linear-gradient(135deg,#F07040 0%,#D94F1E 55%,#B83E15 100%);box-shadow:0 10px 24px -10px rgba(217,79,30,.8);
+  transition:box-shadow .25s ease,transform .12s ease,filter .2s ease;display:flex;align-items:center;justify-content:center;gap:8px}
+.lg-btn:hover:not(:disabled){box-shadow:0 14px 34px -8px rgba(240,112,64,.9),0 0 0 1px rgba(255,255,255,.25) inset;filter:brightness(1.05)}
+.lg-btn:active:not(:disabled){transform:scale(.985)}
+.lg-btn:disabled{cursor:default;filter:saturate(.6) brightness(.95)}
+.lg-spin{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;animation:spin .7s linear infinite}
+.lg-err{background:rgba(254,242,242,.9);border:1px solid #fecaca;border-radius:10px;padding:9px 12px;font-size:13px;color:#991b1b;animation:lgShake .4s ease}
+@keyframes lgShake{0%,100%{transform:none}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.lg-ok{display:flex;flex-direction:column;align-items:center;gap:14px;padding:26px 0 10px;animation:fadeIn .25s ease}
+.lg-ok svg{width:78px;height:78px;filter:drop-shadow(0 8px 20px rgba(21,128,61,.35))}
+.lg-ok circle{fill:none;stroke:#15803D;stroke-width:3;stroke-dasharray:166;stroke-dashoffset:166;animation:lgDraw .5s ease forwards}
+.lg-ok path{fill:none;stroke:#15803D;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:48;stroke-dashoffset:48;animation:lgDraw .35s .4s ease forwards}
+@keyframes lgDraw{to{stroke-dashoffset:0}}
+@media(max-width:480px){.lg-card{padding:32px 22px 26px;border-radius:20px}.lg-orb{filter:blur(48px)}}
+
+/* ═══ 사이드바 내비게이션 (2026-10-04) ═══ */
+.sb{scrollbar-width:thin;scrollbar-color:transparent transparent;transition:scrollbar-color .2s}
+.sb:hover{scrollbar-color:#DDD3CB transparent}
+.ni{position:relative;transition:background .18s ease,color .18s ease}
+.ni>span:first-child{display:inline-block;transition:transform .2s cubic-bezier(.2,.7,.2,1)}
+.ni:hover>span:first-child{transform:translateX(3px)}
+.ni:hover{background:#F3EEEA}
+/* 현재 메뉴: 왼쪽 강조 막대가 쑥 자라나는 효과 */
+.ni::before{content:"";position:absolute;left:4px;top:50%;width:3px;height:56%;border-radius:3px;background:var(--p);transform:translateY(-50%) scaleY(0);transition:transform .25s cubic-bezier(.2,.7,.2,1)}
+.ni.act::before{content:"";left:4px;width:3px;height:56%;border-radius:3px;transform:translateY(-50%) scaleY(1)}
+.ni.act{background:linear-gradient(90deg,#FFE7DA,#FFF3EC 70%)!important}
+.ni:active{background:#EDE5DF}
+/* 폴더를 열 때 메뉴가 위에서 살짝 내려오며 나타남 (끝나면 transform 해제) */
+@keyframes niIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.sb-folder .ni{animation:niIn .24s cubic-bezier(.2,.7,.2,1) backwards}
+.sb-folder>div:first-child{transition:box-shadow .18s ease}
+.sb-folder>div:first-child:hover{box-shadow:inset 0 0 0 100px rgba(60,35,20,.045)}
+.sb-folder>div:first-child>span:first-child{transition:transform .25s cubic-bezier(.2,.7,.2,1)!important}
+/* 모바일 서랍 메뉴: 더 부드러운 슬라이드 + 배경 흐림 */
+@media(max-width:768px){
+  .sb.sb-open{animation:sbIn .32s cubic-bezier(.2,.8,.2,1)!important}
+  .sb-overlay{-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);background:rgba(20,12,8,.38)!important}
+}
+@keyframes sbIn{from{transform:translateX(-104%)}to{transform:none}}
+@media(prefers-reduced-motion:reduce){
+  .sb-folder .ni,.sb.sb-open{animation:none!important}
+  .ni:hover>span:first-child{transform:none}
+}
+@media(prefers-reduced-motion:reduce){
+  .home-sec,.lg-card,.lg-orb,.lg-err,.lg-ok circle,.lg-ok path{animation:none!important}
+  .lg-ok circle,.lg-ok path{stroke-dashoffset:0}
+  .home-dash .card[style*="cursor: pointer"]:hover{transform:none}
+}
+
 </style>
 <script>
 window._deferredPrompt=null;
@@ -1376,6 +1457,11 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   const[st,setSt]=useState('');           /* 저장 상태 표기 */
   const dirty=useRef(false);
   const timer=useRef(null);
+  /* 데이터 보호 (2026-10-04): 불러오기에 실패하면 빈 표로 열지 않는다(빈 표가 기존 내용을 덮어쓰는 사고 방지) */
+  const[loadErr,setLoadErr]=useState(false);
+  const alive=useRef(true);
+  const bakDone=useRef(false);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const cellsRef=useRef(null);
   const stylesRef=useRef(null);
   const rowsRef=useRef(null);
@@ -1390,12 +1476,21 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   alignsRef.current=aligns;
   const load=async(silent)=>{
     if(!silent)setSt('불러오는 중...');
+    let ok=false;
     try{
       const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
       const res=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
-      if(res.ok){const j=await res.json();if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});setAligns((j&&j.aligns)||{});}}
-      else if(!dirty.current)setCells({});
-    }catch(e){if(!dirty.current)setCells({});}
+      if(res.ok){const j=await res.json();ok=true;if(!dirty.current){setCells((j&&j.cells)||{});setStyles((j&&j.styles)||{});setRows((j&&j.rows)||{});setRowh((j&&j.rowh)||{});setMerges((j&&j.merges)||{});setAligns((j&&j.aligns)||{});}}
+      else{
+        /* 파일이 '정말 없는 주차'인지 목록으로 확인한 뒤에만 빈 표로 연다 — 일시 오류면 빈 표로 열지 않음 */
+        const{data:ls,error}=await sbClient.storage.from('bnf-files').list('sched',{search:weekStart+'-grid.json'});
+        if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name===weekStart+'-grid.json')){ok=true;if(!dirty.current&&cellsRef.current===null)setCells({});}
+      }
+    }catch(e){}
+    if(!alive.current)return;
+    setLoadErr(!ok);
+    /* 아직 한 번도 못 불러왔으면 5초 뒤 재시도 (이미 떠 있는 표는 그대로 둔다) */
+    if(!ok&&cellsRef.current===null)setTimeout(()=>{if(alive.current&&cellsRef.current===null)load(silent);},5000);
     if(!silent)setSt('');
   };
   useEffect(()=>{dirty.current=false;setCells(null);load();},[weekStart]);
@@ -1408,6 +1503,12 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
     const cur=cellsRef.current;if(!cur)return;
     setSt('저장 중...');
     try{
+      /* 덮어쓰기 전 백업: 그날 처음 저장하기 직전의 표를 sched-bak/<주차>-grid.<날짜>.json 으로 남긴다.
+         같은 날 백업이 이미 있으면 복사가 거절돼 '그날 첫 상태'가 유지된다. 자동 삭제 없음 */
+      if(!bakDone.current){
+        bakDone.current=true;
+        try{await sbClient.storage.from('bnf-files').copy(path,'sched-bak/'+weekStart+'-grid.'+today2()+'.json');}catch(e){}
+      }
       const body=JSON.stringify({cells:cur,styles:stylesRef.current||{},rows:rowsRef.current||{},rowh:rowhRef.current||{},merges:mergesRef.current||{},aligns:alignsRef.current||{},at:new Date().toISOString()});
       const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
@@ -1579,13 +1680,14 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
   };
   /* 섹션별 전역 행 번호 (키보드 이동용) — 줄 추가/삭제 반영 */
   const secWithBase=(()=>{let b=0;return SCHED_GRID_SECS.map(s=>{const n=effN(s);const o={...s,n,base:b};b+=n;return o;});})();
-  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'표 불러오는 중...');
   const baseFs=gridFs||12;
   const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
   const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
   /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
   /* 열 너비: 드래그로 넓힌 합이 화면보다 커지면 비율은 유지한 채 전체를 축소 —
      토요일 열이 화면 밖으로 밀려 안 보이던 문제 방지 (2026-10-01) */
+  /* 훅(wrapRef·wrapW 포함)은 모두 컴포넌트 최상단에 선언 — 조기 반환은 훅 뒤 (React #310 방지) */
+  if(cells===null)return R('div',{className:'card',style:{textAlign:'center',padding:36,color:loadErr?'#B91C1C':'var(--tm)'}},loadErr?'표를 불러오지 못했습니다 — 자동으로 다시 시도 중입니다 (기존 내용 보호를 위해 입력을 잠시 막아 둡니다)':'표 불러오는 중...');
   const hasCustomW=!!(gridColW&&Object.keys(gridColW).length);
   const colPx=(()=>{
     if(!hasCustomW)return null;
@@ -1854,7 +1956,19 @@ function PageBizPlan({user}){
 
 function PageProdSchedule(){
   /* 주간 생산 스케줄 - 엑셀 캡처 이미지를 주차별로 올려서 보는 전용 뷰어 */
-  const[weekStart,setWeekStart]=useState(getMonday(today2()));
+  /* 맨 위에 보이는 주차: 토요일이 되면 다음 주(일~토)가 맨 위로 올라온다 (2026-10-04).
+     지나간 주차는 화면에서만 내려가고 파일(sched/<주차>-grid.json)은 그대로 남아 [📜 보관함]·[◀ 지난주]로 조회 */
+  const schedTopWeek=()=>getMonday(addDD(today2(),2));
+  const[weekStart,setWeekStart]=useState(schedTopWeek);
+  /* 화면을 켜 둔 채 토요일이 되어도 자동으로 넘어가게 — 다른 주차를 직접 보고 있을 때는 건드리지 않는다 */
+  const topWkRef=useRef(weekStart);
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      const d=schedTopWeek(),prev=topWkRef.current;
+      if(d!==prev){topWkRef.current=d;setWeekStart(w=>w===prev?d:w);}
+    },60000);
+    return()=>clearInterval(t);
+  },[]);
   const[img,setImg]=useState(null);      /* 현재 주차 이미지 (dataURL) */
   const[htmlDoc,setHtmlDoc]=useState(null); /* 엑셀 표 붙여넣기(HTML) 스케줄 */
   const[loading,setLoading]=useState(true);
@@ -2235,7 +2349,7 @@ function PageProdSchedule(){
       ),
       R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
         R('button',{className:'btn bs',onClick:()=>setWeekStart(addDD(weekStart,-7)),style:{padding:'6px 12px'}},'◀ 지난주'),
-        R('button',{className:'btn bs',onClick:()=>setWeekStart(getMonday(today2())),style:{padding:'6px 10px'}},'이번주'),
+        R('button',{className:'btn bs',onClick:()=>setWeekStart(schedTopWeek()),style:{padding:'6px 10px'},title:'토요일부터는 다음 주가 맨 위'},'최신 주'),
         R('button',{className:'btn bs',onClick:()=>setWeekStart(addDD(weekStart,7)),style:{padding:'6px 12px'}},'다음주 ▶')
       )
     ),
@@ -7328,7 +7442,7 @@ function PageApproval({user}){
   };
   const fTypes=[{v:'leave',l:'휴가신청'},{v:'expense',l:'지출결의'},{v:'purchase',l:'구매요청'},{v:'general',l:'일반기안'}];
   const ASTAT={기안중:'b-g',결재중:'b-i',승인:'b-ok',반려:'b-e',취소:'b-g'};
-  const FLBL={leave_type:'휴가 종류',start:'기간',reason:'사유',body:'내용',amount:'금액',item:'품목',vendor:'거래처'};
+  const FLBL={applicant:'신청자',leave_type:'휴가 종류',start:'기간',reason:'사유',body:'내용',amount:'금액',item:'품목',vendor:'거래처'};
   const isImg=f=>!!f&&(/^image\//.test(f.mime||'')||/\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(f.name||''));
   const fBytes=b=>{if(!b)return'';const k=b/1024;if(k<1024)return' · '+k.toFixed(0)+'KB';return' · '+(k/1024).toFixed(1)+'MB';};
   const updC=(k,v)=>setForm(p=>({...p,content:{...p.content,[k]:v}}));
@@ -7375,6 +7489,14 @@ function PageApproval({user}){
     if(upBusy)return alert('첨부 업로드가 끝난 뒤 저장해주세요.');
     let line=buildLine(form.approvers);
     if(!line.length)return alert('결재자를 한 명 이상 지정해주세요.');
+    /* 휴가신청: 신청자(직접 입력한 이름)를 맨 앞에 저장 — 비워 두면 안 됨, 손대지 않았으면 기안자 본인 */
+    let fc=form.content;
+    if(fType==='leave'){
+      const{applicant,applicant_id,...rest}=form.content;
+      const nm=String(applicant!=null?applicant:user.name).trim();
+      if(!nm)return alert('신청자 이름을 입력해주세요.');
+      fc={applicant:nm,...rest};
+    }
     try{
       if(editId){
         /* ── 수정 ── 기존 의견 로그는 보존 */
@@ -7387,7 +7509,7 @@ function PageApproval({user}){
           return(old&&old.id===s.id&&(old.status==='승인'||old.status==='반려'))?{...s,status:old.status,at:old.at}:s;
         });
         const first=line[0].id,last=line[line.length-1].id;
-        const content={...form.content,__refs:form.refs||[],__files:cleanFiles(),__opinions:keep,__line:line,
+        const content={...fc,__refs:form.refs||[],__files:cleanFiles(),__opinions:keep,__line:line,
           __edited:{by:user.name,at:now2()}};
         await db('approvals').update({form_type:fType,title:form.title,content,step1_id:first,step2_id:line.length>1?last:null,
           step1_status:line[0].status||'대기',step2_status:line.length>1?(line[line.length-1].status||'대기'):'대기',updated_at:now2()}).eq('id',editId);
@@ -7398,7 +7520,7 @@ function PageApproval({user}){
       }else{
         /* ── 신규 기안 ── */
         const first=line[0].id,last=line[line.length-1].id;
-        const content={...form.content,__refs:form.refs||[],__files:cleanFiles(),__line:line};
+        const content={...fc,__refs:form.refs||[],__files:cleanFiles(),__line:line};
         await db('approvals').insert({form_type:fType,title:form.title,content,writer_id:user.id,status:'결재중',step1_id:first,step2_id:line.length>1?last:null,step1_status:'대기',step2_status:'대기'});
         pushNotif([
           {to:first,from:user.id,fromName:user.name,type:'approval',text:'"'+form.title+'" 결재를 요청했습니다.',page:'approval'},
@@ -7439,6 +7561,17 @@ function PageApproval({user}){
   };
   const renderFields=()=>{
     if(fType==='leave')return R('div',null,
+      /* 신청자: 실제 휴가 쓰는 사람 — 생산직은 경리가 대신 기안하는 경우가 많아 직접 입력 (기본: 기안자 본인).
+         직원 목록에 없는 사람(생산직 등)도 이름을 그대로 쓰면 된다. 목록 이름은 입력 중 추천으로만 보여준다 */
+      (()=>{
+        const ap=form.content.applicant!=null?form.content.applicant:user.name;
+        const proxy=String(ap||'').trim()&&String(ap).trim()!==user.name;
+        return R('div',{className:'fr'},R('label',{className:'lbl'},'신청자 *'),
+          R('input',{className:'inp',list:'appr-applicant-list',value:ap,placeholder:'휴가 쓰는 사람 이름 입력',autoComplete:'off',
+            onChange:e=>{const v=e.target.value;setForm(p=>({...p,content:{...p.content,applicant:v}}));}}),
+          R('datalist',{id:'appr-applicant-list'},emps.map(em=>R('option',{key:em.id,value:em.name}))),
+          proxy&&R('div',{style:{fontSize:11,color:'#B45309',marginTop:4,fontWeight:600}},'대리 신청 — 기안자: '+user.name));
+      })(),
       R('div',{className:'fg'},
         R('div',{className:'fr'},R('label',{className:'lbl'},'휴가 종류'),R('select',{className:'inp',value:form.content.leave_type||'',onChange:e=>updC('leave_type',e.target.value)},R('option',{value:''},'선택'),R('option',{value:'연차'},'연차'),R('option',{value:'오전반차'},'오전반차'),R('option',{value:'오후반차'},'오후반차'),R('option',{value:'병가'},'병가'),R('option',{value:'경조사'},'경조사'))),
         R('div',{className:'fr'},R('label',{className:'lbl'},'기간'),R('input',{type:'date',className:'inp',value:form.content.start||'',onChange:e=>updC('start',e.target.value)}))
@@ -7464,7 +7597,7 @@ function PageApproval({user}){
       R('div',{style:{display:'flex',gap:8,marginBottom:10}},R(Bdg2,{cls:ASTAT[sel.status]||'b-g',txt:sel.status}),R(Bdg2,{cls:'b-g',txt:fTypes.find(f=>f.v===sel.form_type)?.l||sel.form_type})),
       R('h2',{style:{fontSize:17,fontWeight:800,marginBottom:10}},sel.title),
       R('div',{style:{fontSize:12,color:'var(--tm)',paddingBottom:12,borderBottom:'1px solid var(--bd)',marginBottom:12,display:'flex',gap:10}},R('span',null,'기안자: ',sel.emp?.name),R('span',null,fDT(sel.created_at))),
-      Object.entries(sel.content||{}).filter(([k])=>k.indexOf('__')!==0).map(([k,v])=>R('div',{key:k,style:{display:'flex',gap:10,marginBottom:8,fontSize:13}},R('span',{style:{color:'var(--tm)',width:70,flexShrink:0}},FLBL[k]||k),R('span',{style:{fontWeight:500,whiteSpace:'pre-wrap'}},typeof v==='object'?JSON.stringify(v):String(v)))),
+      Object.entries(sel.content||{}).filter(([k])=>k.indexOf('__')!==0&&k!=='applicant_id').map(([k,v])=>R('div',{key:k,style:{display:'flex',gap:10,marginBottom:8,fontSize:13}},R('span',{style:{color:'var(--tm)',width:70,flexShrink:0}},FLBL[k]||k),R('span',{style:{fontWeight:500,whiteSpace:'pre-wrap'}},typeof v==='object'?JSON.stringify(v):String(v)))),
       /* 첨부파일 */
       (()=>{
         const fs=(sel.content&&Array.isArray(sel.content.__files))?sel.content.__files:[];
@@ -7727,7 +7860,7 @@ function PageGaLeave({user}){
     setMonth(nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0'));
   };
   if(docs===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
-  const rows=docs.map(d=>({id:d.id,name:(d.emp&&d.emp.name)||'?',date:String((d.content&&d.content.start)||''),
+  const rows=docs.map(d=>({id:d.id,name:(d.content&&d.content.applicant)||(d.emp&&d.emp.name)||'?',date:String((d.content&&d.content.start)||''),
     type:(d.content&&d.content.leave_type)||'휴무',title:d.title||'',status:d.status||'',at:d.created_at}))
     .filter(r=>!onlyOk||r.status==='승인');
   const inMonth=rows.filter(r=>r.date&&r.date.slice(0,7)===month);
@@ -11860,7 +11993,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     }:{};
     const ebtn={background:'#fff',border:'1px solid #E9E2DC',borderRadius:8,padding:'5px 10px',cursor:'pointer',fontSize:12,fontWeight:700,color:'#3D3630',lineHeight:1,boxShadow:'0 1px 3px rgba(0,0,0,.08)'};
     const oi=sectionOrder.indexOf(id);
-    return R('div',{key:id,...dragProps,style:{position:'relative',marginBottom:14,...(editMode?{border:'2px dashed '+(dragged===id?'#D94F1E':isHidden?'#FCA5A5':'#D9D2CB'),borderRadius:14,padding:6,paddingTop:16,cursor:'move',opacity:dragged===id?0.4:(isHidden?0.45:1),transition:'opacity .2s, border-color .2s'}:{})}},
+    return R('div',{key:id,...dragProps,className:'home-sec',style:{animationDelay:(150+idx*55)+'ms',position:'relative',marginBottom:14,...(editMode?{border:'2px dashed '+(dragged===id?'#D94F1E':isHidden?'#FCA5A5':'#D9D2CB'),borderRadius:14,padding:6,paddingTop:16,cursor:'move',opacity:dragged===id?0.4:(isHidden?0.45:1),transition:'opacity .2s, border-color .2s'}:{})}},
       editMode&&R('div',{style:{position:'absolute',top:-11,left:12,background:isHidden?'#9A9088':'#D94F1E',color:'#fff',padding:'2px 10px',borderRadius:6,fontSize:10,fontWeight:700,zIndex:10}},(SEC_LABELS[id]||id)+(isHidden?' · 숨김':'')),
       editMode&&R('div',{style:{position:'absolute',top:-14,right:8,display:'flex',gap:4,zIndex:10}},
         R('button',{style:ebtn,title:'위로',onClick:e=>{e.stopPropagation();if(oi>0)moveSec(oi,oi-1);}},'↑'),
@@ -11911,7 +12044,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   };
   useEffect(()=>{loadToday();},[]);
   useBnfSyncReload(()=>loadToday());
-  return R('div',{className:'pg fa'},
+  return R('div',{className:'pg fa home-dash'},
     R('div',{style:{marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}},
       R('div',null,
         R('div',{style:{fontSize:20,fontWeight:800,color:'#2A211B'}},(()=>{
@@ -17262,7 +17395,11 @@ function LoginPage({onLogin}){
   const[pw,setPw]=useState(sv.pw||'');
   const[remem,setRemem]=useState(!!sv.email);
   const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
+  const[errKey,setErrKey]=useState(0);  /* 같은 오류가 다시 나도 흔들림 효과가 재생되도록 */
+  const[okUser,setOkUser]=useState(null); /* 로그인 성공 화면 (체크 표시 후 입장) */
+  useEffect(()=>{if(err)setErrKey(k=>k+1);},[err]);
   const login=async()=>{
+    if(loading||okUser)return;
     if(!email||!pw){setErr('이메일 또는 사번과 비밀번호를 입력하세요');return;}
     setLoading(true);setErr('');
     try{
@@ -17300,26 +17437,35 @@ function LoginPage({onLogin}){
       if(remem)localStorage.setItem('bnf_cred',JSON.stringify({email:email.trim(),pw}));
       else localStorage.removeItem('bnf_cred');
       localStorage.setItem('bnf_user',JSON.stringify(data));
-      onLogin(data);
+      /* 성공 상태를 잠깐 보여준 뒤 입장 (저장은 이미 끝난 상태) */
+      setOkUser(data);
+      setTimeout(()=>onLogin(data),850);
     }catch(e){setErr('오류: '+e.message);setLoading(false);}
   };
-  return R('div',{style:{display:'flex',height:'100vh',background:'linear-gradient(135deg,#1A0C07 0%,#3D1A0E 100%)'}},
-    R('div',{style:{margin:'auto',background:'#fff',borderRadius:20,padding:'42px 36px',width:'100%',maxWidth:390,boxShadow:'0 20px 60px rgba(0,0,0,.35)'}},
-      R('div',{style:{textAlign:'center',marginBottom:30}},
+  const nm=okUser?String(okUser.name||'').trim():'';
+  return R('div',{className:'lg-bg'},
+    R('div',{className:'lg-orb o1'}),R('div',{className:'lg-orb o2'}),R('div',{className:'lg-orb o3'}),
+    R('div',{className:'lg-card'},
+      R('div',{style:{textAlign:'center',marginBottom:28}},
         R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{width:200,maxWidth:'80%',objectFit:'contain',margin:'0 auto 14px',display:'block'},onError:e=>{e.currentTarget.style.display='none';}}),
         R('div',{style:{fontSize:22,fontWeight:900,color:'#1A1A1A',letterSpacing:-0.5}},'B&F Global'),
         R('div',{style:{fontSize:15,fontWeight:700,color:'#3D1A0E',marginTop:5}},'(주)비엔에프글로벌'),
         R('div',{style:{fontSize:13,color:'#6E645C',marginTop:3}},'통합 인트라넷 + MES 시스템')
       ),
-      R('div',{style:{display:'flex',flexDirection:'column',gap:10,marginBottom:16}},
-        R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6E645C',display:'block',marginBottom:4}},'이메일 또는 사번'),R('input',{className:'inp',value:email,onChange:e=>setEmail(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'이메일 또는 사번 입력',type:'text',autoComplete:'username'})),
-        R('div',null,R('label',{style:{fontSize:11,fontWeight:700,color:'#6E645C',display:'block',marginBottom:4}},'비밀번호'),R('input',{className:'inp',type:'password',value:pw,onChange:e=>setPw(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'비밀번호 입력',autoComplete:'current-password'})),
-        err&&R('div',{style:{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',fontSize:13,color:'#991b1b'}},err),
+      okUser?
+        R('div',{className:'lg-ok',role:'status'},
+          R('svg',{viewBox:'0 0 56 56','aria-hidden':'true'},R('circle',{cx:28,cy:28,r:26}),R('path',{d:'M16 29l8 8 16-17'})),
+          R('div',{style:{fontSize:17,fontWeight:800,color:'#15803D'}},'로그인 성공'),
+          R('div',{style:{fontSize:13,color:'#6E645C'}},(nm?nm+'님, ':'')+'환영합니다'))
+      :R('div',{style:{display:'flex',flexDirection:'column',gap:12,marginBottom:4}},
+        R('div',null,R('label',{className:'lg-lbl',htmlFor:'lg-id'},'이메일 또는 사번'),R('input',{id:'lg-id',className:'lg-inp',value:email,onChange:e=>setEmail(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'이메일 또는 사번 입력',type:'text',autoComplete:'username'})),
+        R('div',null,R('label',{className:'lg-lbl',htmlFor:'lg-pw'},'비밀번호'),R('input',{id:'lg-pw',className:'lg-inp',type:'password',value:pw,onChange:e=>setPw(e.target.value),onKeyDown:e=>e.key==='Enter'&&login(),placeholder:'비밀번호 입력',autoComplete:'current-password'})),
+        err&&R('div',{key:errKey,className:'lg-err',role:'alert'},err),
         R('label',{style:{display:'flex',alignItems:'center',gap:7,cursor:'pointer',fontSize:13,color:'#6E645C'}},
           R('input',{type:'checkbox',checked:remem,onChange:e=>setRemem(e.target.checked),style:{width:14,height:14,accentColor:'#D94F1E'}}),
           R('span',null,'아이디/비밀번호 저장')
         ),
-        R('button',{onClick:login,disabled:loading,className:'btn bp',style:{width:'100%',padding:13,background:loading?'#C9BFB7':undefined,color:'#fff',border:'none',borderRadius:9,cursor:loading?'default':'pointer',fontWeight:700,fontSize:15,fontFamily:'inherit'}},loading?'로그인 중...':'로그인')
+        R('button',{onClick:login,disabled:loading,className:'lg-btn',style:{marginTop:4}},loading&&R('span',{className:'lg-spin'}),loading?'로그인 중...':'로그인')
       )
     )
   );
