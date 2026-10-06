@@ -8130,6 +8130,24 @@ function PageRndOem({user}){
     try{await navigator.clipboard.writeText(formUrl);alert('🔗 설문 링크가 복사되었습니다.\n고객사에 전달하면 설문지 형식으로 작성할 수 있습니다.\n\n'+formUrl);}
     catch(e){prompt('아래 링크를 복사해 고객사에 전달하세요',formUrl);}
   };
+  const[editF,setEditF]=useState(null);   /* 의뢰서 내용 수정 폼 {id, ...data} */
+  const saveData=async()=>{
+    const f=editF;if(!f)return;
+    if(!String(f.company||'').trim())return alert('회사명을 입력하세요.');
+    const pkg=String(f.pack||'').indexOf('트레이')>=0?7:28;
+    const{id:_id,...data}=f;
+    data.est_days=30+14+pkg+14;
+    data.components=(data.components||[]).filter(c=>String(c.name||'').trim()||String(c.weight||'').trim());
+    setBusy(true);
+    try{
+      const{error}=await sbClient.from('oem_requests').update({data}).eq('id',f.id);
+      if(error)throw error;
+      setRows(p=>p.map(x=>x.id===f.id?{...x,data}:x));
+      setSel(p=>p&&p.id===f.id?{...p,data}:p);
+      setEditF(null);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
   const setStatus=async(r,v)=>{
     setBusy(true);
     try{
@@ -8241,7 +8259,55 @@ function PageRndOem({user}){
                 onBlur:e=>{if(e.target.value!==(sel.memo||''))saveMemo(sel,e.target.value);},
                 style:{resize:'vertical',minHeight:54},placeholder:'검토 의견, 통화 내용 등'})),
             R('div',{style:{display:'flex',gap:8,marginTop:14,justifyContent:'flex-end'}},
-              R('button',{className:'btn bd2 btn-sm',onClick:()=>del(sel)},'삭제'))))));
+              R('button',{className:'btn bd2 btn-sm',onClick:()=>del(sel)},'삭제'),
+              R('button',{className:'btn bp',onClick:()=>setEditF(Object.assign({id:sel.id,components:[]},JSON.parse(JSON.stringify(sel.data||{}))))},'✏️ 내용 수정'))))));
+    })(),
+    /* ── 의뢰서 내용 수정 모달 ── */
+    editF&&(()=>{
+      const up=(k,v)=>setEditF(p=>Object.assign({},p,{[k]:v}));
+      const fi=(l,k,ph)=>R('div',null,
+        R('label',{className:'lbl'},l),
+        R('input',{className:'inp',value:editF[k]||'',onChange:e=>up(k,e.target.value),placeholder:ph||''}));
+      const fsel=(l,k,opts)=>R('div',null,
+        R('label',{className:'lbl'},l),
+        R('select',{className:'inp',value:editF[k]||'',onChange:e=>up(k,e.target.value)},
+          R('option',{value:''},'선택'),
+          ...opts.map(o=>R('option',{key:o,value:o},o)),
+          (editF[k]&&!opts.includes(editF[k]))&&R('option',{value:editF[k]},editF[k])));
+      const comps=Array.isArray(editF.components)?editF.components:[];
+      const upComp=(i,k,v)=>up('components',comps.map((c,j)=>j===i?Object.assign({},c,{[k]:v}):c));
+      return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+        R('div',{className:'mbox',style:{maxWidth:580,width:'100%',maxHeight:'92vh'}},
+          R('div',{className:'mhdr'},
+            R('div',{style:{fontSize:15,fontWeight:800}},'✏️ 의뢰서 내용 수정'),
+            R('button',{onClick:()=>setEditF(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
+          R('div',{className:'mbody'},
+            R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+              fi('회사명 *','company'),fi('사업자등록번호','bizno'),
+              fi('담당자','person'),fi('직급','title'),
+              fi('연락처','phone'),fi('이메일','email'),
+              fsel('제품 형태','biztype',['B2B(업소용)','프랜차이즈 PB 제품','B2C 소비자 유통 제품']),
+              fsel('식품 유형','foodtype',['밀키트','국/탕','소스','양념육']),
+              fsel('포장 형태','pack',['트레이 + 종이슬리브','삼방 파우치','M방 파우치']),
+              fi('총중량','weight','예) 600g'),
+              fsel('개발 방식','dev',['기존 레시피 동일 생산','기존 제품 일부 개선','벤치마킹 제품 있음','레시피 개발부터 필요']),
+              fsel('초도 생산량','qty',['협의 필요','500kg 미만','500kg~1톤','1~3톤','3톤 이상'])),
+            R('div',{style:{marginTop:10}},
+              R('label',{className:'lbl'},'구성품 (최대 5개)'),
+              ...comps.map((c,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:'1.4fr 0.8fr 32px',gap:6,marginBottom:6}},
+                R('input',{className:'inp',value:c.name||'',onChange:e=>upComp(i,'name',e.target.value),placeholder:'구성품명'}),
+                R('input',{className:'inp',value:c.weight||'',onChange:e=>upComp(i,'weight',e.target.value),placeholder:'중량'}),
+                R('button',{onClick:()=>up('components',comps.filter((_,j)=>j!==i)),
+                  style:{border:'1px solid var(--bd)',background:'#fff',borderRadius:8,cursor:'pointer',color:'var(--err)',fontWeight:800}},'×'))),
+              comps.length<5&&R('button',{className:'btn bw btn-sm',onClick:()=>up('components',[...comps,{name:'',weight:''}])},'＋ 구성품 추가')),
+            R('div',{style:{marginTop:10}},
+              R('label',{className:'lbl'},'추가 요청·참고 내용'),
+              R('textarea',{className:'inp',value:editF.note||'',rows:3,onChange:e=>up('note',e.target.value),style:{resize:'vertical',minHeight:60}})),
+            editF.pack&&R('div',{style:{marginTop:10,fontSize:12.5,fontWeight:700,color:'var(--p)'}},
+              '→ 예상 일정: 개발부터 출고까지 약 '+(30+14+(String(editF.pack).indexOf('트레이')>=0?7:28)+14)+'일 이상 (저장 시 자동 반영)'),
+            R('div',{style:{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}},
+              R('button',{className:'btn bs',onClick:()=>setEditF(null)},'취소'),
+              R('button',{className:'btn bp',onClick:saveData,disabled:busy},busy?'저장 중...':'저장'))))));
     })());
 }
 
