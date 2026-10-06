@@ -8101,6 +8101,150 @@ function PageGaHealth({user}){
             R('button',{className:'btn bp',onClick:save,disabled:busy},busy?'저장 중...':'저장')))))));
 }
 
+/* ═══ 연구개발부: 신규 OEM 의뢰 — 외부 설문(oem-request.html) 접수 관리 (oem_requests 테이블) ═══ */
+const OEM_STATUSES=[
+  {v:'신규',  c:'#C2410C',bg:'#FFF7ED'},
+  {v:'검토중',c:'#B45309',bg:'#FFFBEB'},
+  {v:'개발중',c:'#1D4ED8',bg:'#EFF6FF'},
+  {v:'확정',  c:'#15803D',bg:'#F0FDF4'},
+  {v:'보류',  c:'#6B7280',bg:'#F3F4F6'},
+];
+function PageRndOem({user}){
+  const[rows,setRows]=useState(null);
+  const[sel,setSel]=useState(null);
+  const[filter,setFilter]=useState('all');
+  const[busy,setBusy]=useState(false);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('oem_requests').select('*').order('created_at',{ascending:false}).limit(500);
+      setRows(data||[]);
+    }catch(e){if(rows===null)setRows([]);}
+  };
+  useEffect(()=>{load();},[]);
+  useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)load();},30000);return()=>clearInterval(t);},[]);
+  const formUrl=(()=>{
+    try{return location.origin+location.pathname.replace(/[^/]*$/,'')+'oem-request.html';}
+    catch(e){return 'oem-request.html';}
+  })();
+  const copyLink=async()=>{
+    try{await navigator.clipboard.writeText(formUrl);alert('🔗 설문 링크가 복사되었습니다.\n고객사에 전달하면 설문지 형식으로 작성할 수 있습니다.\n\n'+formUrl);}
+    catch(e){prompt('아래 링크를 복사해 고객사에 전달하세요',formUrl);}
+  };
+  const setStatus=async(r,v)=>{
+    setBusy(true);
+    try{
+      const{error}=await sbClient.from('oem_requests').update({status:v}).eq('id',r.id);
+      if(error)throw error;
+      setRows(p=>p.map(x=>x.id===r.id?{...x,status:v}:x));
+      setSel(p=>p&&p.id===r.id?{...p,status:v}:p);
+    }catch(e){alert('상태 변경 실패: '+e.message);}
+    setBusy(false);
+  };
+  const saveMemo=async(r,memo)=>{
+    try{
+      const{error}=await sbClient.from('oem_requests').update({memo}).eq('id',r.id);
+      if(error)throw error;
+      setRows(p=>p.map(x=>x.id===r.id?{...x,memo}:x));
+    }catch(e){alert('메모 저장 실패: '+e.message);}
+  };
+  const del=async(r)=>{
+    if(!confirm('['+((r.data||{}).company||'')+'] 의뢰 건을 삭제할까요? 되돌릴 수 없습니다.'))return;
+    try{
+      const{error}=await sbClient.from('oem_requests').delete().eq('id',r.id);
+      if(error)throw error;
+      setRows(p=>p.filter(x=>x.id!==r.id));
+      setSel(null);
+    }catch(e){alert('삭제 실패: '+e.message);}
+  };
+  if(rows===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
+  const stOf=v=>OEM_STATUSES.find(s=>s.v===v)||OEM_STATUSES[0];
+  const cnt=v=>rows.filter(r=>r.status===v).length;
+  const shown=rows.filter(r=>filter==='all'||r.status===filter);
+  const fD=s=>String(s||'').slice(0,10);
+  const badge=(t,c,bg)=>R('span',{style:{fontSize:11.5,fontWeight:800,color:c,background:bg,borderRadius:999,padding:'3px 11px',flexShrink:0}},t);
+  const infoRow=(l,v)=>String(v||'').trim()?R('div',{style:{display:'flex',gap:8,padding:'6px 0',borderBottom:'1px solid var(--bd2,#F0EBE6)'}},
+    R('div',{style:{width:104,fontSize:11.5,fontWeight:700,color:'var(--tm)',flexShrink:0}},l),
+    R('div',{style:{fontSize:13,whiteSpace:'pre-wrap',wordBreak:'break-word',flex:1}},v)):null;
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'📦 신규 OEM 의뢰'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'외부 설문 링크로 접수된 OEM 개발 의뢰를 관리합니다')),
+      R('div',{style:{display:'flex',gap:6}},
+        R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
+        R('button',{className:'btn bp',onClick:copyLink,style:{padding:'8px 16px',fontWeight:800}},'🔗 설문 링크 복사'))),
+    /* 상태별 현황 + 필터 */
+    R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}},
+      R('button',{className:'btn btn-sm '+(filter==='all'?'bp':'bw'),onClick:()=>setFilter('all'),style:{fontWeight:800}},'전체 '+rows.length),
+      ...OEM_STATUSES.map(s=>R('button',{key:s.v,onClick:()=>setFilter(filter===s.v?'all':s.v),
+        style:{padding:'5px 13px',borderRadius:999,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontWeight:800,
+               border:'1.5px solid '+(filter===s.v?s.c:'var(--bd)'),color:s.c,background:filter===s.v?s.bg:'#fff'}},
+        s.v+' '+cnt(s.v)))),
+    shown.length===0&&R('div',{className:'card',style:{textAlign:'center',padding:'46px 20px',border:'2px dashed var(--bd)'}},
+      R('div',{style:{fontSize:38,marginBottom:8}},'📦'),
+      R('div',{style:{fontSize:13.5,fontWeight:700,marginBottom:4}},rows.length?'이 상태의 의뢰 건이 없습니다':'아직 접수된 의뢰가 없습니다'),
+      R('div',{style:{fontSize:12,color:'var(--tm)'}},'[🔗 설문 링크 복사]를 눌러 고객사에 설문 링크를 보내보세요')),
+    ...shown.map(r=>{
+      const d=r.data||{};
+      const st=stOf(r.status);
+      return R('div',{key:r.id,className:'card',onClick:()=>setSel(r),
+        style:{padding:'13px 16px',marginBottom:9,cursor:'pointer',borderLeft:'5px solid '+st.c}},
+        R('div',{style:{display:'flex',gap:9,alignItems:'center',flexWrap:'wrap'}},
+          badge(r.status,st.c,st.bg),
+          R('span',{style:{fontSize:15,fontWeight:800}},d.company||'(회사명 없음)'),
+          R('span',{style:{fontSize:12,color:'var(--tm)',fontWeight:700}},(d.person||'')+(d.title?' '+d.title:'')),
+          R('span',{style:{fontSize:12,color:'var(--tm)'}},d.phone||''),
+          R('div',{style:{flex:1}}),
+          R('span',{style:{fontSize:11.5,color:'var(--tm)'}},'접수 '+fD(r.created_at))),
+        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:7,fontSize:11.5}},
+          d.foodtype&&badge(d.foodtype,'#1D4ED8','#EFF6FF'),
+          d.biztype&&badge(d.biztype,'#6B21A8','#FAF5FF'),
+          d.pack&&badge(d.pack,'#0F766E','#F0FDFA'),
+          d.qty&&badge('초도 '+d.qty,'#B45309','#FFFBEB'),
+          d.est_days&&badge('예상 '+d.est_days+'일~','#C2410C','#FFF7ED')),
+        String(r.memo||'').trim()&&R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:7,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},'📝 '+r.memo));
+    }),
+    R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 설문 링크: '+formUrl),
+    /* ── 상세 보기 ── */
+    sel&&(()=>{
+      const d=sel.data||{};
+      const st=stOf(sel.status);
+      return R(Portal,null,R('div',{className:'mbg',onClick:()=>setSel(null)},
+        R('div',{className:'mbox',onClick:e=>e.stopPropagation(),style:{maxWidth:560,width:'100%',maxHeight:'92vh'}},
+          R('div',{className:'mhdr'},
+            R('div',null,
+              R('div',{style:{fontSize:15,fontWeight:800}},'📦 '+(d.company||'OEM 의뢰')),
+              R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'접수 '+fD(sel.created_at))),
+            R('button',{onClick:()=>setSel(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
+          R('div',{className:'mbody'},
+            R('div',{style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:12,padding:'9px',background:'#FAF8F6',borderRadius:10}},
+              R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)',width:'100%',marginBottom:2}},'진행 상태'),
+              ...OEM_STATUSES.map(s=>R('button',{key:s.v,disabled:busy,onClick:()=>setStatus(sel,s.v),
+                style:{padding:'5px 12px',borderRadius:8,cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:sel.status===s.v?800:600,
+                       border:'1.5px solid '+(sel.status===s.v?s.c:'var(--bd)'),color:sel.status===s.v?s.c:'#9A9088',background:sel.status===s.v?s.bg:'#fff'}},s.v))),
+            infoRow('사업자번호',d.bizno),
+            infoRow('담당자',(d.person||'')+(d.title?' '+d.title:'')),
+            infoRow('연락처',d.phone),
+            infoRow('이메일',d.email),
+            infoRow('제품 형태',d.biztype),
+            infoRow('식품 유형',d.foodtype),
+            infoRow('포장 형태',d.pack),
+            infoRow('총중량',d.weight),
+            (d.components||[]).length>0&&infoRow('구성품',(d.components||[]).map(c=>(c.name||'')+(c.weight?' '+c.weight:'')).filter(Boolean).join(' · ')),
+            infoRow('개발 방식',d.dev),
+            infoRow('초도 생산량',d.qty),
+            infoRow('예상 일정',d.est_days?('개발부터 출고까지 약 '+d.est_days+'일 이상'):''),
+            infoRow('추가 요청',d.note),
+            R('div',{style:{marginTop:12}},
+              R('label',{className:'lbl'},'📝 내부 메모 (입력 후 칸을 벗어나면 저장)'),
+              R('textarea',{className:'inp',defaultValue:sel.memo||'',rows:2,
+                onBlur:e=>{if(e.target.value!==(sel.memo||''))saveMemo(sel,e.target.value);},
+                style:{resize:'vertical',minHeight:54},placeholder:'검토 의견, 통화 내용 등'})),
+            R('div',{style:{display:'flex',gap:8,marginTop:14,justifyContent:'flex-end'}},
+              R('button',{className:'btn bd2 btn-sm',onClick:()=>del(sel)},'삭제'))))));
+    })());
+}
+
 /* ═══ 근태관리 ══════════════════════════════════════ */
 function PageAttendance({user}){
   const[todayR,setTodayR]=useState(null);const[records,setRecords]=useState([]);const[loading,setLoading]=useState(true);
@@ -17209,6 +17353,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'rnd_status',l:'연구개발 현황',ic:'📊'},
     {id:'rnd_recipe',l:'확정 배합비',ic:'🧾'},
     {id:'rnd_search',l:'레시피 검색',ic:'🔎'},
+    {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'},
   ]},
   {label:'🧪 품질관리',type:'dept_qc',items:[
     {id:'qc_self',l:'자가품질검사',ic:'🧪'},
@@ -17476,6 +17621,8 @@ function loadNavSections(){
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
             {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
             {id:'ga_health',l:'보건증 관리',ic:'🩺'}]);
+          ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
+            {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
           filtered.forEach(sec=>{(sec&&sec.items||[]).forEach(i=>{
             if(i&&i.id==='ga_leave'&&i.l!=='휴무자 관리'){i.l='휴무자 관리';changed=true;}
@@ -21685,6 +21832,7 @@ function App(){
     if(page==='pm_spec')return R(PageEquipSpec,{user});
     if(page==='rnd_sched')return R(PageRndSched,{user});
     if(page==='rnd_search')return R(PageRecipeSearch,{user});
+    if(page==='rnd_oem')return R(PageRndOem,{user});
     if(page==='receivables')return R(PageReceivablesWrap,{user});
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
