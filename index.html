@@ -7951,6 +7951,140 @@ function PageGaLeave({user}){
     R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 전자결재에서 [휴가신청] 양식으로 기안하면 자동으로 이 화면에 정리됩니다 (사유는 표시하지 않음)'));
 }
 
+/* ═══ 경영지원부: 보건증 관리 대장 — 발급일 기준 1년 만료, 30일 이내 도래자 상단 고정 (app_state id=1 bnf_ga_health) ═══ */
+function PageGaHealth({user}){
+  const KEY='bnf_ga_health';
+  const[rows,setRows]=useState(null);
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[edit,setEdit]=useState(null);  /* null=닫힘, {}=신규, {_id..}=수정 */
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      setRows(Array.isArray(data&&data.v)?data.v:[]);
+    }catch(e){setRows([]);}
+  };
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+  const persist=async(next)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
+      const existing=(data&&data.state_data)||{};
+      const{error}=await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},existing,{[KEY]:next}),updated_at:new Date().toISOString()});
+      if(error)throw error;
+      setRows(next);
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
+  /* 만료일 = 발급일 + 1년, 디데이 = 만료일까지 남은 날수 */
+  const expiry=r=>{
+    if(!r.issued)return null;
+    const d=new Date(r.issued+'T00:00:00');
+    if(isNaN(d.getTime()))return null;
+    d.setFullYear(d.getFullYear()+1);
+    return d.toISOString().slice(0,10);
+  };
+  const dday=r=>{
+    const ex=expiry(r);
+    if(!ex)return null;
+    return Math.round((new Date(ex+'T00:00:00')-new Date(today2()+'T00:00:00'))/86400000);
+  };
+  const stOf=r=>{
+    const d=dday(r);
+    if(d===null)return{k:'none',t:'발급일 미입력',c:'#9A9088',bg:'#FBFAF8'};
+    if(d<0)return{k:'over',t:'만료 '+(-d)+'일 지남',c:'#DC2626',bg:'#FEF2F2'};
+    if(d<=30)return{k:'soon',t:'D-'+d,c:'#C2410C',bg:'#FFF7ED'};
+    return{k:'ok',t:'D-'+d,c:'#15803D',bg:'#F0FDF4'};
+  };
+  const save=async()=>{
+    const f=edit;
+    if(!f.name||!f.name.trim())return alert('이름을 입력하세요.');
+    let next;
+    if(f._id)next=(rows||[]).map(r=>r._id===f._id?Object.assign({},f,{at:now2(),by:user.name}):r);
+    else next=[...(rows||[]),Object.assign({},f,{_id:'hc'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),at:now2(),by:user.name})];
+    await persist(next);
+    setEdit(null);
+  };
+  const del=async(r)=>{
+    if(!confirm('['+r.name+'] 보건증 기록을 삭제할까요?'))return;
+    await persist((rows||[]).filter(x=>x._id!==r._id));
+  };
+  const renew=async(r)=>{
+    const d=prompt('['+r.name+'] 새 보건증 발급일을 입력하세요 (YYYY-MM-DD)',today2());
+    if(!d)return;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert('날짜 형식이 올바르지 않습니다. 예: '+today2());
+    await persist((rows||[]).map(x=>x._id===r._id?Object.assign({},x,{issued:d,at:now2(),by:user.name}):x));
+  };
+  if(rows===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
+  const nq=String(q||'').toLowerCase();
+  /* 정렬: 만료·30일 이내가 맨 위(임박 순), 그다음 만료일 가까운 순, 발급일 미입력은 마지막 */
+  const ord=r=>{const d=dday(r);if(d===null)return 1e9;return d;};
+  const shown=rows.filter(r=>!nq||[r.name,r.dept,r.note].some(v=>String(v||'').toLowerCase().includes(nq)))
+    .slice().sort((a,b)=>ord(a)-ord(b));
+  const cnt=k=>rows.filter(r=>stOf(r).k===k).length;
+  const kpi=(label,value,color,bg,hot)=>R('div',{key:label,
+    style:{flex:'1 1 130px',minWidth:120,background:bg,borderRadius:14,padding:'14px 16px',
+           border:hot?'2px solid '+color:'1px solid '+color+'33'}},
+    R('div',{style:{fontSize:12.5,fontWeight:800,color:hot?color:'var(--tm)',marginBottom:5}},label),
+    R('div',{style:{fontSize:30,fontWeight:900,color:color,lineHeight:1.1}},value+'명'));
+  const fld=(l,k,type,ph)=>R('div',null,
+    R('label',{className:'lbl'},l),
+    R('input',{className:'inp',type:type||'text',value:edit[k]||'',onChange:e=>setEdit(p=>Object.assign({},p,{[k]:e.target.value})),placeholder:ph||''}));
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'🩺 보건증 관리'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'발급일 기준 1년 만료 — 30일 이내 도래자는 자동으로 맨 위에 표시됩니다')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+        R('input',{className:'inp',placeholder:'🔍 이름·부서 검색',value:q,onChange:e=>setQ(e.target.value),style:{maxWidth:180}}),
+        R('button',{className:'btn bp',onClick:()=>setEdit({name:'',dept:'',issued:today2(),note:''}),style:{padding:'8px 18px'}},'+ 등록'))),
+    R('div',{style:{display:'flex',gap:10,flexWrap:'wrap',marginBottom:14}},
+      kpi('🚨 만료됨',cnt('over'),'#DC2626','#FEF2F2',cnt('over')>0),
+      kpi('⏰ 30일 이내 도래',cnt('soon'),'#C2410C','#FFF7ED',cnt('soon')>0),
+      kpi('✅ 정상',cnt('ok'),'#15803D','#F0FDF4'),
+      kpi('전체',rows.length,'#1D4ED8','#EFF6FF')),
+    shown.length===0&&R('div',{className:'card',style:{textAlign:'center',padding:'44px 20px',border:'2px dashed var(--bd)',color:'var(--tm)'}},
+      R('div',{style:{fontSize:38,marginBottom:8}},'🩺'),
+      R('div',{style:{fontSize:13,fontWeight:700}},rows.length?'검색 결과가 없습니다':'[+ 등록]으로 직원 보건증을 등록하세요')),
+    ...shown.map(r=>{
+      const st=stOf(r);
+      const ex=expiry(r);
+      const hot=st.k==='over'||st.k==='soon';
+      return R('div',{key:r._id,className:'card',style:{padding:'12px 16px',marginBottom:8,
+          border:hot?'2px solid '+st.c:'1px solid var(--bd)',background:hot?st.bg:'#fff'}},
+        R('div',{style:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
+          R('span',{style:{fontSize:12,fontWeight:800,color:'#fff',background:st.c,borderRadius:999,padding:'3px 12px',flexShrink:0}},st.t),
+          R('span',{style:{fontSize:15,fontWeight:800,minWidth:70}},r.name),
+          r.dept&&R('span',{style:{fontSize:12,color:'var(--tm)',fontWeight:700}},r.dept),
+          R('span',{style:{fontSize:12.5,color:'var(--t)'}},
+            '발급 ',R('b',null,r.issued||'-'),' → 만료 ',R('b',{style:{color:st.c}},ex||'-')),
+          String(r.note||'').trim()&&R('span',{style:{fontSize:11.5,color:'var(--tm)',flex:1,minWidth:100,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.note),
+          R('div',{style:{display:'flex',gap:4,marginLeft:'auto',flexShrink:0}},
+            R('button',{className:'btn bp btn-sm',disabled:busy,onClick:()=>renew(r),title:'새 발급일 입력(갱신)'},'🔄 갱신'),
+            R('button',{className:'btn bw btn-sm',onClick:()=>setEdit(Object.assign({},r))},'수정'),
+            R('button',{className:'btn bd2 btn-sm',onClick:()=>del(r)},'삭제'))));
+    }),
+    R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 보건증 유효기간 1년 기준 · 갱신하면 새 발급일로 다시 1년 계산 · 전 직원 공유'),
+    /* 등록/수정 모달 */
+    edit&&R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+      R('div',{className:'mbox',style:{maxWidth:440,width:'100%'}},
+        R('div',{className:'mhdr'},
+          R('div',{style:{fontSize:15,fontWeight:800}},edit._id?'✏️ 보건증 수정':'➕ 보건증 등록'),
+          R('button',{onClick:()=>setEdit(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
+        R('div',{className:'mbody'},
+          R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+            fld('이름 *','name','text','예) 김철수'),
+            fld('부서','dept','text','예) 생산부'),
+            fld('보건증 발급일 *','issued','date'),
+            fld('메모','note','text','예) 재발급 예정')),
+          edit.issued&&/^\d{4}-\d{2}-\d{2}$/.test(edit.issued)&&R('div',{style:{marginTop:10,fontSize:12.5,fontWeight:700,color:'var(--p)'}},
+            '→ 만료일: '+expiry(edit)),
+          R('div',{style:{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}},
+            R('button',{className:'btn bs',onClick:()=>setEdit(null)},'취소'),
+            R('button',{className:'btn bp',onClick:save,disabled:busy},busy?'저장 중...':'저장')))))));
+}
+
 /* ═══ 근태관리 ══════════════════════════════════════ */
 function PageAttendance({user}){
   const[todayR,setTodayR]=useState(null);const[records,setRecords]=useState([]);const[loading,setLoading]=useState(true);
@@ -17074,6 +17208,7 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🏢 경영지원부',type:'dept_ga',items:[
     {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
+    {id:'ga_health',l:'보건증 관리',ic:'🩺'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -17323,7 +17458,8 @@ function loadNavSections(){
             {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'},
             {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'}]);
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
-            {id:'ga_leave',l:'휴무자 관리',ic:'🌴'}]);
+            {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
+            {id:'ga_health',l:'보건증 관리',ic:'🩺'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
           filtered.forEach(sec=>{(sec&&sec.items||[]).forEach(i=>{
             if(i&&i.id==='ga_leave'&&i.l!=='휴무자 관리'){i.l='휴무자 관리';changed=true;}
@@ -21571,6 +21707,7 @@ function App(){
     if(page==='approval')return R(PageApproval,{user});
     if(page==='attendance')return R(PageAttendance,{user});
     if(page==='ga_leave')return R(PageGaLeave,{user});
+    if(page==='ga_health')return R(PageGaHealth,{user});
     if(page==='leave')return R(PageLeave,{user});
     if(page==='admin')return R(PageAdmin,{user});
     return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🚧'),'준비 중'));
