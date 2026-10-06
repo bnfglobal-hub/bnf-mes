@@ -1160,6 +1160,15 @@ window._isStandalone=window.matchMedia('(display-mode: standalone)').matches||wi
 console.log('%c[BNF MES] BUILD 2026-07-16-INV-SCROLL','color:#fff;background:#DC2626;font-weight:bold;padding:2px 8px;border-radius:4px');
 const {useState,useRef,useEffect,useMemo}=React;
 const R=React.createElement;
+/* 백스페이스(⌫)를 길게 누르다 입력칸 밖으로 포커스가 빠지면 브라우저 '뒤로 가기'가
+   실행돼 화면이 넘어가던 문제 방지 (2026-10-06 생산 스케줄 편집 중 발생) —
+   입력칸(input/textarea/select/contenteditable)이 아닐 때의 Backspace는 무시 */
+window.addEventListener('keydown',function(e){
+  if(e.key!=='Backspace')return;
+  var t=e.target;
+  var editable=t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||t.isContentEditable);
+  if(!editable)e.preventDefault();
+});
 /* 어디서나 쓰는 복사+토스트 — 복사되면 화면 하단에 잠깐 '복사됨' 표시 */
 function bnfToast(msg){
   try{
