@@ -16,7 +16,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pr
 .hdr{text-align:center;padding:26px 0 10px}
 .hdr .logo{display:inline-block;background:var(--p);color:#fff;font-weight:900;font-size:15px;border-radius:10px;padding:7px 14px;letter-spacing:0}
 .hdr h1{font-size:22px;font-weight:900;margin:14px 0 6px}
-.hdr p{font-size:13px;color:var(--tm);margin:0;line-height:1.6}
+.hdr p{font-size:13px;color:var(--tm);margin:0;line-height:1.6;white-space:pre-line}
 .card{background:#fff;border:1px solid var(--bd);border-radius:14px;padding:18px 18px;margin-top:14px}
 .card h2{font-size:15px;font-weight:800;margin:0 0 12px;display:flex;align-items:center;gap:7px}
 .card h2 .no{background:var(--p);color:#fff;font-size:12px;font-weight:800;border-radius:999px;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -58,19 +58,14 @@ textarea{resize:vertical;min-height:80px;line-height:1.55}
   <div class="hdr">
     <span class="logo">B&amp;F GLOBAL</span>
     <h1>OEM 제품 개발 의뢰서</h1>
-    <p>(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.<br>작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.</p>
+    <p id="introTxt">(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.
+작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.</p>
   </div>
 
   <div class="card">
     <h2>📅 제품 개발 진행 일정 안내</h2>
-    <ul class="tl">
-      <li><span class="step">1</span><div><b>제품 개발</b> — <span class="d">1개월 이상 소요</span><br>샘플 개발·테스트·보완</div></li>
-      <li><span class="step">2</span><div><b>제품 확정</b> — 최종 샘플 승인</div></li>
-      <li><span class="step">3</span><div><b>패키지 디자인</b> — <span class="d">2주 이상 소요</span> (고객사 진행)</div></li>
-      <li><span class="step">4</span><div><b>패키지 발주</b> (고객사 진행)<br>· 트레이 + 종이 슬리브: 슬리브 생산 리드타임 <span class="d">약 7일</span><br>· 삼방/M방 파우치: 동판 제작 <span class="d">14일</span> + 패키지 생산 <span class="d">14일</span></div></li>
-      <li><span class="step">5</span><div><b>제품 생산 후 출고</b> — 생산 리드타임 <span class="d">14일</span></div></li>
-    </ul>
-    <div class="total" id="totalBox">개발부터 출고까지 총 <b id="totalDays">약 65~86일 이상</b> 예상<div style="font-size:11px;color:var(--tm);font-weight:600;margin-top:3px" id="totalHint">아래에서 포장 형태를 선택하면 정확한 예상 일정이 계산됩니다</div></div>
+    <ul class="tl" id="tlList"></ul>
+    <div class="total" id="totalBox">개발부터 출고까지 총 <b id="totalDays"></b> 예상<div style="font-size:11px;color:var(--tm);font-weight:600;margin-top:3px" id="totalHint"></div></div>
   </div>
 
   <div class="card">
@@ -87,32 +82,18 @@ textarea{resize:vertical;min-height:80px;line-height:1.55}
 
   <div class="card">
     <h2><span class="no">2</span>의뢰할 제품의 형태 <span class="req">*</span></h2>
-    <div class="opts" id="g_biztype">
-      <label class="opt"><input type="radio" name="biztype" value="B2B(업소용)">B2B (업소용)</label>
-      <label class="opt"><input type="radio" name="biztype" value="프랜차이즈 PB 제품">프랜차이즈 PB 제품</label>
-      <label class="opt"><input type="radio" name="biztype" value="B2C 소비자 유통 제품">B2C 소비자 유통 제품</label>
-    </div>
+    <div class="opts" id="g_biztype"></div>
   </div>
 
   <div class="card">
     <h2><span class="no">3</span>제품의 식품 유형 <span class="req">*</span></h2>
-    <div class="opts" id="g_foodtype">
-      <label class="opt"><input type="radio" name="foodtype" value="밀키트">밀키트</label>
-      <label class="opt"><input type="radio" name="foodtype" value="국/탕">국 / 탕</label>
-      <label class="opt"><input type="radio" name="foodtype" value="소스">소스</label>
-      <label class="opt"><input type="radio" name="foodtype" value="양념육">양념육</label>
-      <label class="opt"><input type="radio" name="foodtype" value="기타">그 외 (직접 입력)</label>
-    </div>
+    <div class="opts" id="g_foodtype"></div>
     <input type="text" id="f_foodetc" placeholder="식품 유형을 입력해주세요" style="display:none;margin-top:8px">
   </div>
 
   <div class="card">
     <h2><span class="no">4</span>제품 포장 형태 <span class="req">*</span></h2>
-    <div class="opts" id="g_pack">
-      <label class="opt"><input type="radio" name="pack" value="트레이 + 종이슬리브">트레이 + 종이슬리브<span class="sub">슬리브 리드타임 약 7일</span></label>
-      <label class="opt"><input type="radio" name="pack" value="삼방 파우치">삼방 파우치<span class="sub">동판 14일 + 생산 14일</span></label>
-      <label class="opt"><input type="radio" name="pack" value="M방 파우치">M방 파우치<span class="sub">동판 14일 + 생산 14일</span></label>
-    </div>
+    <div class="opts" id="g_pack"></div>
   </div>
 
   <div class="card">
@@ -126,23 +107,12 @@ textarea{resize:vertical;min-height:80px;line-height:1.55}
 
   <div class="card">
     <h2><span class="no">6</span>개발 방식은 어느 쪽인가요? <span class="req">*</span></h2>
-    <div class="opts" id="g_dev">
-      <label class="opt"><input type="radio" name="dev" value="기존 레시피 동일 생산">기존 레시피가 있어 동일하게 생산하고 싶습니다</label>
-      <label class="opt"><input type="radio" name="dev" value="기존 제품 일부 개선">기존 제품을 일부 개선하고 싶습니다</label>
-      <label class="opt"><input type="radio" name="dev" value="벤치마킹 제품 있음">벤치마킹할 제품이 있습니다</label>
-      <label class="opt"><input type="radio" name="dev" value="레시피 개발부터 필요">아이디어만 있으며 레시피 개발부터 필요합니다</label>
-    </div>
+    <div class="opts" id="g_dev"></div>
   </div>
 
   <div class="card">
     <h2><span class="no">7</span>예상 초도 생산량은 어느 정도인가요? <span class="req">*</span></h2>
-    <div class="opts" id="g_qty">
-      <label class="opt"><input type="radio" name="qty" value="협의 필요">협의 필요</label>
-      <label class="opt"><input type="radio" name="qty" value="500kg 미만">500kg 미만</label>
-      <label class="opt"><input type="radio" name="qty" value="500kg~1톤">500kg ~ 1톤</label>
-      <label class="opt"><input type="radio" name="qty" value="1~3톤">1 ~ 3톤</label>
-      <label class="opt"><input type="radio" name="qty" value="3톤 이상">3톤 이상</label>
-    </div>
+    <div class="opts" id="g_qty"></div>
   </div>
 
   <div class="card">
@@ -158,33 +128,93 @@ textarea{resize:vertical;min-height:80px;line-height:1.55}
 <div class="done wrap" id="doneWrap">
   <div class="ic">✅</div>
   <h2>의뢰서가 접수되었습니다</h2>
-  <p id="doneMsg">검토 후 담당자가 빠른 시일 내에 연락드리겠습니다.<br>감사합니다 — (주)비엔에프글로벌 연구개발부</p>
+  <p id="doneMsg">검토 후 담당자가 빠른 시일 내에 연락드리겠습니다.</p>
 </div>
 
 <script>
 var sb=supabase.createClient('https://fchxlplnacyycuddvdmu.supabase.co','sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli');
 function $(id){return document.getElementById(id);}
 function rv(name){var el=document.querySelector('input[name="'+name+'"]:checked');return el?el.value:'';}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 
-/* 총 소요일 계산: 개발 30 + 디자인 14 + 패키지(트레이 7 / 파우치 28) + 생산·출고 14 */
+/* ── 양식 설정: MES [⚙ 양식 수정]에서 저장한 값(app_state id=9 oem_form)을 우선 사용 ── */
+var CFG={
+  intro:'(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.\n작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.',
+  devDays:30, designDays:14, prodDays:14,
+  biztype:['B2B(업소용)','프랜차이즈 PB 제품','B2C 소비자 유통 제품'],
+  foodtype:['밀키트','국/탕','소스','양념육'],
+  pack:[{label:'트레이 + 종이슬리브',days:7,sub:'슬리브 리드타임 약 7일'},
+        {label:'삼방 파우치',days:28,sub:'동판 14일 + 생산 14일'},
+        {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
+  dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
+  qty:['협의 필요','500kg 미만','500kg~1톤','1~3톤','3톤 이상']
+};
+
+function packDays(label){
+  var p=(CFG.pack||[]).find(function(x){return x.label===label;});
+  return p?(+p.days||28):28;
+}
+function estDays(label){return (+CFG.devDays||30)+(+CFG.designDays||14)+packDays(label)+(+CFG.prodDays||14);}
+
 function calcDays(){
   var p=rv('pack');
-  var box=$('totalDays'),hint=$('totalHint');
-  if(!p){box.textContent='약 65~86일 이상';hint.textContent='아래에서 포장 형태를 선택하면 정확한 예상 일정이 계산됩니다';return;}
-  var pkg=p.indexOf('트레이')>=0?7:28;
-  var total=30+14+pkg+14;
-  box.textContent='약 '+total+'일 이상';
-  hint.textContent='개발 30일 + 패키지 디자인 14일 + 패키지 발주 '+pkg+'일 + 생산·출고 14일 ('+p+' 기준, 개발 기간에 따라 늘어날 수 있습니다)';
+  if(!p){
+    var ds=(CFG.pack||[]).map(function(x){return estDays(x.label);});
+    var mn=Math.min.apply(null,ds),mx=Math.max.apply(null,ds);
+    $('totalDays').textContent=mn===mx?('약 '+mn+'일 이상'):('약 '+mn+'~'+mx+'일 이상');
+    $('totalHint').textContent='아래에서 포장 형태를 선택하면 정확한 예상 일정이 계산됩니다';
+    return;
+  }
+  $('totalDays').textContent='약 '+estDays(p)+'일 이상';
+  $('totalHint').textContent='개발 '+CFG.devDays+'일 + 패키지 디자인 '+CFG.designDays+'일 + 패키지 발주 '+packDays(p)+'일 + 생산·출고 '+CFG.prodDays+'일 ('+p+' 기준, 개발 기간에 따라 늘어날 수 있습니다)';
 }
-document.querySelectorAll('input[name="pack"]').forEach(function(el){el.addEventListener('change',calcDays);});
 
-/* 식품 유형 '그 외' 직접 입력 */
-document.querySelectorAll('input[name="foodtype"]').forEach(function(el){
-  el.addEventListener('change',function(){$('f_foodetc').style.display=rv('foodtype')==='기타'?'block':'none';});
-});
+function renderForm(){
+  $('introTxt').textContent=CFG.intro||'';
+  /* 일정 안내 */
+  $('tlList').innerHTML=
+    '<li><span class="step">1</span><div><b>제품 개발</b> — <span class="d">약 '+esc(CFG.devDays)+'일 이상 소요</span><br>샘플 개발·테스트·보완</div></li>'+
+    '<li><span class="step">2</span><div><b>제품 확정</b> — 최종 샘플 승인</div></li>'+
+    '<li><span class="step">3</span><div><b>패키지 디자인</b> — <span class="d">약 '+esc(CFG.designDays)+'일 이상 소요</span> (고객사 진행)</div></li>'+
+    '<li><span class="step">4</span><div><b>패키지 발주</b> (고객사 진행)'+
+      (CFG.pack||[]).map(function(x){return '<br>· '+esc(x.label)+': <span class="d">'+esc(x.sub||('약 '+x.days+'일'))+'</span>';}).join('')+
+    '</div></li>'+
+    '<li><span class="step">5</span><div><b>제품 생산 후 출고</b> — 생산 리드타임 <span class="d">'+esc(CFG.prodDays)+'일</span></div></li>';
+  /* 선택지 */
+  var mk=function(name,label,sub){
+    return '<label class="opt"><input type="radio" name="'+name+'" value="'+esc(label)+'">'+esc(label)+(sub?'<span class="sub">'+esc(sub)+'</span>':'')+'</label>';
+  };
+  $('g_biztype').innerHTML=(CFG.biztype||[]).map(function(v){return mk('biztype',v);}).join('');
+  $('g_foodtype').innerHTML=(CFG.foodtype||[]).map(function(v){return mk('foodtype',v);}).join('')
+    +'<label class="opt"><input type="radio" name="foodtype" value="기타">그 외 (직접 입력)</label>';
+  $('g_pack').innerHTML=(CFG.pack||[]).map(function(x){return mk('pack',x.label,x.sub||('약 '+x.days+'일'));}).join('');
+  $('g_dev').innerHTML=(CFG.dev||[]).map(function(v){return mk('dev',v);}).join('');
+  $('g_qty').innerHTML=(CFG.qty||[]).map(function(v){return mk('qty',v);}).join('');
+  /* 리스너 (렌더 후) */
+  document.querySelectorAll('input[name="pack"]').forEach(function(el){el.addEventListener('change',calcDays);});
+  document.querySelectorAll('input[name="foodtype"]').forEach(function(el){
+    el.addEventListener('change',function(){$('f_foodetc').style.display=rv('foodtype')==='기타'?'block':'none';});
+  });
+  calcDays();
+}
+renderForm();
+
+/* 서버에 저장된 양식 설정 불러오기 (실패해도 기본 양식으로 진행) */
+(async function(){
+  try{
+    var res=await sb.from('app_state').select('state_data').eq('id',9).maybeSingle();
+    var f=res&&res.data&&res.data.state_data&&res.data.state_data.oem_form;
+    if(f&&typeof f==='object'){
+      ['intro','devDays','designDays','prodDays'].forEach(function(k){if(f[k]!=null&&f[k]!=='')CFG[k]=f[k];});
+      ['biztype','foodtype','dev','qty'].forEach(function(k){if(Array.isArray(f[k])&&f[k].length)CFG[k]=f[k];});
+      if(Array.isArray(f.pack)&&f.pack.length)CFG.pack=f.pack;
+      renderForm();
+    }
+  }catch(e){}
+})();
 
 /* 구성품 1~5개 동적 입력 */
-function addComp(name,wt){
+function addComp(){
   var box=$('comps');
   if(box.children.length>=5)return;
   var row=document.createElement('div');
@@ -193,8 +223,6 @@ function addComp(name,wt){
     '<input type="text" class="c_wt" placeholder="중량 (예: 400g)">'+
     '<button type="button" title="삭제">×</button>';
   row.querySelector('button').onclick=function(){if(box.children.length>1)row.remove();};
-  if(name)row.querySelector('.c_name').value=name;
-  if(wt)row.querySelector('.c_wt').value=wt;
   box.appendChild(row);
 }
 addComp();
@@ -220,7 +248,6 @@ $('btnSubmit').onclick=async function(){
     if(n||w)comps.push({name:n,weight:w});
   });
   var food=rv('foodtype')==='기타'?('기타: '+($('f_foodetc').value.trim()||'미입력')):rv('foodtype');
-  var pkg=rv('pack').indexOf('트레이')>=0?7:28;
   var data={
     company:$('f_company').value.trim(), bizno:$('f_bizno').value.trim(),
     person:$('f_person').value.trim(), title:$('f_title').value.trim(),
@@ -228,7 +255,7 @@ $('btnSubmit').onclick=async function(){
     biztype:rv('biztype'), foodtype:food, pack:rv('pack'),
     weight:$('f_weight').value.trim(), components:comps,
     dev:rv('dev'), qty:rv('qty'), note:$('f_note').value.trim(),
-    est_days:30+14+pkg+14
+    est_days:estDays(rv('pack'))
   };
   var btn=$('btnSubmit');
   btn.disabled=true;btn.textContent='제출 중...';
@@ -238,7 +265,7 @@ $('btnSubmit').onclick=async function(){
     $('formWrap').style.display='none';
     var d=$('doneWrap');
     d.style.display='block';
-    $('doneMsg').innerHTML='개발부터 출고까지 <b style="color:#D94F1E">약 '+data.est_days+'일 이상</b> 예상됩니다 ('+data.pack+' 기준).<br>검토 후 담당자가 빠른 시일 내에 연락드리겠습니다.<br>감사합니다 — (주)비엔에프글로벌 연구개발부';
+    $('doneMsg').innerHTML='개발부터 출고까지 <b style="color:#D94F1E">약 '+data.est_days+'일 이상</b> 예상됩니다 ('+esc(data.pack)+' 기준).<br>검토 후 담당자가 빠른 시일 내에 연락드리겠습니다.<br>감사합니다 — (주)비엔에프글로벌 연구개발부';
     window.scrollTo(0,0);
   }catch(e){
     err.textContent='⚠ 제출에 실패했습니다: '+(e.message||e)+' — 잠시 후 다시 시도해주세요.';

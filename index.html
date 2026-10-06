@@ -8131,6 +8131,53 @@ function PageRndOem({user}){
     catch(e){prompt('아래 링크를 복사해 고객사에 전달하세요',formUrl);}
   };
   const[editF,setEditF]=useState(null);   /* 의뢰서 내용 수정 폼 {id, ...data} */
+  const[formCfg,setFormCfg]=useState(null);  /* 설문 '양식' 수정 폼 (app_state id=9 oem_form) */
+  const OEM_FORM_DEFAULT={
+    intro:'(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.\n작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.',
+    devDays:30,designDays:14,prodDays:14,
+    biztype:['B2B(업소용)','프랜차이즈 PB 제품','B2C 소비자 유통 제품'],
+    foodtype:['밀키트','국/탕','소스','양념육'],
+    pack:[{label:'트레이 + 종이슬리브',days:7,sub:'슬리브 리드타임 약 7일'},
+          {label:'삼방 파우치',days:28,sub:'동판 14일 + 생산 14일'},
+          {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
+    dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
+    qty:['협의 필요','500kg 미만','500kg~1톤','1~3톤','3톤 이상']};
+  const openFormCfg=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',9).maybeSingle();
+      const f=Object.assign({},OEM_FORM_DEFAULT,(data&&data.state_data&&data.state_data.oem_form)||{});
+      setFormCfg({
+        intro:f.intro,devDays:f.devDays,designDays:f.designDays,prodDays:f.prodDays,
+        biztype:(f.biztype||[]).join('\n'),foodtype:(f.foodtype||[]).join('\n'),
+        dev:(f.dev||[]).join('\n'),qty:(f.qty||[]).join('\n'),
+        pack:(f.pack||[]).map(x=>x.label+' | '+x.days+' | '+(x.sub||'')).join('\n')});
+    }catch(e){alert('양식 설정을 불러오지 못했습니다: '+e.message);}
+  };
+  const saveFormCfg=async()=>{
+    const f=formCfg;if(!f)return;
+    const lines=t=>String(t||'').split('\n').map(x=>x.trim()).filter(Boolean);
+    const pack=lines(f.pack).map(l=>{
+      const p=l.split('|').map(x=>x.trim());
+      return{label:p[0]||'',days:+(p[1]||28)||28,sub:p[2]||''};
+    }).filter(x=>x.label);
+    if(!pack.length)return alert('포장 형태를 1개 이상 입력하세요. (형식: 이름 | 소요일 | 설명)');
+    const cfg={intro:String(f.intro||''),devDays:+f.devDays||30,designDays:+f.designDays||14,prodDays:+f.prodDays||14,
+      biztype:lines(f.biztype),foodtype:lines(f.foodtype),dev:lines(f.dev),qty:lines(f.qty),pack};
+    if(!cfg.biztype.length||!cfg.foodtype.length||!cfg.dev.length||!cfg.qty.length)return alert('각 선택지 목록은 1개 이상 입력해야 합니다.');
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('state_data').eq('id',9).maybeSingle();
+      const sd=(data&&data.state_data)||{};
+      sd.oem_form=cfg;
+      sd.oem_form_at=new Date().toISOString();
+      sd.oem_form_by=(user&&user.name)||'';
+      const{error}=await sbClient.from('app_state').upsert({id:9,state_data:sd,updated_at:new Date().toISOString()});
+      if(error)throw error;
+      setFormCfg(null);
+      alert('✅ 양식이 저장되었습니다. 설문 링크를 새로 여는 고객부터 바뀐 양식이 보입니다.');
+    }catch(e){alert('저장 실패: '+e.message);}
+    setBusy(false);
+  };
   const saveData=async()=>{
     const f=editF;if(!f)return;
     if(!String(f.company||'').trim())return alert('회사명을 입력하세요.');
@@ -8190,6 +8237,7 @@ function PageRndOem({user}){
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'외부 설문 링크로 접수된 OEM 개발 의뢰를 관리합니다')),
       R('div',{style:{display:'flex',gap:6}},
         R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
+        R('button',{className:'btn bw',onClick:openFormCfg,style:{padding:'8px 14px',fontWeight:800}},'⚙ 양식 수정'),
         R('button',{className:'btn bp',onClick:copyLink,style:{padding:'8px 16px',fontWeight:800}},'🔗 설문 링크 복사'))),
     /* 상태별 현황 + 필터 */
     R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}},
@@ -8308,6 +8356,38 @@ function PageRndOem({user}){
             R('div',{style:{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}},
               R('button',{className:'btn bs',onClick:()=>setEditF(null)},'취소'),
               R('button',{className:'btn bp',onClick:saveData,disabled:busy},busy?'저장 중...':'저장'))))));
+    })(),
+    /* ── 설문 '양식' 수정 모달 — 외부 설문 페이지의 문구·선택지·소요일 변경 ── */
+    formCfg&&(()=>{
+      const up=(k,v)=>setFormCfg(p=>Object.assign({},p,{[k]:v}));
+      const ta=(l,k,hint,rows2)=>R('div',{style:{marginBottom:10}},
+        R('label',{className:'lbl'},l,hint&&R('span',{style:{fontWeight:500,color:'var(--tm)'}},' — '+hint)),
+        R('textarea',{className:'inp',value:formCfg[k]||'',rows:rows2||3,onChange:e=>up(k,e.target.value),
+          style:{resize:'vertical',minHeight:54,lineHeight:1.6}}));
+      const num=(l,k)=>R('div',null,
+        R('label',{className:'lbl'},l),
+        R('input',{className:'inp',type:'number',value:formCfg[k],onChange:e=>up(k,e.target.value)}));
+      return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
+        R('div',{className:'mbox',style:{maxWidth:600,width:'100%',maxHeight:'92vh'}},
+          R('div',{className:'mhdr'},
+            R('div',null,
+              R('div',{style:{fontSize:15,fontWeight:800}},'⚙ 설문 양식 수정'),
+              R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'저장하면 외부 설문 페이지에 바로 반영됩니다 (선택지는 한 줄에 하나씩)')),
+            R('button',{onClick:()=>setFormCfg(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
+          R('div',{className:'mbody'},
+            ta('상단 안내 문구','intro',null,2),
+            R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:10}},
+              num('개발 소요일','devDays'),num('디자인 소요일','designDays'),num('생산·출고 소요일','prodDays')),
+            ta('의뢰할 제품의 형태 선택지','biztype'),
+            ta('식품 유형 선택지','foodtype',"'그 외(직접 입력)'는 항상 자동으로 추가됩니다"),
+            ta('포장 형태 선택지','pack','형식: 이름 | 소요일 | 설명  (소요일은 총 일정 계산에 사용)',4),
+            ta('개발 방식 선택지','dev',null,4),
+            ta('예상 초도 생산량 선택지','qty',null,4),
+            R('div',{style:{fontSize:11.5,color:'var(--tm)',marginBottom:4}},
+              '※ 총 소요일 = 개발 + 디자인 + 포장 소요일 + 생산·출고 — 설문 상단 일정 안내와 자동 계산에 모두 반영됩니다'),
+            R('div',{style:{display:'flex',gap:8,marginTop:12,justifyContent:'flex-end'}},
+              R('button',{className:'btn bs',onClick:()=>setFormCfg(null)},'취소'),
+              R('button',{className:'btn bp',onClick:saveFormCfg,disabled:busy},busy?'저장 중...':'양식 저장'))))));
     })());
 }
 
