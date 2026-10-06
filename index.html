@@ -1428,7 +1428,7 @@ const SCHED_GRID_SECS=[
   {k:'rnd',  l:'R&D',      n:2, bg:'#FCE4D6'},
   {k:'note', l:'비 고',    n:1, bg:'#FFFFFF'}
 ];
-function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
+function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFinish}){
   /* weekStart는 월요일 — 양식은 일요일 시작이므로 하루 앞으로
      edit=false면 보기 전용(연속 보기), flat이면 바깥 테두리 없이 이어붙는 형태 */
   const sun=addDD(weekStart,-1);
@@ -1809,6 +1809,13 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell}){
                            ...(sel?{boxShadow:'inset 0 0 0 2.5px var(--p)',background:'#FFEFE5'}:{})}},
                     edit
                       ?R('textarea',{value:cells[key]||'',rows:1,'data-sg':sgId(sec.base+ri,di),
+                          onDoubleClick:onDblFinish?()=>{
+                            /* 더블클릭 → 바로 저장하고 편집 완료 (보기 모드로) */
+                            if(timer.current)clearTimeout(timer.current);
+                            if(dirty.current)save();
+                            onDblFinish();
+                          }:undefined,
+                          title:'더블클릭하면 편집 완료',
                           onChange:e=>{setCell(key,e.target.value);autoH(e);},
                           onKeyDown:navKey(sec,ri,di),
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
@@ -2394,7 +2401,7 @@ function PageProdSchedule(){
                     /* 이 주차만 한 주씩 복사·인쇄 */
                     R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg([ws]),title:'이 주차만 이미지로 복사(카톡 붙여넣기)'},'📷 이 주 복사'),
                     R('button',{className:'btn bw btn-sm',onClick:()=>printWeek([ws]),title:'이 주차만 인쇄'},'🖨 이 주 인쇄')),
-                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true}));
+                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true,onDblFinish:()=>setSchedEdit(false)}));
               }),
               /* 제일 하단: 차주 스케줄 추가 */
               (()=>{
