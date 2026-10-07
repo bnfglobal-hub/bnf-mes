@@ -19518,6 +19518,9 @@ function PageShipSort({mats,hqItems}){
     [/엄마밥성|엄마밥싱/g,'엄마밥상'],
     [/맑은콤탕|맑은곰당/g,'맑은곰탕'],
     [/청국징|정국장/g,'청국장'],
+    /* 발주서 인식 때 옆 제품 브랜드가 섞이는 오류 교정 (2026-10-07: '[리틀 후쿠오카] 소고기 쌀국수'는 존재하지 않는 제품) */
+    [/\[리틀\s*후쿠오카\]\s*(마라\s*)?소고기\s*쌀국수/g,'[리틀 비엣남] $1소고기 쌀국수'],
+    [/\[리틀\s*비엣남\]\s*(매운\s*)?(돈코츠|바질)\s*라멘/g,'[리틀 후쿠오카] $1$2 라멘'],
   ];
   /* ── 정식 품목명 사전 ──
      지금까지 실제로 쓰인 품목명을 모아두고, AI가 읽은 이름이 그 중 하나와 거의 같으면
@@ -20271,7 +20274,9 @@ function PageShipSort({mats,hqItems}){
     fresh.forEach(({o})=>{
       const K=ckey(o.date,o.center);
       if(!byCenter[K])byCenter[K]={items:{},totalBox:0};
-      o.items.forEach(it=>{
+      o.items.forEach(it0=>{
+        /* 어떤 경로로 들어와도 품목명 교정(브랜드 뒤섞임·오인식) 후 집계 */
+        const it=Object.assign({},it0,{name:fixAiName(it0.name)});
         if(!byCenter[K].items[it.name]){
           byCenter[K].items[it.name]={box:0,total:0,exp:it.exp};
         }
