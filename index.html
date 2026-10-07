@@ -21457,7 +21457,7 @@ function App(){
   /* 로그인(사용자 변경) 시 항상 홈 화면부터 시작 */
   useEffect(()=>{if(user)setPage('home');},[user&&user.id]);
   /* ── 뒤로가기 지원: 페이지 이동을 브라우저 히스토리에 쌓아
-     브라우저/마우스/안드로이드 뒤로가기 + 키보드(Alt+←, Backspace)로 이전 화면 복귀 ── */
+     브라우저/마우스/안드로이드 뒤로가기(Alt+←)로 이전 화면 복귀 ── */
   const popNavRef=useRef(false);
   useEffect(()=>{
     if(popNavRef.current){popNavRef.current=false;return;}
@@ -21472,18 +21472,11 @@ function App(){
       const p=e.state&&e.state.bnfPage;
       if(p){popNavRef.current=true;setPage(p);}
     };
-    const onKey=(e)=>{
-      /* 입력 중이 아닐 때 Backspace = 뒤로 */
-      if(e.key==='Backspace'){
-        const ae=document.activeElement;
-        if(ae&&(/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)||ae.isContentEditable))return;
-        if(document.querySelector('.mbg'))return; /* 모달 열림 시 제외 */
-        e.preventDefault();history.back();
-      }
-    };
+    /* Backspace 뒤로가기 단축키는 제거(2026-10-07) — 생산 스케줄 등에서 글자를 지우다
+       포커스가 잠깐 빠지면 화면이 넘어가 버리는 사고가 잦았음. 뒤로가기는
+       브라우저 버튼·마우스 뒤로가기·Alt+← 로만 동작한다 */
     window.addEventListener('popstate',onPop);
-    window.addEventListener('keydown',onKey);
-    return()=>{window.removeEventListener('popstate',onPop);window.removeEventListener('keydown',onKey);};
+    return()=>{window.removeEventListener('popstate',onPop);};
   },[]);
   const[myInfoOpen,setMyInfoOpen]=useState(false);
   const[globalSearch,setGlobalSearch]=useState(false); /* Cmd+K 글로벌 검색 모달 */
