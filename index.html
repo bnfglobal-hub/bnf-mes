@@ -19312,7 +19312,7 @@ function PageShipSort({mats,hqItems}){
       const box=parseInt(m[6]);
       let name=NAME_MAP[mcode]||'';
       if(!name){
-        const nm=m[3].match(/(\[[^\]]+\][^0-9]+)/);
+        const nm=m[3].match(/(\[[^\]]+\](?:[^0-9]+|[0-9]+인분)*)/);  /* '2인분' 등 숫자+단위는 품명에 포함 (2026-10-07) */
         name=nm?nm[1].replace(/\s+/g,' ').trim():mcode;
       }
       if(name&&total>0)items.push({name,total,exp,box});
@@ -19365,7 +19365,8 @@ function PageShipSort({mats,hqItems}){
       const per=nums.length>=3?nums[nums.length-3]:0;
       if(!name||total<=0)return;
       if(!byC[center])byC[center]=[];
-      byC[center].push({name,total,box,per,exp:date||gdate});
+      const warn=(per>0&&box>0&&per*box!==total)?('입수'+per+'×박스'+box+'='+(per*box)+' ≠ 총수량'+total):'';
+      byC[center].push({name,total,box,per,exp:date||gdate,warn});
       hits++;
     });
     if(hits===0)return null;
@@ -19397,7 +19398,7 @@ function PageShipSort({mats,hqItems}){
       centerMarks.push({idx:cm.index,name:nm});
     }
     /* 제품 레코드: 마스터코드 (88바코드) [분류]상품명 박스수 낱개수량 */
-    const prodRe=/(M[K]?\d{8,})\s*(?:\((8\d{11,13})\))?\s*(\[[^\]]+\][^\d\[]*?)\s*([\d,]+)\s+([\d,]+)(?=\s|$)/g;
+    const prodRe=/(M[K]?\d{8,})\s*(?:\((8\d{11,13})\))?\s*(\[[^\]]+\][^\[]*?)\s*([\d,]+)\s+([\d,]+)(?=\s|$)/g;  /* 제품명 속 숫자(2인분 등) 허용 (2026-10-07) */
     const byC={};
     let pm;
     while((pm=prodRe.exec(text))!==null){
@@ -19419,7 +19420,7 @@ function PageShipSort({mats,hqItems}){
     const orders=parsePasteText(pasteText);
     const cnt=orders.reduce((s,o)=>s+o.items.length,0);
     /* 진단 원문도 남김 */
-    setRawDbg('\n\n===== 붙여넣기 발주서 =====\n'+pasteText+'\n\n[인식된 품목 '+cnt+'건 / 센터 '+orders.length+'곳: '+orders.map(o=>o.center+'('+o.items.length+')').join(', ')+']\n'+orders.map(o=>o.items.map(it=>'· ['+o.center+'] '+it.name+' | 박스 '+it.box+' | 낱개 '+it.total).join('\n')).join('\n'));
+    setRawDbg('\n\n===== 붙여넣기 발주서 =====\n'+pasteText+'\n\n[인식된 품목 '+cnt+'건 / 센터 '+orders.length+'곳: '+orders.map(o=>o.center+'('+o.items.length+')').join(', ')+']\n'+orders.map(o=>o.items.map(it=>'· ['+o.center+'] '+it.name+' | 박스 '+it.box+' | 낱개 '+it.total+(it.warn?(' | ⚠ '+it.warn):'')).join('\n')).join('\n'));
     if(orders.length===0||cnt===0){alert('발주 정보를 인식하지 못했습니다.\n\n표 전체(헤더 포함)를 드래그해서 복사한 뒤 붙여넣어 주세요. 그래도 안 되면 아래 🐞 인식 원문을 복사해서 보내주시면 형식에 맞춰 고쳐드립니다.');return;}
     const firstDate=orders.find(o=>o.date)?.date||'';
     aggregate(orders,firstDate);
@@ -19533,10 +19534,21 @@ function PageShipSort({mats,hqItems}){
   const saveCanon=(names)=>{
     const merged=[];
     const seen=new Set();
+    /* 사전 오염 방지(2026-10-07): 브랜드 교정 적용 + 꼬리 기호 제거 + [브랜드] 형식·길이 검사.
+       잘못된 이름이 사전에 들어가면 이후 올바른 입력까지 그 이름으로 교정되므로 입구에서 거른다 */
+    const clean=(n)=>{
+      let v=String(n||'').replace(/\s+/g,' ').trim();
+      NAME_FIX.forEach(([re,to])=>{v=v.replace(re,to);});
+      v=v.replace(/[\s(\-·,|~]+$/,'').trim();
+      if(!/^\[[^\]]{1,20}\]\s*\S/.test(v))return '';
+      if(v.length>50)return '';
+      return v;
+    };
     [...(canonNames||[]),...names].forEach(n=>{
-      const k=String(n||'').replace(/\s/g,'');
+      const v=clean(n);
+      const k=v.replace(/\s/g,'');
       if(!k||seen.has(k))return;
-      seen.add(k);merged.push(String(n).trim());
+      seen.add(k);merged.push(v);
     });
     if(merged.length===(canonNames||[]).length)return;
     setCanonNames(merged);
