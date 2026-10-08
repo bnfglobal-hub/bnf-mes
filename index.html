@@ -2411,6 +2411,13 @@ function PageProdSchedule(){
             /* 오른쪽 상단 편집 전환: 기본은 보기 전용(연속) */
             R('button',{className:'btn '+(schedEdit?'bp':'bw'),onClick:()=>setSchedEdit(v=>!v),
               style:{padding:'7px 16px',fontWeight:800}},schedEdit?'✅ 편집 완료':'✏️ 편집')),
+          /* 스크롤해도 우측 하단에 따라다니는 편집 토글 (위로가기 버튼과 겹치지 않게 그 위에) */
+          R('button',{onClick:()=>setSchedEdit(v=>!v),title:schedEdit?'편집 완료 (보기 모드로)':'편집 모드로 전환',
+            style:{position:'fixed',right:22,bottom:86,zIndex:9000,padding:'13px 20px',borderRadius:999,
+                   border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:900,
+                   background:schedEdit?'#15803D':'var(--p)',color:'#fff',
+                   boxShadow:'0 6px 20px rgba(0,0,0,0.25)'}},
+            schedEdit?'✅ 편집 완료':'✏️ 편집'),
           schedEdit?
             /* 편집 모드: 주차별 머리띠와 함께 (이번주 기준 연속 주차, 주차별로 따로 저장) */
             R('div',null,
