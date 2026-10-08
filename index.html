@@ -2413,7 +2413,7 @@ function PageProdSchedule(){
               style:{padding:'7px 16px',fontWeight:800}},schedEdit?'✅ 편집 완료':'✏️ 편집')),
           /* 스크롤해도 우측 하단에 따라다니는 편집 토글 (위로가기 버튼과 겹치지 않게 그 위에) */
           R('button',{onClick:()=>setSchedEdit(v=>!v),title:schedEdit?'편집 완료 (보기 모드로)':'편집 모드로 전환',
-            style:{position:'fixed',right:22,bottom:86,zIndex:9000,padding:'13px 20px',borderRadius:999,
+            style:{position:'fixed',right:18,bottom:'calc(132px + env(safe-area-inset-bottom))',zIndex:9000,padding:'13px 20px',borderRadius:999,
                    border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:900,
                    background:schedEdit?'#15803D':'var(--p)',color:'#fff',
                    boxShadow:'0 6px 20px rgba(0,0,0,0.25)'}},
