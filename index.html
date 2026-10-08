@@ -2011,6 +2011,14 @@ function PageProdSchedule(){
   const[hasGrid,setHasGrid]=useState(false);
   const[schedEdit,setSchedEdit]=useState(false); /* 기본은 보기(연속) — [✏️ 편집] 버튼으로 전환 */
   const[weeksCnt,setWeeksCnt]=useState(4);       /* 한 화면에 보이는 주차 수 — [차주 스케줄 추가]로 늘림 */
+  /* 편집 <-> 보기 전환 시 표가 다시 그려지며 스크롤이 맨 위로 튀던 문제 — 위치 기억 후 복원 (2026-10-08) */
+  const toggleEdit=(v)=>{
+    const sc=document.querySelector('.pg')||document.querySelector('.main');
+    const top=sc?sc.scrollTop:0;
+    setSchedEdit(prev=>typeof v==='boolean'?v:!prev);
+    const restore=()=>{const el=document.querySelector('.pg')||document.querySelector('.main');if(el&&Math.abs(el.scrollTop-top)>4)el.scrollTop=top;};
+    setTimeout(restore,30);setTimeout(restore,250);setTimeout(restore,700);
+  };
   /* 보기 모드에서 칸 더블클릭 → 편집 모드 전환 + 그 칸에 커서 */
   const dblToEdit=(sg)=>{
     setSchedEdit(true);
@@ -2409,10 +2417,10 @@ function PageProdSchedule(){
             R('button',{className:'btn bw btn-sm',onClick:openArchive,title:'지난 주차 전체 — 영구 보관'},'📜 보관함'),
             R('div',{style:{flex:1}}),
             /* 오른쪽 상단 편집 전환: 기본은 보기 전용(연속) */
-            R('button',{className:'btn '+(schedEdit?'bp':'bw'),onClick:()=>setSchedEdit(v=>!v),
+            R('button',{className:'btn '+(schedEdit?'bp':'bw'),onClick:()=>toggleEdit(),
               style:{padding:'7px 16px',fontWeight:800}},schedEdit?'✅ 편집 완료':'✏️ 편집')),
           /* 스크롤해도 우측 하단에 따라다니는 편집 토글 (위로가기 버튼과 겹치지 않게 그 위에) */
-          R('button',{onClick:()=>setSchedEdit(v=>!v),title:schedEdit?'편집 완료 (보기 모드로)':'편집 모드로 전환',
+          R('button',{onClick:()=>toggleEdit(),title:schedEdit?'편집 완료 (보기 모드로)':'편집 모드로 전환',
             style:{position:'fixed',right:18,bottom:'calc(132px + env(safe-area-inset-bottom))',zIndex:9000,padding:'13px 20px',borderRadius:999,
                    border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:14,fontWeight:900,
                    background:schedEdit?'#15803D':'var(--p)',color:'#fff',
@@ -2434,7 +2442,7 @@ function PageProdSchedule(){
                     /* 이 주차만 한 주씩 복사·인쇄 */
                     R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg([ws]),title:'이 주차만 이미지로 복사(카톡 붙여넣기)'},'📷 이 주 복사'),
                     R('button',{className:'btn bw btn-sm',onClick:()=>printWeek([ws]),title:'이 주차만 인쇄'},'🖨 이 주 인쇄')),
-                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true,onDblFinish:()=>setSchedEdit(false)}));
+                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true,onDblFinish:()=>toggleEdit(false)}));
               }),
               /* 제일 하단: 차주 스케줄 추가 */
               (()=>{
