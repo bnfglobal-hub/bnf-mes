@@ -1463,8 +1463,10 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
     return()=>{window.removeEventListener('resize',m);clearInterval(t);};
   },[]);
   const[curKey,setCurKey]=useState(null); /* 마지막으로 선택한 칸 (서식 버튼 대상) */
+  const[inlineKey,setInlineKey]=useState(null); /* 보기 모드에서 더블클릭해 그 자리 편집 중인 칸 (엑셀식) */
   const[st,setSt]=useState('');           /* 저장 상태 표기 */
   const dirty=useRef(false);
+  const inlineKeyRef=useRef(null);
   const timer=useRef(null);
   /* 데이터 보호 (2026-10-04): 불러오기에 실패하면 빈 표로 열지 않는다(빈 표가 기존 내용을 덮어쓰는 사고 방지) */
   const[loadErr,setLoadErr]=useState(false);
@@ -1478,6 +1480,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   const mergesRef=useRef(null);
   const alignsRef=useRef(null);
   cellsRef.current=cells;
+  inlineKeyRef.current=inlineKey;
   stylesRef.current=styles;
   rowsRef.current=rows;
   rowhRef.current=rowh;
@@ -1505,7 +1508,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   useEffect(()=>{dirty.current=false;setCells(null);load();},[weekStart]);
   /* 다른 사람 수정 반영: 편집 중(dirty)이 아닐 때만 20초마다 */
   useEffect(()=>{
-    const t=setInterval(()=>{if(!document.hidden&&!dirty.current)load(true);},20000);
+    const t=setInterval(()=>{if(!document.hidden&&!dirty.current&&!inlineKeyRef.current)load(true);},20000);
     return()=>clearInterval(t);
   },[weekStart]);
   const save=async()=>{
@@ -1829,7 +1832,21 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                           onKeyDown:navKey(sec,ri,di),
                           onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
                           style:{...taBase,textAlign:al,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                      :R('div',{onDoubleClick:()=>onDblCell&&onDblCell(sgId(sec.base+ri,di)),title:'더블클릭하면 편집',style:{display:'flex',alignItems:'center',justifyContent:(al==='center'?'center':al==='right'?'flex-end':'flex-start'),textAlign:al,cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||''),
+                      :(inlineKey===key
+                        ?R('textarea',{value:cells[key]||'',rows:1,autoFocus:true,
+                            onChange:e=>{setCell(key,e.target.value);autoH(e);},
+                            onFocus:e=>{autoH(e);try{e.target.setSelectionRange(e.target.value.length,e.target.value.length);}catch(err){}},
+                            onInput:autoH,
+                            onKeyDown:e=>{
+                              if(e.nativeEvent&&e.nativeEvent.isComposing)return;
+                              if((e.key==='Enter'&&!e.shiftKey)||e.key==='Escape'){e.preventDefault();e.target.blur();}
+                            },
+                            onBlur:()=>{
+                              setInlineKey(null);
+                              if(dirty.current){if(timer.current)clearTimeout(timer.current);save();}
+                            },
+                            style:{...taBase,textAlign:al,minHeight:Math.max(26,mh),outline:'2px solid var(--p)',outlineOffset:-2,borderRadius:4,background:'#fff',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
+                        :R('div',{onDoubleClick:()=>setInlineKey(key),title:'더블클릭하면 이 자리에서 바로 수정 (Enter로 완료)',style:{display:'flex',alignItems:'center',justifyContent:(al==='center'?'center':al==='right'?'flex-end':'flex-start'),textAlign:al,cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||'')),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
                     edit&&rs===1&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-5,height:10,cursor:'row-resize',zIndex:3}}),
@@ -2426,7 +2443,7 @@ function PageProdSchedule(){
             R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflowX:'auto',overflowY:'hidden',background:'#fff'}},
               ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
                 const ws=addDD(weekStart,off);
-                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true,onDblCell:dblToEdit});
+                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true});
               }))
         ):
         R('div',null,
