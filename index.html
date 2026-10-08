@@ -13901,6 +13901,23 @@ function BOMModal({mats,cats,editProd,onSave,onClose,onAddMat}){
     if(created){addBom(created);setNewMat(null);setSearch('');
       setTimeout(()=>searchRef.current&&searchRef.current.focus(),0);}
   };
+  /* ── 창 크기 마우스 드래그 조절: 오른쪽/아래/모서리 핸들 (2026-10-08) ── */
+  const[mSize,setMSize]=useState({w:0,h:0});
+  const startMResize=(mode)=>e=>{
+    e.preventDefault();e.stopPropagation();
+    const box=e.target.closest('.mbox');if(!box)return;
+    const r=box.getBoundingClientRect();
+    const sx=e.clientX,sy=e.clientY,sw=r.width,sh=r.height;
+    const move=ev=>{
+      setMSize(p=>({
+        w:mode!=='h'?Math.max(340,Math.min(Math.round(window.innerWidth*0.96),Math.round(sw+ev.clientX-sx))):(p.w||sw),
+        h:mode!=='w'?Math.max(320,Math.min(Math.round(window.innerHeight*0.92),Math.round(sh+ev.clientY-sy))):(p.h||sh)
+      }));
+    };
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);};
+    document.addEventListener('mousemove',move);
+    document.addEventListener('mouseup',up);
+  };
   const save=()=>{
     if(!pname.trim()){alert('제품명을 입력하세요');return;}
     if(!bom.length){alert('원재료를 1개 이상 추가하세요');return;}
@@ -13908,8 +13925,17 @@ function BOMModal({mats,cats,editProd,onSave,onClose,onAddMat}){
     onClose();
   };
   return R(Portal,null,R('div',{className:'mbg',onClick:e=>e.stopPropagation()},
-    /* resize:both — 오른쪽 아래 모서리를 끌어 창 크기 조절 가능 */
-    R('div',{className:'mbox',style:{width:'min(600px,96vw)',maxWidth:'96vw',margin:'auto',borderRadius:16,resize:'both',overflow:'hidden',minWidth:340,minHeight:320}},
+    /* 오른쪽·아래 경계와 모서리를 드래그해 창 크기 조절 */
+    R('div',{className:'mbox',style:{width:mSize.w?mSize.w:'min(600px,96vw)',height:mSize.h||undefined,
+        maxWidth:'96vw',maxHeight:'92vh',margin:'auto',borderRadius:16,overflow:'hidden',
+        minWidth:340,minHeight:320,position:'relative'}},
+      R('div',{onMouseDown:startMResize('w'),title:'드래그해서 너비 조절',
+        style:{position:'absolute',top:0,right:-4,width:10,height:'100%',cursor:'ew-resize',zIndex:8}}),
+      R('div',{onMouseDown:startMResize('h'),title:'드래그해서 높이 조절',
+        style:{position:'absolute',left:0,bottom:-4,width:'100%',height:10,cursor:'ns-resize',zIndex:8}}),
+      R('div',{onMouseDown:startMResize('wh'),title:'드래그해서 크기 조절',
+        style:{position:'absolute',right:0,bottom:0,width:22,height:22,cursor:'nwse-resize',zIndex:9,
+               background:'linear-gradient(135deg,transparent 55%,#D8CFC6 55%)',borderRadius:'0 0 14px 0'}}),
       R('div',{className:'mhdr'},
         R('span',{style:{fontSize:15,fontWeight:700}},editProd?'BOM 수정':'제품 + BOM 등록'),
         R('button',{onClick:onClose,style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')
