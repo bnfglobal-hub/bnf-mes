@@ -2439,12 +2439,22 @@ function PageProdSchedule(){
                   '➕ 차주 스케줄 추가 — '+fSD(nsun)+' ~ '+fSD(addDD(nsun,6))+' 표 열기');
               })())
           :
-            /* 보기 모드: 엑셀처럼 주차들이 한 장으로 끊김 없이 이어짐 (칸 더블클릭 → 편집) */
-            R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflowX:'auto',overflowY:'hidden',background:'#fff'}},
-              ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
-                const ws=addDD(weekStart,off);
-                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true});
-              }))
+            /* 보기 모드: 엑셀처럼 주차들이 한 장으로 끊김 없이 이어짐 (칸 더블클릭 → 그 자리 수정) */
+            R('div',null,
+              R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflowX:'auto',overflowY:'hidden',background:'#fff'}},
+                ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
+                  const ws=addDD(weekStart,off);
+                  return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true});
+                })),
+              /* 보기 모드에서도 다음 주 표 이어서 열기 */
+              (()=>{
+                const nw=addDD(weekStart,weeksCnt*7);
+                const nsun=addDD(nw,-1);
+                return R('button',{onClick:()=>setWeeksCnt(n=>Math.min(26,n+1)),
+                  style:{display:'block',width:'100%',marginTop:10,padding:'14px',border:'2px dashed var(--p)',borderRadius:12,
+                         background:'#FFF9F5',color:'var(--p)',fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
+                  '➕ 다음 주 추가 — '+fSD(nsun)+' ~ '+fSD(addDD(nsun,6))+' 표 이어서 보기');
+              })())
         ):
         R('div',null,
     srcWeek&&srcWeek!==weekStart&&!loading&&R('div',{style:{textAlign:'center',fontSize:11.5,fontWeight:700,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'7px 12px',marginBottom:12}},
