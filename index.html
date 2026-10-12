@@ -1774,7 +1774,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   return R('div',null,
     toolbar,
     R('div',{ref:wrapRef,style:flat?{background:'#fff'}:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
-      R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:hasCustomW?700:980,tableLayout:'fixed'}},
+      R('table',{'data-sgt':'1',style:{borderCollapse:'collapse',width:'100%',minWidth:hasCustomW?700:980,tableLayout:'fixed'}},
         R('colgroup',null,
           R('col',{style:colw(0)}),
           ...days.map((_,i)=>R('col',{key:i,style:colw(i+1)}))),
@@ -2193,14 +2193,30 @@ function PageProdSchedule(){
       }
     }finally{setShBusy(false);}
   };
-  /* 인쇄 (2026-10-12): 화면 표와 똑같이(구역 색·요일 색·병합·굵게·칸 글자 크기·정렬·줄 높이·열 너비) +
-     엑셀 '한 페이지에 맞춤'처럼 주차마다 A4 가로 한 장을 꽉 채우도록 글자 크기를 자동 확대 */
+  /* 인쇄 (2026-10-12): 지금 화면의 표를 그대로(열 너비·글자 크기·색·병합·서식 동일) 출력하고,
+     엑셀 '용지 너비에 맞춤'처럼 표 전체를 같은 비율로 줄이거나 늘려 A4 가로 폭을 꽉 채운다.
+     주차들은 화면처럼 세로로 이어지고, 한 주가 페이지 사이에서 잘리지 않게 넘김 */
   const printWeek=async(wsList)=>{
-    const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const DOW=['일','월','화','수','목','금','토'];
     const bfs=gridFs||12;
-    /* 열 너비: 화면과 같은 규칙 (사용자 지정 > 기본 라벨 74 · 일/토 88 · 평일 균등) — 인쇄 창에서 글자 크기에 맞춰 px로 환산 */
-    const cw=Array.from({length:8},(_,i)=>{const v=gridColW&&gridColW['c'+i];return v?+v:(i===0?74:(i===1||i===7?88:0));});
+    /* 열 너비: 화면에 실제로 그려진 표의 머리글 칸 폭을 그대로 사용 (없으면 화면 기본 규칙으로 계산) */
+    let cw=null;
+    try{
+      const hr=document.querySelector('table[data-sgt] thead tr');
+      if(hr&&hr.children.length===8)cw=[...hr.children].map(x=>Math.round(x.getBoundingClientRect().width));
+    }catch(e){}
+    if(!cw||cw.some(x=>!x)){
+      const W=Math.max(980,(document.querySelector('.pg')||document.body).clientWidth-40);
+      const b=Array.from({length:8},(_,i)=>{const v=gridColW&&gridColW['c'+i];return v?+v:(i===0?74:(i===1||i===7?88:0));});
+      const fx=b.reduce((a,c)=>a+c,0),an=b.filter(x=>!x).length;
+      cw=b.map(x=>x||Math.max(60,Math.round((W-fx)/Math.max(1,an))));
+    }
+    const TW=cw.reduce((a,c)=>a+c,0);
+    /* 글꼴도 화면과 같게: 앱의 글꼴 스타일시트와 실제 표 글꼴을 그대로 가져감 */
+    let ff='"Malgun Gothic","Apple SD Gothic Neo",sans-serif',links='';
+    try{const t=document.querySelector('table[data-sgt]');if(t)ff=getComputedStyle(t).fontFamily||ff;}catch(e){}
+    try{links=[...document.querySelectorAll('link[rel="stylesheet"]')].filter(l=>/font/i.test(l.href)).map(l=>'<link rel="stylesheet" href="'+l.href+'">').join('');}catch(e){}
     const blocks=[];
     for(const ws of wsList){
       const j=await fetchGridW(ws);
@@ -2218,15 +2234,14 @@ function PageProdSchedule(){
       const covered={};
       Object.keys(mg).forEach(ak=>{const q=ak.split('_');if(q.length!==3)return;const m=mg[ak]||{};
         for(let r=+q[1];r<+q[1]+(m.rs||1);r++)for(let c=+q[2];c<+q[2]+(m.cs||1);c++){const kk=q[0]+'_'+r+'_'+c;if(kk!==ak)covered[kk]=1;}});
-      let h='<div class="wk"><h2>생산 스케줄 '+fSD(days[0])+'('+DOW[0]+') ~ '+fSD(days[6])+'('+DOW[6]+')</h2><table><colgroup>'+
-        cw.map(()=>'<col>').join('')+'</colgroup><thead><tr><th></th>'+
+      let h='<table><colgroup>'+cw.map(w=>'<col style="width:'+w+'px">').join('')+'</colgroup><thead><tr><th></th>'+
         days.map((d,i)=>'<th style="color:'+(i===0?'#DC2626':i===6?'#2563EB':'#2E2B28')+'">'+fSD(d)+' ('+DOW[i]+')</th>').join('')+'</tr></thead><tbody>';
       SCHED_GRID_SECS.forEach(sec=>{
         const n=effN(sec);
         const a=al[sec.k]||'left';
         for(let ri=0;ri<n;ri++){
-          const rhv=rh[sec.k+'_'+ri];
-          h+='<tr'+(rhv?' style="height:'+(rhv/bfs).toFixed(3)+'em"':'')+'>';
+          const mh=rh[sec.k+'_'+ri]||26;
+          h+='<tr>';
           if(ri===0)h+='<td class="lb" rowspan="'+n+'">'+esc(sec.l)+'</td>';
           for(let di=0;di<7;di++){
             const key=sec.k+'_'+ri+'_'+di;
@@ -2234,45 +2249,35 @@ function PageProdSchedule(){
             const m=mg[key];
             const rs=m?Math.max(1,Math.min(m.rs||1,n-ri)):1,cs=m?Math.max(1,Math.min(m.cs||1,7-di)):1;
             const st=sty[key]||{};
-            const fsr=st.fs?Math.max(9,Math.min(26,st.fs+bfs-12))/bfs:1;
-            h+='<td'+(rs>1?' rowspan="'+rs+'"':'')+(cs>1?' colspan="'+cs+'"':'')+' style="background:'+sec.bg+';text-align:'+a+
-              (fsr!==1?';font-size:'+fsr.toFixed(3)+'em':'')+(st.b?';font-weight:800':'')+'">'+esc(cells[key])+'</td>';
+            const fs=st.fs?Math.max(9,Math.min(26,st.fs+bfs-12)):bfs;
+            h+='<td'+(rs>1?' rowspan="'+rs+'"':'')+(cs>1?' colspan="'+cs+'"':'')+' style="background:'+sec.bg+'">'+
+              '<div class="c" style="min-height:'+mh+'px;font-size:'+fs+'px;text-align:'+a+';justify-content:'+(a==='center'?'center':a==='right'?'flex-end':'flex-start')+(st.b?';font-weight:800':'')+'">'+esc(cells[key])+'</div></td>';
           }
           h+='</tr>';
         }
       });
-      blocks.push(h+'</tbody></table></div>');
+      blocks.push('<div class="wk">'+h+'</tbody></table></div>');
     }
     if(!blocks.length)return alert('입력된 스케줄이 없습니다.');
-    const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄</title><style>'+
-      '@page{size:A4 landscape;margin:0}'+
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄</title>'+links+'<style>'+
+      '@page{size:A4 landscape;margin:8mm}'+
       '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}'+
       'html,body{margin:0;padding:0;background:#fff}'+
-      'body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#2E2B28}'+
-      '.wk{width:297mm;height:209mm;padding:8mm 9mm;overflow:hidden;page-break-after:always;break-after:page}'+
-      '.wk:last-child{page-break-after:auto;break-after:auto}'+
-      '.in{transform-origin:top left}'+
-      'h2{color:#D94F1E;font-size:1.3em;font-weight:800;margin:0 0 .45em}'+
-      'table{border-collapse:collapse;width:100%;table-layout:fixed}'+
-      'th,td{border:1px solid #B9B2AA;padding:.25em .5em;line-height:1.45;vertical-align:middle;white-space:pre-wrap;word-break:break-word}'+
-      'th{background:#F4F1EE;font-weight:800;text-align:left;font-size:'+(12/bfs).toFixed(3)+'em}'+
-      'td.lb{background:#F4F1EE;font-weight:800;text-align:center;font-size:'+(12/bfs).toFixed(3)+'em}'+
-      '@media screen{body{background:#888}.wk{background:#fff;margin:10px auto;box-shadow:0 2px 10px rgba(0,0,0,.3)}}'+
-      '</style></head><body>'+blocks.join('')+
-      /* 주차마다 한 장을 꽉 채우는 글자 크기 찾기 (엑셀 '한 페이지에 시트 맞추기'와 같은 효과) */
-      '<scr'+'ipt>(function(){var ws=document.querySelectorAll(".wk");for(var i=0;i<ws.length;i++){var w=ws[i];'+
-      'var lim=w.clientHeight-parseFloat(getComputedStyle(w).paddingTop)-parseFloat(getComputedStyle(w).paddingBottom)-4;'+
-      'var CW='+JSON.stringify(cw)+',BF='+bfs+',cols=w.querySelectorAll("col");'+
-      /* 고정 열(라벨·일·토·직접 조절한 열)은 글자 크기에 비례, 나머지 평일 열이 남는 폭을 나눔 */
-      'function setW(f){var av=w.querySelector("table").parentNode.clientWidth-parseFloat(getComputedStyle(w).paddingLeft)*2,k=f/BF,fx=0,an=0,ws=[],c;'+
-      'for(c=0;c<8;c++){if(CW[c]){ws[c]=CW[c]*k;fx+=ws[c];}else an++;}'+
-      'var rest=av-fx;if(an){if(rest<an*4*f){var sc=Math.max(.3,(av-an*4*f)/fx);fx=0;for(c=0;c<8;c++)if(CW[c]){ws[c]*=sc;fx+=ws[c];}rest=av-fx;}for(c=0;c<8;c++)if(!CW[c])ws[c]=rest/an;}'+
-      'else{for(c=0;c<8;c++)ws[c]=ws[c]*av/fx;}'+
-      'for(c=0;c<8;c++)cols[c].style.width=Math.floor(ws[c])+"px";}'+
-      'var lo=8,hi=40;function fits(f){w.style.fontSize=f+"px";setW(f);var t=w.querySelector("table"),hh=w.querySelector("h2");'+
-      'return (hh.offsetHeight+parseFloat(getComputedStyle(hh).marginBottom)+t.offsetHeight)<=lim;}'+
-      'for(var k=0;k<14;k++){var m=(lo+hi)/2;if(fits(m))lo=m;else hi=m;}fits(lo);}'+
-      'setTimeout(function(){window.print();},250);})();</scr'+'ipt></body></html>';
+      'body{font-family:'+ff.replace(/</g,'')+';color:#2E2B28}'+
+      '#z{width:'+TW+'px}'+
+      '.wk{break-inside:avoid;page-break-inside:avoid;margin-bottom:14px}'+
+      'table{border-collapse:collapse;table-layout:fixed;width:'+TW+'px;background:#fff}'+
+      'th,td{border:1px solid #D5CEC7;padding:0;vertical-align:middle}'+
+      'th{background:#F4F1EE;padding:6px 4px;font-size:12px;font-weight:800;text-align:left}'+
+      'td.lb{background:#F4F1EE;text-align:center;font-weight:800;font-size:12px;padding:4px 2px}'+
+      '.c{display:flex;align-items:center;white-space:pre-wrap;word-break:break-word;padding:3px 6px;line-height:1.45}'+
+      '</style></head><body><div id="z">'+blocks.join('')+'</div>'+
+      /* 표 전체를 같은 비율로 확대·축소해 용지 폭에 맞춤 (A4 가로 297mm - 여백 16mm = 281mm) — 한 주가 한 장보다 길면 그 높이에 맞춤 */
+      '<scr'+'ipt>function go(){var z=document.getElementById("z"),pw=281*96/25.4,ph=194*96/25.4-4,s=pw/'+TW+',mx=0;'+
+      'var wk=document.querySelectorAll(".wk");for(var i=0;i<wk.length;i++)mx=Math.max(mx,wk[i].offsetHeight);'+
+      'if(mx*s>ph)s=ph/mx;z.style.zoom=s;'+
+      'setTimeout(function(){window.print();},250);}'+
+      'window.onload=function(){(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(go);};</scr'+'ipt></body></html>';
     const w=window.open('','_blank');
     if(!w)return alert('팝업이 차단되어 인쇄 창을 열 수 없습니다. 브라우저 팝업 허용 후 다시 눌러주세요.');
     w.document.write(html);w.document.close();
