@@ -18061,6 +18061,17 @@ function loadNavSections(){
             sec.items.forEach(f=>{if(f&&f.kind==='folder')f.items=(f.items||[]).filter(i=>!(i&&GONE[i.id]));});
             if(JSON.stringify(sec.items)!==before)changed=true;
           });
+          /* 같은 이름의 부서 섹션이 둘로 갈라졌으면 앞쪽 섹션으로 합친다 (2026-10-12 경영지원부 중복 사고) */
+          for(let a=0;a<filtered.length;a++){
+            const A=filtered[a];if(!A||!A.label||!Array.isArray(A.items))continue;
+            for(let b=filtered.length-1;b>a;b--){
+              const B=filtered[b];
+              if(!B||B.label!==A.label||!Array.isArray(B.items))continue;
+              const has=new Set(A.items.map(i=>i&&i.id).filter(Boolean));
+              B.items.forEach(i=>{if(i&&(!i.id||!has.has(i.id)))A.items.push(i);});
+              filtered.splice(b,1);changed=true;
+            }
+          }
           const deepAny=id=>filtered.some(x=>x&&Array.isArray(x.items)&&x.items.some(i=>i&&(i.kind==='folder'?(i.items||[]).some(c=>c&&c.id===id):i.id===id)));
           const ensure=(secMatch,items)=>{
             let sec=filtered.find(x=>x&&(x.type===secMatch.t||String(x.label||'').indexOf(secMatch.m)>=0));
