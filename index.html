@@ -113,6 +113,7 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .qi{border:none;background:transparent;width:100%;font-size:12px;font-family:inherit;text-align:inherit;padding:0}
 .qi:focus{outline:1px solid var(--p);border-radius:2px}
 /* 생산 스케줄표 */
+.sg-lab .sg-rowbtn{display:none}.sg-lab:hover .sg-rowbtn{display:flex}
 .sched-wrap{overflow:auto;border:1px solid var(--bd);border-radius:12px;background:#fff}
 .sched-table{border-collapse:collapse;min-width:900px;width:100%}
 .sched-table th,.sched-table td{border:1px solid #ddd;font-size:11px;vertical-align:top}
@@ -1437,7 +1438,7 @@ const SCHED_GRID_SECS=[
   {k:'rnd',  l:'R&D',      n:2, bg:'#FCE4D6'},
   {k:'note', l:'비 고',    n:1, bg:'#FFFFFF'}
 ];
-function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFinish}){
+function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFinish,toolbarEl,active,onActivate}){
   /* weekStart는 월요일 — 양식은 일요일 시작이므로 하루 앞으로
      edit=false면 보기 전용(연속 보기), flat이면 바깥 테두리 없이 이어붙는 형태 */
   const sun=addDD(weekStart,-1);
@@ -1694,7 +1695,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   const secWithBase=(()=>{let b=0;return SCHED_GRID_SECS.map(s=>{const n=effN(s);const o={...s,n,base:b};b+=n;return o;});})();
   const baseFs=gridFs||12;
   const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
-  const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'4px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box'};
+  const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'3px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box',margin:0};
   /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
   /* 열 너비: 드래그로 넓힌 합이 화면보다 커지면 비율은 유지한 채 전체를 축소 —
      토요일 열이 화면 밖으로 밀려 안 보이던 문제 방지 (2026-10-01) */
@@ -1730,14 +1731,17 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   };
   const resizeHandle=(i)=>R('div',{onMouseDown:startResize(i),title:'드래그해서 열 너비 조절',
     style:{position:'absolute',top:0,right:-4,width:8,height:'100%',cursor:'col-resize',zIndex:3}});
+  /* 보기 모드 글 상자 — 편집 모드에서도 투명하게 깔아 칸 크기를 동일하게 유지 */
+  const viewBox=(key,stl,al,mh,extraSt,extraProps)=>R('div',{...(extraProps||{}),'aria-hidden':extraProps?undefined:true,
+    style:{display:'flex',alignItems:'center',justifyContent:(al==='center'?'center':al==='right'?'flex-end':'flex-start'),textAlign:al,whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box',...(extraSt||{})}},
+    String(cells[key]||'')+(/\n$/.test(String(cells[key]||''))?' ':''));
   const curSt=curKey?((styles||{})[curKey]||{}):{};
   const fmtBtn=(txt,on,fn,title)=>R('button',{className:'btn bw btn-sm',title:title,
     onMouseDown:e=>e.preventDefault(),onClick:fn,
     style:{fontWeight:800,minWidth:34,padding:'4px 8px',...(on?{borderColor:'var(--p)',color:'var(--p)',background:'var(--pb)'}:{})}},txt);
-  return R('div',null,
-    edit&&R('div',{style:{display:'flex',gap:6,alignItems:'center',marginBottom:8,flexWrap:'wrap'}},
-      R('span',{style:{fontSize:11,color:'var(--tm)'}},'칸 클릭 후 입력 · 자동 저장 · ↑↓←→ 칸 이동 · Alt+Enter 줄 추가'),
-      R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
+  /* 편집 도구줄은 표 위 고정 자리(toolbarEl)에 그린다 — 표 사이에 끼어들어 표가 밀리던 문제 제거 (2026-10-12) */
+  const toolbar=(edit&&active&&toolbarEl)?ReactDOM.createPortal(
+    R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'nowrap'}},
       R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'선택 칸 서식:'),
       fmtBtn('B',!!curSt.b,()=>setStyle({b:curSt.b?null:1}),'선택 칸 굵게 켜기/끄기'),
       fmtBtn('가−',false,()=>setStyle({fs:Math.max(10,(curSt.fs||baseFs)-1)}),'선택 칸 글자 작게'),
@@ -1764,10 +1768,11 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
       selRange&&fmtBtn('⧉ 셀 합치기',false,doMerge,'드래그로 선택한 칸을 하나로 합치기'),
       selRange&&fmtBtn('✕',false,()=>setSelRange(null),'선택 취소'),
       (!selRange&&curKey&&(merges||{})[curKey])&&fmtBtn('⧉ 합치기 해제',false,unmerge,'이 칸의 병합 풀기'),
-      R('div',{style:{flex:1}}),
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:st.indexOf('실패')>=0?'var(--err)':'var(--ok)'}},st),
       R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
-      R('button',{className:'btn bs btn-sm',onClick:copyPrevWeek},'📋 지난주 내용 복사')),
+      R('button',{className:'btn bs btn-sm',onClick:copyPrevWeek},'📋 지난주 내용 복사')),toolbarEl):null;
+  return R('div',null,
+    toolbar,
     R('div',{ref:wrapRef,style:flat?{background:'#fff'}:{overflowX:'auto',border:'1px solid #C9C2BA',borderRadius:10,background:'#fff'}},
       R('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:hasCustomW?700:980,tableLayout:'fixed'}},
         R('colgroup',null,
@@ -1784,10 +1789,10 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
               const rk=sec.k+'_'+ri;
               const mh=(rowh||{})[rk]||26;
               return R('tr',{key:sec.k+ri},
-                ri===0&&R('td',{rowSpan:sec.n,style:{...tdBase,background:'#F4F1EE',textAlign:'center',fontWeight:800,fontSize:12,verticalAlign:'middle',padding:'4px 2px'}},
+                ri===0&&R('td',{rowSpan:sec.n,className:'sg-lab',style:{...tdBase,position:'relative',background:'#F4F1EE',textAlign:'center',fontWeight:800,fontSize:12,verticalAlign:'middle',padding:'4px 2px'}},
                   R('div',null,sec.l),
-                  /* 편집 모드: 이 구역에 줄 추가/삭제 */
-                  edit&&R('div',{style:{display:'flex',gap:3,justifyContent:'center',marginTop:5}},
+                  /* 편집 모드: 이 구역에 줄 추가/삭제 — 라벨에 마우스를 올리면 겹쳐 표시(표 크기 변화 없음) */
+                  edit&&R('div',{className:'sg-rowbtn',style:{position:'absolute',inset:0,gap:3,justifyContent:'center',alignItems:'center',background:'rgba(244,241,238,.94)',zIndex:4}},
                     R('button',{title:'줄 추가',onClick:()=>addRow(sec.k),
                       style:{width:20,height:20,lineHeight:'16px',padding:0,border:'1px solid var(--bd)',borderRadius:5,background:'#fff',cursor:'pointer',fontSize:12,fontWeight:800,color:'var(--p)'}},'＋'),
                     sec.n>1&&R('button',{title:'마지막 줄 삭제',onClick:()=>delRow(sec.k),
@@ -1804,6 +1809,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                   const al=(aligns||{})[sec.k]||'left';
                   /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
                   return R('td',{key:key,rowSpan:rs>1?rs:undefined,colSpan:cs>1?cs:undefined,
+                    onClick:edit?(e)=>{if(e.target===e.currentTarget){const t=e.currentTarget.querySelector('textarea');if(t)t.focus();}}:undefined,
                     onMouseDown:edit?(e)=>{
                       const rct=e.currentTarget.getBoundingClientRect();
                       if(rct.right-e.clientX<9||rct.bottom-e.clientY<9)return;  /* 경계는 크기 조절 전용 */
@@ -1820,7 +1826,11 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                     style:{...tdBase,position:'relative',background:sec.bg,verticalAlign:'middle',...(edit?{height:mh}:{}),
                            ...(sel?{boxShadow:'inset 0 0 0 2.5px var(--p)',background:'#FFEFE5'}:{})}},
                     edit
-                      ?R('textarea',{value:cells[key]||'',rows:1,'data-sg':sgId(sec.base+ri,di),
+                      /* 편집 칸: 보기 모드와 같은 글 상자를 투명하게 깔아 칸 크기를 똑같이 유지하고 그 위에 입력칸을 겹친다
+                         — 편집 전환 시 칸 크기·위치가 전혀 변하지 않음 (2026-10-12) */
+                      ?R(React.Fragment,null,
+                        viewBox(key,stl,al,mh,{visibility:'hidden'}),
+                        R('textarea',{value:cells[key]||'',rows:1,'data-sg':sgId(sec.base+ri,di),
                           onDoubleClick:onDblFinish?()=>{
                             /* 더블클릭 → 바로 저장하고 편집 완료 (보기 모드로) */
                             if(timer.current)clearTimeout(timer.current);
@@ -1828,10 +1838,10 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                             onDblFinish();
                           }:undefined,
                           title:'더블클릭하면 편집 완료',
-                          onChange:e=>{setCell(key,e.target.value);autoH(e);},
+                          onChange:e=>setCell(key,e.target.value),
                           onKeyDown:navKey(sec,ri,di),
-                          onFocus:e=>{setCurKey(key);autoH(e);},onInput:autoH,
-                          style:{...taBase,textAlign:al,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
+                          onFocus:()=>{setCurKey(key);if(onActivate)onActivate(weekStart);},
+                          style:{...taBase,position:'absolute',left:0,top:0,width:'100%',height:'100%',minHeight:0,textAlign:al,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}}))
                       :(inlineKey===key
                         ?R('textarea',{value:cells[key]||'',rows:1,autoFocus:true,
                             onChange:e=>{setCell(key,e.target.value);autoH(e);},
@@ -1846,7 +1856,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                               if(dirty.current){if(timer.current)clearTimeout(timer.current);save();}
                             },
                             style:{...taBase,textAlign:al,minHeight:Math.max(26,mh),outline:'2px solid var(--p)',outlineOffset:-2,borderRadius:4,background:'#fff',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                        :R('div',{onDoubleClick:()=>setInlineKey(key),title:'더블클릭하면 이 자리에서 바로 수정 (Enter로 완료)',style:{display:'flex',alignItems:'center',justifyContent:(al==='center'?'center':al==='right'?'flex-end':'flex-start'),textAlign:al,cursor:'text',whiteSpace:'pre-wrap',wordBreak:'break-word',padding:'3px 6px',minHeight:mh,lineHeight:1.45,fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400,boxSizing:'border-box'}},cells[key]||'')),
+                        :viewBox(key,stl,al,mh,{cursor:'text'},{onDoubleClick:()=>setInlineKey(key),title:'더블클릭하면 이 자리에서 바로 수정 (Enter로 완료)'})),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
                     edit&&rs===1&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-5,height:10,cursor:'row-resize',zIndex:3}}),
@@ -1859,7 +1869,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
         )
       )
     ),
-    edit&&R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 색 구분: 미팅(파랑) · 2층 생산(하늘) · 1층 생산(초록) · R&D(주황) — 왼쪽 라벨의 ＋/−로 줄 추가·삭제, 칸 경계 드래그로 크기 조절, 같은 구역에서 칸을 드래그하면 범위 선택 → [⧉ 셀 합치기] · 주차별로 따로 저장'));
+  );
 }
 
 /* ═══ 사업계획 — 어떤 카테고리 사업을 성장시킬지 정리하는 보드 (app_state id=8) ═══ */
@@ -2011,6 +2021,8 @@ function PageProdSchedule(){
   const[hasGrid,setHasGrid]=useState(false);
   const[schedEdit,setSchedEdit]=useState(false); /* 기본은 보기(연속) — [✏️ 편집] 버튼으로 전환 */
   const[weeksCnt,setWeeksCnt]=useState(4);       /* 한 화면에 보이는 주차 수 — [차주 스케줄 추가]로 늘림 */
+  const[tbEl,setTbEl]=useState(null);            /* 편집 도구줄 자리 (표 위 고정) */
+  const[activeWs,setActiveWs]=useState(null);    /* 편집 중 마지막으로 클릭한 주차 */
   /* 편집 <-> 보기 전환 시 표가 다시 그려지며 스크롤이 맨 위로 튀던 문제 — 위치 기억 후 복원 (2026-10-08) */
   const toggleEdit=(v)=>{
     const sc=document.querySelector('.pg')||document.querySelector('.main');
@@ -2181,22 +2193,86 @@ function PageProdSchedule(){
       }
     }finally{setShBusy(false);}
   };
+  /* 인쇄 (2026-10-12): 화면 표와 똑같이(구역 색·요일 색·병합·굵게·칸 글자 크기·정렬·줄 높이·열 너비) +
+     엑셀 '한 페이지에 맞춤'처럼 주차마다 A4 가로 한 장을 꽉 채우도록 글자 크기를 자동 확대 */
   const printWeek=async(wsList)=>{
-    const ts=await collectTrimmed(wsList);
-    if(!ts)return alert('입력된 스케줄이 없습니다.');
-    const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
-    const tbl=t=>'<h2>생산 스케줄  '+esc(t.days[0])+' ~ '+esc(t.days[t.days.length-1])+'</h2>'+
-      '<table><tr><th></th>'+t.days.map(d=>'<th>'+esc(d)+'</th>').join('')+'</tr>'+
-      t.rows.map(r=>'<tr><td class="lb">'+esc(r.label)+'</td>'+
-        r.cells.map(c=>'<td style="background:'+(r.bg||'#fff')+';text-align:'+(r.al||'left')+'">'+esc(c)+'</td>').join('')+'</tr>').join('')+
-      '</table>';
-    const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄</title>'+
-      '<style>body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:14px}'+
-      'h2{color:#D94F1E;font-size:18px;margin:14px 0 10px}table{border-collapse:collapse;width:100%;margin-bottom:8px}'+
-      'th,td{border:1px solid #B9B2AA;padding:6px 8px;font-size:12.5px;vertical-align:top;word-break:break-word;text-align:left}'+
-      'th{background:#F4F1EE}td.lb{background:#F4F1EE;font-weight:800;width:84px}</style></head><body>'+
-      ts.map(tbl).join('')+
-      '<scr'+'ipt>window.onload=function(){window.print();}</scr'+'ipt></body></html>';
+    const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    const DOW=['일','월','화','수','목','금','토'];
+    const bfs=gridFs||12;
+    /* 열 너비: 화면과 같은 규칙 (사용자 지정 > 기본 라벨 74 · 일/토 88 · 평일 균등) — 인쇄 창에서 글자 크기에 맞춰 px로 환산 */
+    const cw=Array.from({length:8},(_,i)=>{const v=gridColW&&gridColW['c'+i];return v?+v:(i===0?74:(i===1||i===7?88:0));});
+    const blocks=[];
+    for(const ws of wsList){
+      const j=await fetchGridW(ws);
+      if(!j||!j.cells)continue;
+      const cells=j.cells||{},sty=j.styles||{},mg=j.merges||{},al=j.aligns||{},rh=j.rowh||{},rws=j.rows||{};
+      if(!Object.values(cells).some(v=>String(v||'').trim()))continue;
+      const sun=addDD(ws,-1);
+      const days=Array.from({length:7},(_,i)=>addDD(sun,i));
+      /* 줄 수: 화면과 같은 규칙 (저장된 줄 수 > 내용 있는 마지막 줄까지) */
+      const effN=sec=>{
+        if(rws[sec.k]!=null)return Math.max(1,Math.min(12,+rws[sec.k]));
+        let m=0;for(let ri=1;ri<12;ri++)for(let di=0;di<7;di++)if(String(cells[sec.k+'_'+ri+'_'+di]||'').trim()){m=ri;break;}
+        return Math.max(1,Math.min(12,m+1));
+      };
+      const covered={};
+      Object.keys(mg).forEach(ak=>{const q=ak.split('_');if(q.length!==3)return;const m=mg[ak]||{};
+        for(let r=+q[1];r<+q[1]+(m.rs||1);r++)for(let c=+q[2];c<+q[2]+(m.cs||1);c++){const kk=q[0]+'_'+r+'_'+c;if(kk!==ak)covered[kk]=1;}});
+      let h='<div class="wk"><h2>생산 스케줄 '+fSD(days[0])+'('+DOW[0]+') ~ '+fSD(days[6])+'('+DOW[6]+')</h2><table><colgroup>'+
+        cw.map(()=>'<col>').join('')+'</colgroup><thead><tr><th></th>'+
+        days.map((d,i)=>'<th style="color:'+(i===0?'#DC2626':i===6?'#2563EB':'#2E2B28')+'">'+fSD(d)+' ('+DOW[i]+')</th>').join('')+'</tr></thead><tbody>';
+      SCHED_GRID_SECS.forEach(sec=>{
+        const n=effN(sec);
+        const a=al[sec.k]||'left';
+        for(let ri=0;ri<n;ri++){
+          const rhv=rh[sec.k+'_'+ri];
+          h+='<tr'+(rhv?' style="height:'+(rhv/bfs).toFixed(3)+'em"':'')+'>';
+          if(ri===0)h+='<td class="lb" rowspan="'+n+'">'+esc(sec.l)+'</td>';
+          for(let di=0;di<7;di++){
+            const key=sec.k+'_'+ri+'_'+di;
+            if(covered[key])continue;
+            const m=mg[key];
+            const rs=m?Math.max(1,Math.min(m.rs||1,n-ri)):1,cs=m?Math.max(1,Math.min(m.cs||1,7-di)):1;
+            const st=sty[key]||{};
+            const fsr=st.fs?Math.max(9,Math.min(26,st.fs+bfs-12))/bfs:1;
+            h+='<td'+(rs>1?' rowspan="'+rs+'"':'')+(cs>1?' colspan="'+cs+'"':'')+' style="background:'+sec.bg+';text-align:'+a+
+              (fsr!==1?';font-size:'+fsr.toFixed(3)+'em':'')+(st.b?';font-weight:800':'')+'">'+esc(cells[key])+'</td>';
+          }
+          h+='</tr>';
+        }
+      });
+      blocks.push(h+'</tbody></table></div>');
+    }
+    if(!blocks.length)return alert('입력된 스케줄이 없습니다.');
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>생산 스케줄</title><style>'+
+      '@page{size:A4 landscape;margin:0}'+
+      '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}'+
+      'html,body{margin:0;padding:0;background:#fff}'+
+      'body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;color:#2E2B28}'+
+      '.wk{width:297mm;height:209mm;padding:8mm 9mm;overflow:hidden;page-break-after:always;break-after:page}'+
+      '.wk:last-child{page-break-after:auto;break-after:auto}'+
+      '.in{transform-origin:top left}'+
+      'h2{color:#D94F1E;font-size:1.3em;font-weight:800;margin:0 0 .45em}'+
+      'table{border-collapse:collapse;width:100%;table-layout:fixed}'+
+      'th,td{border:1px solid #B9B2AA;padding:.25em .5em;line-height:1.45;vertical-align:middle;white-space:pre-wrap;word-break:break-word}'+
+      'th{background:#F4F1EE;font-weight:800;text-align:left;font-size:'+(12/bfs).toFixed(3)+'em}'+
+      'td.lb{background:#F4F1EE;font-weight:800;text-align:center;font-size:'+(12/bfs).toFixed(3)+'em}'+
+      '@media screen{body{background:#888}.wk{background:#fff;margin:10px auto;box-shadow:0 2px 10px rgba(0,0,0,.3)}}'+
+      '</style></head><body>'+blocks.join('')+
+      /* 주차마다 한 장을 꽉 채우는 글자 크기 찾기 (엑셀 '한 페이지에 시트 맞추기'와 같은 효과) */
+      '<scr'+'ipt>(function(){var ws=document.querySelectorAll(".wk");for(var i=0;i<ws.length;i++){var w=ws[i];'+
+      'var lim=w.clientHeight-parseFloat(getComputedStyle(w).paddingTop)-parseFloat(getComputedStyle(w).paddingBottom)-4;'+
+      'var CW='+JSON.stringify(cw)+',BF='+bfs+',cols=w.querySelectorAll("col");'+
+      /* 고정 열(라벨·일·토·직접 조절한 열)은 글자 크기에 비례, 나머지 평일 열이 남는 폭을 나눔 */
+      'function setW(f){var av=w.querySelector("table").parentNode.clientWidth-parseFloat(getComputedStyle(w).paddingLeft)*2,k=f/BF,fx=0,an=0,ws=[],c;'+
+      'for(c=0;c<8;c++){if(CW[c]){ws[c]=CW[c]*k;fx+=ws[c];}else an++;}'+
+      'var rest=av-fx;if(an){if(rest<an*4*f){var sc=Math.max(.3,(av-an*4*f)/fx);fx=0;for(c=0;c<8;c++)if(CW[c]){ws[c]*=sc;fx+=ws[c];}rest=av-fx;}for(c=0;c<8;c++)if(!CW[c])ws[c]=rest/an;}'+
+      'else{for(c=0;c<8;c++)ws[c]=ws[c]*av/fx;}'+
+      'for(c=0;c<8;c++)cols[c].style.width=Math.floor(ws[c])+"px";}'+
+      'var lo=8,hi=40;function fits(f){w.style.fontSize=f+"px";setW(f);var t=w.querySelector("table"),hh=w.querySelector("h2");'+
+      'return (hh.offsetHeight+parseFloat(getComputedStyle(hh).marginBottom)+t.offsetHeight)<=lim;}'+
+      'for(var k=0;k<14;k++){var m=(lo+hi)/2;if(fits(m))lo=m;else hi=m;}fits(lo);}'+
+      'setTimeout(function(){window.print();},250);})();</scr'+'ipt></body></html>';
     const w=window.open('','_blank');
     if(!w)return alert('팝업이 차단되어 인쇄 창을 열 수 없습니다. 브라우저 팝업 허용 후 다시 눌러주세요.');
     w.document.write(html);w.document.close();
@@ -2225,8 +2301,9 @@ function PageProdSchedule(){
     .replace(/<link[^>]*>/gi,'')
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi,'');
   const[srcWeek,setSrcWeek]=useState(null); /* 지금 화면에 표시 중인 스케줄이 저장된 주차 */
-  const loadImg=async()=>{
-    setLoading(true);setImg(null);setHtmlDoc(null);setSrcWeek(null);setHasGrid(false);
+  const loadImg=async(silent)=>{
+    /* 주기 확인(silent)은 화면 상태를 비우지 않는다 — 비웠다 채우면서 보기 전환·깜빡임이 생기던 문제 (2026-10-12) */
+    if(!silent){setLoading(true);setImg(null);setHtmlDoc(null);setSrcWeek(null);setHasGrid(false);}
     try{
       /* 특정 주차의 저장본(이미지·표)을 불러온다. 둘 다 있으면 나중에 저장한 쪽 */
       const loadWeek=async(wk)=>{
@@ -2264,7 +2341,7 @@ function PageProdSchedule(){
     setLoading(false);
   };
   useEffect(()=>{loadImg();},[weekStart]);
-  useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)loadImg();},15000);return()=>clearInterval(t);},[weekStart]);
+  useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)loadImg(true);},15000);return()=>clearInterval(t);},[weekStart]);
 
   /* 이미지 dataURL을 현재 주차 파일로 저장 — 주차별 독립 파일이라 다른 주차에 영향 없음 */
   const saveImg=async(dataUrl)=>{
@@ -2426,50 +2503,39 @@ function PageProdSchedule(){
                    background:schedEdit?'#15803D':'var(--p)',color:'#fff',
                    boxShadow:'0 6px 20px rgba(0,0,0,0.25)'}},
             schedEdit?'✅ 편집 완료':'✏️ 편집'),
-          schedEdit?
-            /* 편집 모드: 주차별 머리띠와 함께 (이번주 기준 연속 주차, 주차별로 따로 저장) */
-            R('div',null,
+          /* 편집 도구줄 자리 — 보기·편집 모두 같은 높이로 항상 자리 잡아 전환해도 표가 움직이지 않음 (2026-10-12) */
+          (()=>{
+            const aw=(activeWs&&activeWs>=weekStart&&activeWs<addDD(weekStart,weeksCnt*7))?activeWs:weekStart;
+            const asun=addDD(aw,-1);
+            return R('div',{style:{position:'sticky',top:0,zIndex:6,height:44,display:'flex',alignItems:'center',gap:6,
+                padding:'0 10px',marginBottom:8,borderRadius:10,overflowX:'auto',overflowY:'hidden',whiteSpace:'nowrap',
+                background:schedEdit?'#F0FDF4':'#FAF8F6',border:'1px solid '+(schedEdit?'#86EFAC':'var(--bd)')}},
+              schedEdit
+                ?R(React.Fragment,null,
+                    R('span',{style:{fontSize:12,fontWeight:800,color:'#15803D',flexShrink:0}},'✏️ '+fSD(asun)+'~'+fSD(addDD(asun,6))),
+                    R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg([aw]),title:'이 주차만 이미지로 복사(카톡 붙여넣기)'},'📷 이 주 복사'),
+                    R('button',{className:'btn bw btn-sm',onClick:()=>printWeek([aw]),title:'이 주차만 인쇄'},'🖨 이 주 인쇄'),
+                    R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
+                    R('div',{ref:setTbEl,style:{display:'flex',alignItems:'center'}}))
+                :R('span',{style:{fontSize:11.5,color:'var(--tm)'}},'보기 모드 · 칸을 더블클릭하면 그 자리에서 바로 수정 · [✏️ 편집]을 누르면 화면 그대로 표에서 입력 (칸 이동 ↑↓←→ · Alt+Enter 줄 추가 · 라벨에 마우스를 올리면 ＋/− 줄 추가·삭제)'));
+          })(),
+          /* 보기·편집 같은 구조 — 편집 전환 시 표를 새로 그리지 않아 화면이 바뀌거나 흔들리지 않음 */
+          R('div',null,
+            R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflowX:'auto',overflowY:'hidden',background:'#fff'}},
               ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
                 const ws=addDD(weekStart,off);
-                const sun=addDD(ws,-1);
-                const hasToday=Array.from({length:7},(_,i)=>addDD(sun,i)).some(isToday);
-                return R('div',{key:ws,style:{marginBottom:26}},
-                  R('div',{style:{display:'flex',alignItems:'center',gap:8,margin:'0 0 8px',padding:'7px 12px',background:hasToday?'#FFF3EC':'#F6F3F0',borderLeft:'4px solid '+(hasToday?'var(--p)':'#D9D2CB'),borderRadius:8}},
-                    R('span',{style:{fontSize:13.5,fontWeight:800,color:hasToday?'var(--p)':'var(--t)'}},'📅 '+fSD(sun)+' ~ '+fSD(addDD(sun,6))),
-                    hasToday&&R('span',{style:{fontSize:10.5,fontWeight:800,color:'#fff',background:'var(--p)',borderRadius:999,padding:'2px 9px'}},'이번주'),
-                    off>0&&R('span',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},'+'+(off/7)+'주'),
-                    R('div',{style:{flex:1}}),
-                    /* 이 주차만 한 주씩 복사·인쇄 */
-                    R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg([ws]),title:'이 주차만 이미지로 복사(카톡 붙여넣기)'},'📷 이 주 복사'),
-                    R('button',{className:'btn bw btn-sm',onClick:()=>printWeek([ws]),title:'이 주차만 인쇄'},'🖨 이 주 인쇄')),
-                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:true,onDblFinish:()=>toggleEdit(false)}));
-              }),
-              /* 제일 하단: 차주 스케줄 추가 */
-              (()=>{
-                const nw=addDD(weekStart,weeksCnt*7);
-                const nsun=addDD(nw,-1);
-                return R('button',{onClick:()=>setWeeksCnt(n=>Math.min(26,n+1)),
-                  style:{display:'block',width:'100%',padding:'16px',border:'2px dashed var(--p)',borderRadius:12,
-                         background:'#FFF9F5',color:'var(--p)',fontSize:14.5,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
-                  '➕ 차주 스케줄 추가 — '+fSD(nsun)+' ~ '+fSD(addDD(nsun,6))+' 표 열기');
-              })())
-          :
-            /* 보기 모드: 엑셀처럼 주차들이 한 장으로 끊김 없이 이어짐 (칸 더블클릭 → 그 자리 수정) */
-            R('div',null,
-              R('div',{style:{border:'1px solid #C9C2BA',borderRadius:10,overflowX:'auto',overflowY:'hidden',background:'#fff'}},
-                ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
-                  const ws=addDD(weekStart,off);
-                  return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:false,flat:true});
-                })),
-              /* 보기 모드에서도 다음 주 표 이어서 열기 */
-              (()=>{
-                const nw=addDD(weekStart,weeksCnt*7);
-                const nsun=addDD(nw,-1);
-                return R('button',{onClick:()=>setWeeksCnt(n=>Math.min(26,n+1)),
-                  style:{display:'block',width:'100%',marginTop:10,padding:'14px',border:'2px dashed var(--p)',borderRadius:12,
-                         background:'#FFF9F5',color:'var(--p)',fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
-                  '➕ 다음 주 추가 — '+fSD(nsun)+' ~ '+fSD(addDD(nsun,6))+' 표 이어서 보기');
-              })())
+                const aw=(activeWs&&activeWs>=weekStart&&activeWs<addDD(weekStart,weeksCnt*7))?activeWs:weekStart;
+                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:schedEdit,flat:true,
+                  onDblFinish:()=>toggleEdit(false),toolbarEl:tbEl,active:ws===aw,onActivate:setActiveWs});
+              })),
+            (()=>{
+              const nw=addDD(weekStart,weeksCnt*7);
+              const nsun=addDD(nw,-1);
+              return R('button',{onClick:()=>setWeeksCnt(n=>Math.min(26,n+1)),
+                style:{display:'block',width:'100%',marginTop:10,padding:'14px',border:'2px dashed var(--p)',borderRadius:12,
+                       background:'#FFF9F5',color:'var(--p)',fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
+                '➕ 다음 주 추가 — '+fSD(nsun)+' ~ '+fSD(addDD(nsun,6))+' 표 이어서 보기');
+            })())
         ):
         R('div',null,
     srcWeek&&srcWeek!==weekStart&&!loading&&R('div',{style:{textAlign:'center',fontSize:11.5,fontWeight:700,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'7px 12px',marginBottom:12}},
