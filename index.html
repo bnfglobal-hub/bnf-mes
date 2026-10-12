@@ -13257,6 +13257,9 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   /* 완제품 → 반제품 매핑: {완제품ID: [반제품ID, ...]} */
   const[prodSemiMap,setProdSemiMap]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_semi_map')||'{}');}catch(e){return {};}});
   /* 완제품 → 주요 재고 반제품: {완제품ID: [반제품ID, ...]} — 이 중 가장 적은 재고 = 작업 가능 재고 (2026-10-12) */
+  /* 완제품 표: 올해 누적판매·작년판매 열 보기 (버튼으로 켜고 끔, 이 기기에 저장) */
+  const[favShowSales,setFavShowSales]=useState(()=>{try{return localStorage.getItem('bnf_fav_show_sales')==='1';}catch(e){return false;}});
+  useEffect(()=>{try{localStorage.setItem('bnf_fav_show_sales',favShowSales?'1':'0');}catch(e){}},[favShowSales]);
   const[prodSemiKey,setProdSemiKey]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_semi_key')||'{}');}catch(e){return {};}});
   /* 펼친 완제품 ID (한 번에 하나씩) */
   const[expandedFavId,setExpandedFavId]=useState(null);
@@ -13690,12 +13693,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
               /* 이름 (한 줄) */
               R('div',{style:{flex:1,minWidth:0,fontSize:11,fontWeight:isSelected?700:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSelected?'var(--p)':isShort?'#991B1B':'inherit'},title:m.n},
                 m.n,
-                linkedCount>0&&R('span',{style:{marginLeft:5,color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:8,fontSize:9}},linkedCount),
-                /* 작업 가능 재고 = 주요 반제품 중 최소 재고 */
-                (()=>{const wk=workableOf(m.id);if(!wk)return null;
-                  return R('span',{title:'작업 가능 재고 — 주요 반제품 '+wk.cnt+'종 중 가장 적은 재고: '+wk.n,
-                    style:{marginLeft:5,fontWeight:800,padding:'1px 6px',borderRadius:8,fontSize:9.5,
-                           color:wk.s<=0?'#B91C1C':'#047857',background:wk.s<=0?'#FEE2E2':'#D1FAE5'}},'작업가능 '+wk.s.toLocaleString()+wk.u);})()
+                linkedCount>0&&R('span',{style:{marginLeft:5,color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:8,fontSize:9}},linkedCount)
               ),
               /* 재고 */
               R('div',{title:'현재고',style:{flexShrink:0,width:72,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
@@ -13714,8 +13712,13 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                 :mu>0?R('span',{style:{color:'#059669',fontWeight:600,fontSize:10}},'✓ 충분')
                 :R('span',{style:{color:'#D9D2CB',fontSize:10}},'-')
               ),
+              /* 작업 가능 수량 = 주요 반제품 중 최소 재고 (부족수량 오른쪽) */
+              (()=>{const wk=workableOf(m.id);
+                return R('div',{title:wk?'작업 가능 수량 — 주요 반제품 '+wk.cnt+'종 중 가장 적은 재고: '+wk.n:'반제품 패널에서 ☆로 주요 반제품을 지정하면 표시',style:{flexShrink:0,width:78,textAlign:'right',fontSize:11,whiteSpace:'nowrap'}},
+                  wk?R('span',{style:{fontWeight:800,padding:'2px 6px',borderRadius:8,fontSize:10,color:wk.s<=0?'#B91C1C':'#047857',background:wk.s<=0?'#FEE2E2':'#D1FAE5'}},wk.s.toLocaleString()+wk.u)
+                    :R('span',{style:{color:'#D9D2CB',fontSize:10}},'-'));})(),
               /* 올해 누적판매 */
-              (()=>{
+              favShowSales&&(()=>{
                 const ytd=ytdOf(m.n);
                 return R('div',{title:'올해 누적판매',style:{flexShrink:0,width:76,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
                   ytd!==null
@@ -13724,7 +13727,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                     :R('span',{style:{color:'#D9D2CB',fontSize:10}},'-'));
               })(),
               /* 작년 판매량 */
-              (()=>{
+              favShowSales&&(()=>{
                 const py=prevYrOf(m.n);
                 return R('div',{title:'작년 판매량',style:{flexShrink:0,width:76,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
                   py!==null
@@ -13786,6 +13789,9 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
             isAdmin&&R('button',{onClick:applyPrevMonthSales,disabled:muApplying,title:'올해(1월~오늘) 판매량의 월평균을 즐겨찾기 품목 월사용량에 적용',
               style:{border:'1px solid var(--p)',background:muApplying?'#F4F1EE':'#fff',color:'var(--p)',borderRadius:7,padding:'4px 9px',fontSize:9.5,fontWeight:700,cursor:muApplying?'default':'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
               muApplying?'적용 중...':'📈 올해평균→월사용량'),
+            R('button',{onClick:()=>setFavShowSales(v=>!v),title:'올해 누적판매·작년판매 열 보이기/숨기기',
+              style:{border:'1px solid '+(favShowSales?'#2563EB':'var(--bd)'),background:favShowSales?'#EFF6FF':'#fff',color:favShowSales?'#2563EB':'#6E645C',borderRadius:7,padding:'4px 9px',fontSize:9.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},
+              favShowSales?'📊 판매 실적 숨기기':'📊 판매 실적 보기'),
             R('div',{style:{fontSize:10,color:'var(--tm)'}},favMats.length,'종')
           )
         ),
@@ -13829,8 +13835,9 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           R('span',{className:'fav-hs',style:{width:72,textAlign:'right',flexShrink:0}},'현재고'),
           R('span',{className:'fav-hm',style:{width:62,textAlign:'right',flexShrink:0}},'월사용량'),
           R('span',{className:'fav-hshort',style:{width:74,textAlign:'right',flexShrink:0}},'부족수량'),
-          R('span',{className:'fav-hytd',style:{width:76,textAlign:'right',flexShrink:0}},'올해누적판매'),
-          R('span',{className:'fav-hpy',style:{width:76,textAlign:'right',flexShrink:0}},'작년판매'),
+          R('span',{style:{width:78,textAlign:'right',flexShrink:0}},'작업가능'),
+          favShowSales&&R('span',{className:'fav-hytd',style:{width:76,textAlign:'right',flexShrink:0}},'올해누적판매'),
+          favShowSales&&R('span',{className:'fav-hpy',style:{width:76,textAlign:'right',flexShrink:0}},'작년판매'),
           R('span',{className:'fav-hf',style:{width:58,textAlign:'center',flexShrink:0}},'폴더'),
           R('span',{style:{width:60,flexShrink:0}})
         ),
