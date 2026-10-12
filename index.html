@@ -8266,7 +8266,7 @@ function PageGaQuote({user}){
   const save=async()=>{
     setSt('저장 중...');
     try{
-      const body=JSON.stringify({...q,by:(user&&user.name)||'',at:now2()});
+      const body=JSON.stringify({...q,date:today2(),note:GQ_NOTE,by:(user&&user.name)||'',at:now2()});
       const{error}=await sbClient.storage.from('bnf-files').upload('ga-quotes/'+q.id+'.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
       setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
@@ -8293,7 +8293,7 @@ function PageGaQuote({user}){
       sp.textContent=v||'';
       el.parentNode.replaceChild(sp,el);
     });
-    const html='<!doctype html><html><head><meta charset="utf-8"><title>견적서_'+String(q.to||'').replace(/[<>&"]/g,'')+'_'+q.date+'</title><style>'+
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>견적서_'+String(q.to||'').replace(/[<>&"]/g,'')+'_'+today2()+'</title><style>'+
       '@page{size:A4 landscape;margin:8mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
       'html,body{margin:0;padding:0;background:#fff}'+GQ_CSS+
       '#z{transform-origin:top left}</style></head><body><div id="z">'+cl.outerHTML+'</div>'+
@@ -8330,19 +8330,18 @@ function PageGaQuote({user}){
       R('table',{style:{borderTop:'1px solid #444'}},
         R('colgroup',null,
           R('col',{style:{width:270}}),R('col',{style:{width:272}}),
-          R('col',{style:{width:22}}),R('col',{style:{width:92}}),R('col',{style:{width:106}}),R('col',{style:{width:48}}),R('col',{style:{width:147}})),
+          R('col',{style:{width:22}}),R('col',{style:{width:86}}),R('col',{style:{width:134}}),R('col',{style:{width:48}}),R('col',{style:{width:125}})),
         R('tbody',null,
           R('tr',null,
             R('td',{rowSpan:2,style:{border:'none',textAlign:'left',paddingLeft:24}},R('span',{className:'gq-sp'},'견적일자 :'),'     ',
-              R('span',{style:{marginLeft:30}},dateKo(q.date))),
-            R('td',{rowSpan:2,style:{border:'none',textAlign:'left'}},
-              R('input',{type:'date',value:q.date,onChange:e=>up('date',e.target.value),style:{width:130,fontSize:11,color:'#888'},title:'견적일자 변경 (인쇄 시 숨김)','data-noprint':'1'})),
+              R('span',{style:{marginLeft:30}},dateKo(today2()))),
+            R('td',{rowSpan:2,style:{border:'none'}}),
             R('td',{rowSpan:5,style:{lineHeight:'2.1'}},'공',R('br'),R('br'),'급',R('br'),R('br'),'자'),
             R('td',{className:'gq-sp'},'사업자번호'),
             R('td',{colSpan:3},inp(S.bizno,v=>upSup('bizno',v)))),
           R('tr',null,
-            R('td',{style:{fontSize:11.5}},'상호(법인명)'),
-            R('td',{style:{fontSize:10.5,letterSpacing:-0.5,padding:'0 1px'}},inp(S.name,v=>upSup('name',v))),
+            R('td',{style:{fontSize:11.5,whiteSpace:'nowrap',letterSpacing:-0.3}},'상호(법인명)'),
+            R('td',{style:{padding:'0 2px',whiteSpace:'nowrap'}},inp(S.name,v=>upSup('name',v))),
             R('td',null,'대표자'),
             R('td',null,inp(S.ceo,v=>upSup('ceo',v)))),
           R('tr',null,
@@ -8405,7 +8404,7 @@ function PageGaQuote({user}){
           R('tr',null,
             R('td',{style:{height:150}},'비고'),
             R('td',{colSpan:6,className:'gq-note'},
-              R('textarea',{value:q.note,onChange:e=>up('note',e.target.value)}))))))
+              R('div',{style:{whiteSpace:'pre-wrap',minHeight:142}},GQ_NOTE))))))
     )),
     /* 저장된 견적서 목록 */
     R('div',{className:'card',style:{marginTop:16,padding:'12px 14px'}},
