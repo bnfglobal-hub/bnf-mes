@@ -9488,7 +9488,7 @@ async function dbSave(state){
         const{data:cur}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
         const existing=cur&&cur.state_data?cur.state_data:{};
         /* 즐겨찾기 계열은 이 기기의 최신 localStorage 값을 항상 우선 반영 (옛 서버값으로 되돌리는 사고 방지) */
-        const LKEYS={bnf_favorites:'bnf_fav_mats',bnf_semi_items:'bnf_semi_items',bnf_prod_semi_map:'bnf_prod_semi_map',bnf_fav_folders:'bnf_fav_folders',bnf_fav_item_folder:'bnf_fav_item_folder'};
+        const LKEYS={bnf_favorites:'bnf_fav_mats',bnf_semi_items:'bnf_semi_items',bnf_prod_semi_map:'bnf_prod_semi_map',bnf_prod_semi_key:'bnf_prod_semi_key',bnf_fav_folders:'bnf_fav_folders',bnf_fav_item_folder:'bnf_fav_item_folder'};
         const overlay={};
         Object.entries(LKEYS).forEach(([sk,lk])=>{const v=localStorage.getItem(lk);if(v!=null){try{overlay[sk]=JSON.parse(v);}catch(e){}}});
         const merged={...existing,...state,...overlay};
@@ -13256,6 +13256,8 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
   const[semiItems,setSemiItems]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_semi_items')||'[]');}catch(e){return [];}});
   /* 완제품 → 반제품 매핑: {완제품ID: [반제품ID, ...]} */
   const[prodSemiMap,setProdSemiMap]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_semi_map')||'{}');}catch(e){return {};}});
+  /* 완제품 → 주요 재고 반제품: {완제품ID: [반제품ID, ...]} — 이 중 가장 적은 재고 = 작업 가능 재고 (2026-10-12) */
+  const[prodSemiKey,setProdSemiKey]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_prod_semi_key')||'{}');}catch(e){return {};}});
   /* 펼친 완제품 ID (한 번에 하나씩) */
   const[expandedFavId,setExpandedFavId]=useState(null);
   /* 완제품별 반제품 연결 검색 UI */
@@ -13291,6 +13293,7 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
     bnf_favorites:JSON.parse(localStorage.getItem('bnf_fav_mats')||'[]'),
     bnf_semi_items:JSON.parse(localStorage.getItem('bnf_semi_items')||'[]'),
     bnf_prod_semi_map:JSON.parse(localStorage.getItem('bnf_prod_semi_map')||'{}'),
+    bnf_prod_semi_key:JSON.parse(localStorage.getItem('bnf_prod_semi_key')||'{}'),
     bnf_fav_folders:JSON.parse(localStorage.getItem('bnf_fav_folders')||'[]'),
     bnf_fav_item_folder:JSON.parse(localStorage.getItem('bnf_fav_item_folder')||'{}')
   });
@@ -13342,6 +13345,15 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
           if(localStr!==remoteStr){
             setProdSemiMap(sd.bnf_prod_semi_map);
             localStorage.setItem('bnf_prod_semi_map',remoteStr);
+          }
+        }
+        /* 주요 재고 반제품 */
+        if(sd.bnf_prod_semi_key&&typeof sd.bnf_prod_semi_key==='object'){
+          const localStr=localStorage.getItem('bnf_prod_semi_key')||'{}';
+          const remoteStr=JSON.stringify(sd.bnf_prod_semi_key);
+          if(localStr!==remoteStr){
+            setProdSemiKey(sd.bnf_prod_semi_key);
+            localStorage.setItem('bnf_prod_semi_key',remoteStr);
           }
         }
         /* favFolders */
@@ -13453,6 +13465,30 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
       saveProdSemiMap(next);
       return next;
     });
+  };
+  /* 주요 재고 반제품 지정/해제 */
+  const toggleSemiKey=(prodId,semiId)=>{
+    markLocalEdit();
+    const cur=prodSemiKey[prodId]||[];
+    const nx=cur.includes(semiId)?cur.filter(x=>x!==semiId):[...cur,semiId];
+    const next={...prodSemiKey};
+    if(nx.length)next[prodId]=nx;else delete next[prodId];
+    setProdSemiKey(next);
+    localStorage.setItem('bnf_prod_semi_key',JSON.stringify(next));
+    persistLocalKeys(favPatchAll());
+  };
+  /* 작업 가능 재고: 연결된 반제품 중 '주요'로 지정한 것들의 재고 최솟값 (지정 없으면 null) */
+  const workableOf=(prodId)=>{
+    const linked=new Set(prodSemiMap[prodId]||[]);
+    const keys=(prodSemiKey[prodId]||[]).filter(id=>linked.has(id));
+    let best=null;
+    keys.forEach(id=>{
+      const mt=mats.find(x=>x.id===id);if(!mt)return;
+      const si=semiItems.find(x=>x.id===id)||{};
+      const v=+mt.s||0;
+      if(!best||v<best.s)best={s:v,u:si.u||mt.u||'',n:si.n||mt.n,id};
+    });
+    return best?{...best,cnt:keys.length}:null;
   };
   const unlinkSemi=(prodId,semiId)=>{
     setProdSemiMap(prev=>{
@@ -13654,7 +13690,12 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
               /* 이름 (한 줄) */
               R('div',{style:{flex:1,minWidth:0,fontSize:11,fontWeight:isSelected?700:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isSelected?'var(--p)':isShort?'#991B1B':'inherit'},title:m.n},
                 m.n,
-                linkedCount>0&&R('span',{style:{marginLeft:5,color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:8,fontSize:9}},linkedCount)
+                linkedCount>0&&R('span',{style:{marginLeft:5,color:'#7C3AED',fontWeight:500,background:'#F5F3FF',padding:'1px 5px',borderRadius:8,fontSize:9}},linkedCount),
+                /* 작업 가능 재고 = 주요 반제품 중 최소 재고 */
+                (()=>{const wk=workableOf(m.id);if(!wk)return null;
+                  return R('span',{title:'작업 가능 재고 — 주요 반제품 '+wk.cnt+'종 중 가장 적은 재고: '+wk.n,
+                    style:{marginLeft:5,fontWeight:800,padding:'1px 6px',borderRadius:8,fontSize:9.5,
+                           color:wk.s<=0?'#B91C1C':'#047857',background:wk.s<=0?'#FEE2E2':'#D1FAE5'}},'작업가능 '+wk.s.toLocaleString()+wk.u);})()
               ),
               /* 재고 */
               R('div',{title:'현재고',style:{flexShrink:0,width:72,textAlign:'right',fontSize:10,whiteSpace:'nowrap'}},
@@ -13833,7 +13874,10 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
                 '🔧 ',isContextMode?'연결된 반제품':'반제품 재고 현황',
                 R('span',{style:{fontSize:10,color:'var(--tm)',fontWeight:500}},'('+displaySemis.length+'종)')
               ),
-              isContextMode?R('div',{style:{fontSize:9,color:'var(--p)',fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:selectedFav.n},'▶ '+selectedFav.n):R('div',{style:{fontSize:9,color:'var(--tm)',marginTop:1}},'완제품 선택 시 그 제품의 반제품만 표시')
+              isContextMode?R('div',{style:{fontSize:9,color:'var(--p)',fontWeight:600,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:selectedFav.n},'▶ '+selectedFav.n,
+              (()=>{const wk=workableOf(selectedFav.id);
+                return wk?R('span',{style:{marginLeft:8,fontSize:11,fontWeight:800,color:wk.s<=0?'#B91C1C':'#047857'}},'· 작업 가능 '+wk.s.toLocaleString()+' '+wk.u+' ('+wk.n+' 기준)')
+                  :R('span',{style:{marginLeft:8,color:'var(--tm)',fontWeight:500}},'· ☆를 눌러 주요 반제품 지정 → 작업 가능 재고 표시');})()):R('div',{style:{fontSize:9,color:'var(--tm)',marginTop:1}},'완제품 선택 시 그 제품의 반제품만 표시')
             ),
             isContextMode&&R('button',{onClick:()=>setExpandedFavId(null),title:'선택 해제 (전체 풀 보기)',style:{background:'#fff',color:'var(--tm)',border:'1px solid var(--bd)',borderRadius:6,padding:'3px 8px',cursor:'pointer',fontSize:10,fontWeight:600,flexShrink:0,fontFamily:'inherit'}},'전체 보기'),
             !isContextMode&&R('button',{onClick:()=>setShowSemiSearch(!showSemiSearch),title:showSemiSearch?'검색 닫기':'반제품 풀에 추가',style:{background:showSemiSearch?'#fff':'#7C3AED',color:showSemiSearch?'#7C3AED':'#fff',border:showSemiSearch?'1px solid #7C3AED':'none',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,fontFamily:'inherit'}},showSemiSearch?'✕ 닫기':'+ 추가')
@@ -13856,7 +13900,17 @@ function PageInv({mats,cats,isAdmin,rk,onUpd,onAdd,onDel,parseXL,fRef}){
             ):R('table',{style:{width:'100%',fontSize:11}},
               R('thead',null,R('tr',{style:{position:'sticky',top:0,background:'#fff',zIndex:1}},R('th',{style:{padding:'6px 10px',textAlign:'left'}},'품목'),R('th',{style:{padding:'6px 10px',textAlign:'right'}},'재고'),R('th',{style:{width:28}}))),
               R('tbody',null,...displaySemis.map(s=>R('tr',{key:s.id},
-                R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:s.n},s.n),
+                (()=>{
+                  /* 컨텍스트 모드: ☆ 주요 반제품 지정 — 지정된 것 중 최소 재고 행은 '작업 기준'으로 강조 */
+                  const isKey=isContextMode&&(prodSemiKey[selectedFav.id]||[]).includes(s.id);
+                  const wk=isContextMode?workableOf(selectedFav.id):null;
+                  const isMin=!!(wk&&wk.id===s.id);
+                  return R('td',{style:{padding:'6px 10px',fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',background:isMin?'#ECFDF5':undefined},title:s.n},
+                    isContextMode&&R('button',{onClick:()=>toggleSemiKey(selectedFav.id,s.id),title:isKey?'주요 반제품 해제':'주요 재고 반제품으로 지정 (지정한 것 중 가장 적은 재고 = 작업 가능 재고)',
+                      style:{background:'none',border:'none',cursor:'pointer',fontSize:13,padding:'0 5px 0 0',color:isKey?'#F59E0B':'#D9D2CB',lineHeight:1,verticalAlign:'middle'}},isKey?'★':'☆'),
+                    s.n,
+                    isMin&&R('span',{style:{marginLeft:6,fontSize:9,fontWeight:800,color:'#047857',background:'#D1FAE5',padding:'1px 6px',borderRadius:8}},'작업 기준'));
+                })(),
                 R('td',{style:{padding:'6px 10px',textAlign:'right',fontWeight:800,color:s.s<=0?'#EF4444':'#7C3AED'}},s.s,' ',s.u),
                 R('td',null,
                   isContextMode
@@ -21876,7 +21930,7 @@ function App(){
                 bnf_nav_sections:merged.bnf_nav_sections,work_categories:merged.work_categories,
                 bnf_file_cats:merged.bnf_file_cats,hq_folders:merged.hq_folders,
                 recurring_tasks:merged.recurring_tasks,daily_tasks:merged.daily_tasks,
-                shipsort_namemap:merged.shipsort_namemap,bnf_prod_semi_map:merged.bnf_prod_semi_map};
+                shipsort_namemap:merged.shipsort_namemap,bnf_prod_semi_map:merged.bnf_prod_semi_map,bnf_prod_semi_key:merged.bnf_prod_semi_key};
               Object.keys(bks).sort().slice(0,-7).forEach(k=>{delete bks[k];});
               await db('app_state').upsert({id:7,state_data:bks,updated_at:new Date().toISOString()});
             }).catch(()=>{});
