@@ -8209,6 +8209,230 @@ function PageGaLeave({user}){
     R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:8}},'※ 전자결재에서 [휴가신청] 양식으로 기안하면 자동으로 이 화면에 정리됩니다 (사유는 표시하지 않음)'));
 }
 
+/* ═══ 경영지원부: 견적서 — 엑셀 견적서 양식 그대로 (2026-10-12) ═══
+   화면에서 양식 위에 바로 입력 · 세액은 공급가액의 10% 자동(직접 입력하면 그 값) · 합계금액 자동
+   저장: 스토리지 ga-quotes/<id>.json (견적서마다 독립 파일 — 공용 app_state를 건드리지 않음)
+   인쇄: 화면 양식을 그대로 복제해 A4 가로 한 장에 맞춰 출력 */
+const GQ_ROWS=12;
+const GQ_NOTE='*본 견적서는 최종 포장되는 패키지(파우치,슬리브 등)을 제외한 견적서 입니다.\n*생산리드타임 : 영업일로부터 14일+@\n*결제 조건: 선결제\n*물류 조건 : 도착지 1곳 기준, 생산분 전량 출고\n*공용박스 규격:448*380*305(장*폭*고)\n*팔레트 규격:AJ12A 1파레트 30박스(KPP 취급X)\n*견적 유효 기간: 견적일로 부터 10일간';
+const GQ_SUP={bizno:'887-85-01252',name:'㈜비엔에프글로벌이선',ceo:'이용재',addr:'경기도 이천시 백사면 이여로 260-15',biz:'제조업',kind:'식품제조및가공',tel:'031-794-5071',fax:'031-794-5009'};
+const GQ_CSS=
+  '.gq-doc{width:960px;background:#fff;color:#111;font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;font-size:12px;border:1.5px solid #222;box-sizing:border-box}'+
+  '.gq-doc table{border-collapse:collapse;width:100%;table-layout:fixed}'+
+  '.gq-doc td{border:1px solid #444;padding:0 4px;height:25px;vertical-align:middle;text-align:center;overflow:hidden;word-break:keep-all}'+
+  '.gq-doc .nb td{border:none}'+
+  '.gq-doc input,.gq-doc textarea{width:100%;border:none;background:transparent;font:inherit;color:inherit;text-align:inherit;padding:0;margin:0;outline:none;box-sizing:border-box}'+
+  '.gq-doc input:focus,.gq-doc textarea:focus{background:#FFF7E6}'+
+  '.gq-doc .gq-title{font-size:26px;font-weight:900;letter-spacing:34px;text-align:center;padding:10px 0 6px 34px}'+
+  '.gq-doc .gq-uline{border-bottom:3px double #222;width:430px;margin:0 auto}'+
+  '.gq-doc .gq-sp{letter-spacing:4px}'+
+  '.gq-doc .gq-r{text-align:right}.gq-doc .gq-l{text-align:left}'+
+  '.gq-doc .gq-note{text-align:left;vertical-align:top;padding:4px 6px;font-weight:700;line-height:1.5}'+
+  '.gq-doc .gq-note textarea{resize:none;height:142px;text-align:left;font-weight:700;line-height:1.5}'+
+  '.gq-doc span.gq-print{display:block;white-space:nowrap;overflow:hidden;min-width:0}'+
+  '.gq-doc span.gq-print.gq-ta{white-space:pre-wrap;text-align:left}';
+function PageGaQuote({user}){
+  const blankItems=()=>Array.from({length:GQ_ROWS},(_,i)=>({d:i===0?today2():'',name:'',spec:'',qty:'',amt:'',tax:'',moq:''}));
+  const newQuote=()=>({id:'q'+Date.now().toString(36),date:today2(),to:'',contact:'',fax:'',items:blankItems(),note:GQ_NOTE,sup:{...GQ_SUP}});
+  const[q,setQ]=useState(newQuote);
+  const[list,setList]=useState(null);
+  const[st,setSt]=useState('');
+  const docRef=useRef(null);
+  const loadList=async()=>{
+    try{
+      const{data}=await sbClient.storage.from('bnf-files').list('ga-quotes',{limit:500,sortBy:{column:'updated_at',order:'desc'}});
+      const files=(data||[]).filter(f=>/\.json$/.test(f.name||''));
+      const out=[];
+      for(const f of files.slice(0,60)){
+        try{
+          const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('ga-quotes/'+f.name);
+          const r=await fetch((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(f.updated_at||''));
+          if(r.ok){const j=await r.json();out.push({...j,_at:f.updated_at});}
+        }catch(e){}
+      }
+      setList(out);
+    }catch(e){setList([]);}
+  };
+  useEffect(()=>{loadList();},[]);
+  const num=v=>{const n=+String(v==null?'':v).replace(/[^0-9.\-]/g,'');return isFinite(n)?n:0;};
+  const fmt=n=>n?Math.round(n).toLocaleString('ko-KR'):'';
+  const taxOf=it=>String(it.tax||'').trim()!==''?num(it.tax):(num(it.amt)?Math.round(num(it.amt)*0.1):0);
+  const sumAmt=q.items.reduce((a,it)=>a+num(it.amt),0);
+  const sumTax=q.items.reduce((a,it)=>a+taxOf(it),0);
+  const total=sumAmt+sumTax;
+  const up=(k,v)=>setQ(p=>({...p,[k]:v}));
+  const upSup=(k,v)=>setQ(p=>({...p,sup:{...p.sup,[k]:v}}));
+  const upItem=(i,k,v)=>setQ(p=>({...p,items:p.items.map((it,j)=>j===i?{...it,[k]:v}:it)}));
+  const save=async()=>{
+    setSt('저장 중...');
+    try{
+      const body=JSON.stringify({...q,by:(user&&user.name)||'',at:now2()});
+      const{error}=await sbClient.storage.from('bnf-files').upload('ga-quotes/'+q.id+'.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+      if(error)throw error;
+      setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+      loadList();
+    }catch(e){setSt('');alert('저장 실패: '+e.message);}
+  };
+  const del=async(x)=>{
+    if(!confirm('['+(x.to||'수신처 없음')+' · '+x.date+'] 견적서를 삭제할까요?'))return;
+    try{await sbClient.storage.from('bnf-files').remove(['ga-quotes/'+x.id+'.json']);}catch(e){}
+    if(x.id===q.id)setQ(newQuote());
+    loadList();
+  };
+  /* 인쇄: 화면 양식을 복제해 입력칸을 글자로 바꿔서 출력 (화면과 같은 디자인) */
+  const print=()=>{
+    const src=docRef.current;if(!src)return;
+    const cl=src.cloneNode(true);
+    const srcFields=src.querySelectorAll('input,textarea');
+    cl.querySelectorAll('input,textarea').forEach((el,i)=>{
+      if(el.hasAttribute('data-noprint')){el.parentNode.removeChild(el);return;}
+      const sp=document.createElement('span');
+      sp.className=(el.className||'')+' gq-print'+(el.tagName==='TEXTAREA'?' gq-ta':'');
+      sp.style.cssText=el.style.cssText;
+      const v=srcFields[i]?srcFields[i].value:'';
+      sp.textContent=v||'';
+      el.parentNode.replaceChild(sp,el);
+    });
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>견적서_'+String(q.to||'').replace(/[<>&"]/g,'')+'_'+q.date+'</title><style>'+
+      '@page{size:A4 landscape;margin:8mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+      'html,body{margin:0;padding:0;background:#fff}'+GQ_CSS+
+      '#z{transform-origin:top left}</style></head><body><div id="z">'+cl.outerHTML+'</div>'+
+      '<scr'+'ipt>window.onload=function(){var z=document.getElementById("z"),d=z.firstChild,pw=281*96/25.4,ph=194*96/25.4-4;'+
+      'var s=Math.min(pw/d.offsetWidth,ph/d.offsetHeight);z.style.zoom=s;setTimeout(function(){window.print();},300);};</scr'+'ipt></body></html>';
+    const w=window.open('','_blank');
+    if(!w)return alert('팝업이 차단되어 인쇄 창을 열 수 없습니다. 팝업 허용 후 다시 눌러주세요.');
+    w.document.write(html);w.document.close();
+  };
+  const inp=(val,on,cls,ph)=>R('input',{value:val||'',onChange:e=>on(e.target.value),className:cls||'',placeholder:ph||''});
+  const dateKo=d=>{const p=String(d||'').split('-');return p.length===3?(+p[0])+'년 '+(+p[1])+'월 '+(+p[2])+'일':d;};
+  const S=q.sup;
+  return R('div',{className:'pg fa'},
+    R('style',null,GQ_CSS),
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'📝 견적서'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'양식 위에서 바로 입력 · 세액 10% 자동(직접 입력 가능) · 합계 자동 · 저장하면 전 직원 공유')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        st&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--ok)'}},st),
+        R('button',{className:'btn bw',onClick:()=>{if(confirm('새 견적서를 작성할까요? (저장하지 않은 내용은 사라집니다)'))setQ(newQuote());}},'＋ 새 견적서'),
+        R('button',{className:'btn bw',onClick:()=>setQ(p=>({...p,id:'q'+Date.now().toString(36),date:today2()}))},'⧉ 복사해서 새로'),
+        R('button',{className:'btn bp',onClick:save},'💾 저장'),
+        R('button',{className:'btn',style:{background:'#0F766E',color:'#fff',fontWeight:800},onClick:print},'🖨 인쇄'))),
+    R(ZoomPan,{id:'gaquote',width:960},
+    R('div',{style:{overflowX:'auto',paddingBottom:6}},
+    R('div',{ref:docRef,className:'gq-doc'},
+      /* 머리: 로고 + 견 적 서 */
+      R('div',{style:{position:'relative',height:66}},
+        R('img',{src:LOGO_FULL,alt:'B&F GLOBAL',style:{position:'absolute',left:6,top:4,height:50,objectFit:'contain'},onError:e=>{e.currentTarget.style.display='none';}}),
+        R('div',{className:'gq-title'},'견적서'),
+        R('div',{className:'gq-uline'})),
+      /* 견적일자·귀하·연락처 | 공급자 */
+      R('table',{style:{borderTop:'1px solid #444'}},
+        R('colgroup',null,
+          R('col',{style:{width:270}}),R('col',{style:{width:272}}),
+          R('col',{style:{width:22}}),R('col',{style:{width:92}}),R('col',{style:{width:106}}),R('col',{style:{width:48}}),R('col',{style:{width:147}})),
+        R('tbody',null,
+          R('tr',null,
+            R('td',{rowSpan:2,style:{border:'none',textAlign:'left',paddingLeft:24}},R('span',{className:'gq-sp'},'견적일자 :'),'     ',
+              R('span',{style:{marginLeft:30}},dateKo(q.date))),
+            R('td',{rowSpan:2,style:{border:'none',textAlign:'left'}},
+              R('input',{type:'date',value:q.date,onChange:e=>up('date',e.target.value),style:{width:130,fontSize:11,color:'#888'},title:'견적일자 변경 (인쇄 시 숨김)','data-noprint':'1'})),
+            R('td',{rowSpan:5,style:{lineHeight:'2.1'}},'공',R('br'),R('br'),'급',R('br'),R('br'),'자'),
+            R('td',{className:'gq-sp'},'사업자번호'),
+            R('td',{colSpan:3},inp(S.bizno,v=>upSup('bizno',v)))),
+          R('tr',null,
+            R('td',{style:{fontSize:11.5}},'상호(법인명)'),
+            R('td',{style:{fontSize:10.5,letterSpacing:-0.5,padding:'0 1px'}},inp(S.name,v=>upSup('name',v))),
+            R('td',null,'대표자'),
+            R('td',null,inp(S.ceo,v=>upSup('ceo',v)))),
+          R('tr',null,
+            R('td',{colSpan:2,style:{border:'none',borderBottom:'1px solid #444',paddingLeft:20}},
+              R('div',{style:{display:'flex',alignItems:'center'}},
+                R('input',{value:q.to,onChange:e=>up('to',e.target.value),placeholder:'수신처(업체명)',style:{flex:1,textAlign:'center',fontWeight:700}}),
+                R('span',{style:{width:60}},'귀하'))),
+            R('td',{className:'gq-sp'},'사업장주소'),
+            R('td',{colSpan:3},inp(S.addr,v=>upSup('addr',v)))),
+          R('tr',null,
+            R('td',{colSpan:2,style:{border:'none'}}),
+            R('td',{className:'gq-sp'},'업      태'),
+            R('td',null,inp(S.biz,v=>upSup('biz',v))),
+            R('td',null,'업종'),
+            R('td',null,inp(S.kind,v=>upSup('kind',v)))),
+          R('tr',null,
+            R('td',{style:{border:'none',textAlign:'left',paddingLeft:24}},
+              R('div',{style:{display:'flex',alignItems:'center',gap:6}},'연락처',R('input',{value:q.contact,onChange:e=>up('contact',e.target.value),className:'gq-l'}))),
+            R('td',{style:{border:'none',textAlign:'left'}},
+              R('div',{style:{display:'flex',alignItems:'center',gap:6}},'팩스',R('input',{value:q.fax,onChange:e=>up('fax',e.target.value),className:'gq-l'}))),
+            R('td',{className:'gq-sp'},'전화번호'),
+            R('td',null,inp(S.tel,v=>upSup('tel',v))),
+            R('td',null,'팩스'),
+            R('td',null,inp(S.fax,v=>upSup('fax',v)))))),
+      /* 합계 금액 */
+      R('table',null,
+        R('colgroup',null,R('col',{style:{width:251}}),R('col',null)),
+        R('tbody',null,R('tr',null,
+          R('td',{style:{height:48,lineHeight:1.4}},'합 계 금 액',R('br'),'(공급가액+세액)'),
+          R('td',null,
+            R('div',{style:{display:'flex',justifyContent:'center',gap:14,fontSize:13}},
+              R('span',null,'원정'),R('span',null,'('),R('span',null,'₩'),
+              R('span',{style:{minWidth:220,textAlign:'right',fontWeight:800}},fmt(total)),
+              R('span',null,')')))))),
+      /* 품목 표 */
+      R('table',null,
+        R('colgroup',null,
+          R('col',{style:{width:84}}),R('col',{style:{width:167}}),R('col',{style:{width:233}}),
+          R('col',{style:{width:131}}),R('col',{style:{width:126}}),R('col',{style:{width:84}}),R('col',null)),
+        R('tbody',null,
+          R('tr',null,
+            R('td',{className:'gq-sp'},'일 자'),R('td',{style:{letterSpacing:24}},'품명'),R('td',{style:{letterSpacing:14}},'규격'),
+            R('td',{className:'gq-sp'},'중량/수량'),R('td',{className:'gq-sp'},'공급가액'),R('td',null,'세액'),R('td',null,'moq')),
+          ...q.items.map((it,i)=>R('tr',{key:i},
+            R('td',null,inp(it.d,v=>upItem(i,'d',v))),
+            R('td',null,inp(it.name,v=>upItem(i,'name',v),'gq-l')),
+            R('td',null,inp(it.spec,v=>upItem(i,'spec',v),'gq-l')),
+            R('td',null,inp(it.qty,v=>upItem(i,'qty',v))),
+            R('td',null,inp(num(it.amt)?fmt(num(it.amt)):it.amt,v=>upItem(i,'amt',String(v).replace(/[^0-9.\-]/g,'')),'gq-r')),
+            R('td',null,inp(String(it.tax||'').trim()!==''?it.tax:(num(it.amt)?fmt(taxOf(it)):''),v=>upItem(i,'tax',v),'gq-r')),
+            R('td',null,inp(it.moq,v=>upItem(i,'moq',v))))),
+          /* 합계 줄 */
+          R('tr',null,
+            R('td',{colSpan:3},sumAmt||sumTax?'합 계':''),
+            R('td',null,''),
+            R('td',{className:'gq-r'},fmt(sumAmt)),
+            R('td',{className:'gq-r'},fmt(sumTax)),
+            R('td',null,'')),
+          /* 비고 */
+          R('tr',null,
+            R('td',{style:{height:150}},'비고'),
+            R('td',{colSpan:6,className:'gq-note'},
+              R('textarea',{value:q.note,onChange:e=>up('note',e.target.value)}))))))
+    )),
+    /* 저장된 견적서 목록 */
+    R('div',{className:'card',style:{marginTop:16,padding:'12px 14px'}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+        R('div',{style:{fontSize:13,fontWeight:800}},'📂 저장된 견적서'),
+        R('span',{style:{fontSize:11,color:'var(--tm)'}},list?list.length+'건':''),
+        R('div',{style:{flex:1}}),
+        R('button',{className:'btn bs btn-sm',onClick:loadList},'↻ 새로고침')),
+      list===null?R('div',{style:{padding:16,textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...'):
+      list.length===0?R('div',{style:{padding:16,textAlign:'center',color:'var(--tm)',fontSize:12}},'아직 저장된 견적서가 없습니다.'):
+      R('div',null,...list.map(x=>{
+        const amt=(x.items||[]).reduce((a,it)=>a+num(it.amt),0);
+        const tx=(x.items||[]).reduce((a,it)=>a+taxOf(it),0);
+        const names=(x.items||[]).map(it=>it.name).filter(Boolean);
+        return R('div',{key:x.id,style:{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',borderRadius:9,marginBottom:5,
+            border:'1.5px solid '+(x.id===q.id?'var(--p)':'var(--bd)'),background:x.id===q.id?'#FFF7F2':'#fff'}},
+          R('span',{style:{fontSize:12,color:'var(--tm)',width:84,flexShrink:0}},x.date),
+          R('span',{style:{fontSize:13,fontWeight:800,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}},
+            (x.to||'(수신처 없음)')+(names.length?' · '+names[0]+(names.length>1?' 외 '+(names.length-1)+'건':''):'')),
+          R('span',{style:{fontSize:12,fontWeight:800,color:'var(--p)',flexShrink:0}},'₩'+fmt(amt+tx)),
+          R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},x.by||''),
+          R('button',{className:'btn bw btn-sm',onClick:()=>setQ({...newQuote(),...x,items:(x.items&&x.items.length?x.items:blankItems()),sup:{...GQ_SUP,...(x.sup||{})}})},'열기'),
+          R('button',{className:'btn bd2 btn-sm',onClick:()=>del(x)},'삭제'));
+      })))
+  );
+}
+
 /* ═══ 경영지원부: 보건증 관리 대장 — 발급일 기준 1년 만료, 30일 이내 도래자 상단 고정 (app_state id=1 bnf_ga_health) ═══ */
 function PageGaHealth({user}){
   const KEY='bnf_ga_health';
@@ -17846,6 +18070,7 @@ const DEFAULT_NAV_SECTIONS=[
   {label:'🏢 경영지원부',type:'dept_ga',items:[
     {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
     {id:'ga_health',l:'보건증 관리',ic:'🩺'},
+    {id:'ga_quote',l:'견적서',ic:'📝'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -18107,7 +18332,8 @@ function loadNavSections(){
             {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'}]);
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
             {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
-            {id:'ga_health',l:'보건증 관리',ic:'🩺'}]);
+            {id:'ga_health',l:'보건증 관리',ic:'🩺'},
+            {id:'ga_quote',l:'견적서',ic:'📝'}]);
           ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
             {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
@@ -18425,7 +18651,7 @@ const NAV_PAGES_INDEX=[
   {p:'sched',title:'생산 스케줄',ic:'📅',keys:['스케줄','일정','schedule']},
   {p:'orders',title:'발주현황',ic:'🚚',keys:['발주','주문','order']},
   {p:'autoOrder',title:'자동발주제안',ic:'🤖',keys:['자동발주','제안','auto']},
-  {p:'quote',title:'견적서',ic:'📄',keys:['견적','quote','invoice']},
+  {p:'ga_quote',title:'견적서',ic:'📝',keys:['견적','견적서','quote','invoice']},
   {p:'board',title:'게시판',ic:'💬',keys:['게시판','공지','board','notice']},
   {p:'org',title:'조직도',ic:'👥',keys:['조직','조직도','org','people']},
   {p:'approval',title:'전자결재',ic:'📋',keys:['결재','승인','approval']},
@@ -22380,6 +22606,7 @@ function App(){
     if(page==='attendance')return R(PageAttendance,{user});
     if(page==='ga_leave')return R(PageGaLeave,{user});
     if(page==='ga_health')return R(PageGaHealth,{user});
+    if(page==='ga_quote')return R(PageGaQuote,{user});
     if(page==='leave')return R(PageLeave,{user});
     if(page==='admin')return R(PageAdmin,{user});
     return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🚧'),'준비 중'));
