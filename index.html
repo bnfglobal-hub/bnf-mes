@@ -2182,6 +2182,9 @@ function PageProdSchedule(){
   const[weeksCnt,setWeeksCnt]=useState(4);       /* 한 화면에 보이는 주차 수 — [차주 스케줄 추가]로 늘림 */
   const[tbEl,setTbEl]=useState(null);            /* 편집 도구줄 자리 (표 위 고정) */
   const[activeWs,setActiveWs]=useState(null);    /* 편집 중 마지막으로 클릭한 주차 */
+  /* 주차 선택 모드 (2026-10-14): 원하는 주차만 골라 복사·인쇄 */
+  const[selMode,setSelMode]=useState(false);
+  const[selWk,setSelWk]=useState({});
   /* 편집 <-> 보기 전환 시 표가 다시 그려지며 스크롤이 맨 위로 튀던 문제 — 위치 기억 후 복원 (2026-10-08) */
   const toggleEdit=(v)=>{
     const sc=document.querySelector('.pg')||document.querySelector('.main');
@@ -2656,6 +2659,9 @@ function PageProdSchedule(){
             R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg(shownWeeks()),title:'화면의 모든 주차를 한 장의 이미지로 복사 — 카톡에 붙여넣기(Ctrl+V)'},shBusy?'만드는 중...':'📷 전체 이미지 복사(카톡)'),
             R('button',{className:'btn bw btn-sm',onClick:()=>printWeek(shownWeeks()),title:'화면의 모든 주차를 인쇄'},'🖨 전체 인쇄'),
             R('button',{className:'btn bw btn-sm',onClick:openArchive,title:'지난 주차 전체 — 영구 보관'},'📜 보관함'),
+            R('button',{className:'btn btn-sm '+(selMode?'bp':'bw'),style:{fontWeight:800},
+              onClick:()=>{if(!selMode&&schedEdit)toggleEdit(false);setSelMode(v=>!v);},
+              title:'표를 눌러 원하는 주차만 골라 복사·인쇄'},selMode?'✕ 선택 끝내기':'☑ 주차 선택'),
             R('div',{style:{flex:1}}),
             /* 오른쪽 상단 편집 전환: 기본은 보기 전용(연속) */
             R('button',{className:'btn '+(schedEdit?'bp':'bw'),onClick:()=>toggleEdit(),
@@ -2674,7 +2680,19 @@ function PageProdSchedule(){
             return R('div',{style:{position:'sticky',top:0,zIndex:6,height:44,display:'flex',alignItems:'center',gap:6,
                 padding:'0 10px',marginBottom:8,borderRadius:10,overflowX:'auto',overflowY:'hidden',whiteSpace:'nowrap',
                 background:schedEdit?'#F0FDF4':'#FAF8F6',border:'1px solid '+(schedEdit?'#86EFAC':'var(--bd)')}},
-              schedEdit
+              (selMode&&!schedEdit)
+                ?(()=>{
+                    const sel=Object.keys(selWk).filter(w=>selWk[w]).sort();
+                    const all=Array.from({length:weeksCnt},(_,i)=>addDD(weekStart,i*7));
+                    return R(React.Fragment,null,
+                      R('span',{style:{fontSize:12,fontWeight:800,color:'var(--p)',flexShrink:0}},sel.length?'☑ '+sel.length+'주 선택':'☑ 복사·인쇄할 주차의 표를 누르세요'),
+                      R('button',{className:'btn bp btn-sm',disabled:!sel.length||shBusy,onClick:()=>copyWeekImg(sel),title:'선택한 주차를 한 장의 이미지로 복사(카톡 붙여넣기)'},shBusy?'만드는 중...':'📷 선택 복사'),
+                      R('button',{className:'btn btn-sm',disabled:!sel.length,style:{background:'#0F766E',color:'#fff',fontWeight:800,opacity:sel.length?1:0.5},onClick:()=>printWeek(sel)},'🖨 선택 인쇄'),
+                      R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
+                      R('button',{className:'btn bw btn-sm',onClick:()=>{const o={};all.forEach(w=>{o[w]=true;});setSelWk(o);}},'전체 선택'),
+                      R('button',{className:'btn bw btn-sm',disabled:!sel.length,onClick:()=>setSelWk({})},'선택 해제'));
+                  })()
+              :schedEdit
                 ?R(React.Fragment,null,
                     R('span',{style:{fontSize:12,fontWeight:800,color:'#15803D',flexShrink:0}},'✏️ '+fSD(asun)+'~'+fSD(addDD(asun,6))),
                     R('button',{className:'btn bw btn-sm',disabled:shBusy,onClick:()=>copyWeekImg([aw]),title:'이 주차만 이미지로 복사(카톡 붙여넣기)'},'📷 이 주 복사'),
@@ -2691,8 +2709,20 @@ function PageProdSchedule(){
               ...Array.from({length:weeksCnt},(_,i)=>i*7).map(off=>{
                 const ws=addDD(weekStart,off);
                 const aw=(activeWs&&activeWs>=weekStart&&activeWs<addDD(weekStart,weeksCnt*7))?activeWs:weekStart;
-                return R(SchedGrid,{key:ws,weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:schedEdit,flat:true,
-                  onDblFinish:()=>toggleEdit(false),toolbarEl:tbEl,active:ws===aw,onActivate:setActiveWs});
+                const on=!!selWk[ws];
+                const wsun=addDD(ws,-1);
+                /* 선택 모드: 표 위에 투명 덮개 — 누르면 선택/해제 (표 크기·위치 변화 없음, 실수로 수정되지 않음) */
+                return R('div',{key:ws,style:{position:'relative'}},
+                  R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:schedEdit,flat:true,
+                    onDblFinish:()=>toggleEdit(false),toolbarEl:tbEl,active:ws===aw,onActivate:setActiveWs}),
+                  selMode&&!schedEdit&&R('div',{onClick:()=>setSelWk(p=>({...p,[ws]:!p[ws]})),title:on?'선택 해제':'이 주차 선택',
+                    style:{position:'absolute',inset:0,zIndex:5,cursor:'pointer',
+                           background:on?'rgba(217,79,30,0.10)':'rgba(255,255,255,0.0)',
+                           boxShadow:on?'inset 0 0 0 3px var(--p)':'inset 0 0 0 1px rgba(0,0,0,0.04)'}},
+                    R('div',{style:{position:'absolute',left:6,top:4,display:'flex',alignItems:'center',gap:5,padding:'3px 9px',borderRadius:999,
+                        fontSize:12,fontWeight:900,background:on?'var(--p)':'rgba(255,255,255,0.92)',color:on?'#fff':'var(--t)',
+                        border:'1.5px solid '+(on?'var(--p)':'#C9C2BA'),boxShadow:'0 1px 4px rgba(0,0,0,0.12)'}},
+                      (on?'☑ ':'☐ ')+fSD(wsun)+'~'+fSD(addDD(wsun,6)))));
               }))),
             (()=>{
               const nw=addDD(weekStart,weeksCnt*7);
