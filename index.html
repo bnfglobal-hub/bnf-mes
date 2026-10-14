@@ -15336,8 +15336,16 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
     return g;
   },[prods,prodFolders,prodItemFolder]);
 
-  /* 수량을 입력한 제품은 맨 위 고정 그룹으로 — 입력하는 동안 원래 폴더에서는 잠시 빠진다 */
-  const enteredIds=useMemo(()=>new Set(prods.filter(p=>(parseFloat(pqty[p.id])||0)>0).map(p=>p.id)),[prods,pqty]);
+  /* 수량을 입력한 제품은 맨 위 고정 그룹으로 — 입력하는 동안 원래 폴더에서는 잠시 빠진다.
+     단, 수량 칸에 입력하는 '도중'에는 그룹을 옮기지 않는다 (2026-10-14):
+     첫 숫자를 치는 순간 행이 맨 위로 이동하면서 입력칸이 새로 그려져 커서가 빠지고 입력이 멈추던 문제.
+     칸에서 나가면(다른 곳 클릭·Tab·Enter) 그때 맨 위로 올라간다 */
+  const[pqFocus,setPqFocus]=useState(null);   /* {id, was} — 입력 중인 제품과 입력 시작 때의 그룹 */
+  const enteredIds=useMemo(()=>{
+    const st=new Set(prods.filter(p=>(parseFloat(pqty[p.id])||0)>0).map(p=>p.id));
+    if(pqFocus){if(pqFocus.was)st.add(pqFocus.id);else st.delete(pqFocus.id);}
+    return st;
+  },[prods,pqty,pqFocus]);
   const renderFolders=enteredIds.size?[{id:'_entered',name:'📌 수량 입력한 제품',color:'#D94F1E'},...prodFolders]:prodFolders;
   const folderProdsOf=(fid)=>{
     if(fid==='_entered')return prods.filter(p=>enteredIds.has(p.id));
@@ -15577,6 +15585,9 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
             /* type:text — number 입력의 마우스 휠 증감·스피너를 원천 제거 (숫자만 허용) */
             R('input',{type:'text',inputMode:'decimal','data-pqty':p.id,value:pqty[p.id]??'',
+              onFocus:()=>setPqFocus({id:p.id,was:(parseFloat(pqty[p.id])||0)>0}),
+              onBlur:()=>setPqFocus(f=>f&&f.id===p.id?null:f),
+              onKeyDown:e=>{if(e.key==='Enter'&&!(e.nativeEvent&&e.nativeEvent.isComposing))e.currentTarget.blur();},
               onChange:e=>{const v=e.target.value.replace(/[^0-9.]/g,'');setPqty(pv=>({...pv,[p.id]:v}));},
               placeholder:'수량',style:{width:78,padding:'7px 9px',border:'1.5px solid '+(qty>0?'#D94F1E':'#E9E2DC'),borderRadius:8,fontSize:13,textAlign:'center'}}),
             R('span',{style:{fontSize:11,color:'#6E645C'}},'개'),
