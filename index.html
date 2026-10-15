@@ -2252,17 +2252,23 @@ function PageProdSchedule(){
     const ctx=cv.getContext('2d');
     const bodyFont='500 '+fs+'px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
     ctx.font=bodyFont;
-    /* 열 너비: 내용이 한 줄로 들어가게 자동 계산 — 화면에서 안 꺾이던 글이
-       복사 이미지에서 두 줄로 꺾이던 문제 해결 (2026-10-01). 너무 긴 글만 430px에서 줄바꿈 */
-    const colWs=Array.from({length:7},(_,ci)=>{
-      let w=150;
-      ts.forEach(t=>t.rows.forEach(r=>{
-        String(r.cells[ci]||'').split('\n').forEach(ln=>{
-          w=Math.max(w,ctx.measureText(ln).width*1.03+pad*2+4);
-        });
-      }));
-      return Math.min(430,Math.ceil(w));
-    });
+    /* 열 너비 자동 정렬 (2026-10-15): 평일(월~금)은 모두 같은 너비 — 긴 문구가 있는
+       요일(예: 월요일)만 혼자 넓어져 표가 비뚤던 문제 해결. 긴 글은 줄바꿈으로 처리.
+       일·토는 내용이 거의 없으므로 좁게 유지 */
+    const colWs=(()=>{
+      const need=Array.from({length:7},(_,ci)=>{
+        let w=0;
+        ts.forEach(t=>t.rows.forEach(r=>{
+          String(r.cells[ci]||'').split('\n').forEach(ln=>{
+            w=Math.max(w,ctx.measureText(ln).width*1.03+pad*2+4);
+          });
+        }));
+        return Math.ceil(w);
+      });
+      const wk=Math.max(170,Math.min(270,Math.max(...need.slice(1,6))));   /* 월~금 공통 너비 */
+      const endW=ci=>Math.max(90,Math.min(150,need[ci]||0));               /* 일·토 */
+      return need.map((n,ci)=>(ci===0||ci===6)?endW(ci):wk);
+    })();
     const colX=ci=>{let x=labW;for(let i=0;i<ci;i++)x+=colWs[i];return x;};
     const W=labW+colWs.reduce((a,b)=>a+b,0);
     const wrap=(txt,w)=>{
