@@ -8518,6 +8518,175 @@ function PageGaQuote({user}){
   );
 }
 
+/* ═══ 경영지원부: 일계표 작성 — 매일 하는 순서를 체크리스트로 (2026-10-15) ═══
+   이카운트 → 엑셀 일계표 → 기업은행 조회 순서. 사이트 바로 열기·조회 날짜 복사·증빙 파일 보관.
+   저장: 스토리지 ga-ilgye/<YYYY-MM>.json (월 단위, 자동 삭제 없음) · 증빙은 ga-ilgye/files/<날짜>/
+   ※ 은행·인증서 비밀번호는 여기 저장하지 않는다 (공용 화면) */
+const ILGYE_STEPS=[
+  {k:'ecount',ic:'📒',t:'이카운트 회계',url:'https://login.ecount.com',open:'이카운트 열기',
+    subs:['회계I → 계좌/카드 즉시조회','지출결의서 작성','입금보고서 작성']},
+  {k:'excel',ic:'📗',t:'엑셀 일계표',
+    subs:['일일업무폴더에서 일계표 작성','증빙서류 첨부 (지출결의서·종이계산서·영수증)']},
+  {k:'ibk',ic:'🏦',t:'기업은행 조회',url:'https://kiup.ibk.co.kr',open:'기업은행 열기',dateCopy:true,
+    subs:['조회 → 전체계좌조회','공동인증서 로그인','날짜 설정 → 조회','인쇄 → PDF 저장(다운로드)','프린터 인쇄']}
+];
+function PageGaIlgye({user}){
+  const ymdL=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+  const[date,setDate]=useState(()=>ymdL(new Date()));
+  const ym=date.slice(0,7);
+  const path='ga-ilgye/'+ym+'.json';
+  const[doc,setDoc]=useState(null);       /* {days:{날짜:{checks:{key:{by,at}},files:[]}}} */
+  const[loadErr,setLoadErr]=useState(false);
+  const[busy,setBusy]=useState(false);
+  const[msg,setMsg]=useState('');
+  const fileRef=useRef(null);
+  const flash=t=>{setMsg(t);setTimeout(()=>setMsg(''),1800);};
+  /* 불러오기: 파일이 '정말 없는 달'일 때만 빈 상태로 시작 — 일시 오류면 저장을 막는다 */
+  const fetchDoc=async()=>{
+    const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+    const r=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+    if(r.ok)return await r.json();
+    const{data:ls,error}=await sbClient.storage.from('bnf-files').list('ga-ilgye',{search:ym+'.json'});
+    if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name===ym+'.json'))return{days:{}};
+    throw new Error('load');
+  };
+  const load=async()=>{
+    try{const j=await fetchDoc();setDoc(j&&j.days?j:{days:{}});setLoadErr(false);}
+    catch(e){setLoadErr(true);}
+  };
+  useEffect(()=>{setDoc(null);load();},[ym]);
+  /* 저장 직전에 최신본을 다시 읽어 그 날짜만 바꿔 쓴다 (다른 날짜·다른 사람 기록 보존) */
+  const patchDay=async(fn)=>{
+    if(loadErr||!doc){alert('기록을 불러오지 못해 저장할 수 없습니다. 잠시 후 다시 시도해주세요.');return false;}
+    setBusy(true);
+    try{
+      const cur=await fetchDoc();
+      const days=Object.assign({},(cur&&cur.days)||{});
+      const d0=days[date]||{checks:{},files:[]};
+      days[date]=fn({checks:Object.assign({},d0.checks||{}),files:(d0.files||[]).slice()});
+      const next={days,at:new Date().toISOString()};
+      const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([JSON.stringify(next)],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+      if(error)throw error;
+      setDoc(next);setBusy(false);return true;
+    }catch(e){setBusy(false);alert('저장 실패: '+(e.message||e));return false;}
+  };
+  const day=(doc&&doc.days&&doc.days[date])||{checks:{},files:[]};
+  const keyOf=(s,i)=>s.k+'_'+i;
+  const toggle=(key)=>patchDay(d=>{
+    if(d.checks[key])delete d.checks[key];
+    else d.checks[key]={by:user.name,at:new Date().toISOString()};
+    return d;
+  });
+  const total=ILGYE_STEPS.reduce((n,s)=>n+s.subs.length,0);
+  const done=ILGYE_STEPS.reduce((n,s)=>n+s.subs.filter((_,i)=>day.checks[keyOf(s,i)]).length,0);
+  const pct=Math.round(done/total*100);
+  const copyDate=()=>{
+    const v=date.replace(/-/g,'');
+    try{navigator.clipboard.writeText(v);flash('조회 날짜 '+v+' 복사됨');}catch(e){prompt('복사하세요',v);}
+  };
+  const upload=async(files)=>{
+    const list=Array.from(files||[]);if(!list.length)return;
+    if(loadErr||!doc)return alert('기록을 불러오지 못해 지금은 올릴 수 없습니다.');
+    setBusy(true);
+    const ok=[];
+    for(const f of list){
+      try{
+        const safe=(f.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const p='ga-ilgye/files/'+date+'/'+Date.now()+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(p,f,{contentType:f.type||undefined});
+        if(error)throw error;
+        ok.push({name:f.name,path:p,size:f.size,by:user.name,at:new Date().toISOString()});
+      }catch(e){alert('"'+f.name+'" 올리기 실패: '+(e.message||e));}
+    }
+    setBusy(false);
+    if(ok.length&&await patchDay(d=>{d.files=d.files.concat(ok);return d;}))flash(ok.length+'개 파일 보관됨');
+  };
+  const urlOf=p=>{const{data}=sbClient.storage.from('bnf-files').getPublicUrl(p);return(data&&data.publicUrl)||'';};
+  const delFile=async(f)=>{
+    if(!confirm('"'+f.name+'" 증빙 파일을 삭제할까요?'))return;
+    if(await patchDay(d=>{d.files=d.files.filter(x=>x.path!==f.path);return d;})){
+      try{await sbClient.storage.from('bnf-files').remove([f.path]);}catch(e){}
+    }
+  };
+  const mvDay=n=>{const x=new Date(date+'T00:00:00');x.setDate(x.getDate()+n);setDate(ymdL(x));};
+  const isToday=date===ymdL(new Date());
+  /* 이번 달 진행 현황 (날짜별 완료율) */
+  const monthDays=Object.keys((doc&&doc.days)||{}).sort().map(dt=>{
+    const c=(doc.days[dt].checks)||{};
+    const n=ILGYE_STEPS.reduce((m,s)=>m+s.subs.filter((_,i)=>c[keyOf(s,i)]).length,0);
+    return{dt,n,files:((doc.days[dt].files)||[]).length};
+  }).filter(x=>x.n>0||x.files>0);
+  const fT=iso=>{try{const d=new Date(iso);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return'';}};
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🧾 일계표 작성'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'매일 하는 순서 그대로 — 사이트 바로 열기 · 조회 날짜 복사 · 증빙 보관 · 누가 언제 했는지 기록')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        msg&&R('span',{style:{fontSize:11.5,fontWeight:700,color:'#15803D'}},msg),
+        R('button',{className:'btn bw btn-sm',onClick:()=>mvDay(-1)},'◀'),
+        R('input',{type:'date',value:date,onChange:e=>e.target.value&&setDate(e.target.value),style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{className:'btn bw btn-sm',onClick:()=>mvDay(1)},'▶'),
+        !isToday&&R('button',{className:'btn bs btn-sm',onClick:()=>setDate(ymdL(new Date()))},'오늘'))
+    ),
+    loadErr&&R('div',{className:'card',style:{marginBottom:12,color:'#B91C1C',fontWeight:700,fontSize:13}},
+      '기록을 불러오지 못했습니다 — 기존 기록 보호를 위해 저장을 막아 두었습니다. ',
+      R('button',{className:'btn bw btn-sm',onClick:load},'다시 시도')),
+    doc===null&&!loadErr?R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'불러오는 중...'):
+    R('div',null,
+      /* 진행률 */
+      R('div',{className:'card',style:{marginBottom:12,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}},
+        R('div',{style:{fontSize:13.5,fontWeight:800}},(isToday?'오늘 ':date+' ')+'진행'),
+        R('div',{style:{flex:'1 1 200px',height:8,borderRadius:99,background:'#F1ECE8',overflow:'hidden'}},
+          R('div',{style:{width:pct+'%',height:'100%',borderRadius:99,background:pct===100?'#15803D':'var(--p)',transition:'width .4s ease'}})),
+        R('div',{style:{fontSize:13,fontWeight:800,color:pct===100?'#15803D':'var(--t)'}},pct===100?'✅ 완료':done+' / '+total)),
+      /* 단계 카드 */
+      ...ILGYE_STEPS.map((s,si)=>{
+        const sd=s.subs.filter((_,i)=>day.checks[keyOf(s,i)]).length;
+        const all=sd===s.subs.length;
+        return R('div',{key:s.k,className:'card',style:{marginBottom:12,borderLeft:'4px solid '+(all?'#15803D':'var(--p)')}},
+          R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:10}},
+            R('span',{style:{fontSize:15,fontWeight:800}},(si+1)+'. '+s.ic+' '+s.t),
+            R('span',{style:{fontSize:11,fontWeight:800,color:all?'#15803D':'var(--tm)'}},all?'완료':sd+'/'+s.subs.length),
+            R('div',{style:{flex:1}}),
+            s.dateCopy&&R('button',{className:'btn bw btn-sm',onClick:copyDate,title:'은행 조회 화면에 붙여넣기'},'📋 조회 날짜 복사 ('+date.replace(/-/g,'.')+')'),
+            s.url&&R('button',{className:'btn bp btn-sm',onClick:()=>window.open(s.url,'_blank','noopener')},'↗ '+s.open)),
+          ...s.subs.map((t,i)=>{
+            const key=keyOf(s,i),c=day.checks[key];
+            return R('label',{key:key,style:{display:'flex',alignItems:'center',gap:10,padding:'8px 2px',borderTop:'1px solid #F4F1EE',cursor:busy?'wait':'pointer',fontSize:13.5}},
+              R('input',{type:'checkbox',checked:!!c,disabled:busy,onChange:()=>toggle(key),style:{width:17,height:17,accentColor:'#15803D',flexShrink:0}}),
+              R('span',{style:{flex:1,textDecoration:c?'line-through':'none',color:c?'var(--tm)':'var(--t)'}},t),
+              c&&R('span',{style:{fontSize:11,color:'var(--tm)',whiteSpace:'nowrap'}},c.by+' · '+fT(c.at)));
+          }),
+          /* 엑셀 단계: 증빙 파일 보관 */
+          s.k==='excel'&&R('div',{style:{marginTop:10,padding:12,border:'2px dashed var(--bd)',borderRadius:10,background:'#FCFAF8'},
+              onDragOver:e=>{e.preventDefault();},onDrop:e=>{e.preventDefault();upload(e.dataTransfer.files);}},
+            R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+              R('span',{style:{fontSize:12.5,fontWeight:800}},'📎 증빙 보관함 ('+date+')'),
+              R('span',{style:{fontSize:11,color:'var(--tm)'}},'일계표 엑셀·지출결의서·계산서·영수증 사진·은행 PDF를 끌어다 놓거나'),
+              R('button',{className:'btn bw btn-sm',disabled:busy,onClick:()=>fileRef.current&&fileRef.current.click()},busy?'올리는 중...':'파일 선택')),
+            (day.files||[]).length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)',marginTop:8}},'아직 보관된 파일이 없습니다'):
+            R('div',{style:{marginTop:8}},...day.files.map(f=>R('div',{key:f.path,style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',fontSize:12.5,borderTop:'1px solid #F1ECE8'}},
+              R('a',{href:urlOf(f.path),target:'_blank',rel:'noopener',style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--info)',fontWeight:600}},'📄 '+f.name),
+              R('span',{style:{fontSize:11,color:'var(--tm)',whiteSpace:'nowrap'}},f.by+' · '+fT(f.at)),
+              R('button',{className:'btn bw btn-sm',onClick:()=>delFile(f),title:'삭제'},'✕')))))
+        );
+      }),
+      /* 이번 달 기록 */
+      R('div',{className:'card'},
+        R('div',{style:{fontSize:12.5,fontWeight:800,marginBottom:8}},'📅 '+ym+' 기록'),
+        monthDays.length===0?R('div',{style:{fontSize:12,color:'var(--tm)'}},'이번 달 기록이 아직 없습니다'):
+        R('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},...monthDays.map(x=>{
+          const full=x.n===total;
+          return R('button',{key:x.dt,onClick:()=>setDate(x.dt),
+            style:{border:'1px solid '+(x.dt===date?'var(--p)':full?'#BBF7D0':'var(--bd)'),background:full?'#F0FDF4':'#fff',borderRadius:9,padding:'6px 10px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',color:full?'#15803D':'var(--t)'}},
+            x.dt.slice(5).replace('-','/')+' '+(full?'✓':x.n+'/'+total)+(x.files?' · 📎'+x.files:''));
+        })))
+    ),
+    R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{upload(e.target.files);e.target.value='';}})
+  );
+}
+
 /* ═══ 경영지원부: 보건증 관리 대장 — 발급일 기준 1년 만료, 30일 이내 도래자 상단 고정 (app_state id=1 bnf_ga_health) ═══ */
 function PageGaHealth({user}){
   const KEY='bnf_ga_health';
@@ -18186,6 +18355,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
     {id:'ga_health',l:'보건증 관리',ic:'🩺'},
     {id:'ga_quote',l:'견적서',ic:'📝'},
+    {id:'ga_ilgye',l:'일계표',ic:'🧾'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -18448,7 +18618,8 @@ function loadNavSections(){
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
             {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
             {id:'ga_health',l:'보건증 관리',ic:'🩺'},
-            {id:'ga_quote',l:'견적서',ic:'📝'}]);
+            {id:'ga_quote',l:'견적서',ic:'📝'},
+            {id:'ga_ilgye',l:'일계표',ic:'🧾'}]);
           ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
             {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
@@ -18462,6 +18633,21 @@ function loadNavSections(){
     }
   }catch(e){}
   return DEFAULT_NAV_SECTIONS;
+}
+/* 서버(회사 공통) 메뉴 구성에 새로 생긴 메뉴가 없으면 해당 부서 폴더 끝에 붙여서 보여준다.
+   서버 구성은 관리자가 메뉴를 편집할 때만 저장되므로, 새 메뉴가 전 직원에게 바로 보이도록 (2026-10-15) */
+const NAV_NEW_ITEMS=[
+  {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ilgye',l:'일계표',ic:'🧾'}}
+];
+function ensureNavItems(arr){
+  if(!Array.isArray(arr))return arr;
+  const has=id=>arr.some(x=>x&&Array.isArray(x.items)&&x.items.some(i=>i&&(i.kind==='folder'?(i.items||[]).some(c=>c&&c.id===id):i.id===id)));
+  NAV_NEW_ITEMS.forEach(({sec,item})=>{
+    if(has(item.id))return;
+    const tgt=arr.find(x=>x&&Array.isArray(x.items)&&(x.type===sec.t||String(x.label||'').indexOf(sec.m)>=0));
+    if(tgt)tgt.items.push({id:item.id,l:item.l,ic:item.ic});
+  });
+  return arr;
 }
 function saveNavSections(arr){
   try{localStorage.setItem('bnf_nav_sections_v3',JSON.stringify(arr));}catch(e){}
@@ -18767,6 +18953,7 @@ const NAV_PAGES_INDEX=[
   {p:'orders',title:'발주현황',ic:'🚚',keys:['발주','주문','order']},
   {p:'autoOrder',title:'자동발주제안',ic:'🤖',keys:['자동발주','제안','auto']},
   {p:'ga_quote',title:'견적서',ic:'📝',keys:['견적','견적서','quote','invoice']},
+  {p:'ga_ilgye',title:'일계표 작성',ic:'🧾',keys:['일계표','일계','이카운트','기업은행','증빙','지출결의']},
   {p:'board',title:'게시판',ic:'💬',keys:['게시판','공지','board','notice']},
   {p:'org',title:'조직도',ic:'👥',keys:['조직','조직도','org','people']},
   {p:'approval',title:'전자결재',ic:'📋',keys:['결재','승인','approval']},
@@ -21931,7 +22118,7 @@ function App(){
   const pullNavSections=()=>{
     if(navEditRef.current)return;
     sbClient.from('app_state').select('v:state_data->bnf_nav_sections').eq('id',1).maybeSingle().then(({data})=>{
-      const v=data&&data.v;
+      const v=ensureNavItems(data&&data.v);
       /* 서버 구성이 없으면 아무것도 하지 않는다.
          (기기의 '기본 메뉴'가 회사 공통 구성을 덮어쓰던 사고 방지 — 2026-08-11) */
       if(!Array.isArray(v)||!v.length)return;
@@ -22754,6 +22941,7 @@ function App(){
     if(page==='ga_leave')return R(PageGaLeave,{user});
     if(page==='ga_health')return R(PageGaHealth,{user});
     if(page==='ga_quote')return R(PageGaQuote,{user});
+    if(page==='ga_ilgye')return R(PageGaIlgye,{user});
     if(page==='leave')return R(PageLeave,{user});
     if(page==='admin')return R(PageAdmin,{user});
     return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🚧'),'준비 중'));
