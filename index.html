@@ -8530,6 +8530,16 @@ const ILGYE_STEPS=[
   {k:'ibk',ic:'🏦',t:'기업은행 조회',url:'https://kiup.ibk.co.kr',open:'기업은행 열기',dateCopy:true,
     subs:['조회 → 전체계좌조회','공동인증서 로그인','날짜 설정 → 조회','인쇄 → PDF 저장(다운로드)','프린터 인쇄']}
 ];
+/* ── 사무실 PC 이카운트 수집기 연결 규약 (2026-10-15 MES 쪽 틀만 완성 — 수집기 쪽은 사무실 PC 문서\bnf-ecount-web 에 추가) ──
+   요청: GET {ILGYE_COLLECTOR}/ilgye/balances?date=YYYY-MM-DD
+         수집기가 이카운트 회계I → 계좌/카드 즉시조회를 실행하고 그날 잔액을 읽어 돌려준다.
+   응답(JSON, CORS 허용 필요):
+     {date:'YYYY-MM-DD',
+      accounts:[{name:'기업 운영 123-...-011', prev:전일잔액, inAmt:입금합계, outAmt:출금합계, bal:금일잔액}],
+      cards:[{name:'법인카드 1234', amt:사용액}]}          ← cards는 없어도 됨, bal 생략 시 전일+입금-출금으로 계산
+   오류: {error:'LOGIN_REQUIRED'} (이카운트 로그인 필요, 컬리 수집기와 같은 규칙) / {error:'메시지'}
+   포트는 기존 수집기(카톡 8777 · 컬리 8788)와 겹치지 않게 8789. 바꾸면 아래 한 줄만 고친다. */
+const ILGYE_COLLECTOR='http://127.0.0.1:8789';
 function PageGaIlgye({user}){
   const ymdL=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
   const[date,setDate]=useState(()=>ymdL(new Date()));
@@ -8610,6 +8620,116 @@ function PageGaIlgye({user}){
   };
   const mvDay=n=>{const x=new Date(date+'T00:00:00');x.setDate(x.getDate()+n);setDate(ymdL(x));};
   const isToday=date===ymdL(new Date());
+  /* ── 계좌 잔액: 이카운트 자동(수집기) 또는 직접 입력 → 그날 기록(days[날짜].balances)에 저장 ── */
+  const[balBusy,setBalBusy]=useState('');
+  const[balDraft,setBalDraft]=useState(null);   /* 직접 입력 중인 행 */
+  useEffect(()=>{setBalDraft(null);},[date]);
+  const num=v=>{const n=+String(v==null?'':v).replace(/[^0-9.-]/g,'');return isFinite(n)?n:0;};
+  const calcBal=a=>num(a.prev)+num(a.inAmt)-num(a.outAmt);
+  const won=n=>Math.round(+n||0).toLocaleString('ko-KR');
+  const bal=day.balances||null;
+  const saveBalances=(b)=>patchDay(d=>{
+    d.balances=b;
+    /* 잔액이 들어오면 1단계 '계좌/카드 즉시조회'는 자동으로 완료 처리 */
+    if(!d.checks.ecount_0)d.checks.ecount_0={by:user.name,at:new Date().toISOString(),auto:true};
+    return d;
+  });
+  const fetchBalances=async()=>{
+    if(loadErr||!doc)return alert('기록을 불러오지 못해 지금은 저장할 수 없습니다.');
+    setBalBusy('이카운트 조회 중...');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),120000);
+      const r=await fetch(ILGYE_COLLECTOR+'/ilgye/balances?date='+date,{signal:ctl.signal});
+      clearTimeout(tm);
+      const j=await r.json();
+      if(j&&j.error){setBalBusy('');return alert(j.error==='LOGIN_REQUIRED'?'사무실 PC 수집기에서 이카운트 로그인이 필요합니다.':'이카운트 조회 실패: '+j.error);}
+      const accounts=(Array.isArray(j&&j.accounts)?j.accounts:[]).map(a=>({name:String(a.name||''),prev:num(a.prev),inAmt:num(a.inAmt),outAmt:num(a.outAmt),bal:a.bal!=null?num(a.bal):null}));
+      const cards=(Array.isArray(j&&j.cards)?j.cards:[]).map(c=>({name:String(c.name||''),amt:num(c.amt)}));
+      if(!accounts.length&&!cards.length){setBalBusy('');return alert('조회 결과가 비어 있습니다.');}
+      const ok=await saveBalances({src:'ecount',at:new Date().toISOString(),by:user.name,accounts,cards});
+      setBalBusy('');
+      if(ok)flash('이카운트 잔액 반영됨');
+    }catch(e){
+      setBalBusy('');
+      alert('사무실 PC의 이카운트 수집기에 연결하지 못했습니다.\n(수집기 연결 전이거나 수집기가 꺼져 있습니다 — 그동안은 [✏ 직접 입력]으로 적어 주세요)');
+    }
+  };
+  const startEdit=()=>{
+    const cur=((bal&&bal.accounts)||[]).map(a=>Object.assign({},a));
+    setBalDraft(cur.length?cur:[{name:'',prev:'',inAmt:'',outAmt:''}]);
+  };
+  const saveDraft=async()=>{
+    const accounts=(balDraft||[]).filter(a=>String(a.name||'').trim()||num(a.prev)||num(a.inAmt)||num(a.outAmt))
+      .map(a=>({name:String(a.name||'').trim(),prev:num(a.prev),inAmt:num(a.inAmt),outAmt:num(a.outAmt),bal:null}));
+    if(await saveBalances({src:'manual',at:new Date().toISOString(),by:user.name,accounts,cards:(bal&&bal.cards)||[]})){setBalDraft(null);flash('잔액 저장됨');}
+  };
+  const balanceBox=()=>{
+    const accs=(bal&&bal.accounts)||[];
+    const bOf=a=>a.bal!=null?num(a.bal):calcBal(a);
+    const tot=accs.reduce((t,a)=>({prev:t.prev+num(a.prev),inAmt:t.inAmt+num(a.inAmt),outAmt:t.outAmt+num(a.outAmt),bal:t.bal+bOf(a)}),{prev:0,inAmt:0,outAmt:0,bal:0});
+    const th={textAlign:'right'};
+    const td={textAlign:'right',fontVariantNumeric:'tabular-nums'};
+    const tdB=Object.assign({},td,{fontWeight:800});
+    const inp={width:'100%',border:'1px solid var(--bd)',borderRadius:6,padding:'4px 6px',fontSize:12.5,fontFamily:'inherit',textAlign:'right'};
+    const head=R('thead',null,R('tr',null,R('th',null,'계좌'),R('th',{style:th},'전일 잔액'),R('th',{style:th},'입금'),R('th',{style:th},'출금'),R('th',{style:th},'금일 잔액'),balDraft&&R('th',{style:{width:44}},'')));
+    return R('div',{style:{marginTop:10,padding:12,border:'1px solid var(--bd)',borderRadius:10,background:'#FBFDFF'}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}},
+        R('span',{style:{fontSize:12.5,fontWeight:800}},'💰 계좌 잔액 ('+date+')'),
+        bal&&R('span',{style:{fontSize:11,color:'var(--tm)'}},(bal.src==='ecount'?'이카운트 자동':'직접 입력')+' · '+(bal.by||'')+' '+fT(bal.at)),
+        R('div',{style:{flex:1}}),
+        balDraft?R('span',{style:{display:'flex',gap:6}},
+            R('button',{className:'btn bw btn-sm',onClick:()=>setBalDraft(d=>d.concat([{name:'',prev:'',inAmt:'',outAmt:''}]))},'+ 계좌'),
+            R('button',{className:'btn bs btn-sm',onClick:()=>setBalDraft(null)},'취소'),
+            R('button',{className:'btn bp btn-sm',disabled:busy,onClick:saveDraft},'저장'))
+          :R('button',{className:'btn bw btn-sm',onClick:startEdit},'✏ 직접 입력')),
+      balDraft?
+        R('div',{className:'tw'},R('table',null,head,
+          R('tbody',null,...balDraft.map((a,i)=>{
+            const set=(k,v)=>setBalDraft(d=>d.map((x,j)=>j===i?Object.assign({},x,{[k]:v}):x));
+            return R('tr',{key:i},
+              R('td',null,R('input',{value:a.name,onChange:e=>set('name',e.target.value),placeholder:'예: 기업 운영계좌',style:Object.assign({},inp,{textAlign:'left'})})),
+              ...['prev','inAmt','outAmt'].map(k=>R('td',{key:k},R('input',{value:a[k],inputMode:'numeric',onChange:e=>set(k,e.target.value),style:inp}))),
+              R('td',{style:td},won(calcBal(a))),
+              R('td',null,R('button',{className:'btn bw btn-sm',onClick:()=>setBalDraft(d=>d.filter((_,j)=>j!==i)),title:'행 삭제'},'✕')));
+          }))))
+      :accs.length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'아직 잔액이 없습니다 — [⚡ 잔액 불러오기](사무실 PC 수집기 연결 후) 또는 [✏ 직접 입력]'):
+        R('div',{className:'tw'},R('table',null,head,
+          R('tbody',null,
+            ...accs.map((a,i)=>{
+              const mismatch=a.bal!=null&&Math.abs(num(a.bal)-calcBal(a))>=1;
+              return R('tr',{key:i},
+                R('td',null,a.name),
+                R('td',{style:td},won(a.prev)),
+                R('td',{style:Object.assign({},td,{color:'#1D4ED8'})},won(a.inAmt)),
+                R('td',{style:Object.assign({},td,{color:'#B91C1C'})},won(a.outAmt)),
+                R('td',{style:tdB,title:mismatch?'전일 잔액 + 입금 - 출금과 다릅니다 — 확인 필요':''},(mismatch?'⚠ ':'')+won(bOf(a))));
+            }),
+            R('tr',null,R('td',{style:{fontWeight:800}},'합계'),R('td',{style:tdB},won(tot.prev)),R('td',{style:tdB},won(tot.inAmt)),R('td',{style:tdB},won(tot.outAmt)),R('td',{style:Object.assign({},td,{fontWeight:900})},won(tot.bal)))))),
+      ((bal&&bal.cards)||[]).length>0&&R('div',{style:{marginTop:8,fontSize:12}},'💳 카드 사용: '+bal.cards.map(c=>c.name+' '+won(c.amt)).join(' · '))
+    );
+  };
+  /* 일계표 엑셀 내려받기 — 지금은 기본 양식. 회사 엑셀 양식(이선일계표)을 받으면 그 칸에 맞춰 교체 */
+  const exportXlsx=()=>{
+    if(typeof XLSX==='undefined')return alert('엑셀 기능을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.');
+    const accs=(bal&&bal.accounts)||[];
+    const aoa=[['일계표',date],[],['계좌','전일 잔액','입금','출금','금일 잔액']];
+    let t=[0,0,0,0];
+    accs.forEach(a=>{
+      const b=a.bal!=null?num(a.bal):calcBal(a);
+      aoa.push([a.name,num(a.prev),num(a.inAmt),num(a.outAmt),b]);
+      t=[t[0]+num(a.prev),t[1]+num(a.inAmt),t[2]+num(a.outAmt),t[3]+b];
+    });
+    aoa.push(['합계'].concat(t));
+    if(((bal&&bal.cards)||[]).length){aoa.push([],['카드','사용액']);bal.cards.forEach(c=>aoa.push([c.name,num(c.amt)]));}
+    aoa.push([],['작업 단계','완료','담당','시각']);
+    ILGYE_STEPS.forEach(st=>st.subs.forEach((tx,i)=>{const c=day.checks[keyOf(st,i)];aoa.push([st.t+' — '+tx,c?'O':'',c?c.by:'',c?fT(c.at):'']);}));
+    if((day.files||[]).length){aoa.push([],['증빙 파일']);day.files.forEach(f=>aoa.push([f.name]));}
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:40},{wch:14},{wch:14},{wch:14},{wch:14}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'일계표');
+    XLSX.writeFile(wb,'일계표_'+date+'.xlsx');
+  };
   /* 이번 달 진행 현황 (날짜별 완료율) */
   const monthDays=Object.keys((doc&&doc.days)||{}).sort().map(dt=>{
     const c=(doc.days[dt].checks)||{};
@@ -8627,7 +8747,8 @@ function PageGaIlgye({user}){
         R('button',{className:'btn bw btn-sm',onClick:()=>mvDay(-1)},'◀'),
         R('input',{type:'date',value:date,onChange:e=>e.target.value&&setDate(e.target.value),style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
         R('button',{className:'btn bw btn-sm',onClick:()=>mvDay(1)},'▶'),
-        !isToday&&R('button',{className:'btn bs btn-sm',onClick:()=>setDate(ymdL(new Date()))},'오늘'))
+        !isToday&&R('button',{className:'btn bs btn-sm',onClick:()=>setDate(ymdL(new Date()))},'오늘'),
+        R('button',{className:'btn bw btn-sm',onClick:exportXlsx,title:'이 날짜 일계표를 엑셀로'},'📥 엑셀'))
     ),
     loadErr&&R('div',{className:'card',style:{marginBottom:12,color:'#B91C1C',fontWeight:700,fontSize:13}},
       '기록을 불러오지 못했습니다 — 기존 기록 보호를 위해 저장을 막아 두었습니다. ',
@@ -8650,6 +8771,7 @@ function PageGaIlgye({user}){
             R('span',{style:{fontSize:11,fontWeight:800,color:all?'#15803D':'var(--tm)'}},all?'완료':sd+'/'+s.subs.length),
             R('div',{style:{flex:1}}),
             s.dateCopy&&R('button',{className:'btn bw btn-sm',onClick:copyDate,title:'은행 조회 화면에 붙여넣기'},'📋 조회 날짜 복사 ('+date.replace(/-/g,'.')+')'),
+            s.k==='ecount'&&R('button',{className:'btn bok btn-sm',disabled:!!balBusy||busy,onClick:fetchBalances,title:'사무실 PC 수집기가 이카운트 즉시조회 후 잔액을 가져옵니다'},balBusy||'⚡ 잔액 불러오기'),
             s.url&&R('button',{className:'btn bp btn-sm',onClick:()=>window.open(s.url,'_blank','noopener')},'↗ '+s.open)),
           ...s.subs.map((t,i)=>{
             const key=keyOf(s,i),c=day.checks[key];
@@ -8658,6 +8780,7 @@ function PageGaIlgye({user}){
               R('span',{style:{flex:1,textDecoration:c?'line-through':'none',color:c?'var(--tm)':'var(--t)'}},t),
               c&&R('span',{style:{fontSize:11,color:'var(--tm)',whiteSpace:'nowrap'}},c.by+' · '+fT(c.at)));
           }),
+          s.k==='ecount'&&balanceBox(),
           /* 엑셀 단계: 증빙 파일 보관 */
           s.k==='excel'&&R('div',{style:{marginTop:10,padding:12,border:'2px dashed var(--bd)',borderRadius:10,background:'#FCFAF8'},
               onDragOver:e=>{e.preventDefault();},onDrop:e=>{e.preventDefault();upload(e.dataTransfer.files);}},
