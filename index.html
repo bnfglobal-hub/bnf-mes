@@ -2346,19 +2346,37 @@ function PageProdSchedule(){
   const copyWeekImg=async(wsList)=>{
     setShBusy(true);
     try{
-      const ts=await collectTrimmed(wsList);
-      if(!ts){alert('입력된 스케줄이 없습니다.');return;}
-      const cv=drawWeeks(ts);
-      const blob=await new Promise(res=>cv.toBlob(res,'image/png'));
-      try{
-        if(!navigator.clipboard||!window.ClipboardItem)throw new Error('no-clipboard');
-        await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
-        alert('📷 스케줄 이미지('+ts.length+'주)가 복사되었습니다.\n카톡 채팅창에서 붙여넣기(Ctrl+V) 하면 바로 공유됩니다.');
-      }catch(e){
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);a.download='생산스케줄_'+ts[0].ws+(ts.length>1?'_외'+(ts.length-1)+'주':'')+'.png';a.click();
-        alert('이 기기에선 이미지 복사가 지원되지 않아 파일로 저장했습니다.\n저장된 이미지를 카톡에 첨부해주세요.');
+      /* 이미지 생성(주차 파일 불러오기)이 몇 초 걸리면 크롬이 '클릭 직후'가 아니라며
+         클립보드 쓰기를 거부(사용자 활성화 만료) → 항상 파일 저장으로 빠지던 문제.
+         해결: 클릭 즉시 클립보드에 Promise를 넘기는 표준 방식 (2026-10-15) */
+      let blob=null,count=0,firstWs='';
+      const build=async()=>{
+        const ts=await collectTrimmed(wsList);
+        if(!ts)return null;
+        count=ts.length;firstWs=ts[0].ws;
+        const cv=drawWeeks(ts);
+        const b=await new Promise(res=>cv.toBlob(res,'image/png'));
+        blob=b;return b;
+      };
+      const pb=build();pb.catch(()=>{});         /* 생성은 한 번만 — 클립보드 실패 시 폴백에서 재사용 */
+      let copied=false;
+      if(navigator.clipboard&&window.ClipboardItem){
+        try{
+          await navigator.clipboard.write([new ClipboardItem({
+            'image/png':pb.then(b=>{if(!b)throw new Error('no-data');return b;})
+          })]);
+          copied=true;
+        }catch(e){/* 미지원·권한 거부·데이터 없음 → 아래에서 처리 */}
       }
+      if(copied&&blob){
+        alert('📷 스케줄 이미지('+count+'주)가 복사되었습니다.\n카톡 채팅창에서 붙여넣기(Ctrl+V) 하면 바로 공유됩니다.');
+        return;
+      }
+      if(!blob)await pb.catch(()=>null);         /* 생성이 아직이면 끝날 때까지 대기 */
+      if(!blob){alert('입력된 스케줄이 없습니다.');return;}
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);a.download='생산스케줄_'+firstWs+(count>1?'_외'+(count-1)+'주':'')+'.png';a.click();
+      alert('이미지 복사가 허용되지 않아 파일로 저장했습니다.\n저장된 이미지를 카톡에 첨부해주세요.');
     }finally{setShBusy(false);}
   };
   /* 인쇄 (2026-10-12): 지금 화면의 표를 그대로(열 너비·글자 크기·색·병합·서식 동일) 출력하고,
