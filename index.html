@@ -1020,6 +1020,10 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
   td{border-bottom-width:.5px}
 }
 
+/* ── 초록 버튼(.bok) 글자색: 배경이 진초록으로 바뀌었는데 글자색이 옛 초록(#15803D)
+      그대로라 초록 배경에 초록 글씨 = 안 보이던 문제 (2026-10-16 일계표 ⚡잔액 버튼) ── */
+.btn.bok{color:#fff}
+
 /* ── 모션 최소화 존중 (최종 확인) ── */
 @media(prefers-reduced-motion:reduce){
   .tab:active,.btn:active{transform:none}
