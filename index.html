@@ -16640,25 +16640,44 @@ function PageFiles({user}){
     }catch(e){alert('비고 저장 실패: '+(e.message||e));}
   };
 
-  const upload=async(file)=>{
-    if(!file)return;
-    if(file.size>100*1024*1024){alert('파일 크기는 100MB 이하만 가능합니다');return;}
-    setUploading(true);
+  /* 파일 1개 업로드 — 성공이면 '' , 실패면 사유 문자열 반환 (알림은 uploadMany가 모아서) */
+  const uploadOne=async(file)=>{
+    if(!file)return '파일 없음';
+    if(file.size>100*1024*1024)return '100MB 초과';
     try{
       const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
       const path=Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safeName;
       const{error:upErr}=await sbClient.storage.from('bnf-files').upload(path,file);
       if(upErr)throw upErr;
-      await sbClient.from('shared_files').insert({name:file.name,storage_path:path,size_bytes:file.size,mime_type:file.type||'',folder:cat||'미분류',uploader_id:user.id,uploader_name:user.name});
-      load();
-    }catch(e){
-      const m=String(e.message||e);
+      const{error:insErr}=await sbClient.from('shared_files').insert({name:file.name,storage_path:path,size_bytes:file.size,mime_type:file.type||'',folder:cat||'미분류',uploader_id:user.id,uploader_name:user.name});
+      if(insErr)throw insErr;
+      return '';
+    }catch(e){return String(e.message||e);}
+  };
+  const[upMsg,setUpMsg]=useState('');
+  /* 여러 파일 한 번에 업로드 — 파일 선택·드래그&드롭 공용 (진행 표시 + 실패 목록 요약) */
+  const uploadMany=async(list)=>{
+    const fs=Array.from(list||[]).filter(Boolean);
+    if(!fs.length)return;
+    setUploading(true);
+    const fails=[];
+    for(let i=0;i<fs.length;i++){
+      setUpMsg(fs.length>1?((i+1)+'/'+fs.length+' 업로드 중...'):'업로드 중...');
+      const err=await uploadOne(fs[i]);
+      if(err)fails.push(fs[i].name+' — '+err);
+    }
+    setUploading(false);setUpMsg('');
+    load();
+    const okCnt=fs.length-fails.length;
+    if(okCnt>0){try{bnfToast('✅ 파일 '+okCnt+'개 업로드 완료'+(cat?(' → '+cat):''));}catch(e){}}
+    if(fails.length){
+      const m=fails.join('\n· ');
       if(/row-level security|Unauthorized|403/i.test(m))alert('업로드 권한이 아직 열리지 않았습니다.\n\n관리자가 Supabase SQL Editor에서 storage 접근 정책(bnf_files_*)을 한 번 실행하면 바로 됩니다.');
       else if(/Bucket not found/i.test(m))alert('업로드 실패: 저장소(bnf-files)가 없습니다. 관리자에게 알려주세요.');
-      else alert('업로드 실패: '+m);
+      else alert('업로드 실패 '+fails.length+'개:\n· '+m);
     }
-    setUploading(false);
   };
+  const upload=(file)=>uploadMany([file]);   /* 예전 호출부 호환 */
   
   const download=(f)=>{
     try{
@@ -16712,8 +16731,8 @@ function PageFiles({user}){
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'📁 파일 공유'),R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},files.length+'개 · '+fSize(totalSize)+' 사용 중')),
-      R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:uploading},uploading?'⏳ 업로드 중...':('⬆️ 파일 업로드'+(cat?' → '+cat:''))),
-      R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{const fs=Array.from(e.target.files||[]);e.target.value='';(async()=>{for(const f of fs)await upload(f);})();}})
+      R('button',{className:'btn bp',onClick:()=>fileRef.current&&fileRef.current.click(),disabled:uploading},uploading?('⏳ '+(upMsg||'업로드 중...')):('⬆️ 파일 업로드'+(cat?' → '+cat:''))),
+      R('input',{ref:fileRef,type:'file',multiple:true,style:{display:'none'},onChange:e=>{const fs=Array.from(e.target.files||[]);e.target.value='';uploadMany(fs);}})
     ),
     /* ── 분류(카테고리) ── */
     R('div',{className:'card',style:{marginBottom:12,padding:'10px 12px'}},
@@ -16743,7 +16762,7 @@ function PageFiles({user}){
       )
     ),
     R('div',{style:{display:'flex',gap:8,marginBottom:14}},R('input',{className:'inp',value:search,onChange:e=>setSearch(e.target.value),placeholder:'🔍 파일·분류 검색',style:{maxWidth:300}})),
-    R('div',{className:'card',style:{padding:0,overflow:'hidden',cursor:'copy'},title:'빈 곳을 더블클릭하면 파일을 올릴 수 있습니다',onDoubleClick:e=>{if(e.target.closest&&e.target.closest('a,button'))return;if(fileRef.current)fileRef.current.click();},onDragOver:e=>{e.preventDefault();e.currentTarget.style.background='#FFF8F4';},onDragLeave:e=>{e.currentTarget.style.background='#fff';},onDrop:e=>{e.preventDefault();e.currentTarget.style.background='#fff';const f=e.dataTransfer.files[0];if(f)upload(f);}},
+    R('div',{className:'card',style:{padding:0,overflow:'hidden',cursor:'copy'},title:'빈 곳을 더블클릭하면 파일을 올릴 수 있습니다',onDoubleClick:e=>{if(e.target.closest&&e.target.closest('a,button'))return;if(fileRef.current)fileRef.current.click();},onDragOver:e=>{e.preventDefault();e.currentTarget.style.background='#FFF8F4';},onDragLeave:e=>{e.currentTarget.style.background='#fff';},onDrop:e=>{e.preventDefault();e.currentTarget.style.background='#fff';uploadMany(e.dataTransfer.files);}},
       loading?R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'로딩 중...'):
       visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},(cat?'"'+cat+'" 분류에 ':'')+'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
       R('table',null,
