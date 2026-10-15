@@ -21322,15 +21322,15 @@ function PageShipSort({mats,hqItems}){
   useEffect(()=>{loadKurly();},[]);
   useBnfSyncReload(()=>loadKurly());
   /* PC에서 열었고 수집기가 켜져 있으면 지금 즉시 다시 읽어온다 */
-  const refreshKurly=async(dArg)=>{
+  const refreshKurly=async(dArg,silent)=>{
     const d=(typeof dArg==='string'&&dArg)||kurlyDate||today2();
-    setKurlyBusy('컬리에서 불러오는 중...');
+    setKurlyBusy((silent?'📡 ':'')+d.slice(5).replace('-','/')+' 발주 불러오는 중...');
     try{
       const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
       const r=await fetch('http://127.0.0.1:8788/orders?date='+d,{signal:ctl.signal});
       clearTimeout(tm);
       const j=await r.json();
-      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyBusy('');await kurlyLogin();return;}
+      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyBusy('');setKurlyErr('login');if(!silent)await kurlyLogin();return;}
       if(j&&Array.isArray(j.rows)){
         const fresh=j.rows.map(x=>Object.assign({},x,{date:j.date}));
         /* 다른 날짜 저장본은 유지하고 이 날짜만 갱신 */
@@ -21343,33 +21343,44 @@ function PageShipSort({mats,hqItems}){
         return;
       }
       setKurlyBusy('');
-      alert('발주를 불러오지 못했습니다.');
+      if(!silent)alert('발주를 불러오지 못했습니다.');
     }catch(e){
       setKurlyBusy('');
-      alert('PC 수집기에 연결하지 못했습니다.\n사무실 PC에서 "컬리 발주 수집기"를 켜두면 즉시 새로 읽어올 수 있습니다.\n(지금 보이는 내용은 마지막으로 저장된 발주입니다)');
+      if(silent)setKurlyErr('offline');
+      else alert('PC 수집기에 연결하지 못했습니다.\n사무실 PC에서 "컬리 발주 수집기"를 켜두면 즉시 새로 읽어올 수 있습니다.\n(지금 보이는 내용은 마지막으로 저장된 발주입니다)');
     }
   };
   /* 다가오는 발주일 자동 탐색 — 수집기가 포털의 '발주 내역' 화면에서 입고예정일 목록을 읽어온다.
      발주가 있는 가장 가까운 날짜를 자동 선택하고 내역까지 바로 불러온다. */
   const[kurlyUp,setKurlyUp]=useState(null);   /* [{date,sku,created}] · null=확인 중 */
   const[kurlyMore,setKurlyMore]=useState(false); /* '다른 날짜 보기' 펼침 */
+  const[kurlyErr,setKurlyErr]=useState(null); /* 'login'=로그인 만료 · 'login-sent'=로그인 창 띄움 · 'offline'=수집기 연결 안 됨 */
+  /* 모달 안에서 바로 쓰는 로그인 창 띄우기 (confirm/alert 없이 — 아이폰 PWA 호환) */
+  const kurlyLoginNow=async()=>{
+    try{await fetch('http://127.0.0.1:8788/login');setKurlyErr('login-sent');}
+    catch(e){setKurlyErr('offline');}
+  };
   const loadUpcoming=async()=>{
-    setKurlyUp(null);
+    setKurlyUp(null);setKurlyErr(null);
     try{
       const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
       const r=await fetch('http://127.0.0.1:8788/dates',{signal:ctl.signal});
       clearTimeout(tm);
       const j=await r.json();
-      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyUp([]);await kurlyLogin();return;}
+      if(j&&j.error==='LOGIN_REQUIRED'){setKurlyUp([]);setKurlyErr('login');return;}
       if(j&&Array.isArray(j.dates)){
         setKurlyUp(j.dates);
         const t=today2();
-        const pick=(j.dates.find(x=>x.date>=t&&(x.created==null||x.created>0))||{}).date;
-        if(pick){setKurlyDate(pick);refreshKurly(pick);}
+        /* 다가오는 발주 날짜 전부(최대 4일) 자동으로 내역까지 불러온다 — 날짜를 고를 필요 없음 */
+        const ups=j.dates.filter(x=>x.date>=t&&(x.created==null||x.created>0)).slice(0,4);
+        if(ups.length){
+          setKurlyDate(ups[0].date);
+          for(const u of ups)await refreshKurly(u.date,true);
+        }
         return;
       }
       setKurlyUp([]);
-    }catch(e){setKurlyUp([]);}   /* 수집기 꺼짐(휴대폰 등) — 저장본으로 표시 */
+    }catch(e){setKurlyUp([]);setKurlyErr('offline');}   /* 수집기 꺼짐(휴대폰 등) — 저장본으로 표시 */
   };
   /* ── 컬리 발주 확정 ──
      사무실 PC의 수집기가 컬리 포털에 값을 채우고, 여기서 사람이 확인·승인한 뒤에만
@@ -21652,21 +21663,25 @@ function PageShipSort({mats,hqItems}){
           R('button',{onClick:()=>setKurlyOpen(false),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')
         ),
         R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
-          /* ── 다가오는 발주 안내: 날짜를 고를 필요 없이 알아서 알려준다 ── */
+          /* ── 상태 안내: 로그인 만료·수집기 꺼짐을 명확히 구분 (예전엔 전부 '발주 없음'으로 보임) ── */
+          (kurlyErr==='login'||kurlyErr==='login-sent')&&R('div',{style:{padding:'12px 14px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,marginBottom:10}},
+            R('div',{style:{fontSize:13,fontWeight:800,color:'#B91C1C',marginBottom:6}},
+              kurlyErr==='login-sent'?'🔐 사무실 PC에 컬리 로그인 창을 띄웠습니다 — 로그인 후 [다시 확인]을 눌러주세요':'🔐 컬리 로그인이 만료되었습니다 — 로그인해야 발주를 읽을 수 있습니다'),
+            R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+              kurlyErr!=='login-sent'&&R('button',{className:'btn bp btn-sm',onClick:kurlyLoginNow},'🔐 사무실 PC에 로그인 창 띄우기'),
+              R('button',{className:'btn bw btn-sm',onClick:loadUpcoming},'↻ 다시 확인'))),
+          kurlyErr==='offline'&&R('div',{style:{padding:'11px 14px',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,fontSize:12,color:'#92400E',marginBottom:10}},
+            '⚠ 사무실 PC 수집기에 연결되지 않아 마지막 저장본을 표시합니다. (PC에서 "2-컬리 발주 수집기 켜기" 실행 후 ',
+            R('button',{className:'btn bw btn-sm',onClick:loadUpcoming,style:{marginLeft:4}},'↻ 다시 확인'),')'),
+          /* ── 다가오는 발주 안내: 날짜를 고를 필요 없이 알아서 전부 불러온다 ── */
           kurlyUp===null
             ?R('div',{style:{padding:'11px 14px',background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:10,fontSize:12.5,fontWeight:700,color:'var(--p)',marginBottom:10}},
-              '📡 컬리에서 다가오는 발주를 확인하는 중입니다... (10~20초)')
-            :kurlyUp.filter(x=>x.date>=today2()).length===0
+              '📡 컬리 포털에서 발주를 확인하는 중입니다... '+(kurlyBusy||'(10~30초)'))
+            :(!kurlyErr&&kurlyUp.filter(x=>x.date>=today2()).length===0)
               ?R('div',{style:{padding:'11px 14px',background:'#FBFAF8',border:'1px solid var(--bd)',borderRadius:10,fontSize:12,color:'var(--tm)',marginBottom:10}},
-                '앞으로 잡힌 컬리 발주가 없습니다. (사무실 PC 수집기가 꺼져 있으면 확인되지 않습니다)')
-              :R('div',{style:{padding:'11px 14px',background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:10,marginBottom:10,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
-                R('span',{style:{fontSize:13,fontWeight:800,color:'#15803D'}},'📢 다가오는 발주 있음 →'),
-                ...kurlyUp.filter(x=>x.date>=today2()).map(x=>R('button',{key:x.date,
-                  onClick:()=>{setKurlyDate(x.date);refreshKurly(x.date);},
-                  style:{border:'1px solid '+(kurlyDate===x.date?'#15803D':'#86EFAC'),
-                    background:kurlyDate===x.date?'#15803D':'#fff',color:kurlyDate===x.date?'#fff':'#15803D',
-                    borderRadius:999,padding:'6px 14px',fontSize:13,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}},
-                  x.date.slice(5).replace('-','/')+dowLabel(x.date)+(x.created?' · 발주 '+x.created+'건':'')))),
+                '컬리 포털에 아직 뜬 발주가 없습니다. ',
+                R('button',{className:'btn bw btn-sm',onClick:loadUpcoming,style:{marginLeft:4}},'↻ 다시 확인'))
+              :kurlyBusy?R('div',{style:{padding:'8px 14px',background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:10,fontSize:12,fontWeight:700,color:'var(--p)',marginBottom:10}},kurlyBusy):null,
           /* 주요 동작 버튼 한 줄 + '다른 날짜 보기'는 눌러야 펼쳐짐 */
           R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}},
             R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
@@ -21694,27 +21709,60 @@ function PageShipSort({mats,hqItems}){
                 });
               })()),
             R('button',{className:'btn bw btn-sm',onClick:()=>refreshKurly(),disabled:!!kurlyBusy},kurlyBusy||'↻ 지금 다시 불러오기')),
-          (kurlyUp===null||kurlyRows.length===0)
-            ? R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},
-                kurlyUp===null?'잠시만요 — 발주가 있는 날짜를 찾으면 내용이 자동으로 표시됩니다.':(kurlyBusy||'이 날짜에 발주가 없습니다.'))
-            : R('div',null,
-                ...Object.entries(kurlyByCenter).map(([c,b])=>R('div',{key:c,style:{marginBottom:12}},
-                  R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#FBFAF8',border:'1px solid #E9E2DC',borderRadius:9,padding:'7px 11px',marginBottom:6}},
-                    R('span',{style:{fontSize:12.5,fontWeight:800}},c),
-                    R('span',{style:{fontSize:11.5,fontWeight:700,color:'var(--p)'}},b.box+'박스 · '+fN(b.total)+'개 · 팔레트 '+(b.box/30).toFixed(2))),
-                  R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
-                    R('thead',null,R('tr',null,R('th',null,'품목'),R('th',{style:{width:64,textAlign:'right'}},'박스'),
-                      R('th',{style:{width:56,textAlign:'right'}},'입수'),R('th',{style:{width:74,textAlign:'right'}},'총수량'),R('th',{style:{width:96}},'소비기한'))),
-                    R('tbody',null,...b.items.map((r,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F4F1EE'}},
-                      R('td',{style:{fontWeight:600}},fixAiName(r.name)),
-                      R('td',{style:{textAlign:'right',fontWeight:700}},r.box),
-                      R('td',{style:{textAlign:'right',color:'var(--tm)'}},r.pack),
-                      R('td',{style:{textAlign:'right',fontWeight:700,color:'var(--p)'}},fN(r.total)),
-                      R('td',{style:{fontSize:11,color:'var(--tm)'}},r.exp||'-')
-                    )))
+          /* ── 1차 확인: 포털에 뜬 발주를 날짜별로 정리 + 현재고 대비 출고 가능 여부 ── */
+          (()=>{
+            const t=today2();
+            const rowsAll=((kurly&&kurly.rows)||[]).filter(r=>r.date&&r.date>=t);
+            if(kurlyUp===null)return R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},'잠시만요 — 포털의 발주를 읽어 재고와 비교해 보여드립니다.');
+            if(!rowsAll.length)return kurlyRows.length
+              ?null /* 과거 날짜를 수동 선택해 보는 경우는 아래 기존 선택날짜 표시로 */
+              :R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5}},kurlyBusy||'표시할 발주 내역이 없습니다.');
+            const byDate={};
+            rowsAll.forEach(r=>{(byDate[r.date]=byDate[r.date]||[]).push(r);});
+            const stockCell=(r)=>{
+              const st=findStock(fixAiName(r.name));
+              if(!st||!(st.matchedName||st.code))return R('td',{style:{fontSize:11,color:'#D9D2CB',whiteSpace:'nowrap'}},'재고 연결 안 됨');
+              const enough=(+st.stock||0)>=(+r.total||0);
+              return R('td',{style:{fontSize:11.5,whiteSpace:'nowrap'},title:(st.matchedName||'')+' · '+(st.source||'')},
+                fN(st.stock),(st.unit||''),
+                R('span',{style:{marginLeft:6,padding:'1px 7px',borderRadius:10,background:enough?'#DCFCE7':'#FEE2E2',color:enough?'#15803D':'#B91C1C',fontWeight:800,fontSize:10}},
+                  enough?'✓ 출고 가능':'⚠ 부족 '+fN((+r.total||0)-(+st.stock||0))));
+            };
+            return R('div',null,...Object.keys(byDate).sort().map(d=>{
+              const rows=byDate[d];
+              const byC={};
+              rows.forEach(r=>{const c=normCenter2(r.center);const b=byC[c]||(byC[c]={items:[],box:0,total:0});b.items.push(r);b.box+=(+r.box||0);b.total+=(+r.total||0);});
+              const box=rows.reduce((a,r)=>a+(+r.box||0),0),tot=rows.reduce((a,r)=>a+(+r.total||0),0);
+              const lack=rows.filter(r=>{const st=findStock(fixAiName(r.name));return st&&(st.matchedName||st.code)&&(+st.stock||0)<(+r.total||0);}).length;
+              return R('div',{key:d,style:{marginBottom:18,border:'1.5px solid #FED7AA',borderRadius:12,overflow:'hidden'}},
+                R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',background:'#FFF7ED',padding:'9px 12px'}},
+                  R('span',{style:{fontSize:13.5,fontWeight:800,color:'var(--p)'}},'📦 '+d.slice(5).replace('-','/')+dowLabel(d)+' 입고 발주'),
+                  R('span',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)'}},box+'박스 · '+fN(tot)+'개 · 팔레트 '+(box/30).toFixed(2)),
+                  lack>0?R('span',{style:{fontSize:10.5,fontWeight:800,color:'#B91C1C',background:'#FEE2E2',borderRadius:999,padding:'2px 9px'}},'⚠ 재고 부족 '+lack+'품목')
+                        :R('span',{style:{fontSize:10.5,fontWeight:800,color:'#15803D',background:'#DCFCE7',borderRadius:999,padding:'2px 9px'}},'✓ 전 품목 출고 가능'),
+                  R('div',{style:{flex:1}}),
+                  R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,
+                    onClick:()=>{setKurlyOpen(false);cfmPrepare(d);},
+                    title:'컬리 포털에 입고예약시간·출고유형·소비기한을 자동으로 채우고, 확인 후 승인하면 거래명세서까지 생성'},'📝 소비기한 입력(발주 확정)')),
+                R('div',{style:{padding:'8px 10px'}},
+                  ...Object.entries(byC).map(([c,b])=>R('div',{key:c,style:{marginBottom:10}},
+                    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#FBFAF8',border:'1px solid #E9E2DC',borderRadius:9,padding:'6px 11px',marginBottom:5}},
+                      R('span',{style:{fontSize:12.5,fontWeight:800}},c),
+                      R('span',{style:{fontSize:11,fontWeight:700,color:'var(--p)'}},b.box+'박스 · '+fN(b.total)+'개')),
+                    R('div',{className:'tw'},R('table',{style:{width:'100%',fontSize:12}},
+                      R('thead',null,R('tr',null,R('th',null,'품목'),R('th',{style:{width:56,textAlign:'right'}},'박스'),
+                        R('th',{style:{width:72,textAlign:'right'}},'총수량'),R('th',{style:{width:170}},'현재고 / 상태'))),
+                      R('tbody',null,...b.items.map((r,i)=>R('tr',{key:i,style:{borderTop:'1px solid #F4F1EE'}},
+                        R('td',{style:{fontWeight:600}},fixAiName(r.name)),
+                        R('td',{style:{textAlign:'right',fontWeight:700}},r.box),
+                        R('td',{style:{textAlign:'right',fontWeight:700,color:'var(--p)'}},fN(r.total)),
+                        stockCell(r)
+                      )))
+                    ))
                   ))
-                ))
-              )
+                ));
+            }));
+          })()
         ),
         R('div',{className:'mfoot'},
           R('span',{style:{flex:1,fontSize:11.5,color:'var(--tm)'}},
