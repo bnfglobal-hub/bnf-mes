@@ -8810,6 +8810,226 @@ function PageGaIlgye({user}){
   );
 }
 
+/* ═══ 경영지원부: 거래처원장 — 월말 마감 흐름 (2026-10-15 틀) ═══
+   거래처별로 ① 원장 메일 발송 → ② 거래처 확인 → ③ 계산서 발행 순서를 기록한다.
+   거래처 목록은 이카운트 수집본(app_state id=4 ecount_customers), 이메일은 거래처 CRM(bnf_crm) 값을 쓴다.
+   저장: 스토리지 ga-ledger/settings.json (거래처별 발행 유형·자동 발송 설정), ga-ledger/<YYYY-MM>.json (월별 진행)
+   ── 사무실 PC 수집기 연결 규약 (수집기 쪽 구현은 사무실 PC 문서\bnf-ecount-web 에 추가) ──
+   POST {LEDGER_COLLECTOR}/ledger/send   body {month:'YYYY-MM', from:'YYYY-MM-01', to:'YYYY-MM-말일',
+         items:[{key, code, name, email}]}
+     수집기가 이카운트 재고I → 출력물 → 기타 → 거래처관리대장I 을 거래처별로 PDF 출력해 메일로 보낸다.
+     응답 {results:[{key, ok:true}|{key, ok:false, error:'사유'}]}   로그인 필요 시 {error:'LOGIN_REQUIRED'}
+   월말 자동 발송: 수집기가 매월 말일 settings.json 의 auto.enabled 를 읽어 실행.
+     auto.confirm 이 true 면 바로 보내지 않고 ga-ledger/<월>.json 의 queued 에 목록만 올려 두고 MES에서 [발송 승인]을 기다린다.
+     보낸 뒤에는 같은 파일의 cust[key].sent = {by:'자동 발송', at, auto:true} 로 기록.
+   ※ 세금계산서 발행(인증서 첨부·즉시전송)은 법적 효력이 있어 자동 실행하지 않고 체크리스트로만 안내한다. */
+const LEDGER_COLLECTOR='http://127.0.0.1:8789';
+const LEDGER_GUIDES=[
+  {k:'ledger',t:'📒 거래처원장 출력',steps:['[이카운트] 재고I → 출력물 → 기타 → 거래처관리대장I']},
+  {k:'tax',t:'🧾 세금계산서 발행',steps:[
+    '[이카운트] 재고I → 영업관리 → 판매일괄회계반영 → 기준일자(1일~말일) → 검색(F8)',
+    '세금계산서 발행 거래처 선택 → 매출전표I → 저장(F8)',
+    '[이카운트] 회계I → 전자(세금)계산서 → (세금)계산서 진행단계 → 발행 거래처 선택 → 인증서 첨부',
+    '→ 즉시전송']},
+  {k:'both',t:'🧾 세금계산서·계산서 동시발행',steps:[
+    '[이카운트] 재고I → 영업관리 → 판매일괄회계반영 → 기준일자(1일~말일) → 검색(F8)',
+    '세금계산서 발행 거래처 선택 → 매출전표I → 저장(F8)',
+    '일부반영 → 세금계산서 금액 선택 → 부가세유형 → 세금계산서 → 저장(F8)',
+    '일부반영 → 계산서 금액 선택 → 부가세유형 → 계산서 → 저장(F8)',
+    '[이카운트] 회계I → 전자(세금)계산서 → (세금)계산서 진행단계 → 발행 거래처 선택 → 인증서 첨부',
+    '→ 즉시전송']}
+];
+const LEDGER_INV={tax:'세금계산서',free:'계산서',both:'동시발행',none:'발행 안 함'};
+function PageGaLedger({user}){
+  const ymdL=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+  /* 기본 월: 10일까지는 지난달 마감, 그 뒤로는 이번 달 */
+  const[month,setMonth]=useState(()=>{const d=new Date();if(d.getDate()<=10)d.setDate(0);return ymdL(d).slice(0,7);});
+  const[custs,setCusts]=useState(null);
+  const[cfg,setCfg]=useState(null);       /* {cust:{key:{inv}}, auto:{enabled,confirm}} */
+  const[rec,setRec]=useState(null);       /* {cust:{key:{sent,ok,issued}}, queued:[]} */
+  const[loadErr,setLoadErr]=useState(false);
+  const[busy,setBusy]=useState('');
+  const[q,setQ]=useState('');
+  const[showAll,setShowAll]=useState(false);
+  const[sel,setSel]=useState({});
+  const[guide,setGuide]=useState('');
+  const[msg,setMsg]=useState('');
+  const flash=t=>{setMsg(t);setTimeout(()=>setMsg(''),2000);};
+  const SETTINGS='ga-ledger/settings.json';
+  const recPath=m=>'ga-ledger/'+m+'.json';
+  /* 스토리지 JSON 읽기: 파일이 '정말 없을' 때만 기본값 — 일시 오류면 throw 해서 저장을 막는다 */
+  const readJson=async(path,empty)=>{
+    const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+    const r=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+    if(r.ok)return await r.json();
+    const name=path.split('/').pop();
+    const{data:ls,error}=await sbClient.storage.from('bnf-files').list('ga-ledger',{search:name});
+    if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name===name))return empty;
+    throw new Error('load');
+  };
+  const writeJson=async(path,obj)=>{
+    const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([JSON.stringify(obj)],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+    if(error)throw error;
+  };
+  const loadAll=async()=>{
+    try{
+      const[{data:a},{data:b},c,r]=await Promise.all([
+        sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle(),
+        sbClient.from('app_state').select('v:state_data->bnf_crm').eq('id',1).maybeSingle(),
+        readJson(SETTINGS,{cust:{},auto:{enabled:false,confirm:true}}),
+        readJson(recPath(month),{cust:{}})
+      ]);
+      const crm={};
+      (Array.isArray(b&&b.v)?b.v:[]).forEach(m=>{const k=crmNorm(m.name);if(k)crm[k]=m;});
+      const list=((a&&a.v&&a.v.list)||[]).map(x=>{
+        const m=crm[crmNorm(x.name)];
+        return{key:x.code||crmNorm(x.name),code:x.code||'',name:x.name||'',email:(m&&m.email)||'',salesAmt:+x.salesAmt||0};
+      }).filter(x=>x.name);
+      setCusts(list);setCfg(c||{cust:{},auto:{enabled:false,confirm:true}});setRec(r||{cust:{}});setLoadErr(false);
+    }catch(e){setLoadErr(true);}
+  };
+  useEffect(()=>{setRec(null);loadAll();},[month]);
+  useBnfSyncReload(()=>loadAll());
+  /* 저장: 최신본을 다시 읽어 필요한 부분만 바꿔 쓴다 */
+  const patch=async(path,empty,fn,setter)=>{
+    if(loadErr)return alert('기록을 불러오지 못해 저장할 수 없습니다. 잠시 후 다시 시도해주세요.');
+    try{const cur=await readJson(path,empty);const next=fn(Object.assign({},cur));await writeJson(path,next);setter(next);return true;}
+    catch(e){alert('저장 실패: '+(e.message||e));return false;}
+  };
+  const patchRec=fn=>patch(recPath(month),{cust:{}},fn,setRec);
+  const patchCfg=fn=>patch(SETTINGS,{cust:{},auto:{enabled:false,confirm:true}},fn,setCfg);
+  const stamp=()=>({by:user.name,at:new Date().toISOString()});
+  const STAGES=[{k:'sent',l:'① 원장 메일'},{k:'ok',l:'② 거래처 확인'},{k:'issued',l:'③ 계산서 발행'}];
+  const toggleStage=(key,stage)=>patchRec(r=>{
+    const c=Object.assign({},r.cust||{});const row=Object.assign({},c[key]||{});
+    if(row[stage]){
+      /* 뒤 단계가 끝난 상태에서 앞 단계를 풀면 순서가 꼬이므로 뒤 단계부터 풀게 한다 */
+      const after=STAGES.slice(STAGES.findIndex(s=>s.k===stage)+1).some(s=>row[s.k]);
+      if(after){alert('뒤 단계를 먼저 해제해주세요.');return r;}
+      delete row[stage];
+    }else row[stage]=stamp();
+    c[key]=row;r.cust=c;return r;
+  });
+  const setInv=(key,v)=>patchCfg(c=>{const cu=Object.assign({},c.cust||{});cu[key]=Object.assign({},cu[key]||{},{inv:v});c.cust=cu;return c;});
+  const setAuto=(k,v)=>patchCfg(c=>{c.auto=Object.assign({enabled:false,confirm:true},c.auto||{},{[k]:v});return c;});
+  /* 원장 메일 발송 (사무실 PC 수집기) */
+  const lastDay=m=>{const[y,mo]=m.split('-').map(Number);return ymdL(new Date(y,mo,0));};
+  const sendLedger=async(items)=>{
+    const noMail=items.filter(x=>!x.email);
+    if(noMail.length)return alert('이메일이 없는 거래처가 있습니다: '+noMail.map(x=>x.name).join(', ')+'\n거래처 CRM에서 이메일을 먼저 입력해주세요.');
+    if(!confirm(month+' 거래처원장을 '+items.length+'곳에 메일로 보낼까요?\n'+items.slice(0,8).map(x=>'· '+x.name+' <'+x.email+'>').join('\n')+(items.length>8?'\n외 '+(items.length-8)+'곳':'')))return;
+    setBusy('원장 발송 중...');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),300000);
+      const r=await fetch(LEDGER_COLLECTOR+'/ledger/send',{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({month,from:month+'-01',to:lastDay(month),items:items.map(x=>({key:x.key,code:x.code,name:x.name,email:x.email}))})});
+      clearTimeout(tm);
+      const j=await r.json();
+      if(j&&j.error){setBusy('');return alert(j.error==='LOGIN_REQUIRED'?'사무실 PC 수집기에서 이카운트 로그인이 필요합니다.':'발송 실패: '+j.error);}
+      const res=(j&&j.results)||[];
+      const okKeys=res.filter(x=>x.ok).map(x=>x.key);
+      if(okKeys.length)await patchRec(rr=>{const c=Object.assign({},rr.cust||{});okKeys.forEach(k=>{c[k]=Object.assign({},c[k]||{},{sent:Object.assign(stamp(),{auto:true})});});rr.cust=c;return rr;});
+      const fail=res.filter(x=>!x.ok);
+      setBusy('');
+      if(fail.length)alert('발송 실패 '+fail.length+'곳:\n'+fail.map(x=>'· '+((items.find(i=>i.key===x.key)||{}).name||x.key)+' — '+(x.error||'')).join('\n'));
+      else flash(okKeys.length+'곳 발송 완료');
+      setSel({});
+    }catch(e){
+      setBusy('');
+      alert('사무실 PC의 이카운트 수집기에 연결하지 못했습니다.\n(수집기 연결 전이거나 꺼져 있습니다 — 그동안은 이카운트에서 직접 보내고 [① 원장 메일]을 눌러 체크해 주세요)');
+    }
+  };
+  const mvMonth=n=>{const[y,m]=month.split('-').map(Number);setMonth(ymdL(new Date(y,m-1+n,1)).slice(0,7));};
+
+  if(loadErr&&!custs)return R('div',{className:'pg fa'},R('div',{className:'card',style:{color:'#B91C1C',fontWeight:700}},'거래처원장 기록을 불러오지 못했습니다. ',R('button',{className:'btn bw btn-sm',onClick:loadAll},'다시 시도')));
+  if(!custs||!cfg||!rec)return R('div',{className:'pg fa'},R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'불러오는 중...'));
+  const recC=rec.cust||{};
+  const invOf=k=>((cfg.cust||{})[k]||{}).inv||'tax';
+  const kw=q.trim().toLowerCase();
+  const rows=custs.filter(x=>(showAll||x.salesAmt>0||recC[x.key]||(cfg.cust||{})[x.key])&&(!kw||x.name.toLowerCase().indexOf(kw)>=0));
+  const cnt=k=>rows.filter(x=>recC[x.key]&&recC[x.key][k]).length;
+  const selItems=rows.filter(x=>sel[x.key]);
+  const fT=iso=>{try{const d=new Date(iso);return(d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return'';}};
+  const auto=Object.assign({enabled:false,confirm:true},cfg.auto||{});
+  const queued=Array.isArray(rec.queued)?rec.queued:[];
+
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'📒 거래처원장'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'월말 마감 — 거래처별 ① 원장 메일 발송 → ② 거래처 확인 → ③ 계산서 발행')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        msg&&R('span',{style:{fontSize:11.5,fontWeight:700,color:'#15803D'}},msg),
+        R('button',{className:'btn bw btn-sm',onClick:()=>mvMonth(-1)},'◀'),
+        R('input',{type:'month',value:month,onChange:e=>e.target.value&&setMonth(e.target.value),style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{className:'btn bw btn-sm',onClick:()=>mvMonth(1)},'▶'),
+        R('button',{className:'btn bp btn-sm',onClick:()=>window.open('https://login.ecount.com','_blank','noopener')},'↗ 이카운트 열기'))
+    ),
+    loadErr&&R('div',{className:'card',style:{marginBottom:12,color:'#B91C1C',fontWeight:700,fontSize:13}},'최신 기록을 불러오지 못해 저장을 막아 두었습니다. ',R('button',{className:'btn bw btn-sm',onClick:loadAll},'다시 시도')),
+    /* 진행 요약 */
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
+      ...STAGES.map(s=>R('div',{key:s.k,className:'card',style:{flex:'1 1 150px',padding:'12px 14px'}},
+        R('div',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)'}},s.l),
+        R('div',{style:{fontSize:22,fontWeight:900,marginTop:2,color:cnt(s.k)===rows.length&&rows.length?'#15803D':'var(--t)'}},cnt(s.k)+' / '+rows.length)))),
+    /* 월말 자동 발송 설정 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+        R('span',{style:{fontSize:13,fontWeight:800}},'⏰ 월말 자동 발송'),
+        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12.5,cursor:'pointer'}},
+          R('input',{type:'checkbox',checked:!!auto.enabled,onChange:e=>setAuto('enabled',e.target.checked),style:{width:16,height:16,accentColor:'#D94F1E'}}),'매월 말일에 원장 메일 자동 발송'),
+        R('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12.5,cursor:'pointer'}},
+          R('input',{type:'checkbox',checked:!!auto.confirm,onChange:e=>setAuto('confirm',e.target.checked),style:{width:16,height:16,accentColor:'#D94F1E'}}),'보내기 전에 여기서 승인 받기 (권장)')),
+      R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:6}},
+        '사무실 PC 이카운트 수집기가 말일에 이 설정을 읽어 실행합니다 — 수집기 연결 전에는 동작하지 않습니다. 대상: 아래 목록 중 발행 유형이 [발행 안 함]이 아닌 매출 거래처.'),
+      queued.length>0&&R('div',{style:{marginTop:10,padding:10,borderRadius:9,background:'#FFFBEB',border:'1px solid #FDE68A',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        R('span',{style:{fontSize:12.5,fontWeight:800,color:'#92400E'}},'승인 대기 '+queued.length+'곳'),
+        R('span',{style:{fontSize:11.5,color:'#92400E'}},queued.slice(0,5).map(k=>(custs.find(c=>c.key===k)||{name:k}).name).join(', ')+(queued.length>5?' 외':'')),
+        R('div',{style:{flex:1}}),
+        R('button',{className:'btn bp btn-sm',disabled:!!busy,onClick:()=>sendLedger(custs.filter(c=>queued.indexOf(c.key)>=0))},'✉ 발송 승인'))
+    ),
+    /* 이카운트 작업 순서 안내 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}},
+        R('span',{style:{fontSize:12.5,fontWeight:800,marginRight:4}},'📋 이카운트 작업 순서'),
+        ...LEDGER_GUIDES.map(g=>R('button',{key:g.k,className:'btn btn-sm '+(guide===g.k?'bp':'bw'),onClick:()=>setGuide(guide===g.k?'':g.k)},g.t))),
+      guide&&R('ol',{style:{margin:'10px 0 0',paddingLeft:22,fontSize:13,lineHeight:1.9}},
+        ...LEDGER_GUIDES.find(g=>g.k===guide).steps.map((t,i)=>R('li',{key:i},t)))),
+    /* 거래처 목록 */
+    R('div',{className:'card'},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:10}},
+        R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'거래처 검색',style:{maxWidth:220}}),
+        R('label',{style:{display:'flex',alignItems:'center',gap:5,fontSize:12,cursor:'pointer',color:'var(--tm)'}},
+          R('input',{type:'checkbox',checked:showAll,onChange:e=>setShowAll(e.target.checked)}),'매출 없는 거래처도 표시'),
+        R('div',{style:{flex:1}}),
+        R('button',{className:'btn bw btn-sm',onClick:()=>{const all={};rows.filter(x=>!(recC[x.key]&&recC[x.key].sent)&&invOf(x.key)!=='none').forEach(x=>all[x.key]=true);setSel(all);}},'미발송 전체 선택'),
+        R('button',{className:'btn bp btn-sm',disabled:!selItems.length||!!busy,onClick:()=>sendLedger(selItems),style:{opacity:!selItems.length||busy?.5:1}},busy||('✉ 선택 '+selItems.length+'곳 원장 발송'))),
+      rows.length===0?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'16px 0',textAlign:'center'}},custs.length?'조건에 맞는 거래처가 없습니다':'이카운트 거래처 목록이 아직 수집되지 않았습니다'):
+      R('div',{className:'tw'},R('table',{style:{minWidth:860}},
+        R('thead',null,R('tr',null,R('th',{style:{width:34}},''),R('th',{style:{width:180}},'거래처'),R('th',{style:{width:190}},'이메일'),R('th',{style:{width:110}},'발행 유형'),...STAGES.map(s=>R('th',{key:s.k,style:{width:118}},s.l)))),
+        R('tbody',null,...rows.map(x=>{
+          const r=recC[x.key]||{};
+          const inv=invOf(x.key);
+          return R('tr',{key:x.key},
+            R('td',null,R('input',{type:'checkbox',checked:!!sel[x.key],onChange:e=>setSel(p=>Object.assign({},p,{[x.key]:e.target.checked}))})),
+            R('td',{style:{fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.name},x.name),
+            R('td',{style:{fontSize:11.5,color:x.email?'var(--t)':'#B45309',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.email||'거래처 CRM에서 이메일 입력'},x.email||'이메일 없음'),
+            R('td',null,R('select',{value:inv,onChange:e=>setInv(x.key,e.target.value),style:{border:'1px solid var(--bd)',borderRadius:6,padding:'3px 4px',fontSize:12,fontFamily:'inherit',width:'100%'}},
+              ...Object.keys(LEDGER_INV).map(k=>R('option',{key:k,value:k},LEDGER_INV[k])))),
+            ...STAGES.map((s,si)=>{
+              const v=r[s.k];
+              const blocked=!v&&si>0&&!r[STAGES[si-1].k];
+              if(s.k==='issued'&&inv==='none')return R('td',{key:s.k,style:{fontSize:11,color:'var(--tm)'}},'—');
+              return R('td',{key:s.k},
+                R('button',{onClick:()=>blocked?alert('앞 단계를 먼저 완료해주세요.'):toggleStage(x.key,s.k),
+                  title:v?(v.by+' · '+fT(v.at)+(v.auto?' (자동)':'')):(blocked?'앞 단계 먼저':'눌러서 완료 표시'),
+                  style:{width:'100%',border:'1px solid '+(v?'#BBF7D0':'var(--bd)'),background:v?'#F0FDF4':'#fff',color:v?'#15803D':(blocked?'#C9BFB7':'var(--t)'),
+                    borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},
+                  v?('✓ '+fT(v.at)):(blocked?'대기':'미완료')));
+            }));
+        }))))
+    )
+  );
+}
+
 /* ═══ 경영지원부: 보건증 관리 대장 — 발급일 기준 1년 만료, 30일 이내 도래자 상단 고정 (app_state id=1 bnf_ga_health) ═══ */
 function PageGaHealth({user}){
   const KEY='bnf_ga_health';
@@ -18479,6 +18699,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'ga_health',l:'보건증 관리',ic:'🩺'},
     {id:'ga_quote',l:'견적서',ic:'📝'},
     {id:'ga_ilgye',l:'일계표',ic:'🧾'},
+    {id:'ga_ledger',l:'거래처원장',ic:'📒'},
   ]},
   {label:'🔗 바로가기',type:'quicklinks',items:[{id:'links',l:'바로가기',ic:'🔗'}]},
   {label:'⚙️ 관리자',type:'admin',adminOnly:true,items:[
@@ -18742,7 +18963,8 @@ function loadNavSections(){
             {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
             {id:'ga_health',l:'보건증 관리',ic:'🩺'},
             {id:'ga_quote',l:'견적서',ic:'📝'},
-            {id:'ga_ilgye',l:'일계표',ic:'🧾'}]);
+            {id:'ga_ilgye',l:'일계표',ic:'🧾'},
+            {id:'ga_ledger',l:'거래처원장',ic:'📒'}]);
           ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
             {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
@@ -18760,7 +18982,8 @@ function loadNavSections(){
 /* 서버(회사 공통) 메뉴 구성에 새로 생긴 메뉴가 없으면 해당 부서 폴더 끝에 붙여서 보여준다.
    서버 구성은 관리자가 메뉴를 편집할 때만 저장되므로, 새 메뉴가 전 직원에게 바로 보이도록 (2026-10-15) */
 const NAV_NEW_ITEMS=[
-  {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ilgye',l:'일계표',ic:'🧾'}}
+  {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ilgye',l:'일계표',ic:'🧾'}},
+  {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ledger',l:'거래처원장',ic:'📒'}}
 ];
 function ensureNavItems(arr){
   if(!Array.isArray(arr))return arr;
@@ -19077,6 +19300,7 @@ const NAV_PAGES_INDEX=[
   {p:'autoOrder',title:'자동발주제안',ic:'🤖',keys:['자동발주','제안','auto']},
   {p:'ga_quote',title:'견적서',ic:'📝',keys:['견적','견적서','quote','invoice']},
   {p:'ga_ilgye',title:'일계표 작성',ic:'🧾',keys:['일계표','일계','이카운트','기업은행','증빙','지출결의']},
+  {p:'ga_ledger',title:'거래처원장',ic:'📒',keys:['거래처원장','원장','거래처관리대장','세금계산서','계산서','월말','마감']},
   {p:'board',title:'게시판',ic:'💬',keys:['게시판','공지','board','notice']},
   {p:'org',title:'조직도',ic:'👥',keys:['조직','조직도','org','people']},
   {p:'approval',title:'전자결재',ic:'📋',keys:['결재','승인','approval']},
@@ -23065,6 +23289,7 @@ function App(){
     if(page==='ga_health')return R(PageGaHealth,{user});
     if(page==='ga_quote')return R(PageGaQuote,{user});
     if(page==='ga_ilgye')return R(PageGaIlgye,{user});
+    if(page==='ga_ledger')return R(PageGaLedger,{user});
     if(page==='leave')return R(PageLeave,{user});
     if(page==='admin')return R(PageAdmin,{user});
     return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🚧'),'준비 중'));
