@@ -2015,7 +2015,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                               if(dirty.current){if(timer.current)clearTimeout(timer.current);save();}
                             },
                             style:{...taBase,textAlign:al,minHeight:Math.max(26,mh),outline:'2px solid var(--p)',outlineOffset:-2,borderRadius:4,background:'#fff',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                        :viewBox(key,stl,al,mh,{cursor:'text'},{onDoubleClick:()=>setInlineKey(key),title:'더블클릭하면 이 자리에서 바로 수정 (Enter로 완료)'})),
+                        :viewBox(key,stl,al,mh,{cursor:'text'},{onDoubleClick:()=>{if(onDblCell)onDblCell(sgId(sec.base+ri,di));else setInlineKey(key);},title:'더블클릭하면 편집 모드로 전환 (그 칸에 바로 커서)'})),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
                     edit&&rs===1&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-5,height:10,cursor:'row-resize',zIndex:3}}),
@@ -2699,7 +2699,7 @@ function PageProdSchedule(){
                     R('button',{className:'btn bw btn-sm',onClick:()=>printWeek([aw]),title:'이 주차만 인쇄'},'🖨 이 주 인쇄'),
                     R('span',{style:{fontSize:10.5,color:'#C9BFB7'}},'|'),
                     R('div',{ref:setTbEl,style:{display:'flex',alignItems:'center'}}))
-                :R('span',{style:{fontSize:11.5,color:'var(--tm)'}},'보기 모드 · 칸을 더블클릭하면 그 자리에서 바로 수정 · [✏️ 편집]을 누르면 화면 그대로 표에서 입력 (칸 이동 ↑↓←→ · Alt+Enter 줄 추가 · 라벨에 마우스를 올리면 ＋/− 줄 추가·삭제)'));
+                :R('span',{style:{fontSize:11.5,color:'var(--tm)'}},'보기 모드 · 칸을 더블클릭하면 편집 모드로 전환되어 그 칸부터 바로 입력 · 편집 중 칸 더블클릭 = 편집 완료 (칸 이동 ↑↓←→ · Alt+Enter 줄 추가 · 라벨에 마우스를 올리면 ＋/− 줄 추가·삭제)'));
           })(),
           /* 보기·편집 같은 구조 — 편집 전환 시 표를 새로 그리지 않아 화면이 바뀌거나 흔들리지 않음 */
           R('div',null,
@@ -2714,7 +2714,7 @@ function PageProdSchedule(){
                 /* 선택 모드: 표 위에 투명 덮개 — 누르면 선택/해제 (표 크기·위치 변화 없음, 실수로 수정되지 않음) */
                 return R('div',{key:ws,style:{position:'relative'}},
                   R(SchedGrid,{weekStart:ws,gridFs,gridColW,onColW:setGridColW,edit:schedEdit,flat:true,
-                    onDblFinish:()=>toggleEdit(false),toolbarEl:tbEl,active:ws===aw,onActivate:setActiveWs}),
+                    onDblCell:dblToEdit,onDblFinish:()=>toggleEdit(false),toolbarEl:tbEl,active:ws===aw,onActivate:setActiveWs}),
                   selMode&&!schedEdit&&R('div',{onClick:()=>setSelWk(p=>({...p,[ws]:!p[ws]})),title:on?'선택 해제':'이 주차 선택',
                     style:{position:'absolute',inset:0,zIndex:5,cursor:'pointer',
                            background:on?'rgba(217,79,30,0.10)':'rgba(255,255,255,0.0)',
