@@ -1024,6 +1024,9 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
       그대로라 초록 배경에 초록 글씨 = 안 보이던 문제 (2026-10-16 일계표 ⚡잔액 버튼) ── */
 .btn.bok{color:#fff}
 
+/* 즐겨찾기 ▲▼: 휴대폰(터치) 전용 — PC는 드래그로 순서 변경 */
+@media(hover:hover) and (pointer:fine){.fav-ord{display:none!important}}
+
 /* ── 모션 최소화 존중 (최종 확인) ── */
 @media(prefers-reduced-motion:reduce){
   .tab:active,.btn:active{transform:none}
@@ -21645,7 +21648,50 @@ function PageShipSort({mats,hqItems}){
           R('button',{className:'btn bp btn-sm',onClick:()=>cfmPrepare(),disabled:!!cfmBusy,
             title:'다가오는 발주일을 자동으로 찾아 확정을 준비합니다'},cfmBusy||'✅ 컬리 발주 확정')
         )
-      )
+      ),
+      /* ── 발주 내용 대시보드: 날짜별 → 센터별 → 품목·재고 상태를 카드에서 바로 ── */
+      (()=>{
+        const t=today2();
+        const up=((kurly&&kurly.rows)||[]).filter(r=>r.date&&r.date>=t);
+        if(!up.length)return null;
+        const byD={};up.forEach(r=>{(byD[r.date]=byD[r.date]||[]).push(r);});
+        const stBadge=(r)=>{
+          const st=findStock(fixAiName(r.name));
+          if(!st||!(st.matchedName||st.code))return R('span',{style:{fontSize:9,color:'#C9BFB7',marginLeft:4}},'연결없음');
+          const enough=(+st.stock||0)>=(+r.total||0);
+          return R('span',{style:{fontSize:9,fontWeight:800,marginLeft:4,padding:'0 5px',borderRadius:8,
+            background:enough?'#DCFCE7':'#FEE2E2',color:enough?'#15803D':'#B91C1C'}},
+            enough?'✓':'-'+fN((+r.total||0)-(+st.stock||0)));
+        };
+        return R('div',{style:{marginTop:10,display:'flex',flexDirection:'column',gap:10}},
+          ...Object.keys(byD).sort().map(d=>{
+            const rows=byD[d];
+            const byC={};rows.forEach(r=>{const c=normCenter2(r.center);(byC[c]=byC[c]||[]).push(r);});
+            const box=rows.reduce((a,r)=>a+(+r.box||0),0),tot=rows.reduce((a,r)=>a+(+r.total||0),0);
+            const lack=rows.filter(r=>{const st=findStock(fixAiName(r.name));return st&&(st.matchedName||st.code)&&(+st.stock||0)<(+r.total||0);}).length;
+            return R('div',{key:d,style:{border:'1.5px solid #FED7AA',borderRadius:12,background:'#FFFDF9',overflow:'hidden'}},
+              R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',background:'#FFF7ED',padding:'7px 11px'}},
+                R('span',{style:{fontSize:13,fontWeight:800,color:'var(--p)'}},'📦 '+d.slice(5).replace('-','/')+dowLabel(d)+' 입고'),
+                R('span',{style:{fontSize:11,fontWeight:700,color:'var(--tm)'}},box+'박스 · '+fN(tot)+'개 · 팔레트 '+(box/30).toFixed(2)),
+                lack>0?R('span',{style:{fontSize:10,fontWeight:800,color:'#B91C1C',background:'#FEE2E2',borderRadius:999,padding:'1px 8px'}},'⚠ 재고 부족 '+lack)
+                      :R('span',{style:{fontSize:10,fontWeight:800,color:'#15803D',background:'#DCFCE7',borderRadius:999,padding:'1px 8px'}},'✓ 전 품목 출고 가능'),
+                R('div',{style:{flex:1}}),
+                R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,onClick:()=>cfmPrepare(d),
+                  title:'컬리 포털에 입고예약시간·출고유형·소비기한 자동 입력 → 승인 후 거래명세서 생성'},'📝 소비기한 입력')),
+              R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:8,padding:'8px 10px'}},
+                ...Object.entries(byC).map(([c,items])=>R('div',{key:c,style:{border:'1px solid #F0E6DA',borderRadius:9,background:'#fff',padding:'7px 10px'}},
+                  R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}},
+                    R('span',{style:{fontSize:11.5,fontWeight:800}},c),
+                    R('span',{style:{fontSize:10,fontWeight:700,color:'var(--p)'}},items.reduce((a,r)=>a+(+r.box||0),0)+'박스')),
+                  ...items.map((r,i)=>R('div',{key:i,style:{display:'flex',alignItems:'center',gap:5,fontSize:10.5,padding:'2px 0',borderTop:i?'1px solid #FAF5EF':'none'}},
+                    R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:r.name},fixAiName(r.name)),
+                    R('span',{style:{fontWeight:800,flexShrink:0}},r.box+'박스'),
+                    R('span',{style:{color:'var(--tm)',flexShrink:0}},fN(r.total)+'개'),
+                    stBadge(r)))
+                ))
+              ));
+          }));
+      })()
     ),
     /* 확정 승인 화면 — 여기서 승인해야만 거래명세서가 생성된다 */
     cfm&&R(Portal,null,R('div',{className:'mbg'},
@@ -22571,11 +22617,23 @@ function App(){
     },600);
   };
   const toggleNavFav=(id)=>persistNavFavs(navFavs.includes(id)?navFavs.filter(x=>x!==id):[...navFavs,id]);
-  /* 즐겨찾기 순서 이동 (▲▼) */
+  /* 즐겨찾기 순서 이동 — PC는 드래그, 휴대폰은 ▲▼ */
   const moveNavFav=(id,dir)=>{
     const arr=[...navFavs];const i=arr.indexOf(id);const j=i+dir;
     if(i<0||j<0||j>=arr.length)return;
     const t=arr[i];arr[i]=arr[j];arr[j]=t;
+    persistNavFavs(arr);
+  };
+  const favDragId=useRef(null);
+  const[favOverId,setFavOverId]=useState(null);
+  const dropNavFav=(dstId)=>{
+    const src=favDragId.current;
+    favDragId.current=null;setFavOverId(null);
+    if(!src||src===dstId)return;
+    const arr=navFavs.filter(x=>x!==src);
+    const j=arr.indexOf(dstId);
+    if(j<0)return;
+    arr.splice(j,0,src);           /* 놓은 항목 자리 '앞'에 끼워 넣기 */
     persistNavFavs(arr);
   };
   /* 사이드바 메뉴 검색 */
@@ -23535,6 +23593,10 @@ function App(){
                 R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(n.ic?n.ic+' ':'')+n.l),
                 R('span',{style:{fontSize:9,color:'#C9BFB7',flexShrink:0,marginLeft:6}},String(sec).replace(/^[^가-힣A-Za-z0-9]+\s*/,'').slice(0,7))));
           })()),
+        /* ── 🏠 홈 (즐겨찾기 위 고정) ── */
+        !navEditMode&&!sbQ.trim()&&R('div',{className:'ni'+(page==='home'?' act':''),
+          style:{fontWeight:700},
+          onClick:()=>{setPage('home');setSbOpen(false);}},'🏠 홈'),
         /* ── ⭐ 즐겨찾기 (사용자별 · 항목의 별을 눌러 추가 · ▲▼로 순서 조정) ── */
         !navEditMode&&!sbQ.trim()&&navFavs.length>0&&R('div',{className:'sb-folder',style:{marginBottom:6}},
           R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',fontSize:12,fontWeight:700,color:'#B45309',margin:'2px 8px',userSelect:'none'}},'⭐ 즐겨찾기'),
@@ -23544,9 +23606,19 @@ function App(){
             return favList.map((id,idx)=>{
               const it=findNavItem(id);
               return R('div',{key:'fav_'+id,className:'ni'+(page===id?' act':''),
-                onClick:()=>{setPage(id);setSbOpen(false);},style:{paddingLeft:24,cursor:'pointer'}},
+                draggable:true,title:'드래그해서 순서 변경',
+                onDragStart:e=>{favDragId.current=id;try{e.dataTransfer.effectAllowed='move';}catch(err){}},
+                onDragOver:e=>{if(favDragId.current){e.preventDefault();if(favOverId!==id)setFavOverId(id);}},
+                onDragLeave:()=>{if(favOverId===id)setFavOverId(null);},
+                onDrop:e=>{e.preventDefault();dropNavFav(id);},
+                onDragEnd:()=>{favDragId.current=null;setFavOverId(null);},
+                onClick:()=>{setPage(id);setSbOpen(false);},
+                style:{paddingLeft:24,cursor:'grab',
+                  boxShadow:favOverId===id?'inset 0 2px 0 var(--p)':'none',
+                  opacity:favDragId.current===id?0.5:1}},
                 R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},it.l),
-                R('span',{style:{display:'inline-flex',flexShrink:0},onClick:e=>e.stopPropagation()},
+                /* 휴대폰(터치)에서는 드래그가 안 되므로 ▲▼ 유지 — PC에서는 CSS로 숨김 */
+                R('span',{className:'fav-ord',style:{display:'inline-flex',flexShrink:0},onClick:e=>e.stopPropagation()},
                   R('button',{title:'위로',disabled:idx===0,style:Object.assign({},ordBtn,{opacity:idx===0?0.25:1}),
                     onClick:e=>{e.stopPropagation();moveNavFav(id,-1);}},'▲'),
                   R('button',{title:'아래로',disabled:idx===favList.length-1,style:Object.assign({},ordBtn,{opacity:idx===favList.length-1?0.25:1}),
