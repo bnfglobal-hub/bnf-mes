@@ -1172,6 +1172,7 @@ window._isStandalone=window.matchMedia('(display-mode: standalone)').matches||wi
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 console.log('%c[BNF MES] BUILD 2026-07-16-INV-SCROLL','color:#fff;background:#DC2626;font-weight:bold;padding:2px 8px;border-radius:4px');
@@ -8359,7 +8360,7 @@ function PageGaQuote({user}){
   const save=async()=>{
     setSt('저장 중...');
     try{
-      const body=JSON.stringify({...q,date:today2(),note:GQ_NOTE,by:(user&&user.name)||'',at:now2()});
+      const body=JSON.stringify({...q,date:today2(),note:q.note==null?GQ_NOTE:q.note,by:(user&&user.name)||'',at:now2()});
       const{error}=await sbClient.storage.from('bnf-files').upload('ga-quotes/'+q.id+'.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
       setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
@@ -8372,9 +8373,9 @@ function PageGaQuote({user}){
     if(x.id===q.id)setQ(newQuote());
     loadList();
   };
-  /* 인쇄: 화면 양식을 복제해 입력칸을 글자로 바꿔서 출력 (화면과 같은 디자인) */
-  const print=()=>{
-    const src=docRef.current;if(!src)return;
+  /* 화면 양식을 복제해 입력칸을 글자(span)로 바꾼 사본 — 인쇄·PDF 공용 */
+  const cloneDoc=()=>{
+    const src=docRef.current;if(!src)return null;
     const cl=src.cloneNode(true);
     const srcFields=src.querySelectorAll('input,textarea');
     cl.querySelectorAll('input,textarea').forEach((el,i)=>{
@@ -8386,6 +8387,59 @@ function PageGaQuote({user}){
       sp.textContent=v||'';
       el.parentNode.replaceChild(sp,el);
     });
+    return cl;
+  };
+  const pdfName=()=>'견적서_'+(String(q.to||'').replace(/[\\/:*?"<>|]/g,'').trim()||'수신처')+'_'+today2()+'.pdf';
+  const[pdf,setPdf]=useState(null);           /* {blob,name,url} — 방금 만든 PDF (카톡 공유용) */
+  /* PDF 저장: 양식을 고해상 이미지로 떠서 A4 가로 PDF 생성 → 기기에 다운로드 + 공유 링크 업로드 */
+  const savePdf=async()=>{
+    if(typeof html2canvas==='undefined'||!window.jspdf){alert('PDF 도구를 아직 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');return;}
+    const cl=cloneDoc();if(!cl)return;
+    setSt('PDF 만드는 중...');
+    const host=document.createElement('div');
+    host.style.cssText='position:fixed;left:-10000px;top:0;background:#fff';
+    host.appendChild(cl);document.body.appendChild(host);
+    try{
+      const canvas=await html2canvas(cl,{scale:2,backgroundColor:'#ffffff',useCORS:true});
+      const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+      const pw=297-16,ph=210-16;
+      const r=Math.min(pw/canvas.width,ph/canvas.height);
+      doc.addImage(canvas.toDataURL('image/jpeg',0.93),'JPEG',(297-canvas.width*r)/2,8,canvas.width*r,canvas.height*r);
+      const blob=doc.output('blob');
+      const name=pdfName();
+      const a=document.createElement('a');const u=URL.createObjectURL(blob);
+      a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(u),60000);
+      let url='';
+      try{
+        const path='ga-quotes/pdf/'+q.id+'.pdf';
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,blob,{upsert:true,contentType:'application/pdf'});
+        if(!error){const{data}=sbClient.storage.from('bnf-files').getPublicUrl(path);url=(data&&data.publicUrl)||'';}
+      }catch(e){}
+      setPdf({blob,name,url});
+      setSt('PDF 저장됨 — 아래에서 카톡으로 보낼 수 있습니다');
+    }catch(e){setSt('');alert('PDF 생성 실패: '+e.message);}
+    finally{host.remove();}
+  };
+  /* 카톡 나에게 보내기: 휴대폰은 공유시트로 PDF 파일 첨부 → 카카오톡 '나에게 보내기' 선택.
+     공유시트가 없는 PC는 링크를 복사해 카톡 PC 나와의채팅에 붙여넣기 */
+  const sendKakao=async()=>{
+    if(!pdf)return;
+    try{
+      const file=new File([pdf.blob],pdf.name,{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:pdf.name});
+        setSt('공유시트에서 카카오톡 → 나에게 보내기를 선택하세요');
+        return;
+      }
+    }catch(e){if(e&&e.name==='AbortError')return;}
+    try{await navigator.clipboard.writeText(pdf.url||pdf.name);
+      setSt(pdf.url?'🔗 PDF 링크 복사됨 — 카톡 나와의 채팅에 붙여넣으세요':'링크 업로드 실패 — 다운로드된 PDF 파일을 카톡에 끌어다 놓으세요');
+    }catch(e){setSt('다운로드된 PDF 파일을 카톡 나와의 채팅에 끌어다 놓으세요');}
+  };
+  /* 인쇄: 복제 사본을 A4 가로 한 장에 맞춰 출력 (화면과 같은 디자인) */
+  const print=()=>{
+    const cl=cloneDoc();if(!cl)return;
     const html='<!doctype html><html><head><meta charset="utf-8"><title>견적서_'+String(q.to||'').replace(/[<>&"]/g,'')+'_'+today2()+'</title><style>'+
       '@page{size:A4 landscape;margin:8mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
       'html,body{margin:0;padding:0;background:#fff}'+GQ_CSS+
@@ -8410,7 +8464,16 @@ function PageGaQuote({user}){
         R('button',{className:'btn bw',onClick:()=>{if(confirm('새 견적서를 작성할까요? (저장하지 않은 내용은 사라집니다)'))setQ(newQuote());}},'＋ 새 견적서'),
         R('button',{className:'btn bw',onClick:()=>setQ(p=>({...p,id:'q'+Date.now().toString(36),date:today2()}))},'⧉ 복사해서 새로'),
         R('button',{className:'btn bp',onClick:save},'💾 저장'),
+        R('button',{className:'btn',style:{background:'#B91C1C',color:'#fff',fontWeight:800},onClick:savePdf},'📄 PDF 저장'),
         R('button',{className:'btn',style:{background:'#0F766E',color:'#fff',fontWeight:800},onClick:print},'🖨 인쇄'))),
+    /* PDF 생성 직후: 카톡 나에게 보내기 바 */
+    pdf&&R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',margin:'0 0 10px',padding:'9px 12px',
+        borderRadius:11,border:'1.5px solid #FDE68A',background:'#FFFBEB'}},
+      R('span',{style:{fontSize:12,fontWeight:700,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},'📄 '+pdf.name+' 저장됨'),
+      R('button',{className:'btn btn-sm',style:{background:'#FEE500',color:'#3C1E1E',fontWeight:800},onClick:sendKakao},'💬 카톡 나에게 보내기'),
+      pdf.url&&R('button',{className:'btn bw btn-sm',onClick:()=>{navigator.clipboard.writeText(pdf.url).then(()=>setSt('🔗 링크 복사됨')).catch(()=>{});}},'🔗 링크 복사'),
+      R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'휴대폰: 공유시트에서 카카오톡 → 나에게 보내기 · PC: 링크 복사 후 나와의 채팅에 붙여넣기'),
+      R('button',{className:'btn bw btn-sm',style:{marginLeft:'auto'},onClick:()=>setPdf(null)},'✕')),
     R(ZoomPan,{id:'gaquote',width:960},
     R('div',{style:{overflowX:'auto',paddingBottom:6}},
     R('div',{ref:docRef,className:'gq-doc'},
@@ -8493,11 +8556,12 @@ function PageGaQuote({user}){
             R('td',{className:'gq-r'},fmt(sumAmt)),
             R('td',{className:'gq-r'},fmt(sumTax)),
             R('td',null,'')),
-          /* 비고 */
+          /* 비고 (직접 수정 가능 · 견적서마다 저장) */
           R('tr',null,
             R('td',{style:{height:150}},'비고'),
             R('td',{colSpan:6,className:'gq-note'},
-              R('div',{style:{whiteSpace:'pre-wrap',minHeight:142}},GQ_NOTE))))))
+              R('textarea',{value:q.note==null?GQ_NOTE:q.note,onChange:e=>up('note',e.target.value),
+                placeholder:'비고 내용을 입력하세요'}))))))
     )),
     /* 저장된 견적서 목록 */
     R('div',{className:'card',style:{marginTop:16,padding:'12px 14px'}},
