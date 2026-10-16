@@ -8705,26 +8705,37 @@ function PageGaIlgye({user}){
     if(!d.checks.ecount_0)d.checks.ecount_0={by:user.name,at:new Date().toISOString(),auto:true};
     return d;
   });
-  const fetchBalances=async()=>{
-    if(loadErr||!doc)return alert('기록을 불러오지 못해 지금은 저장할 수 없습니다.');
-    setBalBusy('이카운트 조회 중...');
+  const fetchBalances=async(silent)=>{
+    if(loadErr||!doc){if(!silent)alert('기록을 불러오지 못해 지금은 저장할 수 없습니다.');return;}
+    setBalBusy(silent?'📡 잔액 자동 조회 중...':'이카운트 조회 중...');
     try{
       const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),120000);
       const r=await fetch(ILGYE_COLLECTOR+'/ilgye/balances?date='+date,{signal:ctl.signal});
       clearTimeout(tm);
       const j=await r.json();
-      if(j&&j.error){setBalBusy('');return alert(j.error==='LOGIN_REQUIRED'?'사무실 PC 수집기에서 이카운트 로그인이 필요합니다.':'이카운트 조회 실패: '+j.error);}
+      if(j&&j.error){setBalBusy('');if(!silent)alert(j.error==='LOGIN_REQUIRED'?'사무실 PC 수집기에서 이카운트 로그인이 필요합니다.':'이카운트 조회 실패: '+j.error);return;}
       const accounts=(Array.isArray(j&&j.accounts)?j.accounts:[]).map(a=>({name:String(a.name||''),prev:num(a.prev),inAmt:num(a.inAmt),outAmt:num(a.outAmt),bal:a.bal!=null?num(a.bal):null}));
       const cards=(Array.isArray(j&&j.cards)?j.cards:[]).map(c=>({name:String(c.name||''),amt:num(c.amt)}));
-      if(!accounts.length&&!cards.length){setBalBusy('');return alert('조회 결과가 비어 있습니다.');}
+      if(!accounts.length&&!cards.length){setBalBusy('');if(!silent)alert('조회 결과가 비어 있습니다.');return;}
       const ok=await saveBalances({src:'ecount',at:new Date().toISOString(),by:user.name,accounts,cards});
       setBalBusy('');
       if(ok)flash('이카운트 잔액 반영됨');
     }catch(e){
       setBalBusy('');
-      alert('사무실 PC의 이카운트 수집기에 연결하지 못했습니다.\n(수집기 연결 전이거나 수집기가 꺼져 있습니다 — 그동안은 [✏ 직접 입력]으로 적어 주세요)');
+      if(!silent)alert('사무실 PC의 이카운트 수집기에 연결하지 못했습니다.\n(수집기 연결 전이거나 수집기가 꺼져 있습니다 — 그동안은 [✏ 직접 입력]으로 적어 주세요)');
     }
   };
+  /* 페이지에 들어오면(또는 날짜를 바꾸면) 그날 잔액이 비어 있을 때 자동으로 불러온다.
+     수집기 미연결(집·휴대폰)이면 조용히 넘어가고 기존 안내문만 보인다. */
+  const balAuto=useRef({});
+  useEffect(()=>{
+    if(loadErr||!doc)return;
+    if(bal&&(bal.accounts||[]).length)return;   /* 이미 그날 잔액 있음(자동/직접) */
+    if(balAuto.current[date])return;            /* 날짜당 1회만 시도 */
+    balAuto.current[date]=1;
+    const t=setTimeout(()=>fetchBalances(true),800);
+    return()=>clearTimeout(t);
+  },[date,doc,loadErr]);
   const startEdit=()=>{
     const cur=((bal&&bal.accounts)||[]).map(a=>Object.assign({},a));
     setBalDraft(cur.length?cur:[{name:'',prev:'',inAmt:'',outAmt:''}]);
@@ -8763,7 +8774,7 @@ function PageGaIlgye({user}){
               R('td',{style:td},won(calcBal(a))),
               R('td',null,R('button',{className:'btn bw btn-sm',onClick:()=>setBalDraft(d=>d.filter((_,j)=>j!==i)),title:'행 삭제'},'✕')));
           }))))
-      :accs.length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'아직 잔액이 없습니다 — [⚡ 잔액 불러오기](사무실 PC 수집기 연결 후) 또는 [✏ 직접 입력]'):
+      :accs.length===0?R('div',{style:{fontSize:11.5,color:balBusy?'#15803D':'var(--tm)',fontWeight:balBusy?700:400}},balBusy||'아직 잔액이 없습니다 — 사무실 PC에서는 자동으로 불러옵니다 · [⚡ 잔액 불러오기] 또는 [✏ 직접 입력]'):
         R('div',{className:'tw'},R('table',null,head,
           R('tbody',null,
             ...accs.map((a,i)=>{
