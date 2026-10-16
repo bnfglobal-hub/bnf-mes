@@ -21634,6 +21634,23 @@ function PageShipSort({mats,hqItems}){
     });
     aggregate(Object.entries(byC).map(([center,items])=>({center,date:d,items})),d);
   };
+  /* ── 거래명세서 출력: 포털 '거래명세서 내역'에서 최근 입고예정일 PDF를 받아
+        사무실 프린터로 짝수 페이지만 인쇄 (창원 3부 · 그 외 1부) ── */
+  const[stmtBusy,setStmtBusy]=useState('');
+  const[stmtRes,setStmtRes]=useState(null);
+  const stmtPrint=async()=>{
+    setStmtRes(null);setStmtBusy('🖨 거래명세서 내려받아 인쇄 중... (1~2분)');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),240000);
+      const r=await fetch(BRIDGE+'/statements/print',{signal:ctl.signal});clearTimeout(tm);
+      const j=await r.json();
+      setStmtBusy('');
+      if(j&&j.error==='LOGIN_REQUIRED'){setStmtRes({err:'컬리 로그인이 필요합니다 — 사무실 PC 전용 크롬에서 로그인해 두면 다시 눌렀을 때 그 세션으로 이어집니다'});return;}
+      if(j&&j.error){setStmtRes({err:'실패: '+j.error});return;}
+      if(j&&Array.isArray(j.printed))setStmtRes(j);
+      else setStmtRes({err:'결과를 확인하지 못했습니다'});
+    }catch(e){setStmtBusy('');setStmtRes({err:'사무실 PC 수집기에 연결하지 못했습니다 (PC에서만 사용 가능)'});}
+  };
 
   const aggregate=(orders,dateStr)=>{
     const hasExisting=parsed&&parsed.byCenter;
@@ -21756,12 +21773,22 @@ function PageShipSort({mats,hqItems}){
             return R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'다가오는 컬리 발주 없음'+(kurly&&kurly.at?(' · 마지막 수집 '+new Date(kurly.at).toLocaleString('ko-KR')):''));
           })()
         ),
-        R('div',{style:{display:'flex',gap:6}},
+        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          R('button',{className:'btn bw btn-sm',disabled:!!stmtBusy,onClick:stmtPrint,
+            title:'포털 거래명세서 내역에서 최근 입고예정일 PDF를 받아 사무실 프린터로 인쇄 — 짝수 페이지만, 창원 3부·그 외 1부'},stmtBusy||'🖨 거래명세서 출력'),
           R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);loadUpcoming();}},'🛒 컬리 발주 확인'),
           R('button',{className:'btn bp btn-sm',onClick:()=>cfmPrepare(),disabled:!!cfmBusy,
             title:'다가오는 발주일을 자동으로 찾아 확정을 준비합니다'},cfmBusy||'✅ 컬리 발주 확정')
         )
       ),
+      stmtRes&&R('div',{style:{marginTop:8,padding:'8px 12px',borderRadius:9,fontSize:12,fontWeight:700,
+          background:stmtRes.err?'#FEF2F2':'#F0FDF4',border:'1px solid '+(stmtRes.err?'#FECACA':'#BBF7D0'),
+          color:stmtRes.err?'#B91C1C':'#15803D',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        stmtRes.err?('⚠ '+stmtRes.err)
+          :R('span',null,'🖨 '+(stmtRes.date||'')+' 거래명세서 인쇄 완료 — '+
+            (stmtRes.printed||[]).map(x=>String(x.center||x.code).split(' ')[0]+' '+x.copies+'부'+(x.printError?'(인쇄실패)':'')).join(' · ')+
+            ' (짝수 페이지만)'),
+        R('button',{className:'btn bw btn-sm',style:{marginLeft:'auto'},onClick:()=>setStmtRes(null)},'✕')),
       /* ── 발주 내용 대시보드: 날짜별 → 센터별 → 품목·재고 상태를 카드에서 바로 ── */
       (()=>{
         const t=today2();
