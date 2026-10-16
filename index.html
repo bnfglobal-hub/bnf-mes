@@ -1830,6 +1830,18 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
      첫 번째 표로 이동해 버리던 문제(2026-10-01) 수정 */
   const NAV_ROWS=SCHED_GRID_SECS.reduce((a,s)=>a+effN(s),0);
   const sgId=(r,c)=>weekStart+'_'+r+'_'+c;
+  /* 보기 모드 더블클릭(PC)·두 번 탭(휴대폰) → 편집 모드 전환 — 칸 전체·요일 머리글·구역 라벨 어디서든 (2026-10-16) */
+  const tapRef=useRef({t:0,x:0,y:0});
+  const goEdit=(sg)=>{if(onDblCell)onDblCell(sg);};
+  const dblProps=(sg,inlineFallback)=>(edit||(!onDblCell&&!inlineFallback))?{}:{
+    onDoubleClick:()=>{if(onDblCell)goEdit(sg);else inlineFallback();},
+    onTouchEnd:e=>{
+      if(!onDblCell||(e.touches&&e.touches.length)||!e.changedTouches||!e.changedTouches[0])return;
+      const t=e.changedTouches[0],now=Date.now(),p=tapRef.current;
+      if(now-p.t<320&&Math.abs(t.clientX-p.x)<24&&Math.abs(t.clientY-p.y)<24){
+        tapRef.current={t:0,x:0,y:0};e.preventDefault();goEdit(sg);
+      }else tapRef.current={t:now,x:t.clientX,y:t.clientY};
+    }};
   const focusCell=(r,c)=>{
     const el=document.querySelector('textarea[data-sg="'+sgId(r,c)+'"]');
     if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){}
@@ -1948,7 +1960,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
         R('thead',null,R('tr',null,
           R('th',{style:{...tdBase,position:'relative',background:'#F4F1EE',padding:'6px 4px',fontSize:11}},'',resizeHandle(0)),
           ...days.map((d,i)=>{const td=isToday(d);
-            return R('th',{key:d,style:{...tdBase,position:'relative',background:td?'#FFF3EC':'#F4F1EE',padding:'6px 4px',fontSize:12,fontWeight:800,color:i===0?'#DC2626':i===6?'#2563EB':'var(--t)'}},
+            return R('th',{key:d,...dblProps(sgId(0,i)),title:edit?undefined:'더블클릭하면 편집 모드로 전환',style:{...tdBase,position:'relative',background:td?'#FFF3EC':'#F4F1EE',padding:'6px 4px',fontSize:12,fontWeight:800,color:i===0?'#DC2626':i===6?'#2563EB':'var(--t)'}},
               fSD(d)+' ('+DOW[i]+')'+(td?' · 오늘':''),resizeHandle(i+1));}))),
         R('tbody',null,
           ...secWithBase.flatMap(sec=>
@@ -1956,7 +1968,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
               const rk=sec.k+'_'+ri;
               const mh=(rowh||{})[rk]||26;
               return R('tr',{key:sec.k+ri},
-                ri===0&&R('td',{rowSpan:sec.n,className:'sg-lab',style:{...tdBase,position:'relative',background:'#F4F1EE',textAlign:'center',fontWeight:800,fontSize:12,verticalAlign:'middle',padding:'4px 2px'}},
+                ri===0&&R('td',{rowSpan:sec.n,className:'sg-lab',...dblProps(sgId(sec.base,0)),title:edit?undefined:'더블클릭하면 편집 모드로 전환',style:{...tdBase,position:'relative',background:'#F4F1EE',textAlign:'center',fontWeight:800,fontSize:12,verticalAlign:'middle',padding:'4px 2px'}},
                   R('div',null,sec.l),
                   /* 편집 모드: 이 구역에 줄 추가/삭제 — 라벨에 마우스를 올리면 겹쳐 표시(표 크기 변화 없음) */
                   edit&&R('div',{className:'sg-rowbtn',style:{position:'absolute',inset:0,gap:3,justifyContent:'center',alignItems:'center',background:'rgba(244,241,238,.94)',zIndex:4}},
@@ -1976,6 +1988,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                   const al=(aligns||{})[sec.k]||'left';
                   /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
                   return R('td',{key:key,rowSpan:rs>1?rs:undefined,colSpan:cs>1?cs:undefined,
+                    ...(inlineKey===key?{}:dblProps(sgId(sec.base+ri,di),()=>setInlineKey(key))),
                     onClick:edit?(e)=>{if(e.target===e.currentTarget){const t=e.currentTarget.querySelector('textarea');if(t)t.focus();}}:undefined,
                     onMouseDown:edit?(e)=>{
                       const rct=e.currentTarget.getBoundingClientRect();
@@ -2023,7 +2036,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                               if(dirty.current){if(timer.current)clearTimeout(timer.current);save();}
                             },
                             style:{...taBase,textAlign:al,minHeight:Math.max(26,mh),outline:'2px solid var(--p)',outlineOffset:-2,borderRadius:4,background:'#fff',fontSize:(stl.fs?Math.max(9,Math.min(26,stl.fs+baseFs-12)):baseFs),fontWeight:stl.b?800:400}})
-                        :viewBox(key,stl,al,mh,{cursor:'text'},{onDoubleClick:()=>{if(onDblCell)onDblCell(sgId(sec.base+ri,di));else setInlineKey(key);},title:'더블클릭하면 편집 모드로 전환 (그 칸에 바로 커서)'})),
+                        :viewBox(key,stl,al,mh,{cursor:'text'},{title:'더블클릭하면 편집 모드로 전환 (그 칸에 바로 커서)'})),
                     /* 편집 모드: 칸 아래 경계 드래그 → 줄 높이, 오른쪽 경계 드래그 → 열 너비 */
                     edit&&rs===1&&R('div',{onMouseDown:startRowResize(rk),title:'드래그해서 줄 높이 조절',
                       style:{position:'absolute',left:0,right:0,bottom:-5,height:10,cursor:'row-resize',zIndex:3}}),
