@@ -18782,7 +18782,8 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'cost',l:'원가분석',ic:'💰'},
     {id:'bizplan',l:'사업계획',ic:'🎯'},
     {id:'data',l:'데이터관리',ic:'💾'},
-    {id:'admin',l:'사용자 관리',ic:'👤'}
+    {id:'admin',l:'사용자 관리',ic:'👤'},
+    {id:'remote',l:'원격접속',ic:'🖥'}
   ]}
 ];
 function loadNavSections(){
@@ -19348,9 +19349,32 @@ function XlPreviewModal({preview,onClose,onConfirm}){
   );
 }
 
+/* ═══ 관리자: 원격접속 — 노트북·집에서 크롬 원격 데스크톱으로 회사 PC 접속 ═══ */
+function PageRemote(){
+  const CRD='https://remotedesktop.google.com/access';
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'🖥 원격접속'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'크롬 원격 데스크톱으로 회사 PC(사무실 허브)에 접속합니다'))),
+    R('div',{className:'card',style:{maxWidth:640,padding:'18px 20px'}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:14}},
+        R('div',{style:{fontSize:15,fontWeight:800}},'회사 PC (BNF 사무실)'),
+        R('span',{style:{fontSize:10.5,fontWeight:700,color:'#15803D',background:'#DCFCE7',borderRadius:999,padding:'2px 9px'}},'항상 켜짐 · 절전 안 함'),
+        R('div',{style:{flex:1}}),
+        R('button',{className:'btn bp',onClick:()=>window.open(CRD,'_blank','noopener')},'🖥 크롬 원격 데스크톱 열기')),
+      R('div',{style:{fontSize:12.5,lineHeight:2,color:'var(--t)'}},
+        R('div',null,'① 노트북(또는 이 기기) 크롬에서 회사 PC와 같은 구글 계정으로 로그인'),
+        R('div',null,'② 위 버튼으로 원격 데스크톱 열기 → 목록에서 회사 PC 선택'),
+        R('div',null,'③ PIN 입력 → 회사 PC 화면이 그대로 열립니다'),
+        R('div',{style:{color:'var(--tm)',fontSize:11.5}},'④ 휴대폰·태블릿은 Chrome Remote Desktop 앱을 설치하면 같은 방법으로 접속됩니다')),
+      R('div',{style:{marginTop:12,padding:'9px 12px',borderRadius:9,background:'#FFFBEB',border:'1px solid #FDE68A',fontSize:11.5,color:'#92400E'}},
+        '💡 회사 PC에는 컬리·이카운트·AJ 수집기가 항상 돌고 있어 끄거나 재부팅하지 않는 것이 좋습니다. 접속만 하고 작업 후 연결 해제(창 닫기)하면 됩니다.')));
+}
+
 /* ─── 🔍 글로벌 검색 모달 (Ctrl+K) ─── */
 /* ═══ 권한: 관리자 전용 페이지 + 관리자가 개별로 끈 메뉴를 어디서든 차단 ═══ */
-const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','bizplan','data','admin','cats','operation','dart','wehago']);
+const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','bizplan','data','admin','cats','operation','dart','wehago','remote']);
 function isPageBlockedFor(user,pid){
   if(!user)return false;
   if(['superadmin','admin'].includes(user.role))return false;   /* 관리자 전부 허용 */
@@ -19399,7 +19423,8 @@ const NAV_PAGES_INDEX=[
   {p:'purchase_data',title:'매입 자료',ic:'🛒',keys:['매입','구매','purchase']},
   {p:'pricelookup',title:'매입단가 조회',ic:'🔎',keys:['매입단가','단가','가격','원가','price','매입가']},
   {p:'wehago',title:'재무 현황',ic:'🏦',keys:['재무','위하고','손익','재무상태표','회계','wehago','finance']},
-  {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']}
+  {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']},
+  {p:'remote',title:'원격접속',ic:'🖥',keys:['원격','원격접속','원격제어','크롬원격','remote','crd']}
 ];
 
 function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
@@ -23482,6 +23507,7 @@ function App(){
     if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
     if(page==='dart')return R(PageDartLookup,{});
+    if(page==='remote'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageRemote,{});}
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
