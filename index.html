@@ -21324,6 +21324,9 @@ function PageShipSort({mats,hqItems}){
     return null;
   };
   useEffect(()=>{loadKurly();},[]);
+  /* 출고 계획에 들어오면 자동으로 컬리 발주 조회 — 로그인 만료 시 수집기가 스스로 로그인 후 재시도.
+     저장본을 먼저 보여주고 1초 뒤 백그라운드로 최신 조회 (휴대폰 등 수집기 미연결은 조용히 저장본 유지) */
+  useEffect(()=>{const t=setTimeout(()=>loadUpcoming(),1000);return()=>clearTimeout(t);},[]);
   useBnfSyncReload(()=>loadKurly());
   /* PC에서 열었고 수집기가 켜져 있으면 지금 즉시 다시 읽어온다 */
   const refreshKurly=async(dArg,silent)=>{
@@ -21613,15 +21616,29 @@ function PageShipSort({mats,hqItems}){
         }},'초기화')
       )
     ),
-    /* 컬리 발주 확인 */
+    /* 컬리 발주 확인 — 페이지에 들어오면 자동으로 (필요 시 자동 로그인 포함) 조회된 결과 요약 */
     R('div',{className:'card',style:{marginBottom:12,padding:'12px 14px'}},
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
         R('div',null,
           R('div',{style:{fontSize:13,fontWeight:800}},'🛒 컬리 발주 확인'),
-          R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},
-            kurly&&kurly.at
-              ? ('마지막 수집 '+new Date(kurly.at).toLocaleString('ko-KR')+' · 입고예정일 '+((kurly.dates||[]).join(', ')||'없음'))
-              : '아직 불러온 발주가 없습니다. 사무실 PC의 컬리 수집기를 실행해주세요.')
+          (()=>{
+            const t=today2();
+            const up=((kurly&&kurly.rows)||[]).filter(r=>r.date&&r.date>=t);
+            if(up.length){
+              const byD={};up.forEach(r=>{(byD[r.date]=byD[r.date]||[]).push(r);});
+              const parts=Object.keys(byD).sort().map(d=>{
+                const rows=byD[d];
+                const box=rows.reduce((a,r)=>a+(+r.box||0),0);
+                const lack=rows.filter(r=>{const st=findStock(fixAiName(r.name));return st&&(st.matchedName||st.code)&&(+st.stock||0)<(+r.total||0);}).length;
+                return d.slice(5).replace('-','/')+dowLabel(d)+' '+box+'박스'+(lack?('·부족'+lack):'·✓가능');
+              });
+              return R('div',{style:{fontSize:11,fontWeight:700,color:'#15803D',marginTop:2}},'📢 다가오는 발주: '+parts.join('  |  '));
+            }
+            if(kurlyUp===null)return R('div',{style:{fontSize:10.5,color:'var(--p)',fontWeight:700,marginTop:2}},'📡 컬리 발주 자동 확인 중... '+(kurlyBusy||''));
+            if(kurlyErr==='login'||kurlyErr==='login-sent')return R('div',{style:{fontSize:10.5,color:'#B91C1C',fontWeight:700,marginTop:2}},'🔐 컬리 로그인 필요 — [컬리 발주 확인]을 눌러 로그인 창을 띄워주세요');
+            if(kurlyErr==='offline')return R('div',{style:{fontSize:10.5,color:'#92400E',marginTop:2}},'⚠ 사무실 PC 수집기 연결 안 됨 — 마지막 수집 '+(kurly&&kurly.at?new Date(kurly.at).toLocaleString('ko-KR'):'없음'));
+            return R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:2}},'다가오는 컬리 발주 없음'+(kurly&&kurly.at?(' · 마지막 수집 '+new Date(kurly.at).toLocaleString('ko-KR')):''));
+          })()
         ),
         R('div',{style:{display:'flex',gap:6}},
           R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);loadUpcoming();}},'🛒 컬리 발주 확인'),
