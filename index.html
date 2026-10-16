@@ -21380,7 +21380,9 @@ function PageShipSort({mats,hqItems}){
       const{data}=await sbClient.from('app_state').select('v:state_data->kurly_orders').eq('id',1).maybeSingle();
       const v=data&&data.v;
       if(v&&Array.isArray(v.rows)){
-        setKurly(v);
+        /* 방금 수집기에서 직접 읽어온 더 새로운 데이터가 있으면 오래된 서버 저장본으로 덮지 않는다
+           (주기 동기화가 저장본을 다시 읽으며 화면이 '발주 없음'으로 뒤집히던 문제) */
+        setKurly(p=>(p&&p.at&&(!v.at||p.at>=v.at))?p:v);
         /* 기본 선택은 오늘 이후의 가장 가까운 날짜 — 과거 저장본이 기본으로 뜨지 않게 */
         const ds=(v.dates||[]).slice().sort();
         const t=today2();
@@ -21585,6 +21587,17 @@ function PageShipSort({mats,hqItems}){
     aggregate(orders,kurlyDate);
     setKurlyOpen(false);
   };
+  /* 대시보드의 [➕ 합치기] — 그 날짜 발주만 아래 출고 예정에 센터별로 추가 (중복은 aggregate가 자동 제외) */
+  const applyKurlyDate=(d)=>{
+    const rows=((kurly&&kurly.rows)||[]).filter(r=>r.date===d);
+    if(!rows.length){alert('이 날짜의 발주 내역이 없습니다.');return;}
+    const byC={};
+    rows.forEach(r=>{
+      const c=normCenter2(r.center);
+      (byC[c]=byC[c]||[]).push({name:fixAiName(r.name),total:+r.total||0,box:+r.box||0,exp:r.exp||''});
+    });
+    aggregate(Object.entries(byC).map(([center,items])=>({center,date:d,items})),d);
+  };
 
   const aggregate=(orders,dateStr)=>{
     const hasExisting=parsed&&parsed.byCenter;
@@ -21740,6 +21753,8 @@ function PageShipSort({mats,hqItems}){
                 lack>0?R('span',{style:{fontSize:10,fontWeight:800,color:'#B91C1C',background:'#FEE2E2',borderRadius:999,padding:'1px 8px'}},'⚠ 재고 부족 '+lack)
                       :R('span',{style:{fontSize:10,fontWeight:800,color:'#15803D',background:'#DCFCE7',borderRadius:999,padding:'1px 8px'}},'✓ 전 품목 출고 가능'),
                 R('div',{style:{flex:1}}),
+                R('button',{className:'btn bw btn-sm',onClick:()=>applyKurlyDate(d),
+                  title:'이 날짜 발주를 아래 출고 예정에 센터별로 추가합니다 (이미 합친 발주는 중복 없이 건너뜀)'},'➕ 합치기'),
                 R('button',{className:'btn bp btn-sm',disabled:!!cfmBusy,onClick:()=>cfmPrepare(d),
                   title:'컬리 포털에 입고예약시간·출고유형·소비기한 자동 입력 → 승인 후 거래명세서 생성'},'📝 소비기한 입력')),
               R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(250px,1fr))',gap:8,padding:'8px 10px'}},
