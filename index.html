@@ -22571,6 +22571,15 @@ function App(){
     },600);
   };
   const toggleNavFav=(id)=>persistNavFavs(navFavs.includes(id)?navFavs.filter(x=>x!==id):[...navFavs,id]);
+  /* 즐겨찾기 순서 이동 (▲▼) */
+  const moveNavFav=(id,dir)=>{
+    const arr=[...navFavs];const i=arr.indexOf(id);const j=i+dir;
+    if(i<0||j<0||j>=arr.length)return;
+    const t=arr[i];arr[i]=arr[j];arr[j]=t;
+    persistNavFavs(arr);
+  };
+  /* 사이드바 메뉴 검색 */
+  const[sbQ,setSbQ]=useState('');
   const findNavItem=(id)=>{
     let hit=null;
     (navSections||[]).forEach(s=>s&&(s.items||[]).forEach(i=>{
@@ -22604,11 +22613,9 @@ function App(){
   };
   useEffect(()=>stopSbScroll,[]);
   const[draggedItem,setDraggedItem]=useState(null);
-  const[expandedFolders,setExpandedFolders]=useState(()=>{
-    try{const saved=localStorage.getItem('bnf_expanded_folders');if(saved)return JSON.parse(saved);}catch(e){}
-    return{hq:true,factory:true};
-  });
-  useEffect(()=>{try{localStorage.setItem('bnf_expanded_folders',JSON.stringify(expandedFolders));}catch(e){}},[expandedFolders]);
+  /* 새로고침하면 모든 폴더는 접힌 상태로 시작 (즐겨찾기만 상단에 보임) — 2026-10-16 요청.
+     펼침 상태는 세션 동안만 유지하고 저장하지 않는다 */
+  const[expandedFolders,setExpandedFolders]=useState({});
 
   /* ════ 메뉴 트리 (폴더 안의 폴더 지원) ════
      섹션.items 안의 항목이 {kind:'folder', id, l, ic, items:[...]} 이면 하위 폴더.
@@ -22670,7 +22677,7 @@ function App(){
 
       /* ── 하위 폴더 ── */
       if(isNavFolder(n)){
-        const fOpen=expandedFolders['sub_'+dkey]!==false;
+        const fOpen=expandedFolders['sub_'+dkey]===true;   /* 기본 접힘 */
         out.push(R('div',{key:'f'+dkey,style:{marginBottom:3}},
           R('div',Object.assign({},dragProps,{
             onClick:()=>!navEditMode&&setExpandedFolders(p=>Object.assign({},p,{['sub_'+dkey]:!fOpen})),
@@ -23506,20 +23513,50 @@ function App(){
             style:{padding:'5px 8px',background:'#F4F1EE',color:'#6E645C',border:'none',borderRadius:6,cursor:'pointer',fontSize:10}
           },'↻')
         ),
-        /* ── ⭐ 즐겨찾기 (사용자별 · 항목의 별을 눌러 추가) ── */
-        !navEditMode&&navFavs.length>0&&R('div',{className:'sb-folder',style:{marginBottom:6}},
+        /* ── 🔍 메뉴 검색 (사이드바 최상단) ── */
+        !navEditMode&&R('div',{style:{padding:'2px 10px 8px'}},
+          R('input',{className:'inp',value:sbQ,onChange:e=>setSbQ(e.target.value),placeholder:'🔍 메뉴 검색',
+            style:{padding:'7px 11px',fontSize:12,borderRadius:9}})),
+        !navEditMode&&sbQ.trim()&&R('div',{style:{padding:'0 6px 10px'}},
+          ...(()=>{
+            const q=sbQ.trim().toLowerCase();
+            const out=[];
+            (navSections||[]).filter(s=>s&&(!s.adminOnly||isAdmin)).forEach(sec=>{
+              (sec.items||[]).forEach(it=>{
+                const push=n=>{if(n&&n.id&&navItemVisible(n)&&String(n.l||'').toLowerCase().indexOf(q)>=0)out.push({n,sec:sec.label||''});};
+                if(isNavFolder(it))(it.items||[]).forEach(push);else push(it);
+              });
+            });
+            if(!out.length)return[R('div',{key:'e',style:{fontSize:11,color:'var(--tm)',padding:'8px 14px'}},'검색 결과 없음')];
+            const seen=new Set();
+            return out.filter(x=>{if(seen.has(x.n.id))return false;seen.add(x.n.id);return true;}).slice(0,20)
+              .map(({n,sec})=>R('div',{key:'q_'+n.id,className:'ni'+(page===n.id?' act':''),
+                onClick:()=>{setPage(n.id);setSbQ('');setSbOpen(false);},style:{paddingLeft:14,cursor:'pointer'}},
+                R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},(n.ic?n.ic+' ':'')+n.l),
+                R('span',{style:{fontSize:9,color:'#C9BFB7',flexShrink:0,marginLeft:6}},String(sec).replace(/^[^가-힣A-Za-z0-9]+\s*/,'').slice(0,7))));
+          })()),
+        /* ── ⭐ 즐겨찾기 (사용자별 · 항목의 별을 눌러 추가 · ▲▼로 순서 조정) ── */
+        !navEditMode&&!sbQ.trim()&&navFavs.length>0&&R('div',{className:'sb-folder',style:{marginBottom:6}},
           R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',fontSize:12,fontWeight:700,color:'#B45309',margin:'2px 8px',userSelect:'none'}},'⭐ 즐겨찾기'),
-          ...navFavs.map(id=>{
-            const it=findNavItem(id);
-            if(!it||!navItemVisible(it))return null;
-            return R('div',{key:'fav_'+id,className:'ni'+(page===id?' act':''),
-              onClick:()=>{setPage(id);setSbOpen(false);},style:{paddingLeft:24,cursor:'pointer'}},
-              R('span',null,it.l),
-              R('button',{className:'nfav on',title:'즐겨찾기 해제',
-                onClick:e=>{e.stopPropagation();toggleNavFav(id);}},'★'));
-          })
+          ...(()=>{
+            const favList=navFavs.filter(id=>{const it=findNavItem(id);return it&&navItemVisible(it);});
+            const ordBtn={background:'none',border:'none',cursor:'pointer',fontSize:9,color:'#C9BFB7',padding:'2px 3px',lineHeight:1,fontFamily:'inherit'};
+            return favList.map((id,idx)=>{
+              const it=findNavItem(id);
+              return R('div',{key:'fav_'+id,className:'ni'+(page===id?' act':''),
+                onClick:()=>{setPage(id);setSbOpen(false);},style:{paddingLeft:24,cursor:'pointer'}},
+                R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},it.l),
+                R('span',{style:{display:'inline-flex',flexShrink:0},onClick:e=>e.stopPropagation()},
+                  R('button',{title:'위로',disabled:idx===0,style:Object.assign({},ordBtn,{opacity:idx===0?0.25:1}),
+                    onClick:e=>{e.stopPropagation();moveNavFav(id,-1);}},'▲'),
+                  R('button',{title:'아래로',disabled:idx===favList.length-1,style:Object.assign({},ordBtn,{opacity:idx===favList.length-1?0.25:1}),
+                    onClick:e=>{e.stopPropagation();moveNavFav(id,1);}},'▼')),
+                R('button',{className:'nfav on',title:'즐겨찾기 해제',
+                  onClick:e=>{e.stopPropagation();toggleNavFav(id);}},'★'));
+            });
+          })()
         ),
-        (()=>{ /* 자기 부서 폴더를 홈 폴더 바로 다음으로 (관리자는 그대로, 편집모드에서는 원래 순서) */
+        sbQ.trim()&&!navEditMode?null:(()=>{ /* 자기 부서 폴더를 홈 폴더 바로 다음으로 (관리자는 그대로, 편집모드에서는 원래 순서) */
           const base=navSections.filter(s=>!s.adminOnly||isAdmin);
           if(isAdmin||navEditMode)return base;
           const norm=t=>String(t||'').replace(/[^가-힣A-Za-z]/g,'');
@@ -23535,7 +23572,7 @@ function App(){
           const visibleItems=(sec.items||[]).filter(navItemVisible);
           if(visibleItems.length===0&&!navEditMode)return null;
           const folderKey=sec.label||sec.type;   /* 라벨이 고유 — type('custom')이 겹쳐 같이 열리던 문제 해결 */
-          const isOpen=expandedFolders[folderKey]!==false;
+          const isOpen=expandedFolders[folderKey]===true;   /* 새로고침 시 전부 접힘이 기본 */
           const isActiveSection=navFlatIds(sec.items).indexOf(page)>=0;
           return R('div',{
             key:sec.label+secIdx,
