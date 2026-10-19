@@ -1833,8 +1833,19 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   /* 보기 모드 더블클릭(PC)·두 번 탭(휴대폰) → 편집 모드 전환 — 칸 전체·요일 머리글·구역 라벨 어디서든 (2026-10-16) */
   const tapRef=useRef({t:0,x:0,y:0});
   const goEdit=(sg)=>{if(onDblCell)onDblCell(sg);};
-  const dblProps=(sg,inlineFallback)=>(edit||(!onDblCell&&!inlineFallback))?{}:{
-    onDoubleClick:()=>{if(onDblCell)goEdit(sg);else inlineFallback();},
+  const dblProps=(sg,inlineFallback)=>{
+    if(edit||(!onDblCell&&!inlineFallback))return{};
+    const fire=()=>{if(onDblCell)goEdit(sg);else inlineFallback();};
+    return{
+    onDoubleClick:fire,
+    /* 휴대폰: touchend 기반 더블탭은 iOS 더블탭 확대와 겹쳐 자주 누락 →
+       click 2회(350ms 안·같은 자리)로도 감지. 보기 모드 칸은 단일 클릭 동작이 없어 안전 (2026-10-19) */
+    onClick:e=>{
+      const now=Date.now(),p=tapRef.current;
+      if(now-p.t<350&&Math.abs(e.clientX-p.x)<30&&Math.abs(e.clientY-p.y)<30){
+        tapRef.current={t:0,x:0,y:0};fire();
+      }else tapRef.current={t:now,x:e.clientX,y:e.clientY};
+    },
     onTouchEnd:e=>{
       if(!onDblCell||(e.touches&&e.touches.length)||!e.changedTouches||!e.changedTouches[0])return;
       const t=e.changedTouches[0],now=Date.now(),p=tapRef.current;
@@ -1842,6 +1853,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
         tapRef.current={t:0,x:0,y:0};e.preventDefault();goEdit(sg);
       }else tapRef.current={t:now,x:t.clientX,y:t.clientY};
     }};
+  };
   const focusCell=(r,c)=>{
     const el=document.querySelector('textarea[data-sg="'+sgId(r,c)+'"]');
     if(el){el.focus();try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){}
@@ -1873,7 +1885,7 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   /* 섹션별 전역 행 번호 (키보드 이동용) — 줄 추가/삭제 반영 */
   const secWithBase=(()=>{let b=0;return SCHED_GRID_SECS.map(s=>{const n=effN(s);const o={...s,n,base:b};b+=n;return o;});})();
   const baseFs=gridFs||12;
-  const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top'};
+  const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top',touchAction:'manipulation'}; /* 더블탭 확대 차단 → 두 번 탭=편집 전환이 안정적으로 */
   const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'3px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box',margin:0};
   /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
   /* 열 너비: 드래그로 넓힌 합이 화면보다 커지면 비율은 유지한 채 전체를 축소 —
@@ -1988,8 +2000,9 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                   const al=(aligns||{})[sec.k]||'left';
                   /* 글씨는 칸 안에서 세로 중앙·왼쪽 정렬 — 위로 붙어 아래 공백이 보이던 문제 해결 (2026-10-01) */
                   return R('td',{key:key,rowSpan:rs>1?rs:undefined,colSpan:cs>1?cs:undefined,
-                    ...(inlineKey===key?{}:dblProps(sgId(sec.base+ri,di),()=>setInlineKey(key))),
                     onClick:edit?(e)=>{if(e.target===e.currentTarget){const t=e.currentTarget.querySelector('textarea');if(t)t.focus();}}:undefined,
+                    /* dblProps는 onClick(두 번 탭 감지)도 주므로 반드시 뒤에 펼친다 — 앞의 onClick:undefined가 덮지 않게 */
+                    ...(inlineKey===key?{}:dblProps(sgId(sec.base+ri,di),()=>setInlineKey(key))),
                     onMouseDown:edit?(e)=>{
                       const rct=e.currentTarget.getBoundingClientRect();
                       if(rct.right-e.clientX<9||rct.bottom-e.clientY<9)return;  /* 경계는 크기 조절 전용 */
