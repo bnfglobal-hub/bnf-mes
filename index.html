@@ -114,6 +114,10 @@ tr:hover td{background:#fdf8f5}tr.dng td{background:#fff5f5!important}
 .qi:focus{outline:1px solid var(--p);border-radius:2px}
 /* 생산 스케줄표 */
 .sg-lab .sg-rowbtn{display:none}.sg-lab:hover .sg-rowbtn{display:flex}
+/* 줄별 삭제(✕): 편집 모드에서 그 줄에 마우스를 올리면 왼쪽 끝에 표시 · 터치 기기는 항상 표시 */
+.sg-rdel{display:none;position:absolute;left:2px;top:2px;z-index:5;width:18px;height:18px;line-height:14px;padding:0;border:1px solid #FECACA;border-radius:5px;background:#fff;color:#DC2626;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit}
+tr:hover .sg-rdel{display:block}
+@media(hover:none){.sg-rdel{display:block;opacity:.55}}
 .sched-wrap{overflow:auto;border:1px solid var(--bd);border-radius:12px;background:#fff}
 .sched-table{border-collapse:collapse;min-width:900px;width:100%}
 .sched-table th,.sched-table td{border:1px solid #ddd;font-size:11px;vertical-align:top}
@@ -1758,6 +1762,61 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
     setRows(p=>({...(p||{}),[k]:n-1}));
     queueSave();
   };
+  /* 중간 줄 삭제: 그 줄을 지우고 아래 줄들을 한 칸씩 올린다 (내용·서식·줄높이·병합까지 이동) */
+  const delRowAt=(k,ri)=>{
+    const def=SCHED_GRID_SECS.find(s=>s.k===k);if(!def)return;
+    const n=effN(def);if(n<=1)return;
+    const has=days.some((_,di)=>String((cellsRef.current||{})[k+'_'+ri+'_'+di]||'').trim());
+    if(has&&!confirm('이 줄에 내용이 있습니다. 줄을 삭제할까요? (내용도 함께 지워지고 아래 줄이 올라옵니다)'))return;
+    const shiftCellMap=p=>{
+      const nx={};
+      Object.keys(p||{}).forEach(key=>{
+        const m=key.split('_');
+        if(m.length===3&&m[0]===k){
+          const r=+m[1];
+          if(r===ri)return;                       /* 지워지는 줄 */
+          nx[(r>ri?k+'_'+(r-1)+'_'+m[2]:key)]=p[key];
+          return;
+        }
+        nx[key]=p[key];
+      });
+      return nx;
+    };
+    setCells(shiftCellMap);setStyles(shiftCellMap);
+    setRowh(p=>{
+      const nx={};
+      Object.keys(p||{}).forEach(key=>{
+        const m=key.split('_');
+        if(m.length===2&&m[0]===k){
+          const r=+m[1];
+          if(r===ri)return;
+          nx[(r>ri?k+'_'+(r-1):key)]=p[key];
+          return;
+        }
+        nx[key]=p[key];
+      });
+      return nx;
+    });
+    setMerges(p=>{
+      const nx={};
+      Object.keys(p||{}).forEach(key=>{
+        const m=key.split('_');
+        if(m.length===3&&m[0]===k){
+          const r=+m[1],v=p[key]||{},rs=v.rs||1;
+          if(r===ri){                              /* 병합 시작 줄이 지워짐 → 병합 해제 */
+            return;
+          }
+          if(r<ri&&ri<r+rs){nx[key]={...v,rs:rs-1};return;}  /* 병합이 그 줄을 지나면 한 줄 줄임 */
+          nx[(r>ri?k+'_'+(r-1)+'_'+m[2]:key)]=v;
+          return;
+        }
+        nx[key]=p[key];
+      });
+      return nx;
+    });
+    setRows(p=>({...(p||{}),[k]:n-1}));
+    queueSave();
+  };
   /* ── 줄 높이 드래그 조절: 칸 아래 경계를 잡고 드래그 (표와 함께 저장돼 전 직원 동일) ── */
   const startRowResize=(rk)=>e=>{
     e.preventDefault();e.stopPropagation();
@@ -2018,6 +2077,10 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
                     }:undefined,
                     style:{...tdBase,position:'relative',background:sec.bg,verticalAlign:'middle',...(edit?{height:mh}:{}),
                            ...(sel?{boxShadow:'inset 0 0 0 2.5px var(--p)',background:'#FFEFE5'}:{})}},
+                    /* 편집 모드: 줄 왼쪽 끝 ✕ — 이 줄만 삭제(중간 줄 포함), 아래 줄이 올라옴 */
+                    edit&&di===0&&sec.n>1&&R('button',{className:'sg-rdel no-capture',title:'이 줄 삭제 (아래 줄이 올라옵니다)',
+                      onMouseDown:e=>e.stopPropagation(),
+                      onClick:e=>{e.stopPropagation();delRowAt(sec.k,ri);}},'✕'),
                     edit
                       /* 편집 칸: 보기 모드와 같은 글 상자를 투명하게 깔아 칸 크기를 똑같이 유지하고 그 위에 입력칸을 겹친다
                          — 편집 전환 시 칸 크기·위치가 전혀 변하지 않음 (2026-10-12) */
