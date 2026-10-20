@@ -22520,10 +22520,13 @@ function PageShipSort({mats,hqItems}){
                     R('div',{style:{fontWeight:700}},v.box),
                     R('div',{style:{color:'#6E645C'}},fN(v.total)),
                     (()=>{const ch=expChanged(name,v.exp);
+                      const pv=expPrevOf(name),pl=expPrevList(pv);
                       return R('div',{style:{color:'#DC2626',fontWeight:600},
-                        title:ch?('지난 출고('+(ch.pv.date||'-')+') 소비기한 '+ch.list.join(', ')+' → 이번 '+v.exp):''},
+                        title:pl.length?('직전 출고('+((pv&&pv.date)||'-')+') 소비기한 '+pl.join(', ')+(v.exp?' → 이번 '+v.exp:'')):''},
                         v.exp||'-',
-                        ch&&R('div',{style:{fontSize:9.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'⚠ 지난 '+ch.list.join(', ')));
+                        /* 직전 출고 소비기한 상시 표시 — 달라졌으면 노란 경고, 같으면 회색 참고 */
+                        ch?R('div',{style:{fontSize:9.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'⚠ 지난 '+ch.list.join(', '))
+                          :(pl.length?R('div',{style:{fontSize:9.5,fontWeight:600,color:'#9A9088',marginTop:2,whiteSpace:'nowrap'}},'직전 '+pl.join(', ')+((pv&&pv.date)?' ('+String(pv.date).slice(5).replace('-','/')+')':'')):null));
                     })(),
                     st
                       ? R('div',{style:{fontSize:11,whiteSpace:'nowrap'}},
