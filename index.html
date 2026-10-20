@@ -19496,16 +19496,30 @@ function PageMeeting({user}){
   const upRow=(sec,i,k,v)=>setDoc(p=>({...p,[sec]:p[sec].map((r,j)=>j===i?{...r,[k]:v}:r)}));
   const addRow=(sec,row)=>setDoc(p=>({...p,[sec]:[...p[sec],row]}));
   const delRow=(sec,i)=>setDoc(p=>({...p,[sec]:p[sec].filter((_,j)=>j!==i)}));
-  const save=async()=>{
-    setSt('저장 중...');
+  const save=async(auto)=>{
+    if(!auto)setSt('저장 중...');
     try{
       const body=JSON.stringify({...doc,by:(user&&user.name)||'',at:now2()});
       const{error}=await sbClient.storage.from('bnf-files').upload('meeting/'+doc.id+'.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
       if(error)throw error;
-      setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
-      loadList(false);
-    }catch(e){setSt('');alert('저장 실패: '+e.message);}
+      setSt((auto?'자동 저장됨 ':'저장됨 ')+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+      if(!auto)loadList(false);
+    }catch(e){
+      if(auto)setSt('⚠ 자동 저장 실패 — 네트워크 확인');
+      else{setSt('');alert('저장 실패: '+e.message);}
+    }
   };
+  /* 자동 저장: 내용을 고치면 1.5초 뒤 저장 — 저장 버튼을 안 눌러도 매번 보관됨 */
+  const autoT=useRef(null);const autoReady=useRef(false);
+  useEffect(()=>{
+    if(list===null)return;                 /* 지난 회의 불러오기 전엔 저장 안 함 */
+    if(!autoReady.current){autoReady.current=true;return;}  /* 첫 세팅(최근 회의 열기)은 건너뜀 */
+    const hasContent=doc.clients.some(r=>r.name||r.status)||doc.rnd.some(r=>r.name||r.status)||doc.improve.some(r=>r.k||r.c||r.note);
+    if(!hasContent)return;
+    if(autoT.current)clearTimeout(autoT.current);
+    autoT.current=setTimeout(()=>save(true),1500);
+    return()=>{if(autoT.current)clearTimeout(autoT.current);};
+  },[doc,list===null]);
   const newFromLast=()=>{
     const last=(list&&list[0])||null;
     const b=blankDoc();
@@ -19518,8 +19532,14 @@ function PageMeeting({user}){
     if(x.id===doc.id)setDoc(blankDoc());
     loadList(false);
   };
-  /* 매출: 올해 월별 (본사·이천) — 수집된 공급가액, VAT 포함은 ×1.1 추정 */
-  const mRow=(src,mm)=>{const y=src&&src[String(year)];const v=y&&y[mm]&&+y[mm].sales||0;return vat?Math.round(v*1.1):v;};
+  /* 매출: 올해 월별 (본사·이천) — VAT 포함은 이카운트 '합계' 열 실값(sales_total),
+     아직 수집 전인 달만 ×1.1 추정으로 임시 표시 */
+  const mRow=(src,mm)=>{
+    const y=src&&src[String(year)];const o=(y&&y[mm])||{};
+    const v=+o.sales||0;
+    if(!vat)return v;
+    return +o.sales_total||Math.round(v*1.1);
+  };
   const MM=Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0'));
   const hqTot=MM.reduce((a,m)=>a+mRow(pah,m),0);
   const icTot=MM.reduce((a,m)=>a+mRow(pa,m),0);
@@ -19600,7 +19620,7 @@ function PageMeeting({user}){
       /* 매출액 (자동) */
       R('div',{className:'no-print',style:{display:'flex',alignItems:'center',gap:8,padding:'2px 4px 6px'}},
         R('span',{style:{fontSize:11,color:'var(--tm)'}},year+'년 월별 매출 — 이카운트 수집본 자동'),
-        R('button',{className:'btn bw btn-sm',onClick:()=>setVat(v=>!v)},vat?'VAT 포함(×1.1 추정) 표시 중':'공급가액 표시 중')),
+        R('button',{className:'btn bw btn-sm',onClick:()=>setVat(v=>!v)},vat?'VAT 포함(이카운트 합계) 표시 중':'공급가액 표시 중')),
       R('table',null,
         R('colgroup',null,R('col',{style:{width:90}}),R('col',null),R('col',{style:{width:90}}),R('col',null)),
         R('tbody',null,
@@ -19621,7 +19641,7 @@ function PageMeeting({user}){
           R('tr',null,
             R('td',{style:{...tdS,fontWeight:800,background:'#DEEBF7'}},'총 합계'),
             R('td',{style:{...tdS,textAlign:'right',fontWeight:900,background:'#DEEBF7'},colSpan:3},
-              nf(hqTot+icTot)+(vat?' (VAT 포함 ×1.1 추정)':' (공급가액)')))))
+              nf(hqTot+icTot)+(vat?' (VAT포함)':' (공급가액)')))))
     )),
     /* 저장된 회의 자료 */
     R('div',{className:'card',style:{marginTop:16,padding:'12px 14px',maxWidth:860}},
