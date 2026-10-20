@@ -21667,19 +21667,31 @@ function PageShipSort({mats,hqItems}){
       const j=await r.json();
       setCfmBusy('');
       if(j.error){alert('생성을 중단했습니다.\n\n'+j.error);return;}
-      /* 이번 출고의 제품별 소비기한을 '직전 출고' 기록으로 저장 (다음 출고 때 비교용) */
+      /* 이번 출고의 제품별 소비기한을 '직전 출고'와 '전체 이력'에 저장
+         (키만 원자 교체하는 DB 함수 set_state_key 사용 — 전체 state_data 덮어쓰기 금지) */
       try{
         const rowsSnap=(cfm.rows||[]).slice(),dateSnap=cfm.date;
-        const{data:st}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-        const ex=st&&st.state_data;
-        if(ex){
-          const map=Object.assign({},ex.bnf_ship_exp_last||{});
-          const acc={};
-          rowsSnap.forEach(x=>{const k=normExpName(x.name);if(k&&x.exp){(acc[k]=acc[k]||new Set()).add(x.exp);}});
-          Object.keys(acc).forEach(k=>{map[k]={exps:Array.from(acc[k]),date:dateSnap,at:new Date().toISOString()};});
-          await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_ship_exp_last:map}),updated_at:new Date().toISOString()});
-          setShipExpLast(map);
-        }
+        const nowIso=new Date().toISOString();
+        const{data:st}=await sbClient.from('app_state')
+          .select('last:state_data->bnf_ship_exp_last,hist:state_data->bnf_ship_exp_history').eq('id',1).maybeSingle();
+        const map=Object.assign({},(st&&st.last)||{});
+        const acc={};
+        rowsSnap.forEach(x=>{const k=normExpName(x.name);if(k&&x.exp){(acc[k]=acc[k]||new Set()).add(x.exp);}});
+        Object.keys(acc).forEach(k=>{map[k]={exps:Array.from(acc[k]),date:dateSnap,at:nowIso};});
+        await sbClient.rpc('set_state_key',{k:'bnf_ship_exp_last',v:map});
+        setShipExpLast(map);
+        /* 전체 이력 누적 — 날짜+품명 중복은 건너뜀, 최근 3,000행 유지 */
+        const hist=(st&&st.hist&&Array.isArray(st.hist.items))?st.hist.items.slice():[];
+        const seen=new Set(hist.map(h=>h.d+'|'+normExpName(h.n)+'|'+(h.e||'')));
+        rowsSnap.forEach(x=>{
+          if(!x.exp)return;
+          const sig=dateSnap+'|'+normExpName(x.name)+'|'+x.exp;
+          if(seen.has(sig))return;
+          seen.add(sig);
+          hist.push({d:dateSnap,c:'MES확정',k:x.center||'',n:x.name,e:x.exp,q:x.total||null});
+        });
+        hist.sort((a,b)=>String(a.d).localeCompare(String(b.d)));
+        await sbClient.rpc('set_state_key',{k:'bnf_ship_exp_history',v:{at:nowIso,items:hist.slice(-3000)}});
       }catch(e){}
       setCfmDone(j);setCfm(null);
       if(j.ok===false)alert('생성 버튼은 눌렀지만 완료 문구를 확인하지 못했습니다.\n컬리 포털에서 꼭 직접 확인해주세요.');
