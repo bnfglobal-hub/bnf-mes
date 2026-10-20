@@ -18883,6 +18883,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'bizplan',l:'사업계획',ic:'🎯'},
     {id:'data',l:'데이터관리',ic:'💾'},
     {id:'admin',l:'사용자 관리',ic:'👤'},
+    {id:'meeting',l:'주간 회의 자료',ic:'📋'},
     {id:'remote',l:'원격접속',ic:'🖥'}
   ]}
 ];
@@ -19449,6 +19450,198 @@ function XlPreviewModal({preview,onClose,onConfirm}){
   );
 }
 
+/* ═══ 관리자: 주간 회의 자료 — 엑셀 회의 양식 그대로 (2026-10-20) ═══
+   거래처 진행 상황 · 연구 개발 · 공장 개선 사항은 직접 입력(지난 회의 내용을 이어받아 수정),
+   매출액은 본사(171542)/이천공장(600860) 올해 월별 매출을 자동으로 채운다.
+   저장: 스토리지 meeting/<id>.json (회의마다 독립 파일) */
+function PageMeeting({user}){
+  const nf=n=>Math.round(+n||0).toLocaleString('ko-KR');
+  const dowLabel=(ds)=>{const d=new Date(String(ds||'')+'T00:00:00');return isNaN(d.getTime())?'':' ('+['일','월','화','수','목','금','토'][d.getDay()]+')';};
+  const year=new Date().getFullYear();
+  const[pa,setPa]=useState({});     /* 이천공장 월별 {YYYY:{MM:{sales}}} */
+  const[pah,setPah]=useState({});   /* 본사 월별 */
+  const[vat,setVat]=useState(true); /* 표시는 VAT 포함(×1.1 추정) — 끄면 공급가액 그대로 */
+  const blankDoc=()=>({id:'m'+Date.now().toString(36),date:today2(),
+    clients:[{name:'',status:''},{name:'',status:''},{name:'',status:''}],
+    rnd:[{name:'',status:''}],
+    improve:[{k:'',c:'',note:''}]});
+  const[doc,setDoc]=useState(blankDoc);
+  const[list,setList]=useState(null);
+  const[st,setSt]=useState('');
+  const docRef=useRef(null);
+  useEffect(()=>{
+    sbClient.from('app_state').select('pa:state_data->profit_analysis,pah:state_data->profit_analysis_hq').eq('id',1).maybeSingle()
+      .then(({data})=>{if(data){if(data.pa)setPa(data.pa);if(data.pah)setPah(data.pah);}}).catch(()=>{});
+  },[]);
+  const loadList=async(openLatest)=>{
+    try{
+      const{data}=await sbClient.storage.from('bnf-files').list('meeting',{limit:300,sortBy:{column:'name',order:'desc'}});
+      const files=(data||[]).filter(f=>/\.json$/.test(f.name||''));
+      const out=[];
+      for(const f of files.slice(0,40)){
+        try{
+          const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('meeting/'+f.name);
+          const r=await fetch((pub&&pub.publicUrl||'')+'?t='+encodeURIComponent(f.updated_at||''));
+          if(r.ok)out.push(await r.json());
+        }catch(e){}
+      }
+      out.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+      setList(out);
+      if(openLatest&&out.length)setDoc({...blankDoc(),...out[0]});
+      return out;
+    }catch(e){setList([]);return[];}
+  };
+  useEffect(()=>{loadList(true);},[]);
+  const up=(k,v)=>setDoc(p=>({...p,[k]:v}));
+  const upRow=(sec,i,k,v)=>setDoc(p=>({...p,[sec]:p[sec].map((r,j)=>j===i?{...r,[k]:v}:r)}));
+  const addRow=(sec,row)=>setDoc(p=>({...p,[sec]:[...p[sec],row]}));
+  const delRow=(sec,i)=>setDoc(p=>({...p,[sec]:p[sec].filter((_,j)=>j!==i)}));
+  const save=async()=>{
+    setSt('저장 중...');
+    try{
+      const body=JSON.stringify({...doc,by:(user&&user.name)||'',at:now2()});
+      const{error}=await sbClient.storage.from('bnf-files').upload('meeting/'+doc.id+'.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+      if(error)throw error;
+      setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+      loadList(false);
+    }catch(e){setSt('');alert('저장 실패: '+e.message);}
+  };
+  const newFromLast=()=>{
+    const last=(list&&list[0])||null;
+    const b=blankDoc();
+    setDoc(last?{...b,clients:(last.clients||b.clients).map(x=>({...x})),rnd:(last.rnd||b.rnd).map(x=>({...x})),improve:(last.improve||b.improve).map(x=>({...x}))}:b);
+    setSt('');
+  };
+  const delDoc=async(x)=>{
+    if(!confirm('['+x.date+'] 회의 자료를 삭제할까요?'))return;
+    try{await sbClient.storage.from('bnf-files').remove(['meeting/'+x.id+'.json']);}catch(e){}
+    if(x.id===doc.id)setDoc(blankDoc());
+    loadList(false);
+  };
+  /* 매출: 올해 월별 (본사·이천) — 수집된 공급가액, VAT 포함은 ×1.1 추정 */
+  const mRow=(src,mm)=>{const y=src&&src[String(year)];const v=y&&y[mm]&&+y[mm].sales||0;return vat?Math.round(v*1.1):v;};
+  const MM=Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0'));
+  const hqTot=MM.reduce((a,m)=>a+mRow(pah,m),0);
+  const icTot=MM.reduce((a,m)=>a+mRow(pa,m),0);
+  const dateKo=(d)=>{const p=String(d||'').split('-');return p.length===3?(+p[0])+'년 '+(+p[1])+'월'+(+p[2])+'일'+dowLabel(d):d;};
+  /* 인쇄: 입력칸을 글자로 바꿔 A4 세로 한 장 */
+  const print=()=>{
+    const src=docRef.current;if(!src)return;
+    const cl=src.cloneNode(true);
+    const sf=src.querySelectorAll('input,textarea');
+    cl.querySelectorAll('input,textarea').forEach((el,i)=>{
+      const sp=document.createElement('span');
+      sp.style.cssText='display:block;white-space:pre-wrap;text-align:inherit;';
+      sp.textContent=sf[i]?sf[i].value:'';
+      el.parentNode.replaceChild(sp,el);
+    });
+    cl.querySelectorAll('.no-print').forEach(el=>el.remove());
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>회의자료_'+doc.date+'</title><style>'+
+      '@page{size:A4 portrait;margin:10mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}'+
+      'body{margin:0;font-family:"Malgun Gothic","맑은 고딕",sans-serif;font-size:12px;color:#111}'+
+      'table{border-collapse:collapse;width:100%;table-layout:fixed}td,th{border:1px solid #444;padding:4px 6px;vertical-align:middle}'+
+      '.hd{background:#E7E6E6;text-align:center;font-weight:800}.r{text-align:right}.c{text-align:center}'+
+      '</style></head><body>'+cl.innerHTML+'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},250);};</scr'+'ipt></body></html>';
+    const w=window.open('','_blank');
+    if(!w)return alert('팝업이 차단되어 인쇄 창을 열 수 없습니다.');
+    w.document.write(html);w.document.close();
+  };
+  const inp=(v,on,ph,sty)=>R('input',{value:v||'',onChange:e=>on(e.target.value),placeholder:ph||'',
+    style:Object.assign({width:'100%',border:'none',background:'transparent',font:'inherit',padding:'2px 2px',outline:'none'},sty||{})});
+  const tdS={border:'1px solid #444',padding:'4px 6px',verticalAlign:'middle'};
+  const hdS={...tdS,background:'#E7E6E6',textAlign:'center',fontWeight:800};
+  const delBtn=(fn)=>R('button',{className:'no-print',onClick:fn,title:'줄 삭제',
+    style:{position:'absolute',right:2,top:2,border:'none',background:'none',color:'#D5CEC7',cursor:'pointer',fontSize:11,padding:0}},'✕');
+  const addBtn=(fn,l)=>R('button',{className:'btn bw btn-sm no-print',onClick:fn,style:{margin:'4px 0 10px'}},l||'＋ 줄 추가');
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'📋 주간 회의 자료'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'지난 회의 내용을 이어받아 수정 · 매출은 본사/이천공장 올해 월별 자동')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        st&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--ok)'}},st),
+        R('input',{type:'date',value:doc.date,onChange:e=>up('date',e.target.value),className:'inp',style:{width:150,padding:'7px 10px'}}),
+        R('button',{className:'btn bw',onClick:newFromLast,title:'지난 회의 내용을 이어받아 새 회의 자료 작성'},'＋ 새 회의'),
+        R('button',{className:'btn bp',onClick:save},'💾 저장'),
+        R('button',{className:'btn',style:{background:'#0F766E',color:'#fff',fontWeight:800},onClick:print},'🖨 인쇄'))),
+    R('div',{style:{overflowX:'auto'}},
+    R('div',{ref:docRef,style:{width:860,background:'#fff',border:'1.5px solid #222',padding:0,fontSize:12.5}},
+      R('table',null,R('tbody',null,
+        R('tr',null,R('td',{style:{...hdS,fontSize:14,padding:'8px'}},dateKo(doc.date)+' 회의 자료')))),
+      /* 거래처 진행 상황 */
+      R('table',{style:{marginTop:10}},
+        R('colgroup',null,R('col',{style:{width:170}}),R('col',null)),
+        R('tbody',null,
+          R('tr',null,R('td',{style:hdS},'거래처명'),R('td',{style:hdS},'진행 상황')),
+          ...doc.clients.map((r,i)=>R('tr',{key:i},
+            R('td',{style:{...tdS,position:'relative'}},inp(r.name,v=>upRow('clients',i,'name',v)),doc.clients.length>1&&delBtn(()=>delRow('clients',i))),
+            R('td',{style:tdS},inp(r.status,v=>upRow('clients',i,'status',v))))))),
+      addBtn(()=>addRow('clients',{name:'',status:''})),
+      /* 연구 개발 */
+      R('table',null,
+        R('colgroup',null,R('col',{style:{width:170}}),R('col',null)),
+        R('tbody',null,
+          R('tr',null,R('td',{style:{...hdS},colSpan:2},'연구 개발')),
+          ...doc.rnd.map((r,i)=>R('tr',{key:i},
+            R('td',{style:{...tdS,position:'relative'}},inp(r.name,v=>upRow('rnd',i,'name',v)),doc.rnd.length>1&&delBtn(()=>delRow('rnd',i))),
+            R('td',{style:tdS},inp(r.status,v=>upRow('rnd',i,'status',v))))))),
+      addBtn(()=>addRow('rnd',{name:'',status:''})),
+      /* 공장 개선 사항 */
+      R('table',null,
+        R('colgroup',null,R('col',{style:{width:170}}),R('col',null),R('col',{style:{width:150}})),
+        R('tbody',null,
+          R('tr',null,R('td',{style:hdS,colSpan:3},'공장 개선 사항')),
+          R('tr',null,R('td',{style:hdS},'구분'),R('td',{style:hdS},'내용'),R('td',{style:hdS},'비고')),
+          ...doc.improve.map((r,i)=>R('tr',{key:i},
+            R('td',{style:{...tdS,position:'relative'}},inp(r.k,v=>upRow('improve',i,'k',v)),doc.improve.length>1&&delBtn(()=>delRow('improve',i))),
+            R('td',{style:tdS},inp(r.c,v=>upRow('improve',i,'c',v))),
+            R('td',{style:tdS},inp(r.note,v=>upRow('improve',i,'note',v))))))),
+      addBtn(()=>addRow('improve',{k:'',c:'',note:''})),
+      /* 매출액 (자동) */
+      R('div',{className:'no-print',style:{display:'flex',alignItems:'center',gap:8,padding:'2px 4px 6px'}},
+        R('span',{style:{fontSize:11,color:'var(--tm)'}},year+'년 월별 매출 — 이카운트 수집본 자동'),
+        R('button',{className:'btn bw btn-sm',onClick:()=>setVat(v=>!v)},vat?'VAT 포함(×1.1 추정) 표시 중':'공급가액 표시 중')),
+      R('table',null,
+        R('colgroup',null,R('col',{style:{width:90}}),R('col',null),R('col',{style:{width:90}}),R('col',null)),
+        R('tbody',null,
+          R('tr',null,R('td',{style:hdS,colSpan:2},'본사'),R('td',{style:hdS,colSpan:2},'이천공장')),
+          R('tr',null,R('td',{style:hdS},'월별'),R('td',{style:hdS},'매출액'),R('td',{style:hdS},'월별'),R('td',{style:hdS},'매출액')),
+          ...MM.map((m,i)=>{
+            const h=mRow(pah,m),c=mRow(pa,m);
+            if(!h&&!c&&i+1>new Date().getMonth()+1)return null;
+            return R('tr',{key:m},
+              R('td',{style:{...tdS,textAlign:'center'}},i+1),
+              R('td',{style:{...tdS,textAlign:'right'}},h?nf(h):''),
+              R('td',{style:{...tdS,textAlign:'center'}},i+1),
+              R('td',{style:{...tdS,textAlign:'right'}},c?nf(c):''));
+          }),
+          R('tr',null,
+            R('td',{style:{...tdS,fontWeight:800}},'합계'),R('td',{style:{...tdS,textAlign:'right',fontWeight:800}},nf(hqTot)),
+            R('td',{style:{...tdS,fontWeight:800}},'합계'),R('td',{style:{...tdS,textAlign:'right',fontWeight:800}},nf(icTot))),
+          R('tr',null,
+            R('td',{style:{...tdS,fontWeight:800,background:'#DEEBF7'}},'총 합계'),
+            R('td',{style:{...tdS,textAlign:'right',fontWeight:900,background:'#DEEBF7'},colSpan:3},
+              nf(hqTot+icTot)+(vat?' (VAT 포함 ×1.1 추정)':' (공급가액)')))))
+    )),
+    /* 저장된 회의 자료 */
+    R('div',{className:'card',style:{marginTop:16,padding:'12px 14px',maxWidth:860}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+        R('div',{style:{fontSize:13,fontWeight:800}},'📂 지난 회의 자료'),
+        R('span',{style:{fontSize:11,color:'var(--tm)'}},list?list.length+'건':''),
+        R('div',{style:{flex:1}}),
+        R('button',{className:'btn bs btn-sm',onClick:()=>loadList(false)},'↻ 새로고침')),
+      list===null?R('div',{style:{padding:14,textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중...'):
+      list.length===0?R('div',{style:{padding:14,textAlign:'center',color:'var(--tm)',fontSize:12}},'아직 저장된 회의 자료가 없습니다.'):
+      R('div',null,...list.map(x=>R('div',{key:x.id,style:{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:9,marginBottom:5,
+          border:'1.5px solid '+(x.id===doc.id?'var(--p)':'var(--bd)'),background:x.id===doc.id?'#FFF7F2':'#fff'}},
+        R('span',{style:{fontSize:12.5,fontWeight:800,width:120,flexShrink:0}},x.date+dowLabel(x.date)),
+        R('span',{style:{fontSize:11.5,color:'var(--tm)',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}},
+          (x.clients||[]).map(c=>c.name).filter(Boolean).join(' · ')),
+        R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},x.by||''),
+        R('button',{className:'btn bw btn-sm',onClick:()=>{setDoc({...blankDoc(),...x});setSt('');}},'열기'),
+        R('button',{className:'btn bd2 btn-sm',onClick:()=>delDoc(x)},'삭제'))))));
+}
+
 /* ═══ 관리자: 원격접속 — 노트북·집에서 크롬 원격 데스크톱으로 회사 PC 접속 ═══ */
 function PageRemote(){
   const CRD='https://remotedesktop.google.com/access';
@@ -19474,7 +19667,7 @@ function PageRemote(){
 
 /* ─── 🔍 글로벌 검색 모달 (Ctrl+K) ─── */
 /* ═══ 권한: 관리자 전용 페이지 + 관리자가 개별로 끈 메뉴를 어디서든 차단 ═══ */
-const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','bizplan','data','admin','cats','operation','dart','wehago','remote']);
+const ADMIN_ONLY_PAGES=new Set(['hq_dash','adm_dash','adminDash','hq_sales','sales_data','adm_sales','hq_purchase','purchase_data','adm_purchase','hq_fixed_costs','fixed_costs','profit','salesStat','purchaseStat','cost','bizplan','data','admin','cats','operation','dart','wehago','remote','meeting']);
 function isPageBlockedFor(user,pid){
   if(!user)return false;
   if(['superadmin','admin'].includes(user.role))return false;   /* 관리자 전부 허용 */
@@ -19524,7 +19717,8 @@ const NAV_PAGES_INDEX=[
   {p:'pricelookup',title:'매입단가 조회',ic:'🔎',keys:['매입단가','단가','가격','원가','price','매입가']},
   {p:'wehago',title:'재무 현황',ic:'🏦',keys:['재무','위하고','손익','재무상태표','회계','wehago','finance']},
   {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']},
-  {p:'remote',title:'원격접속',ic:'🖥',keys:['원격','원격접속','원격제어','크롬원격','remote','crd']}
+  {p:'remote',title:'원격접속',ic:'🖥',keys:['원격','원격접속','원격제어','크롬원격','remote','crd']},
+  {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']}
 ];
 
 function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
@@ -23650,6 +23844,7 @@ function App(){
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
     if(page==='dart')return R(PageDartLookup,{});
     if(page==='remote'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageRemote,{});}
+    if(page==='meeting'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageMeeting,{user});}
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
