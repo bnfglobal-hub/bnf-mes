@@ -19468,6 +19468,149 @@ function XlPreviewModal({preview,onClose,onConfirm}){
   );
 }
 
+/* ═══ 경영지원부: 법정의무교육 — 5대 의무교육 주기 자동 관리 (2026-10-22) ═══
+   분기/연 단위 기간이 날짜에 따라 자동으로 넘어가고, 기간마다 이수 기록(일자·방법·메모·증빙)을 남긴다.
+   미이수·기한 임박(30일)은 상단에 자동 경고. 저장: 스토리지 ga-edu/records.json (전 직원 공유) */
+const EDU_DEFS=[
+  {k:'safety',ic:'🦺',name:'산업안전보건교육',cycle:'Q',target:'5인 이상 사업장 (일부 업종 제외)',time:'매분기 6시간 이상 (사무직/판매업 3시간)',self:'자체교육 가능',
+   teacher:'관리책임자·관리감독자, 공단 강사요원 교육과정 이수자, 산업안전/위생지도사 등',law:'산업안전보건법 제31조',fine:'500만원 이하 과태료',
+   contact:'한국산업안전보건공단 1644-4544 · 안전보건교육포털',url:'https://www.koshats.or.kr'},
+  {k:'harass',ic:'🚫',name:'직장 내 성희롱예방교육',cycle:'Y',target:'근로자를 사용하는 모든 사업장 (10인 미만 등은 자료 게시·배포 가능)',time:'연 1회, 1시간 이상',self:'자체교육 가능 · 강사자격 없음',
+   teacher:'없음',law:'남녀고용평등법 제13조',fine:'500만원 이하 과태료',
+   contact:'고용노동부 1350',url:'https://www.moel.go.kr'},
+  {k:'privacy',ic:'🔐',name:'개인정보보호교육',cycle:'Y',target:'개인정보를 처리하는 자',time:'연 1~2회(권고)',self:'자체교육 가능 · 강사자격 없음',
+   teacher:'없음',law:'개인정보보호법 제28조',fine:'사고 발생 시 최대 5억원 이하 과징금',
+   contact:'한국인터넷진흥원 1544-5118 · 개인정보보호종합포털',url:'https://www.privacy.go.kr'},
+  {k:'disable',ic:'♿',name:'직장 내 장애인 인식개선교육',cycle:'Y',target:'사업주 및 모든 근로자 (50인 미만 간이교육 가능)',time:'연 1회, 1시간 이상',self:'자체교육 가능',
+   teacher:'공단 강사양성과정 수료 강사',law:'장애인고용법 제5조의2',fine:'300만원 이하 과태료',
+   contact:'한국장애인고용공단 1588-1519 · 인식개선 교육포털',url:'https://edu.kead.or.kr'},
+  {k:'pension',ic:'💰',name:'퇴직연금교육',cycle:'Y',target:'퇴직연금제도 가입자',time:'연 1회 이상',self:'자체교육 가능 (퇴직연금사업자)',
+   teacher:'퇴직연금사업자',law:'근로자퇴직급여 보장법 제32조',fine:'1천만원 이하 과태료',
+   contact:'근로복지공단 1661-0075',url:'https://pension.kcomwel.or.kr'}
+];
+function PageEdu({user}){
+  const today=new Date();
+  const curPeriod=(cycle)=>{
+    const y=today.getFullYear();
+    if(cycle==='Q')return y+'-Q'+(Math.floor(today.getMonth()/3)+1);
+    return String(y);
+  };
+  const prevPeriod=(cycle)=>{
+    const y=today.getFullYear();
+    if(cycle==='Q'){const q=Math.floor(today.getMonth()/3)+1;return q===1?(y-1)+'-Q4':y+'-Q'+(q-1);}
+    return String(y-1);
+  };
+  const periodEnd=(p)=>{
+    const m=String(p).match(/^(\d{4})(?:-Q(\d))?$/);if(!m)return null;
+    const y=+m[1];
+    if(m[2])return new Date(y,(+m[2])*3,0);           /* 분기 말일 */
+    return new Date(y,12,0);                            /* 12/31 */
+  };
+  const dLeft=(p)=>{const e=periodEnd(p);return e?Math.ceil((e-today)/86400000):null;};
+  const pLabel=(p)=>String(p).replace(/^(\d{4})-Q(\d)$/,'$1년 $2분기').replace(/^(\d{4})$/,'$1년');
+  const[recs,setRecs]=useState(null);   /* [{edu,period,doneAt,by,how,note}] */
+  const[form,setForm]=useState(null);   /* {edu,period,doneAt,how,note} 완료 처리 입력 중 */
+  const[hist,setHist]=useState({});     /* {eduKey:true} 기록 펼침 */
+  const[st,setSt]=useState('');
+  const load=async()=>{
+    try{
+      const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('ga-edu/records.json');
+      const r=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+      if(r.ok){const j=await r.json();setRecs(Array.isArray(j&&j.records)?j.records:[]);return;}
+    }catch(e){}
+    setRecs([]);
+  };
+  useEffect(()=>{load();},[]);
+  const persist=async(next)=>{
+    setRecs(next);
+    try{
+      const body=JSON.stringify({records:next,at:now2()});
+      const{error}=await sbClient.storage.from('bnf-files').upload('ga-edu/records.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+      if(error)throw error;
+      setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+    }catch(e){alert('저장 실패: '+e.message);load();}
+  };
+  const recOf=(edu,p)=>(recs||[]).find(r=>r.edu===edu&&r.period===p);
+  const saveDone=async()=>{
+    if(!form)return;
+    if(!form.doneAt)return alert('이수일을 입력하세요');
+    const next=(recs||[]).filter(r=>!(r.edu===form.edu&&r.period===form.period));
+    next.push({edu:form.edu,period:form.period,doneAt:form.doneAt,how:form.how||'자체교육',note:form.note||'',by:(user&&user.name)||'',at:now2()});
+    await persist(next);
+    setForm(null);
+  };
+  const delRec=async(r)=>{
+    if(!confirm('['+pLabel(r.period)+'] '+(EDU_DEFS.find(d=>d.k===r.edu)||{}).name+' 이수 기록을 삭제할까요?'))return;
+    await persist((recs||[]).filter(x=>!(x.edu===r.edu&&x.period===r.period)));
+  };
+  /* 상단 요약: 이번 기간 미이수 · 기한 30일 이내 · 지난 기간 미이수 */
+  const summary=EDU_DEFS.map(d=>{
+    const cp=curPeriod(d.cycle),pp=prevPeriod(d.cycle);
+    const done=!!recOf(d.k,cp);
+    return{d,cp,done,left:dLeft(cp),prevMiss:!recOf(d.k,pp)&&!done?pp:(!recOf(d.k,pp)?pp:null)};
+  });
+  const missCnt=summary.filter(s=>!s.done).length;
+  const soonCnt=summary.filter(s=>!s.done&&s.left!=null&&s.left<=30).length;
+  const badge=(txt,bg,fg)=>R('span',{style:{fontSize:10.5,fontWeight:800,background:bg,color:fg,borderRadius:999,padding:'2px 10px',whiteSpace:'nowrap'}},txt);
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'🎓 법정의무교육'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'5대 의무교육 — 분기/연 주기가 자동으로 넘어가며 이수 여부를 관리합니다 · 기록은 전 직원 공유')),
+      st&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--ok)'}},st)),
+    /* 요약 띠 */
+    R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',padding:'10px 14px',borderRadius:11,marginBottom:14,
+        background:missCnt?'#FFF7ED':'#F0FDF4',border:'1.5px solid '+(missCnt?'#FED7AA':'#BBF7D0')}},
+      R('span',{style:{fontSize:13,fontWeight:800,color:missCnt?'var(--p)':'#15803D'}},
+        missCnt?('⚠ 이번 기간 미이수 '+missCnt+'건'+(soonCnt?' · 기한 30일 이내 '+soonCnt+'건':'')):'✓ 이번 기간 전 교육 이수 완료'),
+      R('div',{style:{flex:1}}),
+      R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'기간이 끝나기 전 이수 처리하세요 — 분기·연도가 바뀌면 자동으로 새 기간이 시작됩니다')),
+    ...summary.map(({d,cp,done,left})=>{
+      const rec=recOf(d.k,cp);
+      const myHist=(recs||[]).filter(r=>r.edu===d.k).sort((a,b)=>String(b.period).localeCompare(String(a.period)));
+      const prevP=prevPeriod(d.cycle);
+      const prevMiss=!recOf(d.k,prevP);
+      return R('div',{key:d.k,className:'card',style:{marginBottom:12,padding:'14px 16px',maxWidth:860,
+          border:'1.5px solid '+(done?'var(--bd)':(left!=null&&left<=30?'#FCA5A5':'#FED7AA'))}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+          R('span',{style:{fontSize:15,fontWeight:800}},d.ic+' '+d.name),
+          badge(d.cycle==='Q'?'매분기':'연 1회','#EFF6FF','#1D4ED8'),
+          done
+            ?badge('✓ '+pLabel(cp)+' 이수 완료','#DCFCE7','#15803D')
+            :badge('미이수 · '+pLabel(cp)+(left!=null?' · D-'+left:''),left!=null&&left<=30?'#FEE2E2':'#FFEDD5',left!=null&&left<=30?'#B91C1C':'#B45309'),
+          prevMiss&&badge('지난 '+pLabel(prevP)+' 기록 없음','#FEF3C7','#92400E'),
+          R('div',{style:{flex:1}}),
+          done
+            ?R('button',{className:'btn bw btn-sm',onClick:()=>delRec(rec)},'기록 취소')
+            :R('button',{className:'btn bp btn-sm',onClick:()=>setForm({edu:d.k,period:cp,doneAt:today2(),how:'자체교육',note:''})},'✅ 이수 완료 처리')),
+        rec&&R('div',{style:{fontSize:11.5,color:'var(--tm)',marginTop:5}},'이수일 '+rec.doneAt+' · '+(rec.how||'')+(rec.note?' · '+rec.note:'')+' · 기록: '+(rec.by||'')),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:6,lineHeight:1.7}},
+          '대상: '+d.target+' · 시간: '+d.time+' · '+d.self,R('br'),
+          '근거: '+d.law+' · 위반 시 '+d.fine+' · 문의: '+d.contact+' ',
+          R('a',{href:d.url,target:'_blank',rel:'noreferrer',style:{color:'var(--p)',fontWeight:700}},'포털 열기 →')),
+        /* 완료 처리 입력 */
+        form&&form.edu===d.k&&R('div',{style:{marginTop:10,padding:'10px 12px',borderRadius:9,background:'#FFF7F2',border:'1px solid #FED7AA',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+          R('span',{style:{fontSize:12,fontWeight:800}},pLabel(form.period)+' 이수:'),
+          R('input',{type:'date',value:form.doneAt,onChange:e=>setForm(p=>({...p,doneAt:e.target.value})),className:'inp',style:{width:140,padding:'6px 8px'}}),
+          R('select',{value:form.how,onChange:e=>setForm(p=>({...p,how:e.target.value})),className:'inp',style:{width:110,padding:'6px 8px'}},
+            ...['자체교육','외부교육','온라인','자료 게시·배포'].map(x=>R('option',{key:x,value:x},x))),
+          R('input',{value:form.note,onChange:e=>setForm(p=>({...p,note:e.target.value})),placeholder:'메모 (강사·장소 등)',className:'inp',style:{flex:1,minWidth:160,padding:'6px 8px'}}),
+          R('button',{className:'btn bp btn-sm',onClick:saveDone},'저장'),
+          R('button',{className:'btn bs btn-sm',onClick:()=>setForm(null)},'취소')),
+        /* 지난 기록 */
+        myHist.length>0&&R('div',{style:{marginTop:8}},
+          R('button',{onClick:()=>setHist(p=>({...p,[d.k]:!p[d.k]})),
+            style:{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'var(--p)',fontWeight:700,fontFamily:'inherit',padding:0}},
+            (hist[d.k]?'▲':'▼')+' 지난 기록 '+myHist.length+'건'),
+          hist[d.k]&&R('div',{style:{marginTop:5}},
+            ...myHist.map(r=>R('div',{key:r.period,style:{display:'flex',gap:10,alignItems:'center',fontSize:11.5,padding:'3px 0',borderTop:'1px solid #F4F1EE'}},
+              R('span',{style:{fontWeight:700,width:90}},pLabel(r.period)),
+              R('span',null,'이수일 '+r.doneAt+' · '+(r.how||'')+(r.note?' · '+r.note:'')),
+              R('span',{style:{color:'var(--tm)',marginLeft:'auto'}},r.by||''),
+              R('button',{className:'btn bw btn-sm',onClick:()=>delRec(r)},'삭제'))))));
+    }));
+}
+
 /* ═══ 생산관리부: 로트 전달 — 생산날짜 하나로 입고/포장/소비기한 자동 계산 (2026-10-22) ═══
    규칙: 대파·무·애호박·두부 입고일자 = 생산일 -1일 · 대파·무·애호박 포장일자 = 생산일 -2일
         · 두부 소비기한 = 두부 입고일자 +3일 · 청국장은 직접 기입
@@ -19890,7 +20033,8 @@ const NAV_PAGES_INDEX=[
   {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']},
   {p:'remote',title:'원격접속',ic:'🖥',keys:['원격','원격접속','원격제어','크롬원격','remote','crd']},
   {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']},
-  {p:'pm_lot',title:'로트 전달',ic:'🏷',keys:['로트','lot','소비기한','입고일자','포장일자']}
+  {p:'pm_lot',title:'로트 전달',ic:'🏷',keys:['로트','lot','소비기한','입고일자','포장일자']},
+  {p:'ga_edu',title:'법정의무교육',ic:'🎓',keys:['교육','의무교육','법정교육','산업안전','성희롱','개인정보','장애인','퇴직연금']}
 ];
 
 function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
@@ -21056,6 +21200,39 @@ function PageShipSort({mats,hqItems}){
     }
   };
 
+  /* ── 지난 출고 기록 보관: 초기화 전에 스토리지 ship-archive/ 에 스냅샷 저장 (2026-10-22) ── */
+  const[arcOpen,setArcOpen]=useState(false);
+  const[arcList,setArcList]=useState(null);
+  const archiveShip=async(data,date)=>{
+    try{
+      if(!data||!data.byCenter||!Object.keys(data.byCenter).length)return;
+      const dates=Object.keys(data.byCenter).map(k=>String(k).split('␟')[0]).filter(Boolean).sort();
+      const label=(dates[0]||date||today2());
+      const fn='ship-archive/'+label+'_'+Date.now().toString(36)+'.json';
+      const body=JSON.stringify({date:date||label,parsed:data,archivedAt:now2(),by:''});
+      await sbClient.storage.from('bnf-files').upload(fn,new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+    }catch(e){console.warn('출고 기록 보관 실패',e);}
+  };
+  const loadArchives=async()=>{
+    try{
+      const{data}=await sbClient.storage.from('bnf-files').list('ship-archive',{limit:200,sortBy:{column:'name',order:'desc'}});
+      setArcList((data||[]).filter(f=>/\.json$/.test(f.name||'')).map(f=>f.name).sort().reverse().slice(0,40));
+    }catch(e){setArcList([]);}
+  };
+  const openArchiveFile=async(fn)=>{
+    try{
+      const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl('ship-archive/'+fn);
+      const r=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+      const j=await r.json();
+      if(!j||!j.parsed||!j.parsed.byCenter)return alert('기록을 읽지 못했습니다.');
+      if(parsed&&parsed.byCenter&&Object.keys(parsed.byCenter).length){
+        if(!confirm('지금 화면의 출고 계획을 이 기록으로 바꿀까요?\n(지금 계획도 지난 출고 기록으로 먼저 보관됩니다)'))return;
+        await archiveShip(parsed,shipDate);
+      }
+      setParsed(j.parsed);setShipDate(j.date||'');saveShipsort(j.parsed,j.date||'');
+      setArcOpen(false);
+    }catch(e){alert('불러오기 실패: '+(e.message||e));}
+  };
   /* 센터명 정규화: 거래명세서 표기 → 표시용 짧은 이름 */
   const normCenter=(raw)=>{
     const s=(raw||'').replace(/\s/g,'');
@@ -22210,12 +22387,29 @@ function PageShipSort({mats,hqItems}){
         parsed&&R('button',{className:'btn bp',onClick:exportResult},'엑셀'),
         parsed&&R('button',{className:'btn bs',onClick:saveImage},'🖼 이미지 저장'),
         parsed&&R('button',{className:'btn bs',onClick:copyImage},'📋 이미지 복사'),
-        parsed&&R('button',{className:'btn bs',onClick:()=>{
-          if(!confirm('저장된 출고 계획을 지울까요?'))return;
+        parsed&&R('button',{className:'btn bs',onClick:async()=>{
+          if(!confirm('저장된 출고 계획을 지울까요?\n(지우기 전에 지난 출고 기록으로 자동 보관됩니다)'))return;
+          await archiveShip(parsed,shipDate);   /* 초기화 전에 보관 — 기록이 사라지지 않게 (2026-10-22) */
           setParsed(null);setShipDate('');saveShipsort(null,'');
-        }},'초기화')
+        }},'초기화'),
+        R('button',{className:'btn bs',onClick:()=>{setArcOpen(v=>!v);if(!arcList)loadArchives();}},'📜 지난 출고')
       )
     ),
+    /* 지난 출고 기록 목록 — 초기화할 때마다 자동 보관된 스냅샷 */
+    arcOpen&&R('div',{className:'card',style:{marginBottom:12,padding:'12px 14px'}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8}},
+        R('div',{style:{fontSize:13,fontWeight:800}},'📜 지난 출고 기록'),
+        R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'초기화할 때마다 자동 보관 · 누르면 그 계획을 다시 불러옵니다 (지금 계획도 먼저 보관됨)'),
+        R('div',{style:{flex:1}}),
+        R('button',{className:'btn bs btn-sm',onClick:loadArchives},'↻'),
+        R('button',{className:'btn bw btn-sm',onClick:()=>setArcOpen(false)},'✕')),
+      arcList===null?R('div',{style:{fontSize:12,color:'var(--tm)'}},'불러오는 중...'):
+      arcList.length===0?R('div',{style:{fontSize:12,color:'var(--tm)'}},'아직 보관된 기록이 없습니다 — 다음 초기화부터 자동으로 쌓입니다.'):
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        ...arcList.map(fn=>{
+          const lb=fn.replace(/_[a-z0-9]+\.json$/,'');
+          return R('button',{key:fn,className:'btn bw btn-sm',onClick:()=>openArchiveFile(fn),title:fn},'📦 '+lb);
+        }))),
     /* 컬리 발주 확인 — 페이지에 들어오면 자동으로 (필요 시 자동 로그인 포함) 조회된 결과 요약 */
     R('div',{className:'card',style:{marginBottom:12,padding:'12px 14px'}},
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}},
@@ -24018,6 +24212,7 @@ function App(){
     if(page==='remote'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageRemote,{});}
     if(page==='meeting'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageMeeting,{user});}
     if(page==='pm_lot')return R(PageLot,{user});
+    if(page==='ga_edu')return R(PageEdu,{user});
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
