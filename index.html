@@ -23753,6 +23753,16 @@ function App(){
       alert('Android Chrome 설치 방법:\n\n1. 우측 상단 메뉴 (⋮) 누르기\n2. "홈 화면에 추가" 또는 "앱 설치" 선택\n3. 설치 완료!');
     }
   };
+  /* ── 바로가기: 바탕화면 바로가기(.url 내려받기 / 앱 설치) + 시작화면 고정 안내 ── */
+  const[shortcutOpen,setShortcutOpen]=useState(false);
+  const makeDesktopShortcut=()=>{
+    const url='https://bnfglobal-hub.github.io/bnf-mes/';
+    const body='[InternetShortcut]\r\nURL='+url+'\r\n';
+    const a=document.createElement('a');
+    const u=URL.createObjectURL(new Blob([body],{type:'text/plain'}));
+    a.href=u;a.download='B&F MES.url';document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),30000);
+  };
 
   const[page,setPage]=useState('home');
   /* 로그인(사용자 변경) 시 항상 홈 화면부터 시작 */
@@ -24412,6 +24422,7 @@ function App(){
         saveStatus==='error'&&R('span',{style:{fontSize:10,color:'#B91C1C',background:'#FEF2F2',padding:'3px 9px',borderRadius:20,fontWeight:600,flexShrink:0,cursor:'help'},title:'저장 실패 - 네트워크 확인'},'✕ 저장실패'),
         R('div',{className:'hdr-name',style:{fontSize:12,flexShrink:0}},(user.name||'사용자')+' · '+(user.position||'')),
         (!isInstalled&&R('button',{onClick:installApp,className:'hdr-install',style:{padding:'4px 10px',background:'var(--pb)',border:'1px solid #F3D6C7',borderRadius:6,color:'var(--p)',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'📱 앱설치')),
+        R('button',{onClick:()=>setShortcutOpen(true),className:'hdr-install',title:'바탕화면 바로가기 · 시작화면 고정',style:{padding:'4px 10px',background:'#F4F1EE',border:'1px solid #E5DFD9',borderRadius:6,color:'#6E645C',fontSize:11,cursor:'pointer',fontFamily:'inherit',fontWeight:700,flexShrink:0}},'💻 바로가기'),
         R('button',{onClick:()=>setMyInfoOpen(true),title:'내 정보 · 비밀번호 변경',style:{padding:'4px 10px',background:'#F4F1EE',border:'1px solid #E5DFD9',borderRadius:6,color:'#6E645C',fontSize:11,cursor:'pointer',flexShrink:0,fontFamily:'inherit'}},'👤 내 정보'),
         R('button',{onClick:()=>{try{sbClient.auth.signOut();}catch(e){}localStorage.removeItem('bnf_user');setUser(null);},style:{padding:'4px 10px',background:'#F4F1EE',border:'1px solid #E5DFD9',borderRadius:6,color:'#6E645C',fontSize:11,cursor:'pointer',fontFamily:'inherit',flexShrink:0}},'로그아웃')
       )
@@ -24716,6 +24727,29 @@ function App(){
     imgModal&&R(ImgModal,{data:imgModal,onClose:()=>setImgModal(null),genImg}),
     xlPreview&&R(XlPreviewModal,{preview:xlPreview,onClose:()=>setXlPreview(null),onConfirm:confirmXlImport}),
     myInfoOpen&&R(MyInfoModal,{user,onClose:()=>setMyInfoOpen(false),onUpdated:u=>{setUser(u);try{localStorage.setItem('bnf_user',JSON.stringify(u));}catch(e){}}}),
+    /* 💻 바로가기 모달 — 바탕화면 바로가기 · 시작화면 고정 */
+    shortcutOpen&&R(Portal,null,R('div',{className:'mbg',onClick:()=>setShortcutOpen(false)},
+      R('div',{className:'mbox',style:{maxWidth:460,margin:'auto',borderRadius:16},onClick:e=>e.stopPropagation()},
+        R('div',{className:'mhdr'},
+          R('div',{style:{fontSize:15,fontWeight:800}},'💻 바로가기 만들기'),
+          R('button',{onClick:()=>setShortcutOpen(false),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')),
+        R('div',{className:'mbody'},
+          R('div',{style:{border:'1.5px solid var(--p)',borderRadius:12,padding:'12px 14px',marginBottom:10,background:'#FFF7F2'}},
+            R('div',{style:{fontSize:13,fontWeight:800,marginBottom:4}},'📱 앱으로 설치 (추천)'),
+            R('div',{style:{fontSize:11.5,color:'var(--tm)',lineHeight:1.6,marginBottom:8}},'설치하면 바탕화면 바로가기와 시작 메뉴 등록이 자동으로 됩니다. 창도 앱처럼 따로 뜹니다.'),
+            R('button',{className:'btn bp btn-sm',onClick:()=>{setShortcutOpen(false);installApp();}},window._isStandalone?'이미 설치됨 · 다시 설치':'📱 지금 설치')),
+          R('div',{style:{border:'1px solid var(--bd)',borderRadius:12,padding:'12px 14px',marginBottom:10}},
+            R('div',{style:{fontSize:13,fontWeight:800,marginBottom:4}},'🖥 바탕화면 바로가기 파일'),
+            R('div',{style:{fontSize:11.5,color:'var(--tm)',lineHeight:1.6,marginBottom:8}},'바로가기 파일(B&F MES.url)이 내려받아집니다 → 받은 파일을 바탕화면으로 끌어다 놓으면 끝. (브라우저 보안상 바탕화면에 직접 만들 수는 없어요)'),
+            R('button',{className:'btn bw btn-sm',onClick:makeDesktopShortcut},'🖥 바로가기 파일 받기')),
+          R('div',{style:{border:'1px solid var(--bd)',borderRadius:12,padding:'12px 14px'}},
+            R('div',{style:{fontSize:13,fontWeight:800,marginBottom:4}},'📌 시작화면(시작 메뉴) 고정'),
+            R('div',{style:{fontSize:11.5,color:'var(--t)',lineHeight:1.9}},
+              '① 위에서 [앱으로 설치]를 먼저 하세요',R('br'),
+              '② 시작 버튼 누르고 "B&F" 검색',R('br'),
+              '③ B&F Global 아이콘에 마우스 오른쪽 클릭',R('br'),
+              '④ [시작 화면에 고정] 선택 — 작업 표시줄은 [자세히 → 작업 표시줄에 고정]'))))))
+,
     globalSearch&&R(GlobalSearchModal,{mats,prods,user,onClose:()=>setGlobalSearch(false),onGoPage:(p,extra)=>{setPage(p);setGlobalSearch(false);}}),
     notifPanel&&R(NotifPanel,{mats,user,onClose:()=>setNotifPanel(false),onGoPage:(p)=>{setPage(p);setNotifPanel(false);}}),
     R(ScrollTopButton)
