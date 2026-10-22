@@ -19468,6 +19468,139 @@ function XlPreviewModal({preview,onClose,onConfirm}){
   );
 }
 
+/* ═══ 생산관리부: 로트 전달 — 생산날짜 하나로 입고/포장/소비기한 자동 계산 (2026-10-22) ═══
+   규칙: 대파·무·애호박·두부 입고일자 = 생산일 -1일 · 대파·무·애호박 포장일자 = 생산일 -2일
+        · 두부 소비기한 = 두부 입고일자 +3일 · 청국장은 직접 기입
+   저장: 스토리지 lot/<생산날짜>.json (자동 저장 · 전 직원 공유) */
+function PageLot({user}){
+  const addD=(ds,n)=>{const d=new Date(String(ds||'')+'T00:00:00');if(isNaN(d.getTime()))return'';d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  const dowL=(ds)=>{const d=new Date(String(ds||'')+'T00:00:00');return isNaN(d.getTime())?'':' ('+['일','월','화','수','목','금','토'][d.getDay()]+')';};
+  const FIXED=['청국장','대파','무','애호박','두부'];
+  const calcRows=(D,prev)=>{
+    const keep=n=>{const r=(prev||[]).find(x=>x.name===n);return r||{};};
+    const veg=n=>({name:n,in:D?addD(D,-1):'',pack:D?addD(D,-2):'',exp:''});
+    const tin=D?addD(D,-1):'';
+    return[
+      {name:'청국장',in:keep('청국장').in||'',pack:'',exp:keep('청국장').exp||''},   /* 직접 기입 유지 */
+      veg('대파'),veg('무'),veg('애호박'),
+      {name:'두부',in:tin,pack:'',exp:tin?addD(tin,3):''},
+      ...(prev||[]).filter(x=>!FIXED.includes(x.name))                                /* 직접 추가한 품목 유지 */
+    ];
+  };
+  const[prodDate,setProdDate]=useState(today2());
+  const[rows,setRows]=useState(()=>calcRows(today2(),null));
+  const[st,setSt]=useState('');
+  const[list,setList]=useState(null);
+  const loadingRef=useRef(true);
+  const formRef=useRef(null);
+  const urlOf=p=>{const{data}=sbClient.storage.from('bnf-files').getPublicUrl(p);return(data&&data.publicUrl)||'';};
+  /* 생산날짜 선택 → 그 날짜 저장본이 있으면 불러오고, 없으면 규칙대로 자동 계산 */
+  useEffect(()=>{
+    let alive=true;
+    loadingRef.current=true;
+    (async()=>{
+      try{
+        const r=await fetch(urlOf('lot/'+prodDate+'.json')+'?t='+Date.now());
+        if(alive&&r.ok){
+          const j=await r.json();
+          if(j&&Array.isArray(j.rows)){setRows(j.rows);setSt('저장본 불러옴');loadingRef.current=false;return;}
+        }
+      }catch(e){}
+      if(alive){setRows(p=>calcRows(prodDate,p));setSt('');loadingRef.current=false;}
+    })();
+    return()=>{alive=false;};
+  },[prodDate]);
+  const loadList=async()=>{
+    try{
+      const{data}=await sbClient.storage.from('bnf-files').list('lot',{limit:60,sortBy:{column:'name',order:'desc'}});
+      setList((data||[]).filter(f=>/\.json$/.test(f.name||'')).map(f=>f.name.replace(/\.json$/,'')).sort().reverse().slice(0,20));
+    }catch(e){setList([]);}
+  };
+  useEffect(()=>{loadList();},[]);
+  const save=async(auto)=>{
+    try{
+      const body=JSON.stringify({date:prodDate,rows,by:(user&&user.name)||'',at:now2()});
+      const{error}=await sbClient.storage.from('bnf-files').upload('lot/'+prodDate+'.json',new Blob([body],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+      if(error)throw error;
+      setSt((auto?'자동 저장됨 ':'저장됨 ')+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+      loadList();
+    }catch(e){setSt(auto?'⚠ 자동 저장 실패':'');if(!auto)alert('저장 실패: '+e.message);}
+  };
+  const autoT=useRef(null);
+  useEffect(()=>{
+    if(loadingRef.current)return;
+    if(!rows.some(r=>r.in||r.pack||r.exp))return;
+    if(autoT.current)clearTimeout(autoT.current);
+    autoT.current=setTimeout(()=>save(true),1500);
+    return()=>{if(autoT.current)clearTimeout(autoT.current);};
+  },[rows]);
+  const upRow=(i,k,v)=>setRows(p=>p.map((r,j)=>{
+    if(j!==i)return r;
+    const n={...r,[k]:v};
+    if(r.name==='두부'&&k==='in')n.exp=v?addD(v,3):'';   /* 두부: 입고일을 고치면 소비기한도 +3일로 */
+    return n;
+  }));
+  const copyText=()=>{
+    const L=['로트 전달 — 생산일 '+prodDate+dowL(prodDate),'품목\t입고일자\t포장일자\t소비기한'];
+    rows.forEach(r=>{if(r.name)L.push([r.name,r.in||'',r.pack||'',r.exp||''].join('\t'));});
+    navigator.clipboard.writeText(L.join('\n')).then(()=>{setSt('✓ 글 복사됨');setTimeout(()=>setSt(''),2000);}).catch(()=>{});
+  };
+  const copyImg=async()=>{
+    const node=formRef.current;
+    if(!node||typeof html2canvas==='undefined')return alert('이미지 준비가 안 됐습니다. 잠시 후 다시 시도해주세요.');
+    try{
+      const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff',useCORS:true,
+        ignoreElements:el=>!!(el.classList&&el.classList.contains('no-capture'))});
+      canvas.toBlob(async(blob)=>{
+        try{await navigator.clipboard.write([new window.ClipboardItem({'image/png':blob})]);setSt('✓ 이미지 복사됨');}
+        catch(e){const a=document.createElement('a');a.download='로트전달_'+prodDate+'.png';a.href=canvas.toDataURL('image/png');a.click();setSt('✓ 이미지 저장됨');}
+        setTimeout(()=>setSt(''),2500);
+      },'image/png');
+    }catch(e){alert('이미지 실패: '+e.message);}
+  };
+  const tdS={border:'1px solid #444',padding:'4px 8px',verticalAlign:'middle'};
+  const hdS={...tdS,background:'#E7E6E6',textAlign:'center',fontWeight:800};
+  const dIn=(v,on)=>R('input',{type:'date',value:v||'',onChange:e=>on(e.target.value),
+    style:{width:'100%',border:'none',background:'transparent',font:'inherit',outline:'none',padding:'2px'}});
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'🏷 로트 전달'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'생산날짜만 고르면 입고·포장·소비기한 자동 계산 (청국장은 직접 기입) · 자동 저장')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+        st&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--ok)'}},st),
+        R('span',{style:{fontSize:12,fontWeight:800}},'생산날짜'),
+        R('input',{type:'date',value:prodDate,onChange:e=>setProdDate(e.target.value),className:'inp',style:{width:150,padding:'7px 10px'}}),
+        R('button',{className:'btn bw',onClick:copyText},'📋 글 복사'),
+        R('button',{className:'btn bp',onClick:copyImg},'🖼 이미지 복사'))),
+    R('div',{style:{overflowX:'auto'}},
+    R('div',{ref:formRef,style:{width:560,background:'#fff',padding:10}},
+      R('div',{style:{fontSize:13.5,fontWeight:800,marginBottom:6}},'로트 전달 — 생산일 '+prodDate+dowL(prodDate)),
+      R('table',{style:{borderCollapse:'collapse',width:'100%',fontSize:12.5,tableLayout:'fixed'}},
+        R('colgroup',null,R('col',{style:{width:110}}),R('col',null),R('col',null),R('col',null),R('col',{className:'no-capture',style:{width:30}})),
+        R('tbody',null,
+          R('tr',null,R('td',{style:hdS},'품목'),R('td',{style:hdS},'입고일자'),R('td',{style:hdS},'포장일자'),R('td',{style:hdS},'소비기한'),R('td',{className:'no-capture',style:{border:'none'}})),
+          ...rows.map((r,i)=>R('tr',{key:i},
+            R('td',{style:{...tdS,fontWeight:700}},
+              FIXED.includes(r.name)?r.name:R('input',{value:r.name,placeholder:'품목',onChange:e=>upRow(i,'name',e.target.value),
+                style:{width:'100%',border:'none',background:'transparent',font:'inherit',outline:'none'}})),
+            R('td',{style:tdS},dIn(r.in,v=>upRow(i,'in',v))),
+            R('td',{style:tdS},dIn(r.pack,v=>upRow(i,'pack',v))),
+            R('td',{style:tdS},dIn(r.exp,v=>upRow(i,'exp',v))),
+            R('td',{className:'no-capture',style:{border:'none',textAlign:'center'}},
+              !FIXED.includes(r.name)&&R('button',{onClick:()=>setRows(p=>p.filter((_,j)=>j!==i)),title:'줄 삭제',
+                style:{border:'none',background:'none',color:'#DC2626',cursor:'pointer',fontSize:13}},'✕')))))),
+      R('div',{className:'no-capture',style:{marginTop:6,display:'flex',gap:8,alignItems:'center'}},
+        R('button',{className:'btn bw btn-sm',onClick:()=>setRows(p=>[...p,{name:'',in:'',pack:'',exp:''}])},'＋ 품목 추가'),
+        R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'대파·무·애호박·두부: 입고=생산-1일 · 포장=생산-2일 · 두부 소비기한=입고+3일 (칸은 직접 고칠 수 있음)')))),
+    R('div',{className:'card',style:{marginTop:16,padding:'12px 14px',maxWidth:560}},
+      R('div',{style:{fontSize:13,fontWeight:800,marginBottom:8}},'📂 지난 로트'),
+      list===null?R('div',{style:{fontSize:12,color:'var(--tm)'}},'불러오는 중...'):
+      list.length===0?R('div',{style:{fontSize:12,color:'var(--tm)'}},'아직 저장된 로트가 없습니다.'):
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        ...list.map(d=>R('button',{key:d,className:'btn btn-sm '+(d===prodDate?'bp':'bw'),onClick:()=>setProdDate(d)},d)))));
+}
+
 /* ═══ 관리자: 주간 회의 자료 — 엑셀 회의 양식 그대로 (2026-10-20) ═══
    거래처 진행 상황 · 연구 개발 · 공장 개선 사항은 직접 입력(지난 회의 내용을 이어받아 수정),
    매출액은 본사(171542)/이천공장(600860) 올해 월별 매출을 자동으로 채운다.
@@ -19756,7 +19889,8 @@ const NAV_PAGES_INDEX=[
   {p:'wehago',title:'재무 현황',ic:'🏦',keys:['재무','위하고','손익','재무상태표','회계','wehago','finance']},
   {p:'admin',title:'사용자 관리',ic:'👤',keys:['사용자','관리','admin','user']},
   {p:'remote',title:'원격접속',ic:'🖥',keys:['원격','원격접속','원격제어','크롬원격','remote','crd']},
-  {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']}
+  {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']},
+  {p:'pm_lot',title:'로트 전달',ic:'🏷',keys:['로트','lot','소비기한','입고일자','포장일자']}
 ];
 
 function GlobalSearchModal({mats,prods,user,onClose,onGoPage}){
@@ -23883,6 +24017,7 @@ function App(){
     if(page==='dart')return R(PageDartLookup,{});
     if(page==='remote'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageRemote,{});}
     if(page==='meeting'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageMeeting,{user});}
+    if(page==='pm_lot')return R(PageLot,{user});
     if(page==='quote')return R(PageQuote,{quote,setQuote,user});
     if(page==='hq_fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'hq'});}
     if(page==='fixed_costs'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixedCosts,{user,variant:'adm'});}
