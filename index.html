@@ -22246,6 +22246,41 @@ function PageShipSort({mats,hqItems}){
     const list=expPrevList(pv);
     return(pv&&list.length&&list.indexOf(exp)<0)?{pv,list}:null;
   };
+  /* 소비기한이 비어 있으면 직전 출고값을 자동으로 쓴다 (표시·복사·엑셀 모두) — {exp, auto} */
+  const effExp=(name,exp)=>{
+    if(exp)return{exp,auto:false};
+    const list=expPrevList(expPrevOf(name));
+    return list.length?{exp:list[list.length-1],auto:true}:{exp:'',auto:false};
+  };
+  /* 계획에 소비기한이 들어오면(엑셀·명세서 업로드, 컬리 발주 등) 자동으로 '직전 기록'에 저장 —
+     삼우 계정 제품도 한 번 들어오면 다음부터 직전값으로 끌어온다 (2026-10-23) */
+  const recordPlanExps=async(orders)=>{
+    try{
+      const rows=[];
+      (orders||[]).forEach(o=>(o.items||[]).forEach(it=>{if(it.exp)rows.push({name:it.name,exp:it.exp,total:it.total,center:o.center,date:o.date||''});}));
+      if(!rows.length)return;
+      const nowIso=new Date().toISOString();
+      const{data:st}=await sbClient.from('app_state').select('last:state_data->bnf_ship_exp_last,hist:state_data->bnf_ship_exp_history').eq('id',1).maybeSingle();
+      const map=Object.assign({},(st&&st.last)||{});
+      rows.forEach(x=>{
+        const k=normExpName(x.name),d=x.date||today2();
+        const cur=map[k];
+        if(!cur||String(cur.date||'')<d)map[k]={exps:[x.exp],date:d,at:nowIso};
+        else if(String(cur.date||'')===d&&(cur.exps||[]).indexOf(x.exp)<0)cur.exps=[...(cur.exps||[]),x.exp];
+      });
+      await sbClient.rpc('set_state_key',{k:'bnf_ship_exp_last',v:map});
+      setShipExpLast(map);
+      const hist=(st&&st.hist&&Array.isArray(st.hist.items))?st.hist.items.slice():[];
+      const seen=new Set(hist.map(h=>h.d+'|'+normExpName(h.n)+'|'+(h.e||'')));
+      rows.forEach(x=>{
+        const d=x.date||today2(),sig=d+'|'+normExpName(x.name)+'|'+x.exp;
+        if(seen.has(sig))return;seen.add(sig);
+        hist.push({d,c:'출고계획',k:x.center||'',n:x.name,e:x.exp,q:x.total||null});
+      });
+      hist.sort((a,b)=>String(a.d).localeCompare(String(b.d)));
+      await sbClient.rpc('set_state_key',{k:'bnf_ship_exp_history',v:{at:nowIso,items:hist.slice(-3000)}});
+    }catch(e){}
+  };
   const[cfm,setCfm]=useState(null);        /* {token,date,rows,...} 채움 완료 → 승인 대기 */
   const[cfmBusy,setCfmBusy]=useState('');
   const[cfmDone,setCfmDone]=useState(null);
@@ -22433,6 +22468,7 @@ function PageShipSort({mats,hqItems}){
     setParsed(result);
     setShipDate(newDate);
     saveShipsort(result,newDate); /* 새로고침해도 남도록 저장 */
+    recordPlanExps(fresh.map(f=>f.o)); /* 들어온 소비기한을 직전 기록에 자동 저장 */
     if(dup>0)alert(fresh.length+'건 추가됨 · 중복 '+dup+'건은 자동 제외했습니다.');
   };
 
@@ -22449,7 +22485,7 @@ function PageShipSort({mats,hqItems}){
       const pt={};
       groups[date].sort((a,b)=>a.center.localeCompare(b.center,'ko')).forEach(({center,d})=>{
         const its=Object.entries(d.items);
-        its.forEach(([name,v],i)=>{rows.push([i===0?center:'',name,v.box,v.total,v.exp]);pt[name]=(pt[name]||0)+v.total;});
+        its.forEach(([name,v],i)=>{rows.push([i===0?center:'',name,v.box,v.total,effExp(name,v.exp).exp]);pt[name]=(pt[name]||0)+v.total;});
         rows.push(['','합계',d.totalBox,'','']);
         rows.push(['','박스',30,'','']);
         rows.push(['','팔레트 수',(d.totalBox/30).toFixed(6),'','']);
@@ -23098,7 +23134,8 @@ function PageShipSort({mats,hqItems}){
             centers.forEach(({center,d})=>{
               L.push('■ '+center+'  ('+d.totalBox+'박스 / '+(d.totalBox/30).toFixed(2)+'파레트)');
               Object.entries(d.items).forEach(([n,v])=>{
-                L.push('  · '+n+'  '+v.box+'박스 / '+fN(v.total)+'개'+(v.exp?'  (소비기한 '+v.exp+')':''));
+                const ee=effExp(n,v.exp);
+                L.push('  · '+n+'  '+v.box+'박스 / '+fN(v.total)+'개'+(ee.exp?'  (소비기한 '+ee.exp+(ee.auto?' ·직전값':'')+')':''));
               });
               L.push('');
             });
@@ -23110,7 +23147,7 @@ function PageShipSort({mats,hqItems}){
             const L=['출고일\t센터\t제품명\t박스\t제품수량\t소비기한'];
             centers.forEach(({center,d})=>{
               Object.entries(d.items).forEach(([n,v])=>{
-                L.push([dLabel,center,n,v.box,v.total,v.exp||''].join('\t'));
+                L.push([dLabel,center,n,v.box,v.total,effExp(n,v.exp).exp||''].join('\t'));
               });
             });
             return L.join('\n');
@@ -23193,12 +23230,14 @@ function PageShipSort({mats,hqItems}){
                     R('div',{style:{color:'#6E645C'}},fN(v.total)),
                     (()=>{const ch=expChanged(name,v.exp);
                       const pv=expPrevOf(name),pl=expPrevList(pv);
+                      const ee=effExp(name,v.exp);  /* 비어 있으면 직전값 자동 */
                       return R('div',{style:{color:'#DC2626',fontWeight:600},
-                        title:pl.length?('직전 출고('+((pv&&pv.date)||'-')+') 소비기한 '+pl.join(', ')+(v.exp?' → 이번 '+v.exp:'')):''},
-                        v.exp||'-',
+                        title:pl.length?('직전 출고('+((pv&&pv.date)||'-')+') 소비기한 '+pl.join(', ')+(v.exp?' → 이번 '+v.exp:' → 이번 발주에 값이 없어 직전값을 자동 사용')):''},
+                        ee.exp||'-',
+                        ee.auto&&R('div',{style:{fontSize:9.5,fontWeight:800,color:'#1D4ED8',background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'직전값 자동 ('+String((pv&&pv.date)||'').slice(5).replace('-','/')+' 출고)'),
                         /* 직전 출고 소비기한 상시 표시 — 달라졌으면 노란 경고, 같으면 회색 참고 */
                         ch?R('div',{style:{fontSize:9.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 5px',marginTop:2,display:'inline-block',whiteSpace:'nowrap'}},'⚠ 지난 '+ch.list.join(', '))
-                          :(pl.length?R('div',{style:{fontSize:9.5,fontWeight:600,color:'#9A9088',marginTop:2,whiteSpace:'nowrap'}},'직전 '+pl.join(', ')+((pv&&pv.date)?' ('+String(pv.date).slice(5).replace('-','/')+')':'')):null));
+                          :(!ee.auto&&pl.length?R('div',{style:{fontSize:9.5,fontWeight:600,color:'#9A9088',marginTop:2,whiteSpace:'nowrap'}},'직전 '+pl.join(', ')+((pv&&pv.date)?' ('+String(pv.date).slice(5).replace('-','/')+')':'')):null));
                     })(),
                     st
                       ? R('div',{style:{fontSize:11,whiteSpace:'nowrap'}},
