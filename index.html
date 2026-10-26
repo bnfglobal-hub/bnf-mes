@@ -1944,7 +1944,10 @@ function SchedGrid({weekStart,gridFs,gridColW,onColW,edit,flat,onDblCell,onDblFi
   /* 섹션별 전역 행 번호 (키보드 이동용) — 줄 추가/삭제 반영 */
   const secWithBase=(()=>{let b=0;return SCHED_GRID_SECS.map(s=>{const n=effN(s);const o={...s,n,base:b};b+=n;return o;});})();
   const baseFs=gridFs||12;
-  const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top',touchAction:'manipulation'}; /* 더블탭 확대 차단 → 두 번 탭=편집 전환이 안정적으로 */
+  /* touchAction: 'pan-y' — 세로 스크롤만 브라우저에 맡기고 핀치/가로밀기는 ZoomPan JS가 전담.
+     'manipulation'은 브라우저 자체 핀치줌을 허용해 표 확대축소와 충돌했음(2026-10-27 확대축소 에러).
+     pan-y도 더블탭 확대는 차단하므로 '두 번 탭=편집 전환'은 그대로 동작 */
+  const tdBase={border:'1px solid #D5CEC7',padding:0,verticalAlign:'top',touchAction:'pan-y'};
   const taBase={width:'100%',border:'none',background:'transparent',font:'inherit',lineHeight:1.45,padding:'3px 6px',resize:'none',outline:'none',minHeight:26,height:26,overflow:'hidden',display:'block',boxSizing:'border-box',margin:0};
   /* 열 너비: 저장된 값 우선, 기본은 라벨 74 · 일/토 88 · 평일 자동 */
   /* 열 너비: 드래그로 넓힌 합이 화면보다 커지면 비율은 유지한 채 전체를 축소 —
