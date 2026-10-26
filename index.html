@@ -19963,8 +19963,19 @@ function PageMeeting({user}){
     if(!w)return alert('팝업이 차단되어 인쇄 창을 열 수 없습니다.');
     w.document.write(html);w.document.close();
   };
-  const inp=(v,on,ph,sty)=>R('input',{value:v||'',onChange:e=>on(e.target.value),placeholder:ph||'',
-    style:Object.assign({width:'100%',border:'none',background:'transparent',font:'inherit',padding:'2px 2px',outline:'none'},sty||{})});
+  /* nav={sec,i,k,len,blank}: Enter를 치면 아래 줄 같은 칸으로 — 마지막 줄이면 줄을 자동 추가 */
+  const inp=(v,on,ph,sty,nav)=>R('input',Object.assign({value:v||'',onChange:e=>on(e.target.value),placeholder:ph||'',
+    style:Object.assign({width:'100%',border:'none',background:'transparent',font:'inherit',padding:'2px 2px',outline:'none'},sty||{})},
+    nav?{'data-mr':nav.sec+'_'+nav.i+'_'+nav.k,
+      onKeyDown:e=>{
+        if(e.key!=='Enter'||(e.nativeEvent&&e.nativeEvent.isComposing))return;
+        e.preventDefault();
+        if(nav.i>=nav.len-1)addRow(nav.sec,nav.blank());
+        setTimeout(()=>{
+          const el=document.querySelector('[data-mr="'+nav.sec+'_'+(nav.i+1)+'_'+nav.k+'"]');
+          if(el)el.focus();
+        },120);
+      }}:{}));
   const tdS={border:'1px solid #444',padding:'4px 6px',verticalAlign:'middle'};
   const hdS={...tdS,background:'#E7E6E6',textAlign:'center',fontWeight:800};
   const delBtn=(fn)=>R('button',{className:'no-print',onClick:fn,title:'줄 삭제',
@@ -19991,8 +20002,8 @@ function PageMeeting({user}){
         R('tbody',null,
           R('tr',null,R('td',{style:hdS},'거래처명'),R('td',{style:hdS},'진행 상황')),
           ...doc.clients.map((r,i)=>R('tr',{key:i},
-            R('td',{style:{...tdS,position:'relative'}},inp(r.name,v=>upRow('clients',i,'name',v)),doc.clients.length>1&&delBtn(()=>delRow('clients',i))),
-            R('td',{style:tdS},inp(r.status,v=>upRow('clients',i,'status',v))))))),
+            R('td',{style:{...tdS,position:'relative'}},inp(r.name,v=>upRow('clients',i,'name',v),'','',{sec:'clients',i,k:'name',len:doc.clients.length,blank:()=>({name:'',status:''})}),doc.clients.length>1&&delBtn(()=>delRow('clients',i))),
+            R('td',{style:tdS},inp(r.status,v=>upRow('clients',i,'status',v),'','',{sec:'clients',i,k:'status',len:doc.clients.length,blank:()=>({name:'',status:''})})))))),
       addBtn(()=>addRow('clients',{name:'',status:''})),
       /* 연구 개발 */
       R('table',null,
@@ -20000,8 +20011,8 @@ function PageMeeting({user}){
         R('tbody',null,
           R('tr',null,R('td',{style:{...hdS},colSpan:2},'연구 개발')),
           ...doc.rnd.map((r,i)=>R('tr',{key:i},
-            R('td',{style:{...tdS,position:'relative'}},inp(r.name,v=>upRow('rnd',i,'name',v)),doc.rnd.length>1&&delBtn(()=>delRow('rnd',i))),
-            R('td',{style:tdS},inp(r.status,v=>upRow('rnd',i,'status',v))))))),
+            R('td',{style:{...tdS,position:'relative'}},inp(r.name,v=>upRow('rnd',i,'name',v),'','',{sec:'rnd',i,k:'name',len:doc.rnd.length,blank:()=>({name:'',status:''})}),doc.rnd.length>1&&delBtn(()=>delRow('rnd',i))),
+            R('td',{style:tdS},inp(r.status,v=>upRow('rnd',i,'status',v),'','',{sec:'rnd',i,k:'status',len:doc.rnd.length,blank:()=>({name:'',status:''})})))))),
       addBtn(()=>addRow('rnd',{name:'',status:''})),
       /* 공장 개선 사항 */
       R('table',null,
@@ -20009,10 +20020,12 @@ function PageMeeting({user}){
         R('tbody',null,
           R('tr',null,R('td',{style:hdS,colSpan:3},'공장 개선 사항')),
           R('tr',null,R('td',{style:hdS},'구분'),R('td',{style:hdS},'내용'),R('td',{style:hdS},'비고')),
-          ...doc.improve.map((r,i)=>R('tr',{key:i},
-            R('td',{style:{...tdS,position:'relative'}},inp(r.k,v=>upRow('improve',i,'k',v)),doc.improve.length>1&&delBtn(()=>delRow('improve',i))),
-            R('td',{style:tdS},inp(r.c,v=>upRow('improve',i,'c',v))),
-            R('td',{style:tdS},inp(r.note,v=>upRow('improve',i,'note',v))))))),
+          ...doc.improve.map((r,i)=>{
+            const nv=k=>({sec:'improve',i,k,len:doc.improve.length,blank:()=>({k:'',c:'',note:''})});
+            return R('tr',{key:i},
+            R('td',{style:{...tdS,position:'relative'}},inp(r.k,v=>upRow('improve',i,'k',v),'','',nv('k')),doc.improve.length>1&&delBtn(()=>delRow('improve',i))),
+            R('td',{style:tdS},inp(r.c,v=>upRow('improve',i,'c',v),'','',nv('c'))),
+            R('td',{style:tdS},inp(r.note,v=>upRow('improve',i,'note',v),'','',nv('note'))));}))),
       addBtn(()=>addRow('improve',{k:'',c:'',note:''})),
       /* 매출액 (자동) */
       R('div',{className:'no-print',style:{display:'flex',alignItems:'center',gap:8,padding:'2px 4px 6px'}},
