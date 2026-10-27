@@ -9379,11 +9379,25 @@ function PageRndOem({user}){
           {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
     dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
     qty:['협의 필요','500kg 미만','500kg~1톤','1~3톤','3톤 이상']};
-  const openFormCfg=async()=>{
+  /* B2B(업소용) 전용 양식 기본값 — oem-request.html의 DEFAULTS.B2B와 동일하게 유지 */
+  const OEM_FORM_DEFAULT_B2B={
+    intro:'(주)비엔에프글로벌 B2B(업소용) 식품 OEM/ODM 개발 의뢰 설문입니다.\n업소·프랜차이즈·급식용 제품을 개발해 드립니다. 작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.',
+    devDays:30,designDays:14,prodDays:14,
+    biztype:['업소용 벌크(식당·주방용)','프랜차이즈 PB 제품','급식·식자재 납품'],
+    foodtype:['소스','육수/농축액','국/탕','양념육','반조리(전처리)'],
+    pack:[{label:'벌크 포장 (봉지/말통)',days:14,sub:'포장재 리드타임 약 14일'},
+          {label:'삼방 파우치',days:28,sub:'동판 14일 + 생산 14일'},
+          {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
+    dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
+    qty:['협의 필요','1톤 미만','1~3톤','3~5톤','5톤 이상']};
+  const openFormCfg=async(type)=>{
+    const tp=type==='B2B'?'B2B':'B2C';
     try{
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',9).maybeSingle();
-      const f=Object.assign({},OEM_FORM_DEFAULT,(data&&data.state_data&&data.state_data.oem_form)||{});
+      const sd=(data&&data.state_data)||{};
+      const f=Object.assign({},tp==='B2B'?OEM_FORM_DEFAULT_B2B:OEM_FORM_DEFAULT,(tp==='B2B'?sd.oem_form_b2b:sd.oem_form)||{});
       setFormCfg({
+        type:tp,
         intro:f.intro,devDays:f.devDays,designDays:f.designDays,prodDays:f.prodDays,
         biztype:(f.biztype||[]).join('\n'),foodtype:(f.foodtype||[]).join('\n'),
         dev:(f.dev||[]).join('\n'),qty:(f.qty||[]).join('\n'),
@@ -9405,7 +9419,7 @@ function PageRndOem({user}){
     try{
       const{data}=await sbClient.from('app_state').select('state_data').eq('id',9).maybeSingle();
       const sd=(data&&data.state_data)||{};
-      sd.oem_form=cfg;
+      if(f.type==='B2B')sd.oem_form_b2b=cfg;else sd.oem_form=cfg;
       sd.oem_form_at=new Date().toISOString();
       sd.oem_form_by=(user&&user.name)||'';
       const{error}=await sbClient.from('app_state').upsert({id:9,state_data:sd,updated_at:new Date().toISOString()});
@@ -9474,7 +9488,7 @@ function PageRndOem({user}){
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'외부 설문 링크로 접수된 OEM 개발 의뢰를 관리합니다')),
       R('div',{style:{display:'flex',gap:6}},
         R('button',{className:'btn bs btn-sm',onClick:()=>load()},'↻ 새로고침'),
-        R('button',{className:'btn bw',onClick:openFormCfg,style:{padding:'8px 14px',fontWeight:800}},'⚙ 양식 수정'),
+        R('button',{className:'btn bw',onClick:()=>openFormCfg('B2C'),style:{padding:'8px 14px',fontWeight:800}},'⚙ 양식 수정'),
         R('button',{className:'btn bp',onClick:copyLink,style:{padding:'8px 16px',fontWeight:800}},'🔗 설문 링크 복사'))),
     /* 상태별 현황 + 필터 */
     R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}},
@@ -9495,6 +9509,8 @@ function PageRndOem({user}){
         R('div',{style:{display:'flex',gap:9,alignItems:'center',flexWrap:'wrap'}},
           badge(r.status,st.c,st.bg),
           R('span',{style:{fontSize:15,fontWeight:800}},d.company||'(회사명 없음)'),
+          R('span',{style:{fontSize:10,fontWeight:800,borderRadius:8,padding:'1px 8px',flexShrink:0,
+            background:d.formType==='B2B'?'#EFF6FF':'#F0FDF4',color:d.formType==='B2B'?'#1D4ED8':'#15803D'}},d.formType==='B2B'?'🏭 B2B':'🛒 B2C'),
           R('span',{style:{fontSize:12,color:'var(--tm)',fontWeight:700}},(d.person||'')+(d.title?' '+d.title:'')),
           R('span',{style:{fontSize:12,color:'var(--tm)'}},d.phone||''),
           R('div',{style:{flex:1}}),
@@ -9608,10 +9624,15 @@ function PageRndOem({user}){
         R('div',{className:'mbox',style:{maxWidth:600,width:'100%',maxHeight:'92vh'}},
           R('div',{className:'mhdr'},
             R('div',null,
-              R('div',{style:{fontSize:15,fontWeight:800}},'⚙ 설문 양식 수정'),
+              R('div',{style:{fontSize:15,fontWeight:800}},'⚙ 설문 양식 수정 — '+(formCfg.type==='B2B'?'B2B (업소용)':'B2C (소비자용)')),
               R('div',{style:{fontSize:10,color:'var(--tm)',marginTop:2}},'저장하면 외부 설문 페이지에 바로 반영됩니다 (선택지는 한 줄에 하나씩)')),
             R('button',{onClick:()=>setFormCfg(null),style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'×')),
           R('div',{className:'mbody'},
+            /* B2C / B2B 양식 전환 탭 */
+            R('div',{style:{display:'flex',gap:6,marginBottom:12}},
+              R('button',{className:'btn btn-sm '+(formCfg.type!=='B2B'?'bp':'bw'),onClick:()=>{if(formCfg.type==='B2B')openFormCfg('B2C');}},'🛒 B2C (소비자용) 양식'),
+              R('button',{className:'btn btn-sm '+(formCfg.type==='B2B'?'bp':'bw'),onClick:()=>{if(formCfg.type!=='B2B')openFormCfg('B2B');}},'🏭 B2B (업소용) 양식'),
+              R('span',{style:{fontSize:10.5,color:'var(--tm)',alignSelf:'center'}},'설문 첫 화면에서 고객이 유형을 고르면 해당 양식이 열립니다')),
             ta('상단 안내 문구','intro',null,2),
             R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:10}},
               num('개발 소요일','devDays'),num('디자인 소요일','designDays'),num('생산·출고 소요일','prodDays')),

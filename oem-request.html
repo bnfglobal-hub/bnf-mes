@@ -54,12 +54,31 @@ textarea{resize:vertical;min-height:80px;line-height:1.55}
 </style>
 </head>
 <body>
-<div class="wrap" id="formWrap">
+<!-- ── 유형 선택: B2C(소비자용) / B2B(업소용) — 고른 쪽의 양식이 열립니다 ── -->
+<div class="wrap" id="pickWrap">
   <div class="hdr">
     <span class="logo">B&amp;F GLOBAL</span>
     <h1>OEM 제품 개발 의뢰서</h1>
+    <p>의뢰하실 제품 유형을 선택해주세요</p>
+  </div>
+  <div class="card" style="cursor:pointer;border-width:2px" onclick="pickType('B2C')">
+    <h2 style="margin:0">🛒 B2C (소비자용)</h2>
+    <p style="margin:8px 0 0;font-size:13px;color:var(--tm);line-height:1.6">마트·온라인몰 등에서 소비자에게 판매되는 완제품 개발 의뢰<br>예) 밀키트, 간편식(HMR), 소매 유통 제품</p>
+  </div>
+  <div class="card" style="cursor:pointer;border-width:2px" onclick="pickType('B2B')">
+    <h2 style="margin:0">🏭 B2B (업소용)</h2>
+    <p style="margin:8px 0 0;font-size:13px;color:var(--tm);line-height:1.6">식당·프랜차이즈·급식 등 업소에 납품되는 제품 개발 의뢰<br>예) 업소용 소스·육수, 프랜차이즈 PB, 벌크 납품</p>
+  </div>
+  <div class="ft">(주)비엔에프글로벌 연구개발부</div>
+</div>
+
+<div class="wrap" id="formWrap" style="display:none">
+  <div class="hdr">
+    <span class="logo">B&amp;F GLOBAL</span>
+    <h1 id="formTitle">OEM 제품 개발 의뢰서</h1>
     <p id="introTxt">(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.
 작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.</p>
+    <p style="margin-top:6px"><a href="#" onclick="backToPick();return false" style="color:var(--p);font-size:12px;font-weight:700">↩ 제품 유형 다시 선택</a></p>
   </div>
 
   <div class="card">
@@ -137,18 +156,34 @@ function $(id){return document.getElementById(id);}
 function rv(name){var el=document.querySelector('input[name="'+name+'"]:checked');return el?el.value:'';}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 
-/* ── 양식 설정: MES [⚙ 양식 수정]에서 저장한 값(app_state id=9 oem_form)을 우선 사용 ── */
-var CFG={
-  intro:'(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.\n작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.',
-  devDays:30, designDays:14, prodDays:14,
-  biztype:['B2B(업소용)','프랜차이즈 PB 제품','B2C 소비자 유통 제품'],
-  foodtype:['밀키트','국/탕','소스','양념육'],
-  pack:[{label:'트레이 + 종이슬리브',days:7,sub:'슬리브 리드타임 약 7일'},
-        {label:'삼방 파우치',days:28,sub:'동판 14일 + 생산 14일'},
-        {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
-  dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
-  qty:['협의 필요','500kg 미만','500kg~1톤','1~3톤','3톤 이상']
+/* ── 양식 설정: MES [⚙ 양식 수정]에서 저장한 값(app_state id=9)을 우선 사용
+      B2C = oem_form · B2B = oem_form_b2b (유형 선택 후 해당 양식을 불러온다) ── */
+var DEFAULTS={
+  B2C:{
+    intro:'(주)비엔에프글로벌 식품 OEM/ODM 개발 의뢰 설문입니다.\n작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.',
+    devDays:30, designDays:14, prodDays:14,
+    biztype:['B2C 소비자 유통 제품','프랜차이즈 PB 제품','B2B(업소용)'],
+    foodtype:['밀키트','국/탕','소스','양념육'],
+    pack:[{label:'트레이 + 종이슬리브',days:7,sub:'슬리브 리드타임 약 7일'},
+          {label:'삼방 파우치',days:28,sub:'동판 14일 + 생산 14일'},
+          {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
+    dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
+    qty:['협의 필요','500kg 미만','500kg~1톤','1~3톤','3톤 이상']
+  },
+  B2B:{
+    intro:'(주)비엔에프글로벌 B2B(업소용) 식품 OEM/ODM 개발 의뢰 설문입니다.\n업소·프랜차이즈·급식용 제품을 개발해 드립니다. 작성해 주시면 연구개발 담당자가 검토 후 연락드립니다.',
+    devDays:30, designDays:14, prodDays:14,
+    biztype:['업소용 벌크(식당·주방용)','프랜차이즈 PB 제품','급식·식자재 납품'],
+    foodtype:['소스','육수/농축액','국/탕','양념육','반조리(전처리)'],
+    pack:[{label:'벌크 포장 (봉지/말통)',days:14,sub:'포장재 리드타임 약 14일'},
+          {label:'삼방 파우치',days:28,sub:'동판 14일 + 생산 14일'},
+          {label:'M방 파우치',days:28,sub:'동판 14일 + 생산 14일'}],
+    dev:['기존 레시피가 있어 동일하게 생산하고 싶습니다','기존 제품을 일부 개선하고 싶습니다','벤치마킹할 제품이 있습니다','아이디어만 있으며 레시피 개발부터 필요합니다'],
+    qty:['협의 필요','1톤 미만','1~3톤','3~5톤','5톤 이상']
+  }
 };
+var FORM_TYPE='B2C';
+var CFG=JSON.parse(JSON.stringify(DEFAULTS.B2C));
 
 function packDays(label){
   var p=(CFG.pack||[]).find(function(x){return x.label===label;});
@@ -197,20 +232,42 @@ function renderForm(){
   });
   calcDays();
 }
-renderForm();
-
-/* 서버에 저장된 양식 설정 불러오기 (실패해도 기본 양식으로 진행) */
-(async function(){
+/* ── 유형 선택 → 해당 양식 로드 (서버 저장값 우선, 실패해도 기본 양식으로 진행) ── */
+var SAVED=null;
+var savedP=(async function(){
   try{
     var res=await sb.from('app_state').select('state_data').eq('id',9).maybeSingle();
-    var f=res&&res.data&&res.data.state_data&&res.data.state_data.oem_form;
-    if(f&&typeof f==='object'){
-      ['intro','devDays','designDays','prodDays'].forEach(function(k){if(f[k]!=null&&f[k]!=='')CFG[k]=f[k];});
-      ['biztype','foodtype','dev','qty'].forEach(function(k){if(Array.isArray(f[k])&&f[k].length)CFG[k]=f[k];});
-      if(Array.isArray(f.pack)&&f.pack.length)CFG.pack=f.pack;
-      renderForm();
-    }
-  }catch(e){}
+    SAVED=(res&&res.data&&res.data.state_data)||{};
+  }catch(e){SAVED={};}
+})();
+function applyCfg(type){
+  FORM_TYPE=type;
+  CFG=JSON.parse(JSON.stringify(DEFAULTS[type]||DEFAULTS.B2C));
+  var f=SAVED&&(type==='B2B'?SAVED.oem_form_b2b:SAVED.oem_form);
+  if(f&&typeof f==='object'){
+    ['intro','devDays','designDays','prodDays'].forEach(function(k){if(f[k]!=null&&f[k]!=='')CFG[k]=f[k];});
+    ['biztype','foodtype','dev','qty'].forEach(function(k){if(Array.isArray(f[k])&&f[k].length)CFG[k]=f[k];});
+    if(Array.isArray(f.pack)&&f.pack.length)CFG.pack=f.pack;
+  }
+  $('formTitle').textContent='OEM 제품 개발 의뢰서 — '+(type==='B2B'?'B2B (업소용)':'B2C (소비자용)');
+  renderForm();
+}
+async function pickType(type){
+  try{await savedP;}catch(e){}
+  applyCfg(type);
+  $('pickWrap').style.display='none';
+  $('formWrap').style.display='block';
+  window.scrollTo(0,0);
+}
+function backToPick(){
+  $('formWrap').style.display='none';
+  $('pickWrap').style.display='block';
+  window.scrollTo(0,0);
+}
+/* 링크로 유형을 바로 지정할 수도 있음: ?type=b2b / ?type=b2c */
+(function(){
+  var m=location.search.match(/[?&]type=(b2b|b2c)/i);
+  if(m)savedP.then(function(){pickType(m[1].toUpperCase());});
 })();
 
 /* 구성품 1~5개 동적 입력 */
@@ -249,6 +306,7 @@ $('btnSubmit').onclick=async function(){
   });
   var food=rv('foodtype')==='기타'?('기타: '+($('f_foodetc').value.trim()||'미입력')):rv('foodtype');
   var data={
+    formType:FORM_TYPE,
     company:$('f_company').value.trim(), bizno:$('f_bizno').value.trim(),
     person:$('f_person').value.trim(), title:$('f_title').value.trim(),
     phone:$('f_phone').value.trim(), email:$('f_email').value.trim(),
