@@ -6,6 +6,13 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8734"],
       "port": 8734
+    },
+    {
+      "name": "bnf-mes-static-2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8736"],
+      "port": 8736,
+      "autoPort": false
     }
   ]
 }
