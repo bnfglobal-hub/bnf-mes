@@ -12977,14 +12977,16 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[hiddenSecs,setHiddenSecs]=useState(()=>{try{return JSON.parse(localStorage.getItem('bnf_home_hidden')||'[]');}catch(e){return[];}});
   /* 설비 점검 임박 목록 */
   const[equipList,setEquipList]=useState(null);
+  const[syncHealth,setSyncHealth]=useState(null);  /* 연동 헬스체크 결과 (bnf-health, 관리자 배너) */
   useEffect(()=>{
     let dead=false;
-    sbClient.from('app_state').select('eq:state_data->bnf_pm_equip,qs:state_data->bnf_qc_self').eq('id',1).maybeSingle()
+    sbClient.from('app_state').select('eq:state_data->bnf_pm_equip,qs:state_data->bnf_qc_self,sh:state_data->bnf_sync_health').eq('id',1).maybeSingle()
       .then(({data:d})=>{
         if(dead)return;
         const eq=(Array.isArray(d&&d.eq)?d.eq:[]).map(x=>Object.assign({},x,{_kind:'설비',_page:'pm_equip'}));
         const qs=(Array.isArray(d&&d.qs)?d.qs:[]).map(x=>Object.assign({},x,{_kind:'자가품질',_page:'qc_self'}));
         setEquipList(eq.concat(qs));
+        setSyncHealth((d&&d.sh)||null);
       })
       .catch(()=>{if(!dead)setEquipList([]);});
     return()=>{dead=true;};
@@ -13774,6 +13776,20 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
           ...chips));
     })(),
     editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:10,marginBottom:18,fontSize:11,color:'#92400E',fontWeight:600}},'💡 ↑↓ 버튼(또는 드래그)으로 순서 변경, [숨김]으로 안 보이게 설정. 완료를 누르면 저장됩니다.'),
+    /* ── 연동 이상 경고 배너 (관리자) — bnf-health 헬스체크가 하루 2회 기록 ── */
+    (()=>{
+      const isMgr=['superadmin','admin','manager'].includes((user&&user.role)||'');
+      if(!isMgr||!syncHealth)return null;
+      const ageH=(()=>{try{return (Date.now()-new Date(syncHealth.at).getTime())/3600000;}catch(e){return null;}})();
+      const stale=ageH!=null&&ageH>30;   /* 헬스체크 자체가 멈춘 경우도 경고 */
+      const fails=Array.isArray(syncHealth.fails)?syncHealth.fails:[];
+      if(!stale&&fails.length===0)return null;
+      return R('div',{key:'synchealth',className:'card',style:{marginBottom:14,border:'2px solid #DC2626',background:'#FEF2F2'}},
+        R('div',{style:{fontSize:14,fontWeight:900,color:'#991B1B',marginBottom:6}},
+          stale?'⚠ 연동 헬스체크가 '+Math.round(ageH)+'시간째 실행되지 않았습니다 — 허브 PC 확인 필요':'⚠ 자동 연동 이상 '+fails.length+'건 — 데이터가 갱신되지 않고 있습니다'),
+        ...fails.slice(0,6).map((f,i)=>R('div',{key:i,style:{fontSize:12.5,color:'#B91C1C',padding:'2px 0'}},'· '+f.name+' — '+f.msg)),
+        R('div',{style:{fontSize:11,color:'#B45309',marginTop:6}},'마지막 점검: '+String(syncHealth.at||'').replace('T',' ').slice(0,16)+' (UTC) · 허브 PC의 문서/bnf-health/health.log 확인'));
+    })(),
     ...sectionOrder.map((id,idx)=>renderSection(id,idx))
   );
 }
