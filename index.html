@@ -17712,6 +17712,70 @@ function PageFiles({user}){
     }
   };
   const upload=(file)=>uploadMany([file]);   /* 예전 호출부 호환 */
+
+  /* ── 모바일: 카드형 목록 + 앨범 저장 ──
+     휴대폰은 표가 잘려 파일명·받기 버튼이 안 보였다(2026-10-28). 좁은 화면은 카드로 그린다.
+     앨범 저장: 이미지는 그대로, PDF는 페이지마다 JPG로 바꿔 공유 시트(navigator.share)에 넘긴다 → '이미지 저장'을 누르면 사진 앱에 들어간다.
+     iOS는 파일을 받는 동안 '탭 직후' 권한이 사라져 share가 거부되므로, 준비(다운로드·변환) 후 시트의 버튼을 한 번 더 누르게 한다.
+     엑셀·한글 등 이미지로 못 바꾸는 파일은 공유 시트의 '파일에 저장'으로 받는다. */
+  const[isMob,setIsMob]=useState(()=>{try{return window.matchMedia('(max-width:768px)').matches;}catch(e){return false;}});
+  useEffect(()=>{try{const mq=window.matchMedia('(max-width:768px)');const fn=()=>setIsMob(mq.matches);mq.addEventListener('change',fn);return()=>mq.removeEventListener('change',fn);}catch(e){}},[]);
+  const[saveSheet,setSaveSheet]=useState(null);   /* {f,busy,msg,files,kind,canShare,url,err} */
+  const fileUrl=(f)=>{const{data}=sbClient.storage.from('bnf-files').getPublicUrl(f.storage_path);return data&&data.publicUrl;};
+  const prepareSave=async(f)=>{
+    const url=fileUrl(f);if(!url){alert('파일 주소를 만들지 못했습니다.');return;}
+    const ext=(String(f.name).split('.').pop()||'').toLowerCase();
+    const base=String(f.name).replace(/\.[^.]+$/,'');
+    setSaveSheet({f,busy:true,msg:'파일 받는 중…'});
+    try{
+      const res=await fetch(url);if(!res.ok)throw new Error('다운로드 실패 ('+res.status+')');
+      const blob=await res.blob();
+      let out=[],kind='file';
+      if(/^(jpe?g|png|gif|webp|heic)$/.test(ext)||/^image\//.test(blob.type)){
+        out=[new File([blob],f.name,{type:blob.type||'image/jpeg'})];kind='image';
+      }else if(ext==='pdf'&&(window.pdfjsLib||typeof pdfjsLib!=='undefined')){
+        const lib=window.pdfjsLib||pdfjsLib;
+        lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        const buf=await blob.arrayBuffer();
+        const pdf=await lib.getDocument({data:buf.slice(0)}).promise;   /* pdf.js가 buf를 비우므로(detach) 복사본을 넘긴다 */
+        const n=Math.min(pdf.numPages,30);
+        /* 사진을 통째로 넣은 PDF(스캔·라벨 사진 등)는 렌더 없이 원본 JPEG를 바로 꺼낸다.
+           pdf.js 렌더가 이런 PDF에서 멈추는 문제(2026-08-20 출고계획과 동일) 우회 + 원본 화질 */
+        const jp=[];
+        {const d=new Uint8Array(buf);let i=0;
+          while(i<d.length-3&&jp.length<=n){
+            if(d[i]===0xFF&&d[i+1]===0xD8&&d[i+2]===0xFF){let j=i+2;while(j<d.length-1&&!(d[j]===0xFF&&d[j+1]===0xD9))j++;
+              if(j<d.length-1){if(j+2-i>=60*1024)jp.push(d.slice(i,j+2));i=j+2;continue;}}
+            i++;}}
+        if(jp.length===pdf.numPages&&jp.length<=n){
+          jp.forEach((b,k)=>out.push(new File([b],base+(jp.length>1?'_'+(k+1):'')+'.jpg',{type:'image/jpeg'})));
+        }else for(let p=1;p<=n;p++){
+          setSaveSheet(s=>s&&{...s,msg:'사진으로 바꾸는 중… '+p+'/'+n+'쪽'});
+          const page=await pdf.getPage(p);
+          const vp0=page.getViewport({scale:1});
+          const scale=Math.min(2.5,2200/Math.max(vp0.width,vp0.height));
+          const vp=page.getViewport({scale});
+          const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+          const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+          await Promise.race([page.render({canvasContext:ctx,viewport:vp,intent:'print'}).promise,   /* print: requestAnimationFrame을 안 써서 화면이 가려져도 멈추지 않음 */
+            new Promise((_,rej)=>setTimeout(()=>rej(new Error('PDF를 사진으로 바꾸지 못했습니다(시간 초과). [원본 열기]로 연 뒤 공유 → 저장을 이용하세요.')),20000))]);
+          const jpg=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
+          out.push(new File([jpg],base+(n>1?'_'+p:'')+'.jpg',{type:'image/jpeg'}));
+        }
+        kind=pdf.numPages>n?'pdf-cut':'pdf';
+      }else{
+        out=[new File([blob],f.name,{type:blob.type||f.mime_type||'application/octet-stream'})];kind='file';
+      }
+      const canShare=!!(navigator.canShare&&navigator.canShare({files:out}));
+      setSaveSheet({f,busy:false,files:out,kind,canShare,url});
+      sbClient.from('shared_files').update({download_count:(f.download_count||0)+1}).eq('id',f.id).then(()=>{},()=>{});
+    }catch(e){setSaveSheet({f,busy:false,err:String(e.message||e),url});}
+  };
+  const doShare=async()=>{
+    const s=saveSheet;if(!s||!s.files)return;
+    try{await navigator.share({files:s.files});setSaveSheet(null);}
+    catch(e){if(e&&e.name==='AbortError')return;setSaveSheet({...s,err:'공유 시트를 열지 못했습니다: '+(e.message||e)});}
+  };
   
   const download=(f)=>{
     try{
@@ -17799,6 +17863,26 @@ function PageFiles({user}){
     R('div',{className:'card',style:{padding:0,overflow:'hidden',cursor:'copy'},title:'빈 곳을 더블클릭하면 파일을 올릴 수 있습니다',onDoubleClick:e=>{if(e.target.closest&&e.target.closest('a,button'))return;if(fileRef.current)fileRef.current.click();},onDragOver:e=>{e.preventDefault();e.currentTarget.style.background='#FFF8F4';},onDragLeave:e=>{e.currentTarget.style.background='#fff';},onDrop:e=>{e.preventDefault();e.currentTarget.style.background='#fff';uploadMany(e.dataTransfer.files);}},
       loading?R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)'}},'로딩 중...'):
       visibleFiles.length===0?R('div',{style:{padding:'48px 20px',textAlign:'center',color:'var(--tm)'}},R('div',{style:{fontSize:48,marginBottom:10}},'📂'),R('div',{style:{fontSize:14,fontWeight:600,marginBottom:4}},(cat?'"'+cat+'" 분류에 ':'')+'파일이 없습니다'),R('div',{style:{fontSize:12}},'위 [⬆️ 파일 업로드] 버튼 또는 이 영역에 드래그')):
+      isMob?R('div',null,...visibleFiles.map(f=>R('div',{key:f.id,style:{padding:'12px 14px',borderBottom:'1px solid var(--bd)'}},
+        R('div',{style:{display:'flex',gap:10,alignItems:'flex-start'}},
+          R('div',{style:{fontSize:24,lineHeight:1}},fIcon(f)),
+          R('div',{style:{flex:1,minWidth:0}},
+            R('div',{style:{fontWeight:700,fontSize:14,wordBreak:'break-all',lineHeight:1.35}},f.name),
+            R('div',{style:{fontSize:11.5,color:'var(--tm)',marginTop:3}},fSize(f.size_bytes)+' · '+(f.uploader_name||'-')+' · '+fDate(f.created_at)),
+            f.note&&R('div',{style:{fontSize:12,color:'#5D534B',marginTop:3}},'📝 '+f.note)
+          ),
+          (f.uploader_id===user.id||isAdmin)&&R('button',{onClick:()=>del(f),'aria-label':'삭제',style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:16,padding:'2px 4px'}},'✕')
+        ),
+        R('div',{style:{display:'flex',gap:6,marginTop:10,alignItems:'center'}},
+          R('button',{className:'btn bp',onClick:()=>prepareSave(f),style:{flex:1,justifyContent:'center',padding:'10px 8px',fontSize:13}},/\.(pdf|jpe?g|png|gif|webp|heic)$/i.test(f.name)?'📷 앨범에 저장':'⬇️ 휴대폰에 저장'),
+          R('button',{className:'btn bs',onClick:()=>{const u=fileUrl(f);if(u)window.open(u,'_blank');},style:{padding:'10px 12px',fontSize:13}},'열기'),
+          R('button',{className:'btn bs',onClick:()=>copyLink(f),'aria-label':'링크 복사',style:{padding:'10px 12px',fontSize:13}},'🔗'),
+          R('select',{value:fileCatOf(f),onChange:e=>moveFile(f,e.target.value),'aria-label':'분류 바꾸기',
+            style:{border:'1px solid var(--bd)',borderRadius:8,padding:'9px 6px',fontSize:12,fontFamily:'inherit',background:'#fff',maxWidth:96}},
+            ...(allCats.indexOf(fileCatOf(f))<0?[R('option',{key:'_cur',value:fileCatOf(f)},fileCatOf(f))]:[]),
+            ...allCats.map(c=>R('option',{key:c,value:c},c)))
+        )
+      ))):
       R('table',null,
         R('thead',null,R('tr',null,R('th',{style:{width:38}}),R('th',null,'이름'),R('th',{style:{width:140}},'분류'),R('th',{style:{width:90}},'크기'),R('th',{style:{width:90}},'업로드'),R('th',{style:{width:150}},'비고'),R('th',{style:{width:60,textAlign:'center'}},'받기'),R('th',{style:{width:56,textAlign:'center'}},'링크'),R('th',{style:{width:50}}))),
         R('tbody',null,...visibleFiles.map(f=>R('tr',{key:f.id},
@@ -17817,6 +17901,25 @@ function PageFiles({user}){
           R('td',{style:{textAlign:'center'}},R('button',{className:'btn bs btn-sm',onClick:()=>copyLink(f),title:'공유 링크 복사',style:{padding:'4px 8px'}},'🔗')),
           R('td',null,(f.uploader_id===user.id||['superadmin','admin'].includes(user.role))&&R('button',{onClick:()=>del(f),style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:14,padding:4}},'✕'))
         )))
+      )
+    ),
+    saveSheet&&R('div',{onClick:e=>{if(e.target===e.currentTarget&&!saveSheet.busy)setSaveSheet(null);},
+      style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:10050,display:'flex',alignItems:'flex-end',justifyContent:'center'}},
+      R('div',{style:{background:'#fff',width:'100%',maxWidth:480,borderRadius:'18px 18px 0 0',padding:'18px 18px calc(18px + env(safe-area-inset-bottom))',boxSizing:'border-box'}},
+        R('div',{style:{fontWeight:800,fontSize:15,wordBreak:'break-all',marginBottom:6}},saveSheet.f.name),
+        saveSheet.busy&&R('div',{style:{fontSize:13,color:'var(--tm)',padding:'14px 0'}},'⏳ '+(saveSheet.msg||'준비 중…')),
+        saveSheet.err&&R('div',{style:{fontSize:13,color:'#b91c1c',margin:'8px 0'}},'⚠ '+saveSheet.err),
+        !saveSheet.busy&&saveSheet.files&&R('div',null,
+          saveSheet.canShare&&R('div',{style:{fontSize:12.5,color:'#5D534B',lineHeight:1.6,margin:'4px 0 12px'}},
+            saveSheet.kind==='file'?'이 파일은 사진으로 바꿀 수 없어 앨범 대신 휴대폰 [파일] 앱에 저장합니다. 아래 버튼 → [파일에 저장]을 누르세요.'
+            :(saveSheet.kind==='image'?'사진 1장':'PDF '+saveSheet.files.length+'쪽 → 사진 '+saveSheet.files.length+'장')+' 준비 완료. 아래 버튼 → ['+(saveSheet.files.length>1?saveSheet.files.length+'개의 이미지 저장':'이미지 저장')+']을 누르면 앨범에 들어갑니다.'+(saveSheet.kind==='pdf-cut'?' (앞 30쪽까지)':'')),
+          saveSheet.canShare
+            ?R('button',{className:'btn bp',onClick:doShare,style:{width:'100%',justifyContent:'center',padding:13,fontSize:15}},saveSheet.kind==='file'?'⬇️ 저장하기':'📷 앨범에 저장')
+            :R('div',{style:{fontSize:12.5,color:'#5D534B'}},'이 브라우저는 바로 저장을 지원하지 않습니다. [원본 열기]로 연 뒤 공유 버튼 → 저장을 이용하세요.')
+        ),
+        R('div',{style:{display:'flex',gap:6,marginTop:8}},
+          saveSheet.url&&R('button',{className:'btn bs',onClick:()=>window.open(saveSheet.url,'_blank'),style:{flex:1,justifyContent:'center',padding:11}},'원본 열기'),
+          !saveSheet.busy&&R('button',{className:'btn bw',onClick:()=>setSaveSheet(null),style:{flex:1,justifyContent:'center',padding:11}},'닫기'))
       )
     ),
     R('div',{style:{marginTop:10,fontSize:11,color:'var(--tm)'}},'💡 분류를 먼저 고른 뒤 업로드하면 그 분류로 저장됩니다 · 표의 [분류] 칸에서 언제든 옮길 수 있습니다 · 드래그&드롭 업로드 · 100MB 이하')
