@@ -3,58 +3,64 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#3730A3">
+<meta name="theme-color" content="#0A0A0A">
 <meta name="color-scheme" content="only light">
-<title>베르만어패럴 근태관리</title>
+<title>VERMANN — 근태관리</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
-:root{color-scheme:only light;--p:#3730A3;--pb:#EEF2FF;--t:#1F2430;--tm:#8A8FA0;--bd:#E2E5EC;--bg:#F6F7FA;--ok:#15803D;--err:#DC2626}
+/* VERMANN 브랜드 — 블랙&화이트 모노크롬, 이탤릭 볼드 워드마크, 대문자 자간 (vermann.kr) */
+:root{color-scheme:only light;--p:#0A0A0A;--pb:#F2F2F2;--t:#111111;--tm:#9A9A9A;--bd:#E4E4E4;--bg:#FFFFFF;--ok:#15803D;--err:#DC2626}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em}
-.wrap{max-width:560px;margin:0 auto;padding:18px 14px 60px}
-.hdr{text-align:center;padding:22px 0 8px}
-.hdr .logo{display:inline-block;background:var(--p);color:#fff;font-weight:900;font-size:14px;border-radius:10px;padding:7px 16px;letter-spacing:1px}
-.hdr h1{font-size:20px;font-weight:900;margin:12px 0 4px}
-.hdr p{font-size:12.5px;color:var(--tm);margin:0}
-.card{background:#fff;border:1px solid var(--bd);border-radius:14px;padding:16px;margin-top:12px}
-.btn{border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;width:100%}
-.bp{background:var(--p);color:#fff}
-.bw{background:#fff;color:var(--t);border:1.5px solid var(--bd)}
-.bg2{background:var(--ok);color:#fff}
-.br2{background:var(--err);color:#fff}
-.sm{width:auto;padding:7px 12px;font-size:12.5px;border-radius:9px}
-.staffbtn{display:flex;align-items:center;gap:10px;font-size:16px;margin-top:8px;justify-content:center}
-input{width:100%;border:1.5px solid var(--bd);border-radius:10px;padding:11px 12px;font:inherit;font-size:15px;background:#FDFDFE;outline:none}
-input:focus{border-color:var(--p);background:#fff}
-.clock{text-align:center;font-size:34px;font-weight:900;font-variant-numeric:tabular-nums;margin:4px 0 2px}
-.cdate{text-align:center;font-size:13px;color:var(--tm);margin-bottom:10px}
-.stat{display:flex;gap:10px;text-align:center;margin:10px 0}
-.stat>div{flex:1;background:var(--pb);border-radius:11px;padding:10px}
-.stat .l{font-size:11px;color:var(--tm);font-weight:700}
-.stat .v{font-size:17px;font-weight:900;margin-top:3px}
-.loc{font-size:10.5px;font-weight:700;margin-top:2px}
+.topband{background:#0A0A0A;color:#fff;text-align:center;padding:26px 14px 24px}
+.wordmark{font-size:30px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);display:inline-block;line-height:1}
+.topband .sub{font-size:10.5px;letter-spacing:4px;color:#B8B8B8;margin-top:9px;text-transform:uppercase;font-weight:600}
+.wrap{max-width:560px;margin:0 auto;padding:16px 14px 60px}
+.hdr{display:none}
+.card{background:#fff;border:1px solid var(--bd);border-radius:2px;padding:18px;margin-top:14px;box-shadow:0 1px 0 rgba(0,0,0,.03)}
+.btn{border:none;border-radius:2px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;letter-spacing:1.5px;text-transform:uppercase}
+.bp{background:#0A0A0A;color:#fff}
+.bp:hover{background:#2A2A2A}
+.bw{background:#fff;color:#111;border:1.5px solid #111}
+.bw:hover{background:#F5F5F5}
+.bg2{background:#0A0A0A;color:#fff}
+.br2{background:#fff;color:#111;border:1.5px solid #111}
+.sm{width:auto;padding:8px 14px;font-size:11.5px;letter-spacing:1px}
+.staffbtn{display:flex;align-items:center;gap:10px;font-size:15px;margin-top:9px;justify-content:center;letter-spacing:0;text-transform:none;border-color:var(--bd)}
+.staffbtn:hover{border-color:#111}
+input{width:100%;border:none;border-bottom:1.5px solid var(--bd);border-radius:0;padding:11px 4px;font:inherit;font-size:15px;background:transparent;outline:none}
+input:focus{border-color:#111}
+input[type=month],input[type=number]{border:1.5px solid var(--bd);padding:9px 10px}
+.clock{text-align:center;font-size:44px;font-weight:900;font-style:italic;letter-spacing:1px;font-variant-numeric:tabular-nums;margin:10px 0 0;transform:skewX(-4deg)}
+.cdate{text-align:center;font-size:12px;color:var(--tm);letter-spacing:2px;margin:4px 0 14px;text-transform:uppercase}
+.stat{display:flex;gap:1px;text-align:center;margin:12px 0;background:var(--bd);border:1px solid var(--bd)}
+.stat>div{flex:1;background:#FAFAFA;padding:12px 8px}
+.stat .l{font-size:10px;color:var(--tm);font-weight:700;letter-spacing:3px;text-transform:uppercase}
+.stat .v{font-size:19px;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums}
+.loc{font-size:10.5px;font-weight:700;margin-top:3px}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
-th,td{border-bottom:1px solid #F0F1F5;padding:7px 6px;text-align:center}
-th{color:var(--tm);font-weight:700;font-size:11.5px;background:#FAFAFC}
-.tag{font-size:10px;font-weight:800;border-radius:999px;padding:1px 8px}
-.t-in{background:#DCFCE7;color:#15803D}.t-out{background:#FEE2E2;color:#B91C1C}.t-none{background:#F0F1F5;color:#8A8FA0}
+th,td{border-bottom:1px solid #F0F0F0;padding:8px 6px;text-align:center}
+th{color:var(--tm);font-weight:700;font-size:10px;background:#FAFAFA;letter-spacing:2px;text-transform:uppercase}
+.tag{font-size:10px;font-weight:800;border-radius:0;padding:2px 8px;letter-spacing:0.5px}
+.t-in{background:#111;color:#fff}.t-out{background:#fff;color:#DC2626;border:1px solid #DC2626}.t-none{background:#F0F0F0;color:#9A9A9A}
 .top{display:flex;align-items:center;gap:8px}
-.top .back{background:none;border:none;color:var(--p);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;padding:4px}
-.msg{font-size:12px;font-weight:700;color:var(--ok);text-align:center;margin-top:8px;min-height:16px}
-.ft{text-align:center;font-size:10.5px;color:var(--tm);margin-top:24px;line-height:1.7}
-.row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.top .back{background:none;border:none;color:#111;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;padding:4px;letter-spacing:1px}
+.msg{font-size:12px;font-weight:700;color:var(--ok);text-align:center;margin-top:10px;min-height:16px}
+.ft{text-align:center;font-size:9.5px;color:var(--tm);margin-top:28px;line-height:1.8;letter-spacing:2px;text-transform:uppercase}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px}
 .hide{display:none!important}
-h3{font-size:14px;font-weight:800;margin:14px 0 8px}
+h3{font-size:12px;font-weight:800;margin:16px 0 8px;letter-spacing:2.5px;text-transform:uppercase;color:#111}
+h3::before{content:'';display:inline-block;width:14px;height:2px;background:#111;vertical-align:middle;margin-right:8px}
 </style>
 </head>
 <body>
+<div class="topband">
+  <span class="wordmark">VERMANN</span>
+  <div class="sub">Attendance · 근태관리</div>
+</div>
 <div class="wrap">
-  <div class="hdr">
-    <span class="logo">BERMAN APPAREL</span>
-    <h1>베르만어패럴 근태관리</h1>
-    <p>출근·퇴근을 휴대폰으로 간단하게</p>
-  </div>
+  <div class="hdr"></div>
 
   <!-- 직원 선택 -->
   <div id="vPick">
