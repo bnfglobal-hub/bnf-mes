@@ -5,173 +5,192 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0A0A0A">
 <meta name="color-scheme" content="only light">
-<title>VERMANN — 근태관리</title>
+<title>VERMANN 근태관리</title>
+<link rel="manifest" href="vermann.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="vermann-icon-192.png">
+<link rel="apple-touch-icon" href="vermann-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="VERMANN">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
-/* VERMANN 브랜드 × iOS 스타일 — 블랙&화이트 모노크롬 + 둥근 카드·필 버튼·소프트 섀도 */
-:root{color-scheme:only light;--p:#0A0A0A;--pb:#F2F2F7;--t:#111111;--tm:#8E8E93;--bd:#E7E7EC;--bg:#F2F2F7;--ok:#34C759;--okT:#1F7A33;--err:#FF3B30}
+/* VERMANN × iOS — 베르만어패럴 전용 (B&F MES와 무관한 독립 앱) */
+:root{color-scheme:only light;--pb:#F2F2F7;--t:#111;--tm:#8E8E93;--bg:#F2F2F7;--ok:#34C759;--okT:#1F7A33;--err:#FF3B30}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em;-webkit-tap-highlight-color:transparent}
-.topband{background:linear-gradient(180deg,#000 0%,#17171A 100%);color:#fff;text-align:center;padding:34px 14px 30px;border-radius:0 0 30px 30px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
-.wordmark{font-size:31px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);display:inline-block;line-height:1}
-.topband .sub{font-size:10.5px;letter-spacing:4px;color:rgba(255,255,255,.55);margin-top:10px;text-transform:uppercase;font-weight:600}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em;-webkit-tap-highlight-color:transparent;min-height:100%}
+.hide{display:none!important}
+
+/* ── 로그인: 떠다니는 블롭 + 글래스 카드 + 시머 워드마크 ── */
+#vLogin{position:fixed;inset:0;background:#0A0A0A;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:20px}
+.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;animation:drift 16s ease-in-out infinite}
+.b1{width:46vmax;height:46vmax;background:#3A3A44;top:-18vmax;left:-14vmax}
+.b2{width:38vmax;height:38vmax;background:#23232B;bottom:-14vmax;right:-10vmax;animation-delay:-5s;animation-direction:reverse}
+.b3{width:26vmax;height:26vmax;background:#52525E;top:48%;left:58%;animation-delay:-9s}
+@keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(5vmax,3vmax) scale(1.12)}66%{transform:translate(-4vmax,-4vmax) scale(.94)}}
+.lcard{position:relative;width:100%;max-width:380px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border-radius:28px;padding:38px 28px 30px;box-shadow:0 30px 80px rgba(0,0,0,.5);animation:rise .8s cubic-bezier(.22,1,.36,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(34px) scale(.96)}to{opacity:1;transform:none}}
+.lmark{display:block;text-align:center;font-size:40px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);line-height:1;
+  background:linear-gradient(110deg,#777 10%,#fff 42%,#fff 58%,#777 90%);background-size:220% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 3.2s linear infinite}
+@keyframes shimmer{0%{background-position:160% 0}100%{background-position:-60% 0}}
+.lsub{text-align:center;font-size:10.5px;letter-spacing:5px;color:rgba(255,255,255,.45);margin:12px 0 28px;text-transform:uppercase;font-weight:600;animation:fadein 1s .3s both}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+.lfield{margin-top:12px;animation:rise .7s cubic-bezier(.22,1,.36,1) both}
+.lfield:nth-of-type(1){animation-delay:.15s}.lfield:nth-of-type(2){animation-delay:.25s}
+.lfield input{width:100%;border:1px solid rgba(255,255,255,.14);border-radius:15px;padding:15px 16px;font:inherit;font-size:15.5px;background:rgba(255,255,255,.08);color:#fff;outline:none;transition:border-color .2s,background .2s,box-shadow .2s}
+.lfield input::placeholder{color:rgba(255,255,255,.38)}
+.lfield input:focus{border-color:rgba(255,255,255,.65);background:rgba(255,255,255,.12);box-shadow:0 0 0 4px rgba(255,255,255,.08)}
+.lbtn{position:relative;overflow:hidden;width:100%;margin-top:20px;border:none;border-radius:15px;padding:16px;font-size:16px;font-weight:900;cursor:pointer;font-family:inherit;background:#fff;color:#0A0A0A;letter-spacing:1px;transition:transform .12s ease;animation:rise .7s .35s cubic-bezier(.22,1,.36,1) both}
+.lbtn:active{transform:scale(.97)}
+.lbtn::after{content:'';position:absolute;top:0;left:-80%;width:50%;height:100%;background:linear-gradient(100deg,transparent,rgba(10,10,10,.14),transparent);animation:sweep 2.6s ease-in-out infinite}
+@keyframes sweep{0%,55%{left:-80%}85%,100%{left:130%}}
+.lerr{min-height:18px;margin-top:14px;text-align:center;font-size:12.5px;font-weight:700;color:#FF6B61}
+.lcard.shake{animation:shake .45s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px)}40%{transform:translateX(9px)}60%{transform:translateX(-6px)}80%{transform:translateX(4px)}}
+.lfoot{margin-top:22px;text-align:center;font-size:9.5px;color:rgba(255,255,255,.3);letter-spacing:2.5px;text-transform:uppercase;line-height:1.9;animation:fadein 1.2s .5s both}
+.lfoot a{color:rgba(255,255,255,.65);font-weight:800;text-decoration:none}
+
+/* ── 앱 공통 (iOS 라운드) ── */
+.topband{background:linear-gradient(180deg,#000,#17171A);color:#fff;text-align:center;padding:30px 14px 26px;border-radius:0 0 30px 30px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.wordmark{font-size:28px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);display:inline-block;line-height:1}
+.topband .sub{font-size:10px;letter-spacing:4px;color:rgba(255,255,255,.5);margin-top:8px;text-transform:uppercase;font-weight:600}
 .wrap{max-width:560px;margin:0 auto;padding:16px 16px 60px}
-.hdr{display:none}
-.card{background:#fff;border:none;border-radius:22px;padding:20px;margin-top:14px;box-shadow:0 8px 28px rgba(0,0,0,.07)}
-.btn{border:none;border-radius:16px;padding:15px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;letter-spacing:0.3px;transition:transform .12s ease,opacity .12s ease,background .15s ease}
+.card{background:#fff;border-radius:22px;padding:20px;margin-top:14px;box-shadow:0 8px 28px rgba(0,0,0,.07);animation:rise .5s cubic-bezier(.22,1,.36,1) both}
+.card:nth-of-type(2){animation-delay:.08s}.card:nth-of-type(3){animation-delay:.16s}.card:nth-of-type(4){animation-delay:.24s}
+.btn{border:none;border-radius:16px;padding:15px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;transition:transform .12s ease,opacity .12s,background .15s}
 .btn:active{transform:scale(.97)}
-.bp{background:#0A0A0A;color:#fff}
-.bp:hover{background:#2A2A2A}
-.bw{background:var(--pb);color:#111}
-.bw:hover{background:#E8E8ED}
-.bg2{background:#0A0A0A;color:#fff}
-.br2{background:var(--pb);color:#111}
+.bp{background:#0A0A0A;color:#fff}.bp:hover{background:#2A2A2A}
+.bw{background:var(--pb);color:#111}.bw:hover{background:#E8E8ED}
 .sm{width:auto;padding:9px 16px;font-size:12.5px;border-radius:999px}
-.staffbtn{display:flex;align-items:center;gap:10px;font-size:15.5px;margin-top:10px;justify-content:center;background:var(--pb);border-radius:16px}
-.staffbtn:hover{background:#E8E8ED}
-input{width:100%;border:none;border-radius:13px;padding:13px 14px;font:inherit;font-size:15px;background:var(--pb);outline:none;transition:box-shadow .15s ease}
+input,select{width:100%;border:none;border-radius:13px;padding:13px 14px;font:inherit;font-size:15px;background:var(--pb);outline:none;transition:box-shadow .15s}
 input:focus{box-shadow:0 0 0 2.5px #111;background:#fff}
 input[type=month],input[type=number]{padding:10px 12px}
-.clock{text-align:center;font-size:48px;font-weight:900;font-style:italic;letter-spacing:0.5px;font-variant-numeric:tabular-nums;margin:12px 0 0;transform:skewX(-4deg)}
+.clock{text-align:center;font-size:50px;font-weight:900;font-style:italic;letter-spacing:.5px;font-variant-numeric:tabular-nums;margin:12px 0 0;transform:skewX(-4deg)}
 .cdate{text-align:center;font-size:12px;color:var(--tm);letter-spacing:2px;margin:5px 0 16px;text-transform:uppercase}
 .stat{display:flex;gap:10px;text-align:center;margin:12px 0}
-.stat>div{flex:1;background:var(--pb);padding:14px 8px;border-radius:16px}
+.stat>div{flex:1;background:var(--pb);padding:14px 8px;border-radius:16px;transition:background .3s}
 .stat .l{font-size:10px;color:var(--tm);font-weight:700;letter-spacing:3px;text-transform:uppercase}
 .stat .v{font-size:21px;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums}
 .loc{font-size:10.5px;font-weight:700;margin-top:3px}
+.pop{animation:pop .5s cubic-bezier(.22,1.4,.36,1)}
+@keyframes pop{0%{transform:scale(.8)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{border-bottom:1px solid #F2F2F5;padding:9px 6px;text-align:center}
-th{color:var(--tm);font-weight:700;font-size:10px;background:transparent;letter-spacing:2px;text-transform:uppercase;border-bottom:1.5px solid #E7E7EC}
+th{color:var(--tm);font-weight:700;font-size:10px;letter-spacing:2px;text-transform:uppercase;border-bottom:1.5px solid #E7E7EC}
 tr:last-child td{border-bottom:none}
-.tag{font-size:10px;font-weight:800;border-radius:999px;padding:3px 10px;letter-spacing:0.3px}
+.tag{font-size:10px;font-weight:800;border-radius:999px;padding:3px 10px}
 .t-in{background:#E7F8EC;color:var(--okT)}.t-out{background:#FFE9E7;color:#C62820}.t-none{background:#EFEFF4;color:#8E8E93}
-.top{display:flex;align-items:center;gap:8px}
-.top .back{background:var(--pb);border:none;color:#111;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;padding:7px 12px;border-radius:999px}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px}
 .msg{font-size:12.5px;font-weight:700;color:var(--okT);text-align:center;margin-top:10px;min-height:16px}
 .ft{text-align:center;font-size:10px;color:var(--tm);margin-top:28px;line-height:1.9;letter-spacing:1.5px;text-transform:uppercase}
-.ft a{color:#111;font-weight:800;text-decoration:none}
-.row{display:flex;gap:8px;align-items:center;margin-top:10px}
-.hide{display:none!important}
+.ft a,.ft button{color:#111;font-weight:800;text-decoration:none;background:none;border:none;cursor:pointer;font-family:inherit;font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
 h3{font-size:12px;font-weight:800;margin:18px 0 10px;letter-spacing:2.5px;text-transform:uppercase;color:#8E8E93}
+.who{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:-6px}
+.who .chip{background:rgba(255,255,255,.14);color:#fff;border-radius:999px;padding:4px 14px;font-size:12px;font-weight:800}
+.who button{background:none;border:none;color:rgba(255,255,255,.55);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+.cred{background:#0A0A0A;color:#fff;border-radius:14px;padding:12px 14px;font-size:13px;font-weight:700;margin-top:10px;animation:pop .5s}
 </style>
 </head>
 <body>
-<div class="topband">
-  <span class="wordmark">VERMANN</span>
-  <div class="sub">Attendance · 근태관리</div>
+
+<!-- ━━ 로그인 ━━ -->
+<div id="vLogin">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="lcard" id="lcard">
+    <span class="lmark">VERMANN</span>
+    <div class="lsub">Attendance · 근태관리</div>
+    <div class="lfield"><input id="lu" placeholder="아이디" autocomplete="username" autocapitalize="none"></div>
+    <div class="lfield"><input id="lp" type="password" placeholder="비밀번호" autocomplete="current-password"></div>
+    <button class="lbtn" id="lbtn" onclick="doLogin()">로그인</button>
+    <div class="lerr" id="lerr"></div>
+    <div class="lfoot">Vermann Apparel · Attendance System<br><a href="vermann-manual.html">사용설명서</a></div>
+  </div>
 </div>
-<div class="wrap">
-  <div class="hdr"></div>
 
-  <!-- 직원 선택 -->
-  <div id="vPick">
-    <div class="card">
-      <h3 style="margin-top:0">직원 선택</h3>
-      <div id="staffList"><p style="font-size:12.5px;color:var(--tm)">불러오는 중...</p></div>
-    </div>
-    <div class="card" style="text-align:center">
-      <button class="btn bw sm" onclick="openAdmin()">⚙ 관리자</button>
-    </div>
+<!-- ━━ 직원 화면 ━━ -->
+<div id="vStaff" class="hide">
+  <div class="topband">
+    <span class="wordmark">VERMANN</span>
+    <div class="sub">Attendance · 근태관리</div>
+    <div class="who" style="margin-top:12px"><span class="chip" id="stWho">👤</span><button onclick="logout()">로그아웃</button></div>
   </div>
-
-  <!-- PIN -->
-  <div id="vPin" class="hide">
+  <div class="wrap">
     <div class="card">
-      <div class="top"><button class="back" onclick="show('vPick')">← 뒤로</button><h3 style="margin:0" id="pinWho"></h3></div>
-      <input id="pinInput" type="tel" inputmode="numeric" maxlength="4" placeholder="비밀번호 4자리" style="text-align:center;font-size:22px;letter-spacing:8px;margin-top:10px">
-      <button class="btn bp" style="margin-top:10px" onclick="checkPin()">확인</button>
-      <div class="msg" id="pinMsg" style="color:var(--err)"></div>
-    </div>
-  </div>
-
-  <!-- 직원 메인 -->
-  <div id="vMain" class="hide">
-    <div class="card">
-      <div class="top"><button class="back" onclick="logout()">← 직원 변경</button><h3 style="margin:0" id="mainWho"></h3></div>
       <div class="clock" id="clock">--:--:--</div>
       <div class="cdate" id="cdate"></div>
       <div class="stat">
-        <div><div class="l">출근</div><div class="v" id="sIn">-</div><div class="loc" id="sInLoc"></div></div>
-        <div><div class="l">퇴근</div><div class="v" id="sOut">-</div><div class="loc" id="sOutLoc"></div></div>
+        <div id="boxIn"><div class="l">출근</div><div class="v" id="sIn">-</div><div class="loc" id="sInLoc"></div></div>
+        <div id="boxOut"><div class="l">퇴근</div><div class="v" id="sOut">-</div><div class="loc" id="sOutLoc"></div></div>
       </div>
       <div class="row">
-        <button class="btn bg2" id="btnIn" onclick="punch('in')">🟢 출근</button>
-        <button class="btn br2" id="btnOut" onclick="punch('out')">🔴 퇴근</button>
+        <button class="btn bp" id="btnIn" onclick="punch('in')">🟢 출근</button>
+        <button class="btn bw" id="btnOut" onclick="punch('out')">🔴 퇴근</button>
       </div>
-      <div class="msg" id="mainMsg"></div>
+      <div class="msg" id="stMsg"></div>
     </div>
     <div class="card">
-      <h3 style="margin-top:0">최근 2주 내 기록</h3>
+      <h3 style="margin-top:0">내 최근 2주 기록</h3>
       <table><thead><tr><th>날짜</th><th>출근</th><th>퇴근</th><th>근무</th><th>위치</th></tr></thead><tbody id="myRows"></tbody></table>
     </div>
+    <div class="ft">VERMANN APPAREL · ATTENDANCE</div>
   </div>
+</div>
 
-  <!-- 관리자 -->
-  <div id="vAdmin" class="hide">
+<!-- ━━ 관리자 화면 ━━ -->
+<div id="vAdmin" class="hide">
+  <div class="topband">
+    <span class="wordmark">VERMANN</span>
+    <div class="sub">Admin Console · 관리자</div>
+    <div class="who" style="margin-top:12px"><span class="chip">⚙ 관리자</span><button onclick="logout()">로그아웃</button></div>
+  </div>
+  <div class="wrap">
     <div class="card">
-      <div class="top"><button class="back" onclick="show('vPick')">← 뒤로</button><h3 style="margin:0">⚙ 관리자</h3></div>
-      <div id="adminLock">
-        <input id="aPin" type="tel" inputmode="numeric" maxlength="4" placeholder="관리자 비밀번호" style="text-align:center;font-size:20px;letter-spacing:8px;margin-top:10px">
-        <button class="btn bp" style="margin-top:10px" onclick="adminIn()">입장</button>
-        <div class="msg" id="aMsg" style="color:var(--err)"></div>
-      </div>
-      <div id="adminBody" class="hide">
-        <h3>👥 직원 관리</h3>
-        <div id="admStaff"></div>
-        <div class="row"><input id="newName" placeholder="이름"><input id="newPin" type="tel" maxlength="4" placeholder="비번 4자리" style="width:110px"><button class="btn bp sm" onclick="addStaff()">추가</button></div>
-        <h3>📍 사무실 위치 (출퇴근 시 사무실/외부 자동 표시)</h3>
-        <div style="font-size:12px;color:var(--tm)" id="offInfo">아직 설정 안 됨 — 사무실에서 아래 버튼을 누르세요</div>
-        <div class="row">
-          <button class="btn bw sm" onclick="setOffice()">📍 현재 위치를 사무실로 설정</button>
-          <span style="font-size:12px">반경</span><input id="radius" type="number" style="width:80px" value="150"><span style="font-size:12px">m</span>
-        </div>
-        <h3>🗓 월별 기록</h3>
-        <div class="row">
-          <input id="month" type="month" style="width:170px">
-          <button class="btn bw sm" onclick="renderMonth()">조회</button>
-          <button class="btn bp sm" onclick="csv()">⬇ 엑셀(CSV)</button>
-        </div>
-        <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>날짜</th><th>이름</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>위치</th></tr></thead><tbody id="mRows"></tbody></table></div>
-        <div id="mSum" style="font-size:12.5px;font-weight:800;margin-top:8px"></div>
-        <h3>🔐 관리자 비밀번호 변경</h3>
-        <div class="row"><input id="newAPin" type="tel" maxlength="4" placeholder="새 비밀번호 4자리" style="width:160px"><button class="btn bw sm" onclick="changeAPin()">변경</button></div>
+      <h3 style="margin-top:0">👥 직원 계정 (아이디·비밀번호 부여)</h3>
+      <div id="admStaff"></div>
+      <div class="row"><input id="nName" placeholder="이름" style="flex:1"><input id="nUser" placeholder="아이디(영문)" autocapitalize="none" style="flex:1"></div>
+      <div class="row"><input id="nPin" type="password" placeholder="비밀번호 (4자리 이상)" style="flex:1"><button class="btn bp sm" onclick="addStaff()">＋ 계정 만들기</button></div>
+      <div id="credBox"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">📍 사무실 위치 (출퇴근 시 사무실/외부 자동 표시)</h3>
+      <div style="font-size:12.5px;color:var(--tm)" id="offInfo">불러오는 중...</div>
+      <div class="row">
+        <button class="btn bw sm" onclick="setOffice()">📍 현재 위치를 사무실로 설정</button>
+        <span style="font-size:12px">반경</span><input id="radius" type="number" style="width:84px" value="150"><span style="font-size:12px">m</span>
       </div>
     </div>
+    <div class="card">
+      <h3 style="margin-top:0">🗓 월별 기록</h3>
+      <div class="row">
+        <input id="month" type="month" style="width:170px">
+        <button class="btn bw sm" onclick="renderMonth()">조회</button>
+        <button class="btn bp sm" onclick="csv()">⬇ 엑셀(CSV)</button>
+      </div>
+      <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>날짜</th><th>이름</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>위치</th></tr></thead><tbody id="mRows"></tbody></table></div>
+      <div id="mSum" style="font-size:12.5px;font-weight:800;margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">🔐 관리자 계정 변경</h3>
+      <div class="row"><input id="aU" placeholder="관리자 아이디" autocapitalize="none" style="flex:1"><input id="aP" type="password" placeholder="새 비밀번호 (4자리 이상)" style="flex:1"><button class="btn bw sm" onclick="changeAdmin()">변경</button></div>
+      <div class="msg" id="aMsg"></div>
+    </div>
+    <div class="ft"><a href="vermann-manual.html">📖 사용설명서</a><br>VERMANN APPAREL · ATTENDANCE</div>
   </div>
-
-  <div class="ft">베르만어패럴 · 기록은 서버에 안전하게 보관됩니다<br><a href="vermann-manual.html">📖 사용설명서 보기</a></div>
 </div>
 
 <script>
-var sb=supabase.createClient('https://fchxlplnacyycuddvdmu.supabase.co','sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli');
-var ROW_ID=10;              /* app_state 전용 행 (베르만어패럴만 사용) */
+var FN='https://fchxlplnacyycuddvdmu.supabase.co/functions/v1/vermann';
 function $(id){return document.getElementById(id);}
-function show(v){['vPick','vPin','vMain','vAdmin'].forEach(function(x){$(x).classList.toggle('hide',x!==v);});window.scrollTo(0,0);}
 function pad(n){return String(n).padStart(2,'0');}
-function today(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function todayStr(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
 function hhmm(iso){if(!iso)return '-';var d=new Date(iso);return pad(d.getHours())+':'+pad(d.getMinutes());}
 function dow(ds){return ['일','월','화','수','목','금','토'][new Date(ds+'T00:00:00').getDay()];}
 function workH(r){if(!r||!r.in||!r.out)return '';var ms=new Date(r.out)-new Date(r.in);if(ms<=0)return '';var h=Math.floor(ms/3600000),m=Math.round(ms%3600000/60000);return h+'시간'+(m?' '+m+'분':'');}
-
-/* ── 데이터: app_state id=10 {berman:{cfg,staff,att}} ── */
-var S={cfg:{admin_pin:'0000',radius:150,office:null},staff:[],att:{}};
-async function load(){
-  try{
-    var r=await sb.from('app_state').select('state_data').eq('id',ROW_ID).maybeSingle();
-    var b=r&&r.data&&r.data.state_data&&r.data.state_data.berman;
-    if(b){S.cfg=Object.assign(S.cfg,b.cfg||{});S.staff=b.staff||[];S.att=b.att||{};}
-  }catch(e){}
+function distM(a,b){if(!a||!b)return null;var R=6371000,dLa=(b.lat-a.lat)*Math.PI/180,dLo=(b.lng-a.lng)*Math.PI/180;var x=Math.sin(dLa/2),y=Math.sin(dLo/2);var h=x*x+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*y*y;return Math.round(2*R*Math.asin(Math.sqrt(h)));}
+function locLabel(d){
+  if(d==null)return{t:'위치없음',cls:'t-none',c:'var(--tm)'};
+  if(SESS.office&&d<=(+SESS.radius||150))return{t:'사무실 ('+d+'m)',cls:'t-in',c:'var(--okT)'};
+  return{t:'외부 ('+(d>=1000?(d/1000).toFixed(1)+'km':d+'m')+')',cls:'t-out',c:'var(--err)'};
 }
-async function save(){
-  var r=await sb.from('app_state').select('state_data').eq('id',ROW_ID).maybeSingle();
-  var sd=(r&&r.data&&r.data.state_data)||{};
-  sd.berman={cfg:S.cfg,staff:S.staff,att:S.att,at:new Date().toISOString()};
-  var res=await sb.from('app_state').upsert({id:ROW_ID,state_data:sd,updated_at:new Date().toISOString()});
-  if(res.error)throw res.error;
-}
-
-/* ── 위치 ── */
 function getPos(){
   return new Promise(function(res){
     if(!navigator.geolocation)return res(null);
@@ -180,214 +199,195 @@ function getPos(){
       function(){res(null);},{enableHighAccuracy:true,timeout:8000,maximumAge:30000});
   });
 }
-function distM(a,b){
-  if(!a||!b)return null;
-  var R=6371000,dLa=(b.lat-a.lat)*Math.PI/180,dLo=(b.lng-a.lng)*Math.PI/180;
-  var x=Math.sin(dLa/2),y=Math.sin(dLo/2);
-  var h=x*x+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*y*y;
-  return Math.round(2*R*Math.asin(Math.sqrt(h)));
+
+/* ── 세션 & API ── */
+var SESS=null;
+try{SESS=JSON.parse(localStorage.getItem('vm_sess')||'null');}catch(e){}
+async function api(action,body){
+  var r=await fetch(FN,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(Object.assign({action:action,token:SESS&&SESS.token},body||{}))});
+  var j=await r.json();
+  if(j&&j.error==='AUTH'){logout();throw new Error('로그인 만료');}
+  return j;
 }
-function locLabel(d){
-  if(d==null)return{t:'위치없음',c:'var(--tm)'};
-  if(S.cfg.office&&d<=(+S.cfg.radius||150))return{t:'사무실 ('+d+'m)',c:'var(--ok)'};
-  return{t:'외부 ('+(d>=1000?(d/1000).toFixed(1)+'km':d+'m')+')',c:'var(--err)'};
+function logout(){SESS=null;try{localStorage.removeItem('vm_sess');}catch(e){}show('vLogin');}
+function show(v){['vLogin','vStaff','vAdmin'].forEach(function(x){$(x).classList.toggle('hide',x!==v);});window.scrollTo(0,0);}
+
+/* ── 로그인 ── */
+async function doLogin(){
+  var u=$('lu').value.trim(),p=$('lp').value;
+  $('lerr').textContent='';
+  if(!u||!p){loginErr('아이디와 비밀번호를 입력하세요');return;}
+  $('lbtn').textContent='확인 중...';$('lbtn').disabled=true;
+  try{
+    var r=await fetch(FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',u:u,p:p})});
+    var j=await r.json();
+    if(j.error){loginErr(j.error);return;}
+    SESS={token:j.token,role:j.role,name:j.name,office:j.office,radius:j.radius};
+    try{localStorage.setItem('vm_sess',JSON.stringify(SESS));}catch(e){}
+    $('lp').value='';
+    enter();
+  }catch(e){loginErr('서버에 연결하지 못했습니다');}
+  finally{$('lbtn').textContent='로그인';$('lbtn').disabled=false;}
+}
+function loginErr(m){
+  $('lerr').textContent='⚠ '+m;
+  var c=$('lcard');c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake');
+}
+function enter(){
+  if(!SESS)return show('vLogin');
+  if(SESS.role==='admin'){show('vAdmin');initAdmin();}
+  else{$('stWho').textContent='👤 '+SESS.name;show('vStaff');refreshMe();}
 }
 
-/* ── 직원 선택/로그인 ── */
-var me=null;
-function renderStaff(){
-  var box=$('staffList');
-  if(!S.staff.length){box.innerHTML='<p style="font-size:12.5px;color:var(--tm)">등록된 직원이 없습니다 — [⚙ 관리자]에서 직원을 추가하세요 (처음 비밀번호 0000)</p>';return;}
-  box.innerHTML='';
-  S.staff.forEach(function(st){
-    var b=document.createElement('button');
-    b.className='btn bw staffbtn';b.textContent='👤 '+st.name;
-    b.onclick=function(){pinTarget=st;$('pinWho').textContent=st.name;$('pinInput').value='';$('pinMsg').textContent='';show('vPin');$('pinInput').focus();};
-    box.appendChild(b);
-  });
-}
-var pinTarget=null;
-function checkPin(){
-  if(!pinTarget)return;
-  if($('pinInput').value!==String(pinTarget.pin||'')){$('pinMsg').textContent='비밀번호가 다릅니다';return;}
-  me=pinTarget;
-  try{localStorage.setItem('berman_me',me.id);}catch(e){}
-  openMain();
-}
-function logout(){me=null;try{localStorage.removeItem('berman_me');}catch(e){}show('vPick');}
-
-/* ── 직원 메인 ── */
-function key(d,id){return d+'_'+id;}
-function openMain(){
-  $('mainWho').textContent='👤 '+me.name;
-  renderToday();renderMine();show('vMain');
-}
+/* ── 직원 ── */
+var myToday=null;
 function renderToday(){
-  var r=S.att[key(today(),me.id)];
-  $('sIn').textContent=r?hhmm(r.in):'-';
-  $('sOut').textContent=r?hhmm(r.out):'-';
+  var r=myToday;
+  $('sIn').textContent=r&&r.in?hhmm(r.in):'-';
+  $('sOut').textContent=r&&r.out?hhmm(r.out):'-';
   var li=r&&r.in?locLabel(r.inDist!=null?r.inDist:null):null;
   var lo=r&&r.out?locLabel(r.outDist!=null?r.outDist:null):null;
-  $('sInLoc').textContent=r&&r.in?(li.t):'';$('sInLoc').style.color=li?li.c:'';
-  $('sOutLoc').textContent=r&&r.out?(lo.t):'';$('sOutLoc').style.color=lo?lo.c:'';
+  $('sInLoc').textContent=li?li.t:'';$('sInLoc').style.color=li?li.c:'';
+  $('sOutLoc').textContent=lo?lo.t:'';$('sOutLoc').style.color=lo?lo.c:'';
   $('btnIn').disabled=!!(r&&r.in);$('btnIn').style.opacity=r&&r.in?0.45:1;
   $('btnOut').disabled=!(r&&r.in)||!!(r&&r.out);$('btnOut').style.opacity=(!(r&&r.in)||(r&&r.out))?0.45:1;
 }
-function renderMine(){
-  var tb=$('myRows');tb.innerHTML='';
-  var ds=Object.keys(S.att).filter(function(k){return k.slice(11)===me.id;}).map(function(k){return k.slice(0,10);}).sort().reverse().slice(0,14);
-  ds.forEach(function(d){
-    var r=S.att[key(d,me.id)];
-    var li=r.in?locLabel(r.inDist!=null?r.inDist:null):null;
-    var tr=document.createElement('tr');
-    tr.innerHTML='<td>'+d.slice(5).replace('-','/')+' ('+dow(d)+')</td><td>'+hhmm(r.in)+'</td><td>'+hhmm(r.out)+'</td><td>'+(workH(r)||'-')+'</td>'+
-      '<td>'+(li?'<span class="tag '+(li.t.indexOf('사무실')===0?'t-in':(li.t==='위치없음'?'t-none':'t-out'))+'">'+li.t.split(' ')[0]+'</span>':'-')+'</td>';
-    tb.appendChild(tr);
-  });
-  if(!ds.length)tb.innerHTML='<tr><td colspan="5" style="color:var(--tm)">아직 기록이 없습니다</td></tr>';
+async function refreshMe(){
+  try{
+    var j=await api('me');
+    if(j.office!==undefined){SESS.office=j.office;SESS.radius=j.radius;try{localStorage.setItem('vm_sess',JSON.stringify(SESS));}catch(e){}}
+    myToday=j.today;renderToday();
+    var tb=$('myRows');tb.innerHTML='';
+    (j.rows||[]).forEach(function(r){
+      var li=r.in?locLabel(r.inDist!=null?r.inDist:null):null;
+      var tr=document.createElement('tr');
+      tr.innerHTML='<td>'+r.date.slice(5).replace('-','/')+' ('+dow(r.date)+')</td><td>'+hhmm(r.in)+'</td><td>'+hhmm(r.out)+'</td><td>'+(workH(r)||'-')+'</td>'+
+        '<td>'+(li?'<span class="tag '+li.cls+'">'+li.t.split(' ')[0]+'</span>':'-')+'</td>';
+      tb.appendChild(tr);
+    });
+    if(!(j.rows||[]).length)tb.innerHTML='<tr><td colspan="5" style="color:var(--tm)">아직 기록이 없습니다</td></tr>';
+  }catch(e){}
 }
 var punching=false;
 async function punch(kind){
-  if(punching||!me)return;
+  if(punching||!SESS)return;
   punching=true;
-  $('mainMsg').textContent='📍 위치 확인 중...';
-  var pos=await getPos();
-  var d=pos&&S.cfg.office?distM(pos,S.cfg.office):null;
-  await load();                       /* 다른 기기 기록과 합치기 */
-  var k=key(today(),me.id);
-  var r=S.att[k]||{name:me.name};
-  var now=new Date().toISOString();
-  if(kind==='in'){if(r.in){punching=false;renderToday();return;}r.in=now;r.inDist=d;}
-  else{if(!r.in||r.out){punching=false;renderToday();return;}r.out=now;r.outDist=d;}
-  S.att[k]=r;
+  $('stMsg').textContent='📍 위치 확인 중...';
   try{
-    await save();
-    $('mainMsg').textContent=(kind==='in'?'🟢 출근':'🔴 퇴근')+' 완료! ('+hhmm(now)+' · '+locLabel(d).t+')';
-  }catch(e){
-    $('mainMsg').textContent='⚠ 저장 실패 — 인터넷 확인 후 다시 눌러주세요';
-    if(kind==='in'){delete r.in;delete r.inDist;}else{delete r.out;delete r.outDist;}
-  }
-  renderToday();renderMine();
+    var pos=await getPos();
+    var dist=pos&&SESS.office?distM(pos,SESS.office):null;
+    var j=await api('punch',{kind:kind,dist:dist});
+    if(j.error&&!j.rec){$('stMsg').textContent='⚠ '+j.error;}
+    else{
+      myToday=j.rec;renderToday();
+      var box=$(kind==='in'?'boxIn':'boxOut');box.classList.remove('pop');void box.offsetWidth;box.classList.add('pop');
+      $('stMsg').textContent=(kind==='in'?'🟢 출근':'🔴 퇴근')+' 완료! ('+hhmm(new Date().toISOString())+' · '+locLabel(dist).t+')';
+      refreshMe();
+    }
+  }catch(e){$('stMsg').textContent='⚠ 저장 실패 — 인터넷 확인 후 다시 눌러주세요';}
   punching=false;
 }
 
 /* ── 관리자 ── */
-function openAdmin(){$('aPin').value='';$('aMsg').textContent='';$('adminLock').classList.remove('hide');$('adminBody').classList.add('hide');show('vAdmin');}
-function adminIn(){
-  if($('aPin').value!==String(S.cfg.admin_pin||'0000')){$('aMsg').textContent='비밀번호가 다릅니다';return;}
-  $('adminLock').classList.add('hide');$('adminBody').classList.remove('hide');
-  $('radius').value=S.cfg.radius||150;
-  $('month').value=today().slice(0,7);
-  renderAdmStaff();renderOffice();renderMonth();
+async function initAdmin(){
+  $('month').value=todayStr().slice(0,7);
+  await refreshStaff();
+  renderMonth();
 }
-function renderAdmStaff(){
-  var box=$('admStaff');box.innerHTML='';
-  S.staff.forEach(function(st,i){
-    var div=document.createElement('div');div.className='row';
-    div.innerHTML='<span style="flex:1;font-weight:700">👤 '+st.name+'</span>'+
-      '<button class="btn bw sm" data-a="pin">비번 변경</button><button class="btn bw sm" style="color:var(--err)" data-a="del">삭제</button>';
-    div.querySelector('[data-a=pin]').onclick=async function(){
-      var p=prompt(st.name+' 새 비밀번호 4자리');
-      if(p&&/^\d{4}$/.test(p)){st.pin=p;await save();alert('변경됨');}
-    };
-    div.querySelector('[data-a=del]').onclick=async function(){
-      if(!confirm(st.name+' 직원을 삭제할까요? (지난 기록은 남습니다)'))return;
-      S.staff.splice(i,1);await save();renderAdmStaff();renderStaff();
-    };
-    box.appendChild(div);
-  });
-  if(!S.staff.length)box.innerHTML='<p style="font-size:12px;color:var(--tm)">직원을 추가하세요</p>';
+async function refreshStaff(){
+  try{
+    var j=await api('staff_list');
+    SESS.office=j.office;SESS.radius=j.radius;
+    $('radius').value=j.radius||150;
+    $('aU').value=j.adminU||'admin';
+    $('offInfo').textContent=j.office
+      ?('설정됨 ✓ (위도 '+j.office.lat.toFixed(5)+', 경도 '+j.office.lng.toFixed(5)+' · 반경 '+(j.radius||150)+'m 안이면 "사무실")')
+      :'아직 설정 안 됨 — 사무실에서 아래 버튼을 누르세요';
+    var box=$('admStaff');box.innerHTML='';
+    (j.staff||[]).forEach(function(st){
+      var div=document.createElement('div');div.className='row';
+      div.innerHTML='<span style="flex:1;font-weight:700">👤 '+st.name+' <span style="color:var(--tm);font-weight:600;font-size:12px">@'+st.username+'</span></span>'+
+        '<button class="btn bw sm" data-a="pin">비번 재설정</button><button class="btn bw sm" style="color:var(--err)" data-a="del">삭제</button>';
+      div.querySelector('[data-a=pin]').onclick=async function(){
+        var p=prompt(st.name+' 새 비밀번호 (4자리 이상)');
+        if(!p)return;
+        var r=await api('staff_pin',{id:st.id,pin:p});
+        alert(r.error?('⚠ '+r.error):'변경되었습니다');
+      };
+      div.querySelector('[data-a=del]').onclick=async function(){
+        if(!confirm(st.name+' 계정을 삭제할까요? (지난 기록은 남습니다)'))return;
+        await api('staff_del',{id:st.id});refreshStaff();
+      };
+      box.appendChild(div);
+    });
+    if(!(j.staff||[]).length)box.innerHTML='<p style="font-size:12.5px;color:var(--tm)">아직 직원 계정이 없습니다 — 아래에서 만들어 주세요</p>';
+  }catch(e){}
 }
 async function addStaff(){
-  var n=$('newName').value.trim(),p=$('newPin').value.trim()||'0000';
-  if(!n)return alert('이름을 입력하세요');
-  if(!/^\d{4}$/.test(p))return alert('비밀번호는 숫자 4자리');
-  S.staff.push({id:'s'+Date.now().toString(36),name:n,pin:p});
-  await save();
-  $('newName').value='';$('newPin').value='';
-  renderAdmStaff();renderStaff();
-}
-function renderOffice(){
-  $('offInfo').textContent=S.cfg.office
-    ?('설정됨 ✓ (위도 '+S.cfg.office.lat.toFixed(5)+', 경도 '+S.cfg.office.lng.toFixed(5)+' · 반경 '+(S.cfg.radius||150)+'m 안이면 "사무실"로 표시)')
-    :'아직 설정 안 됨 — 사무실에서 아래 버튼을 누르세요';
+  var name=$('nName').value.trim(),u=$('nUser').value.trim(),p=$('nPin').value;
+  var j=await api('staff_add',{name:name,username:u,pin:p});
+  if(j.error)return alert('⚠ '+j.error);
+  $('credBox').innerHTML='<div class="cred">✅ 계정 생성 완료 — 직원에게 전달하세요<br>아이디: <b>'+u.toLowerCase()+'</b> · 비밀번호: <b>'+p+'</b></div>';
+  $('nName').value='';$('nUser').value='';$('nPin').value='';
+  refreshStaff();
 }
 async function setOffice(){
   var pos=await getPos();
   if(!pos)return alert('위치를 가져오지 못했습니다. 브라우저 위치 권한을 허용해주세요.');
-  S.cfg.office=pos;S.cfg.radius=+$('radius').value||150;
-  await save();renderOffice();alert('📍 사무실 위치가 설정되었습니다');
+  var j=await api('set_office',{lat:pos.lat,lng:pos.lng,radius:+$('radius').value||150});
+  if(j.error)return alert('⚠ '+j.error);
+  refreshStaff();alert('📍 사무실 위치가 설정되었습니다');
 }
-async function changeAPin(){
-  var p=$('newAPin').value.trim();
-  if(!/^\d{4}$/.test(p))return alert('숫자 4자리로 입력하세요');
-  S.cfg.admin_pin=p;await save();$('newAPin').value='';alert('관리자 비밀번호가 변경되었습니다');
+async function changeAdmin(){
+  var j=await api('admin_pw',{u:$('aU').value.trim(),p:$('aP').value});
+  if(j.error){$('aMsg').textContent='⚠ '+j.error;$('aMsg').style.color='var(--err)';return;}
+  $('aP').value='';$('aMsg').style.color='var(--okT)';
+  $('aMsg').textContent='변경되었습니다 — 다음 로그인부터 새 계정으로';
 }
-function monthRows(){
-  var ym=$('month').value||today().slice(0,7);
-  var rows=[];
-  Object.keys(S.att).forEach(function(k){
-    if(k.slice(0,7)!==ym)return;
-    var r=S.att[k];
-    rows.push({date:k.slice(0,10),name:r.name,in:r.in,out:r.out,inDist:r.inDist,r:r});
-  });
-  rows.sort(function(a,b){return a.date===b.date?a.name.localeCompare(b.name,'ko'):a.date.localeCompare(b.date);});
-  return rows;
-}
-function renderMonth(){
+var monthRows=[];
+async function renderMonth(){
+  var j=await api('month',{ym:$('month').value});
+  monthRows=j.rows||[];
   var tb=$('mRows');tb.innerHTML='';
-  var rows=monthRows();
   var sum={};
-  rows.forEach(function(x){
+  monthRows.forEach(function(x){
     var li=x.in?locLabel(x.inDist!=null?x.inDist:null):null;
     var tr=document.createElement('tr');
-    tr.innerHTML='<td>'+x.date.slice(5).replace('-','/')+' ('+dow(x.date)+')</td><td>'+x.name+'</td><td>'+hhmm(x.in)+'</td><td>'+hhmm(x.out)+'</td><td>'+(workH(x.r)||'-')+'</td>'+
-      '<td>'+(li?'<span class="tag '+(li.t.indexOf('사무실')===0?'t-in':(li.t==='위치없음'?'t-none':'t-out'))+'">'+li.t.split(' ')[0]+'</span>':'-')+'</td>';
+    tr.innerHTML='<td>'+x.date.slice(5).replace('-','/')+' ('+dow(x.date)+')</td><td>'+x.name+'</td><td>'+hhmm(x.in)+'</td><td>'+hhmm(x.out)+'</td><td>'+(workH(x)||'-')+'</td>'+
+      '<td>'+(li?'<span class="tag '+li.cls+'">'+li.t.split(' ')[0]+'</span>':'-')+'</td>';
     tb.appendChild(tr);
     var s=sum[x.name]=sum[x.name]||{days:0,ms:0};
     s.days++;
-    if(x.in&&x.r.out)s.ms+=Math.max(0,new Date(x.r.out)-new Date(x.in));
+    if(x.in&&x.out)s.ms+=Math.max(0,new Date(x.out)-new Date(x.in));
   });
-  if(!rows.length)tb.innerHTML='<tr><td colspan="6" style="color:var(--tm)">이 달 기록이 없습니다</td></tr>';
+  if(!monthRows.length)tb.innerHTML='<tr><td colspan="6" style="color:var(--tm)">이 달 기록이 없습니다</td></tr>';
   $('mSum').textContent=Object.keys(sum).map(function(n){
-    var h=Math.round(sum[n].ms/360000)/10;
-    return n+': '+sum[n].days+'일 근무 · 총 '+h+'시간';
+    return n+': '+sum[n].days+'일 근무 · 총 '+(Math.round(sum[n].ms/360000)/10)+'시간';
   }).join('  |  ');
 }
 function csv(){
-  var rows=monthRows();
-  if(!rows.length)return alert('이 달 기록이 없습니다');
+  if(!monthRows.length)return alert('이 달 기록이 없습니다');
   var L=['날짜,요일,이름,출근,퇴근,근무시간,출근위치'];
-  rows.forEach(function(x){
+  monthRows.forEach(function(x){
     var li=x.in?locLabel(x.inDist!=null?x.inDist:null):null;
-    L.push([x.date,dow(x.date),x.name,hhmm(x.in),hhmm(x.out),workH(x.r)||'',li?li.t:''].join(','));
+    L.push([x.date,dow(x.date),x.name,hhmm(x.in),hhmm(x.out),workH(x)||'',li?li.t:''].join(','));
   });
   var a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['﻿'+L.join('\n')],{type:'text/csv'}));
-  a.download='베르만어패럴_근태_'+($('month').value||today().slice(0,7))+'.csv';
+  a.download='VERMANN_근태_'+($('month').value||todayStr().slice(0,7))+'.csv';
   a.click();
 }
 
 /* ── 시계 & 시작 ── */
 setInterval(function(){
   var d=new Date();
-  $('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
-  $('cdate').textContent=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+dow(today())+')';
+  if($('clock'))$('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  if($('cdate'))$('cdate').textContent=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+dow(todayStr())+')';
 },500);
-(async function(){
-  await load();
-  renderStaff();
-  try{
-    var saved=localStorage.getItem('berman_me');
-    var st=S.staff.find(function(x){return x.id===saved;});
-    if(st){me=st;openMain();return;}
-  }catch(e){}
-  show('vPick');
-  /* 15초마다 최신 기록 동기화(여러 기기) */
-  setInterval(async function(){if(!document.hidden){await load();if(me)renderToday(),renderMine();}},15000);
-})();
-$('pinInput').addEventListener('keydown',function(e){if(e.key==='Enter')checkPin();});
-$('aPin').addEventListener('keydown',function(e){if(e.key==='Enter')adminIn();});
+setInterval(function(){if(SESS&&SESS.role==='staff'&&!document.hidden)refreshMe();},20000);
+['lu','lp'].forEach(function(id){$(id).addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});});
+enter();
 </script>
 </body>
 </html>
