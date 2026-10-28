@@ -9,49 +9,51 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
-/* VERMANN 브랜드 — 블랙&화이트 모노크롬, 이탤릭 볼드 워드마크, 대문자 자간 (vermann.kr) */
-:root{color-scheme:only light;--p:#0A0A0A;--pb:#F2F2F2;--t:#111111;--tm:#9A9A9A;--bd:#E4E4E4;--bg:#FFFFFF;--ok:#15803D;--err:#DC2626}
+/* VERMANN 브랜드 × iOS 스타일 — 블랙&화이트 모노크롬 + 둥근 카드·필 버튼·소프트 섀도 */
+:root{color-scheme:only light;--p:#0A0A0A;--pb:#F2F2F7;--t:#111111;--tm:#8E8E93;--bd:#E7E7EC;--bg:#F2F2F7;--ok:#34C759;--okT:#1F7A33;--err:#FF3B30}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em}
-.topband{background:#0A0A0A;color:#fff;text-align:center;padding:26px 14px 24px}
-.wordmark{font-size:30px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);display:inline-block;line-height:1}
-.topband .sub{font-size:10.5px;letter-spacing:4px;color:#B8B8B8;margin-top:9px;text-transform:uppercase;font-weight:600}
-.wrap{max-width:560px;margin:0 auto;padding:16px 14px 60px}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em;-webkit-tap-highlight-color:transparent}
+.topband{background:linear-gradient(180deg,#000 0%,#17171A 100%);color:#fff;text-align:center;padding:34px 14px 30px;border-radius:0 0 30px 30px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.wordmark{font-size:31px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);display:inline-block;line-height:1}
+.topband .sub{font-size:10.5px;letter-spacing:4px;color:rgba(255,255,255,.55);margin-top:10px;text-transform:uppercase;font-weight:600}
+.wrap{max-width:560px;margin:0 auto;padding:16px 16px 60px}
 .hdr{display:none}
-.card{background:#fff;border:1px solid var(--bd);border-radius:2px;padding:18px;margin-top:14px;box-shadow:0 1px 0 rgba(0,0,0,.03)}
-.btn{border:none;border-radius:2px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;letter-spacing:1.5px;text-transform:uppercase}
+.card{background:#fff;border:none;border-radius:22px;padding:20px;margin-top:14px;box-shadow:0 8px 28px rgba(0,0,0,.07)}
+.btn{border:none;border-radius:16px;padding:15px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;width:100%;letter-spacing:0.3px;transition:transform .12s ease,opacity .12s ease,background .15s ease}
+.btn:active{transform:scale(.97)}
 .bp{background:#0A0A0A;color:#fff}
 .bp:hover{background:#2A2A2A}
-.bw{background:#fff;color:#111;border:1.5px solid #111}
-.bw:hover{background:#F5F5F5}
+.bw{background:var(--pb);color:#111}
+.bw:hover{background:#E8E8ED}
 .bg2{background:#0A0A0A;color:#fff}
-.br2{background:#fff;color:#111;border:1.5px solid #111}
-.sm{width:auto;padding:8px 14px;font-size:11.5px;letter-spacing:1px}
-.staffbtn{display:flex;align-items:center;gap:10px;font-size:15px;margin-top:9px;justify-content:center;letter-spacing:0;text-transform:none;border-color:var(--bd)}
-.staffbtn:hover{border-color:#111}
-input{width:100%;border:none;border-bottom:1.5px solid var(--bd);border-radius:0;padding:11px 4px;font:inherit;font-size:15px;background:transparent;outline:none}
-input:focus{border-color:#111}
-input[type=month],input[type=number]{border:1.5px solid var(--bd);padding:9px 10px}
-.clock{text-align:center;font-size:44px;font-weight:900;font-style:italic;letter-spacing:1px;font-variant-numeric:tabular-nums;margin:10px 0 0;transform:skewX(-4deg)}
-.cdate{text-align:center;font-size:12px;color:var(--tm);letter-spacing:2px;margin:4px 0 14px;text-transform:uppercase}
-.stat{display:flex;gap:1px;text-align:center;margin:12px 0;background:var(--bd);border:1px solid var(--bd)}
-.stat>div{flex:1;background:#FAFAFA;padding:12px 8px}
+.br2{background:var(--pb);color:#111}
+.sm{width:auto;padding:9px 16px;font-size:12.5px;border-radius:999px}
+.staffbtn{display:flex;align-items:center;gap:10px;font-size:15.5px;margin-top:10px;justify-content:center;background:var(--pb);border-radius:16px}
+.staffbtn:hover{background:#E8E8ED}
+input{width:100%;border:none;border-radius:13px;padding:13px 14px;font:inherit;font-size:15px;background:var(--pb);outline:none;transition:box-shadow .15s ease}
+input:focus{box-shadow:0 0 0 2.5px #111;background:#fff}
+input[type=month],input[type=number]{padding:10px 12px}
+.clock{text-align:center;font-size:48px;font-weight:900;font-style:italic;letter-spacing:0.5px;font-variant-numeric:tabular-nums;margin:12px 0 0;transform:skewX(-4deg)}
+.cdate{text-align:center;font-size:12px;color:var(--tm);letter-spacing:2px;margin:5px 0 16px;text-transform:uppercase}
+.stat{display:flex;gap:10px;text-align:center;margin:12px 0}
+.stat>div{flex:1;background:var(--pb);padding:14px 8px;border-radius:16px}
 .stat .l{font-size:10px;color:var(--tm);font-weight:700;letter-spacing:3px;text-transform:uppercase}
-.stat .v{font-size:19px;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat .v{font-size:21px;font-weight:900;margin-top:4px;font-variant-numeric:tabular-nums}
 .loc{font-size:10.5px;font-weight:700;margin-top:3px}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
-th,td{border-bottom:1px solid #F0F0F0;padding:8px 6px;text-align:center}
-th{color:var(--tm);font-weight:700;font-size:10px;background:#FAFAFA;letter-spacing:2px;text-transform:uppercase}
-.tag{font-size:10px;font-weight:800;border-radius:0;padding:2px 8px;letter-spacing:0.5px}
-.t-in{background:#111;color:#fff}.t-out{background:#fff;color:#DC2626;border:1px solid #DC2626}.t-none{background:#F0F0F0;color:#9A9A9A}
+th,td{border-bottom:1px solid #F2F2F5;padding:9px 6px;text-align:center}
+th{color:var(--tm);font-weight:700;font-size:10px;background:transparent;letter-spacing:2px;text-transform:uppercase;border-bottom:1.5px solid #E7E7EC}
+tr:last-child td{border-bottom:none}
+.tag{font-size:10px;font-weight:800;border-radius:999px;padding:3px 10px;letter-spacing:0.3px}
+.t-in{background:#E7F8EC;color:var(--okT)}.t-out{background:#FFE9E7;color:#C62820}.t-none{background:#EFEFF4;color:#8E8E93}
 .top{display:flex;align-items:center;gap:8px}
-.top .back{background:none;border:none;color:#111;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;padding:4px;letter-spacing:1px}
-.msg{font-size:12px;font-weight:700;color:var(--ok);text-align:center;margin-top:10px;min-height:16px}
-.ft{text-align:center;font-size:9.5px;color:var(--tm);margin-top:28px;line-height:1.8;letter-spacing:2px;text-transform:uppercase}
+.top .back{background:var(--pb);border:none;color:#111;font-weight:800;font-size:12px;cursor:pointer;font-family:inherit;padding:7px 12px;border-radius:999px}
+.msg{font-size:12.5px;font-weight:700;color:var(--okT);text-align:center;margin-top:10px;min-height:16px}
+.ft{text-align:center;font-size:10px;color:var(--tm);margin-top:28px;line-height:1.9;letter-spacing:1.5px;text-transform:uppercase}
+.ft a{color:#111;font-weight:800;text-decoration:none}
 .row{display:flex;gap:8px;align-items:center;margin-top:10px}
 .hide{display:none!important}
-h3{font-size:12px;font-weight:800;margin:16px 0 8px;letter-spacing:2.5px;text-transform:uppercase;color:#111}
-h3::before{content:'';display:inline-block;width:14px;height:2px;background:#111;vertical-align:middle;margin-right:8px}
+h3{font-size:12px;font-weight:800;margin:18px 0 10px;letter-spacing:2.5px;text-transform:uppercase;color:#8E8E93}
 </style>
 </head>
 <body>
@@ -138,7 +140,7 @@ h3::before{content:'';display:inline-block;width:14px;height:2px;background:#111
     </div>
   </div>
 
-  <div class="ft">베르만어패럴 · 기록은 서버에 안전하게 보관됩니다</div>
+  <div class="ft">베르만어패럴 · 기록은 서버에 안전하게 보관됩니다<br><a href="vermann-manual.html">📖 사용설명서 보기</a></div>
 </div>
 
 <script>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0A">
+<meta name="color-scheme" content="only light">
+<title>VERMANN 근태관리 — 사용설명서</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{color-scheme:only light;--pb:#F2F2F7;--t:#111;--tm:#8E8E93;--bg:#F2F2F7;--okT:#1F7A33}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em}
+.topband{background:linear-gradient(180deg,#000,#17171A);color:#fff;text-align:center;padding:34px 14px 30px;border-radius:0 0 30px 30px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.wordmark{font-size:31px;font-weight:900;font-style:italic;letter-spacing:2px;transform:skewX(-6deg);display:inline-block;line-height:1}
+.topband .sub{font-size:10.5px;letter-spacing:4px;color:rgba(255,255,255,.55);margin-top:10px;text-transform:uppercase;font-weight:600}
+.wrap{max-width:600px;margin:0 auto;padding:16px 16px 60px}
+.card{background:#fff;border-radius:22px;padding:22px;margin-top:14px;box-shadow:0 8px 28px rgba(0,0,0,.07)}
+h2{font-size:17px;font-weight:900;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #F2F2F5;font-size:14px;line-height:1.65}
+.step:last-child{border-bottom:none}
+.no{background:#0A0A0A;color:#fff;font-size:12px;font-weight:800;border-radius:999px;min-width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+b{font-weight:800}
+.tip{background:var(--pb);border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.65;margin-top:12px}
+.tip b{color:#0A0A0A}
+.pill{display:inline-block;background:#0A0A0A;color:#fff;border-radius:999px;padding:2px 11px;font-size:12px;font-weight:800}
+.pillw{display:inline-block;background:var(--pb);color:#111;border-radius:999px;padding:2px 11px;font-size:12px;font-weight:800}
+.q{font-weight:800;margin-top:14px;font-size:14px}
+.a{font-size:13.5px;color:#3A3A3C;line-height:1.7;margin-top:3px}
+.ft{text-align:center;font-size:10px;color:var(--tm);margin-top:28px;line-height:1.9;letter-spacing:1.5px;text-transform:uppercase}
+.ft a{color:#111;font-weight:800;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="topband">
+  <span class="wordmark">VERMANN</span>
+  <div class="sub">User Guide · 사용설명서</div>
+</div>
+<div class="wrap">
+
+  <div class="card">
+    <h2>🚀 처음 설정 (사장님/관리자 — 5분이면 끝)</h2>
+    <div class="step"><span class="no">1</span><div>첫 화면 아래 <span class="pillw">⚙ 관리자</span>를 누르고 초기 비밀번호 <b>0000</b>으로 입장합니다.</div></div>
+    <div class="step"><span class="no">2</span><div>맨 아래 <b>🔐 관리자 비밀번호 변경</b>에서 비밀번호를 꼭 바꿔주세요.</div></div>
+    <div class="step"><span class="no">3</span><div><b>👥 직원 관리</b>에서 직원 이름과 각자의 비밀번호 4자리를 넣고 [추가]합니다.</div></div>
+    <div class="step"><span class="no">4</span><div><b>사무실에서</b> <span class="pillw">📍 현재 위치를 사무실로 설정</span>을 누릅니다. 위치 권한을 "허용"하면 완료 — 이후 출퇴근 때 사무실 안(기본 150m)에서 눌렀는지 자동으로 표시됩니다.</div></div>
+    <div class="step"><span class="no">5</span><div>직원들에게 이 사이트 주소를 전달합니다. 휴대폰에서 열고 <b>공유 → 홈 화면에 추가</b>를 하면 앱처럼 쓸 수 있습니다.</div></div>
+  </div>
+
+  <div class="card">
+    <h2>👤 직원 사용법 (매일)</h2>
+    <div class="step"><span class="no">1</span><div>사이트를 열고 <b>내 이름</b>을 선택 → 비밀번호 4자리를 입력합니다. (한 번 입력하면 그 휴대폰은 기억합니다)</div></div>
+    <div class="step"><span class="no">2</span><div>출근하면 <span class="pill">🟢 출근</span>, 퇴근하면 <span class="pillw">🔴 퇴근</span>을 누릅니다 — 끝!</div></div>
+    <div class="step"><span class="no">3</span><div>버튼을 누를 때 위치를 허용하면 "사무실/외부"가 함께 기록됩니다. 아래에서 내 최근 2주 기록을 볼 수 있습니다.</div></div>
+    <div class="tip">💡 <b>위치 권한 묻는 창이 뜨면 "허용"</b>을 눌러주세요. 거부해도 출퇴근은 기록되고 위치만 "위치없음"으로 남습니다.</div>
+  </div>
+
+  <div class="card">
+    <h2>📊 월별 집계 · 급여 계산 (관리자)</h2>
+    <div class="step"><span class="no">1</span><div><span class="pillw">⚙ 관리자</span> 입장 → <b>🗓 월별 기록</b>에서 달을 고르고 [조회]합니다.</div></div>
+    <div class="step"><span class="no">2</span><div>직원별 <b>근무일수·총 근무시간 합계</b>가 표 아래에 자동으로 나옵니다.</div></div>
+    <div class="step"><span class="no">3</span><div><span class="pill">⬇ 엑셀(CSV)</span>을 누르면 그 달 전체 기록이 엑셀 파일로 저장됩니다 — 급여 계산에 바로 쓰세요.</div></div>
+  </div>
+
+  <div class="card">
+    <h2>❓ 자주 묻는 것</h2>
+    <div class="q">Q. 출근을 눌렀는데 "외부"로 떠요.</div>
+    <div class="a">사무실 위치가 아직 설정 안 됐거나 반경이 좁은 경우입니다. 관리자에서 사무실 위치를 다시 설정하거나 반경(m)을 키워주세요.</div>
+    <div class="q">Q. 직원이 비밀번호를 잊었어요.</div>
+    <div class="a">관리자 → 직원 관리 → 해당 직원의 [비번 변경]으로 새 비밀번호를 정해주면 됩니다.</div>
+    <div class="q">Q. 퇴근을 깜빡 안 눌렀어요.</div>
+    <div class="a">다음 날 출근은 정상으로 눌리고, 그 날은 퇴근 기록 없이 남습니다. 월별 집계에서 그 날의 근무시간만 비어 보이니 급여 계산 때 참고하세요.</div>
+    <div class="q">Q. 여러 명이 같은 휴대폰(사무실 공용폰)으로 써도 되나요?</div>
+    <div class="a">됩니다. 메인 화면의 [← 직원 변경]으로 이름을 바꿔가며 각자 비밀번호로 체크하면 됩니다.</div>
+    <div class="q">Q. 기록은 어디에 저장되나요?</div>
+    <div class="a">클라우드 서버에 자동 저장됩니다. 휴대폰을 바꾸거나 지워도 기록은 그대로 남습니다.</div>
+  </div>
+
+  <div class="ft"><a href="vermann.html">← 근태관리로 돌아가기</a><br>VERMANN APPAREL · ATTENDANCE</div>
+</div>
+</body>
+</html>
