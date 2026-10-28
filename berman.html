@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3730A3">
+<meta name="color-scheme" content="only light">
+<title>베르만어패럴 근태관리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{color-scheme:only light;--p:#3730A3;--pb:#EEF2FF;--t:#1F2430;--tm:#8A8FA0;--bd:#E2E5EC;--bg:#F6F7FA;--ok:#15803D;--err:#DC2626}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--t);font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;letter-spacing:-0.01em}
+.wrap{max-width:560px;margin:0 auto;padding:18px 14px 60px}
+.hdr{text-align:center;padding:22px 0 8px}
+.hdr .logo{display:inline-block;background:var(--p);color:#fff;font-weight:900;font-size:14px;border-radius:10px;padding:7px 16px;letter-spacing:1px}
+.hdr h1{font-size:20px;font-weight:900;margin:12px 0 4px}
+.hdr p{font-size:12.5px;color:var(--tm);margin:0}
+.card{background:#fff;border:1px solid var(--bd);border-radius:14px;padding:16px;margin-top:12px}
+.btn{border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;width:100%}
+.bp{background:var(--p);color:#fff}
+.bw{background:#fff;color:var(--t);border:1.5px solid var(--bd)}
+.bg2{background:var(--ok);color:#fff}
+.br2{background:var(--err);color:#fff}
+.sm{width:auto;padding:7px 12px;font-size:12.5px;border-radius:9px}
+.staffbtn{display:flex;align-items:center;gap:10px;font-size:16px;margin-top:8px;justify-content:center}
+input{width:100%;border:1.5px solid var(--bd);border-radius:10px;padding:11px 12px;font:inherit;font-size:15px;background:#FDFDFE;outline:none}
+input:focus{border-color:var(--p);background:#fff}
+.clock{text-align:center;font-size:34px;font-weight:900;font-variant-numeric:tabular-nums;margin:4px 0 2px}
+.cdate{text-align:center;font-size:13px;color:var(--tm);margin-bottom:10px}
+.stat{display:flex;gap:10px;text-align:center;margin:10px 0}
+.stat>div{flex:1;background:var(--pb);border-radius:11px;padding:10px}
+.stat .l{font-size:11px;color:var(--tm);font-weight:700}
+.stat .v{font-size:17px;font-weight:900;margin-top:3px}
+.loc{font-size:10.5px;font-weight:700;margin-top:2px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{border-bottom:1px solid #F0F1F5;padding:7px 6px;text-align:center}
+th{color:var(--tm);font-weight:700;font-size:11.5px;background:#FAFAFC}
+.tag{font-size:10px;font-weight:800;border-radius:999px;padding:1px 8px}
+.t-in{background:#DCFCE7;color:#15803D}.t-out{background:#FEE2E2;color:#B91C1C}.t-none{background:#F0F1F5;color:#8A8FA0}
+.top{display:flex;align-items:center;gap:8px}
+.top .back{background:none;border:none;color:var(--p);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;padding:4px}
+.msg{font-size:12px;font-weight:700;color:var(--ok);text-align:center;margin-top:8px;min-height:16px}
+.ft{text-align:center;font-size:10.5px;color:var(--tm);margin-top:24px;line-height:1.7}
+.row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.hide{display:none!important}
+h3{font-size:14px;font-weight:800;margin:14px 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <span class="logo">BERMAN APPAREL</span>
+    <h1>베르만어패럴 근태관리</h1>
+    <p>출근·퇴근을 휴대폰으로 간단하게</p>
+  </div>
+
+  <!-- 직원 선택 -->
+  <div id="vPick">
+    <div class="card">
+      <h3 style="margin-top:0">직원 선택</h3>
+      <div id="staffList"><p style="font-size:12.5px;color:var(--tm)">불러오는 중...</p></div>
+    </div>
+    <div class="card" style="text-align:center">
+      <button class="btn bw sm" onclick="openAdmin()">⚙ 관리자</button>
+    </div>
+  </div>
+
+  <!-- PIN -->
+  <div id="vPin" class="hide">
+    <div class="card">
+      <div class="top"><button class="back" onclick="show('vPick')">← 뒤로</button><h3 style="margin:0" id="pinWho"></h3></div>
+      <input id="pinInput" type="tel" inputmode="numeric" maxlength="4" placeholder="비밀번호 4자리" style="text-align:center;font-size:22px;letter-spacing:8px;margin-top:10px">
+      <button class="btn bp" style="margin-top:10px" onclick="checkPin()">확인</button>
+      <div class="msg" id="pinMsg" style="color:var(--err)"></div>
+    </div>
+  </div>
+
+  <!-- 직원 메인 -->
+  <div id="vMain" class="hide">
+    <div class="card">
+      <div class="top"><button class="back" onclick="logout()">← 직원 변경</button><h3 style="margin:0" id="mainWho"></h3></div>
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="cdate" id="cdate"></div>
+      <div class="stat">
+        <div><div class="l">출근</div><div class="v" id="sIn">-</div><div class="loc" id="sInLoc"></div></div>
+        <div><div class="l">퇴근</div><div class="v" id="sOut">-</div><div class="loc" id="sOutLoc"></div></div>
+      </div>
+      <div class="row">
+        <button class="btn bg2" id="btnIn" onclick="punch('in')">🟢 출근</button>
+        <button class="btn br2" id="btnOut" onclick="punch('out')">🔴 퇴근</button>
+      </div>
+      <div class="msg" id="mainMsg"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">최근 2주 내 기록</h3>
+      <table><thead><tr><th>날짜</th><th>출근</th><th>퇴근</th><th>근무</th><th>위치</th></tr></thead><tbody id="myRows"></tbody></table>
+    </div>
+  </div>
+
+  <!-- 관리자 -->
+  <div id="vAdmin" class="hide">
+    <div class="card">
+      <div class="top"><button class="back" onclick="show('vPick')">← 뒤로</button><h3 style="margin:0">⚙ 관리자</h3></div>
+      <div id="adminLock">
+        <input id="aPin" type="tel" inputmode="numeric" maxlength="4" placeholder="관리자 비밀번호" style="text-align:center;font-size:20px;letter-spacing:8px;margin-top:10px">
+        <button class="btn bp" style="margin-top:10px" onclick="adminIn()">입장</button>
+        <div class="msg" id="aMsg" style="color:var(--err)"></div>
+      </div>
+      <div id="adminBody" class="hide">
+        <h3>👥 직원 관리</h3>
+        <div id="admStaff"></div>
+        <div class="row"><input id="newName" placeholder="이름"><input id="newPin" type="tel" maxlength="4" placeholder="비번 4자리" style="width:110px"><button class="btn bp sm" onclick="addStaff()">추가</button></div>
+        <h3>📍 사무실 위치 (출퇴근 시 사무실/외부 자동 표시)</h3>
+        <div style="font-size:12px;color:var(--tm)" id="offInfo">아직 설정 안 됨 — 사무실에서 아래 버튼을 누르세요</div>
+        <div class="row">
+          <button class="btn bw sm" onclick="setOffice()">📍 현재 위치를 사무실로 설정</button>
+          <span style="font-size:12px">반경</span><input id="radius" type="number" style="width:80px" value="150"><span style="font-size:12px">m</span>
+        </div>
+        <h3>🗓 월별 기록</h3>
+        <div class="row">
+          <input id="month" type="month" style="width:170px">
+          <button class="btn bw sm" onclick="renderMonth()">조회</button>
+          <button class="btn bp sm" onclick="csv()">⬇ 엑셀(CSV)</button>
+        </div>
+        <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>날짜</th><th>이름</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>위치</th></tr></thead><tbody id="mRows"></tbody></table></div>
+        <div id="mSum" style="font-size:12.5px;font-weight:800;margin-top:8px"></div>
+        <h3>🔐 관리자 비밀번호 변경</h3>
+        <div class="row"><input id="newAPin" type="tel" maxlength="4" placeholder="새 비밀번호 4자리" style="width:160px"><button class="btn bw sm" onclick="changeAPin()">변경</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ft">베르만어패럴 · 기록은 서버에 안전하게 보관됩니다</div>
+</div>
+
+<script>
+var sb=supabase.createClient('https://fchxlplnacyycuddvdmu.supabase.co','sb_publishable_RhyFH9PbjOBhrVy4aFlNRA_RiiZ7Zli');
+var ROW_ID=10;              /* app_state 전용 행 (베르만어패럴만 사용) */
+function $(id){return document.getElementById(id);}
+function show(v){['vPick','vPin','vMain','vAdmin'].forEach(function(x){$(x).classList.toggle('hide',x!==v);});window.scrollTo(0,0);}
+function pad(n){return String(n).padStart(2,'0');}
+function today(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function hhmm(iso){if(!iso)return '-';var d=new Date(iso);return pad(d.getHours())+':'+pad(d.getMinutes());}
+function dow(ds){return ['일','월','화','수','목','금','토'][new Date(ds+'T00:00:00').getDay()];}
+function workH(r){if(!r||!r.in||!r.out)return '';var ms=new Date(r.out)-new Date(r.in);if(ms<=0)return '';var h=Math.floor(ms/3600000),m=Math.round(ms%3600000/60000);return h+'시간'+(m?' '+m+'분':'');}
+
+/* ── 데이터: app_state id=10 {berman:{cfg,staff,att}} ── */
+var S={cfg:{admin_pin:'0000',radius:150,office:null},staff:[],att:{}};
+async function load(){
+  try{
+    var r=await sb.from('app_state').select('state_data').eq('id',ROW_ID).maybeSingle();
+    var b=r&&r.data&&r.data.state_data&&r.data.state_data.berman;
+    if(b){S.cfg=Object.assign(S.cfg,b.cfg||{});S.staff=b.staff||[];S.att=b.att||{};}
+  }catch(e){}
+}
+async function save(){
+  var r=await sb.from('app_state').select('state_data').eq('id',ROW_ID).maybeSingle();
+  var sd=(r&&r.data&&r.data.state_data)||{};
+  sd.berman={cfg:S.cfg,staff:S.staff,att:S.att,at:new Date().toISOString()};
+  var res=await sb.from('app_state').upsert({id:ROW_ID,state_data:sd,updated_at:new Date().toISOString()});
+  if(res.error)throw res.error;
+}
+
+/* ── 위치 ── */
+function getPos(){
+  return new Promise(function(res){
+    if(!navigator.geolocation)return res(null);
+    navigator.geolocation.getCurrentPosition(
+      function(p){res({lat:p.coords.latitude,lng:p.coords.longitude});},
+      function(){res(null);},{enableHighAccuracy:true,timeout:8000,maximumAge:30000});
+  });
+}
+function distM(a,b){
+  if(!a||!b)return null;
+  var R=6371000,dLa=(b.lat-a.lat)*Math.PI/180,dLo=(b.lng-a.lng)*Math.PI/180;
+  var x=Math.sin(dLa/2),y=Math.sin(dLo/2);
+  var h=x*x+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*y*y;
+  return Math.round(2*R*Math.asin(Math.sqrt(h)));
+}
+function locLabel(d){
+  if(d==null)return{t:'위치없음',c:'var(--tm)'};
+  if(S.cfg.office&&d<=(+S.cfg.radius||150))return{t:'사무실 ('+d+'m)',c:'var(--ok)'};
+  return{t:'외부 ('+(d>=1000?(d/1000).toFixed(1)+'km':d+'m')+')',c:'var(--err)'};
+}
+
+/* ── 직원 선택/로그인 ── */
+var me=null;
+function renderStaff(){
+  var box=$('staffList');
+  if(!S.staff.length){box.innerHTML='<p style="font-size:12.5px;color:var(--tm)">등록된 직원이 없습니다 — [⚙ 관리자]에서 직원을 추가하세요 (처음 비밀번호 0000)</p>';return;}
+  box.innerHTML='';
+  S.staff.forEach(function(st){
+    var b=document.createElement('button');
+    b.className='btn bw staffbtn';b.textContent='👤 '+st.name;
+    b.onclick=function(){pinTarget=st;$('pinWho').textContent=st.name;$('pinInput').value='';$('pinMsg').textContent='';show('vPin');$('pinInput').focus();};
+    box.appendChild(b);
+  });
+}
+var pinTarget=null;
+function checkPin(){
+  if(!pinTarget)return;
+  if($('pinInput').value!==String(pinTarget.pin||'')){$('pinMsg').textContent='비밀번호가 다릅니다';return;}
+  me=pinTarget;
+  try{localStorage.setItem('berman_me',me.id);}catch(e){}
+  openMain();
+}
+function logout(){me=null;try{localStorage.removeItem('berman_me');}catch(e){}show('vPick');}
+
+/* ── 직원 메인 ── */
+function key(d,id){return d+'_'+id;}
+function openMain(){
+  $('mainWho').textContent='👤 '+me.name;
+  renderToday();renderMine();show('vMain');
+}
+function renderToday(){
+  var r=S.att[key(today(),me.id)];
+  $('sIn').textContent=r?hhmm(r.in):'-';
+  $('sOut').textContent=r?hhmm(r.out):'-';
+  var li=r&&r.in?locLabel(r.inDist!=null?r.inDist:null):null;
+  var lo=r&&r.out?locLabel(r.outDist!=null?r.outDist:null):null;
+  $('sInLoc').textContent=r&&r.in?(li.t):'';$('sInLoc').style.color=li?li.c:'';
+  $('sOutLoc').textContent=r&&r.out?(lo.t):'';$('sOutLoc').style.color=lo?lo.c:'';
+  $('btnIn').disabled=!!(r&&r.in);$('btnIn').style.opacity=r&&r.in?0.45:1;
+  $('btnOut').disabled=!(r&&r.in)||!!(r&&r.out);$('btnOut').style.opacity=(!(r&&r.in)||(r&&r.out))?0.45:1;
+}
+function renderMine(){
+  var tb=$('myRows');tb.innerHTML='';
+  var ds=Object.keys(S.att).filter(function(k){return k.slice(11)===me.id;}).map(function(k){return k.slice(0,10);}).sort().reverse().slice(0,14);
+  ds.forEach(function(d){
+    var r=S.att[key(d,me.id)];
+    var li=r.in?locLabel(r.inDist!=null?r.inDist:null):null;
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+d.slice(5).replace('-','/')+' ('+dow(d)+')</td><td>'+hhmm(r.in)+'</td><td>'+hhmm(r.out)+'</td><td>'+(workH(r)||'-')+'</td>'+
+      '<td>'+(li?'<span class="tag '+(li.t.indexOf('사무실')===0?'t-in':(li.t==='위치없음'?'t-none':'t-out'))+'">'+li.t.split(' ')[0]+'</span>':'-')+'</td>';
+    tb.appendChild(tr);
+  });
+  if(!ds.length)tb.innerHTML='<tr><td colspan="5" style="color:var(--tm)">아직 기록이 없습니다</td></tr>';
+}
+var punching=false;
+async function punch(kind){
+  if(punching||!me)return;
+  punching=true;
+  $('mainMsg').textContent='📍 위치 확인 중...';
+  var pos=await getPos();
+  var d=pos&&S.cfg.office?distM(pos,S.cfg.office):null;
+  await load();                       /* 다른 기기 기록과 합치기 */
+  var k=key(today(),me.id);
+  var r=S.att[k]||{name:me.name};
+  var now=new Date().toISOString();
+  if(kind==='in'){if(r.in){punching=false;renderToday();return;}r.in=now;r.inDist=d;}
+  else{if(!r.in||r.out){punching=false;renderToday();return;}r.out=now;r.outDist=d;}
+  S.att[k]=r;
+  try{
+    await save();
+    $('mainMsg').textContent=(kind==='in'?'🟢 출근':'🔴 퇴근')+' 완료! ('+hhmm(now)+' · '+locLabel(d).t+')';
+  }catch(e){
+    $('mainMsg').textContent='⚠ 저장 실패 — 인터넷 확인 후 다시 눌러주세요';
+    if(kind==='in'){delete r.in;delete r.inDist;}else{delete r.out;delete r.outDist;}
+  }
+  renderToday();renderMine();
+  punching=false;
+}
+
+/* ── 관리자 ── */
+function openAdmin(){$('aPin').value='';$('aMsg').textContent='';$('adminLock').classList.remove('hide');$('adminBody').classList.add('hide');show('vAdmin');}
+function adminIn(){
+  if($('aPin').value!==String(S.cfg.admin_pin||'0000')){$('aMsg').textContent='비밀번호가 다릅니다';return;}
+  $('adminLock').classList.add('hide');$('adminBody').classList.remove('hide');
+  $('radius').value=S.cfg.radius||150;
+  $('month').value=today().slice(0,7);
+  renderAdmStaff();renderOffice();renderMonth();
+}
+function renderAdmStaff(){
+  var box=$('admStaff');box.innerHTML='';
+  S.staff.forEach(function(st,i){
+    var div=document.createElement('div');div.className='row';
+    div.innerHTML='<span style="flex:1;font-weight:700">👤 '+st.name+'</span>'+
+      '<button class="btn bw sm" data-a="pin">비번 변경</button><button class="btn bw sm" style="color:var(--err)" data-a="del">삭제</button>';
+    div.querySelector('[data-a=pin]').onclick=async function(){
+      var p=prompt(st.name+' 새 비밀번호 4자리');
+      if(p&&/^\d{4}$/.test(p)){st.pin=p;await save();alert('변경됨');}
+    };
+    div.querySelector('[data-a=del]').onclick=async function(){
+      if(!confirm(st.name+' 직원을 삭제할까요? (지난 기록은 남습니다)'))return;
+      S.staff.splice(i,1);await save();renderAdmStaff();renderStaff();
+    };
+    box.appendChild(div);
+  });
+  if(!S.staff.length)box.innerHTML='<p style="font-size:12px;color:var(--tm)">직원을 추가하세요</p>';
+}
+async function addStaff(){
+  var n=$('newName').value.trim(),p=$('newPin').value.trim()||'0000';
+  if(!n)return alert('이름을 입력하세요');
+  if(!/^\d{4}$/.test(p))return alert('비밀번호는 숫자 4자리');
+  S.staff.push({id:'s'+Date.now().toString(36),name:n,pin:p});
+  await save();
+  $('newName').value='';$('newPin').value='';
+  renderAdmStaff();renderStaff();
+}
+function renderOffice(){
+  $('offInfo').textContent=S.cfg.office
+    ?('설정됨 ✓ (위도 '+S.cfg.office.lat.toFixed(5)+', 경도 '+S.cfg.office.lng.toFixed(5)+' · 반경 '+(S.cfg.radius||150)+'m 안이면 "사무실"로 표시)')
+    :'아직 설정 안 됨 — 사무실에서 아래 버튼을 누르세요';
+}
+async function setOffice(){
+  var pos=await getPos();
+  if(!pos)return alert('위치를 가져오지 못했습니다. 브라우저 위치 권한을 허용해주세요.');
+  S.cfg.office=pos;S.cfg.radius=+$('radius').value||150;
+  await save();renderOffice();alert('📍 사무실 위치가 설정되었습니다');
+}
+async function changeAPin(){
+  var p=$('newAPin').value.trim();
+  if(!/^\d{4}$/.test(p))return alert('숫자 4자리로 입력하세요');
+  S.cfg.admin_pin=p;await save();$('newAPin').value='';alert('관리자 비밀번호가 변경되었습니다');
+}
+function monthRows(){
+  var ym=$('month').value||today().slice(0,7);
+  var rows=[];
+  Object.keys(S.att).forEach(function(k){
+    if(k.slice(0,7)!==ym)return;
+    var r=S.att[k];
+    rows.push({date:k.slice(0,10),name:r.name,in:r.in,out:r.out,inDist:r.inDist,r:r});
+  });
+  rows.sort(function(a,b){return a.date===b.date?a.name.localeCompare(b.name,'ko'):a.date.localeCompare(b.date);});
+  return rows;
+}
+function renderMonth(){
+  var tb=$('mRows');tb.innerHTML='';
+  var rows=monthRows();
+  var sum={};
+  rows.forEach(function(x){
+    var li=x.in?locLabel(x.inDist!=null?x.inDist:null):null;
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+x.date.slice(5).replace('-','/')+' ('+dow(x.date)+')</td><td>'+x.name+'</td><td>'+hhmm(x.in)+'</td><td>'+hhmm(x.out)+'</td><td>'+(workH(x.r)||'-')+'</td>'+
+      '<td>'+(li?'<span class="tag '+(li.t.indexOf('사무실')===0?'t-in':(li.t==='위치없음'?'t-none':'t-out'))+'">'+li.t.split(' ')[0]+'</span>':'-')+'</td>';
+    tb.appendChild(tr);
+    var s=sum[x.name]=sum[x.name]||{days:0,ms:0};
+    s.days++;
+    if(x.in&&x.r.out)s.ms+=Math.max(0,new Date(x.r.out)-new Date(x.in));
+  });
+  if(!rows.length)tb.innerHTML='<tr><td colspan="6" style="color:var(--tm)">이 달 기록이 없습니다</td></tr>';
+  $('mSum').textContent=Object.keys(sum).map(function(n){
+    var h=Math.round(sum[n].ms/360000)/10;
+    return n+': '+sum[n].days+'일 근무 · 총 '+h+'시간';
+  }).join('  |  ');
+}
+function csv(){
+  var rows=monthRows();
+  if(!rows.length)return alert('이 달 기록이 없습니다');
+  var L=['날짜,요일,이름,출근,퇴근,근무시간,출근위치'];
+  rows.forEach(function(x){
+    var li=x.in?locLabel(x.inDist!=null?x.inDist:null):null;
+    L.push([x.date,dow(x.date),x.name,hhmm(x.in),hhmm(x.out),workH(x.r)||'',li?li.t:''].join(','));
+  });
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+L.join('\n')],{type:'text/csv'}));
+  a.download='베르만어패럴_근태_'+($('month').value||today().slice(0,7))+'.csv';
+  a.click();
+}
+
+/* ── 시계 & 시작 ── */
+setInterval(function(){
+  var d=new Date();
+  $('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  $('cdate').textContent=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 ('+dow(today())+')';
+},500);
+(async function(){
+  await load();
+  renderStaff();
+  try{
+    var saved=localStorage.getItem('berman_me');
+    var st=S.staff.find(function(x){return x.id===saved;});
+    if(st){me=st;openMain();return;}
+  }catch(e){}
+  show('vPick');
+  /* 15초마다 최신 기록 동기화(여러 기기) */
+  setInterval(async function(){if(!document.hidden){await load();if(me)renderToday(),renderMine();}},15000);
+})();
+$('pinInput').addEventListener('keydown',function(e){if(e.key==='Enter')checkPin();});
+$('aPin').addEventListener('keydown',function(e){if(e.key==='Enter')adminIn();});
+</script>
+</body>
+</html>
