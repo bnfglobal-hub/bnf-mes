@@ -6,7 +6,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const SB = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const GEMINI = Deno.env.get("GEMINI_API_KEY") || "";
+const GEMINI = Deno.env.get("GEMINI_API_KEY") || Deno.env.get("ANTHROPIC_API_KEY") || ""; // 실제 Gemini 키는 ANTHROPIC_API_KEY 이름으로 저장돼 있음(ask-gpt와 동일)
 const SOL_KEY = Deno.env.get("SOLAPI_API_KEY") || "";
 const SOL_SECRET = Deno.env.get("SOLAPI_API_SECRET") || "";
 const MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"];
@@ -165,7 +165,7 @@ async function handleIn(b: any, cfg: any) {
 
   const customer = contact?.name || parsed?.customer || peerName || peer;
   const { data: row } = await SB.from("msg_hub").insert({
-    kind: "in", status: isOrder ? "new" : "ignored", ch, peer, peer_name: peerName, customer, body: text,
+    kind: "in", status: isOrder || perr ? "new" : "ignored", ch, peer, peer_name: peerName, customer, body: text,
     parsed, meta: { contact: contact?.name || "", perr },
   }).select("id").single();
 
@@ -246,7 +246,7 @@ Deno.serve(async (req) => {
     if (PHONE_ACTS.includes(act)) {
       if (!cfg.device_key || b.key !== cfg.device_key) return asText ? T("") : J({ error: "bad key" }, 401);
       // 휴대폰 생존 신호 (1분에 한 번만 기록)
-      if (!cfg.last_seen || Date.now() - Date.parse(cfg.last_seen) > 60e3) patchCfg({ last_seen: now(), last_seen_act: act });
+      if (!cfg.last_seen || Date.now() - Date.parse(cfg.last_seen) > 60e3) await patchCfg({ last_seen: now(), last_seen_act: act });
     }
     if (act === "ping") return asText ? T("ok") : J({ ok: true });
     if (act === "in") {
