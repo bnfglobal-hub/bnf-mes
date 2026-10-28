@@ -17720,61 +17720,86 @@ function PageFiles({user}){
      엑셀·한글 등 이미지로 못 바꾸는 파일은 공유 시트의 '파일에 저장'으로 받는다. */
   const[isMob,setIsMob]=useState(()=>{try{return window.matchMedia('(max-width:768px)').matches;}catch(e){return false;}});
   useEffect(()=>{try{const mq=window.matchMedia('(max-width:768px)');const fn=()=>setIsMob(mq.matches);mq.addEventListener('change',fn);return()=>mq.removeEventListener('change',fn);}catch(e){}},[]);
-  const[saveSheet,setSaveSheet]=useState(null);   /* {f,busy,msg,files,kind,canShare,url,err} */
+  const[saveSheet,setSaveSheet]=useState(null);   /* {f,url,orig,origErr,imgs,imgMsg,imgErr,msg} — 저장 방법 고르기 시트 */
   const fileUrl=(f)=>{const{data}=sbClient.storage.from('bnf-files').getPublicUrl(f.storage_path);return data&&data.publicUrl;};
-  const prepareSave=async(f)=>{
-    const url=fileUrl(f);if(!url){alert('파일 주소를 만들지 못했습니다.');return;}
-    const ext=(String(f.name).split('.').pop()||'').toLowerCase();
-    const base=String(f.name).replace(/\.[^.]+$/,'');
-    setSaveSheet({f,busy:true,msg:'파일 받는 중…'});
-    try{
-      const res=await fetch(url);if(!res.ok)throw new Error('다운로드 실패 ('+res.status+')');
-      const blob=await res.blob();
-      let out=[],kind='file';
-      if(/^(jpe?g|png|gif|webp|heic)$/.test(ext)||/^image\//.test(blob.type)){
-        out=[new File([blob],f.name,{type:blob.type||'image/jpeg'})];kind='image';
-      }else if(ext==='pdf'&&(window.pdfjsLib||typeof pdfjsLib!=='undefined')){
-        const lib=window.pdfjsLib||pdfjsLib;
-        lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        const buf=await blob.arrayBuffer();
-        const pdf=await lib.getDocument({data:buf.slice(0)}).promise;   /* pdf.js가 buf를 비우므로(detach) 복사본을 넘긴다 */
-        const n=Math.min(pdf.numPages,30);
-        /* 사진을 통째로 넣은 PDF(스캔·라벨 사진 등)는 렌더 없이 원본 JPEG를 바로 꺼낸다.
-           pdf.js 렌더가 이런 PDF에서 멈추는 문제(2026-08-20 출고계획과 동일) 우회 + 원본 화질 */
-        const jp=[];
-        {const d=new Uint8Array(buf);let i=0;
-          while(i<d.length-3&&jp.length<=n){
-            if(d[i]===0xFF&&d[i+1]===0xD8&&d[i+2]===0xFF){let j=i+2;while(j<d.length-1&&!(d[j]===0xFF&&d[j+1]===0xD9))j++;
-              if(j<d.length-1){if(j+2-i>=60*1024)jp.push(d.slice(i,j+2));i=j+2;continue;}}
-            i++;}}
-        if(jp.length===pdf.numPages&&jp.length<=n){
-          jp.forEach((b,k)=>out.push(new File([b],base+(jp.length>1?'_'+(k+1):'')+'.jpg',{type:'image/jpeg'})));
-        }else for(let p=1;p<=n;p++){
-          setSaveSheet(s=>s&&{...s,msg:'사진으로 바꾸는 중… '+p+'/'+n+'쪽'});
-          const page=await pdf.getPage(p);
-          const vp0=page.getViewport({scale:1});
-          const scale=Math.min(2.5,2200/Math.max(vp0.width,vp0.height));
-          const vp=page.getViewport({scale});
-          const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
-          const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
-          await Promise.race([page.render({canvasContext:ctx,viewport:vp,intent:'print'}).promise,   /* print: requestAnimationFrame을 안 써서 화면이 가려져도 멈추지 않음 */
-            new Promise((_,rej)=>setTimeout(()=>rej(new Error('PDF를 사진으로 바꾸지 못했습니다(시간 초과). [원본 열기]로 연 뒤 공유 → 저장을 이용하세요.')),20000))]);
-          const jpg=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
-          out.push(new File([jpg],base+(n>1?'_'+p:'')+'.jpg',{type:'image/jpeg'}));
-        }
-        kind=pdf.numPages>n?'pdf-cut':'pdf';
-      }else{
-        out=[new File([blob],f.name,{type:blob.type||f.mime_type||'application/octet-stream'})];kind='file';
-      }
-      const canShare=!!(navigator.canShare&&navigator.canShare({files:out}));
-      setSaveSheet({f,busy:false,files:out,kind,canShare,url});
-      sbClient.from('shared_files').update({download_count:(f.download_count||0)+1}).eq('id',f.id).then(()=>{},()=>{});
-    }catch(e){setSaveSheet({f,busy:false,err:String(e.message||e),url});}
+  const isImgName=(n)=>/\.(jpe?g|png|gif|webp|heic)$/i.test(String(n||''));
+  const albumable=(f)=>isImgName(f.name)||/\.pdf$/i.test(String(f.name||''));
+  /* PDF → 쪽마다 JPG. 사진을 통째로 넣은 PDF는 렌더 없이 원본 JPEG를 꺼낸다(pdf.js 렌더 멈춤 우회 + 원본 화질) */
+  const pdfToJpgs=async(blob,base,onMsg)=>{
+    const lib=window.pdfjsLib||pdfjsLib;
+    lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf=await blob.arrayBuffer();
+    const pdf=await lib.getDocument({data:buf.slice(0)}).promise;   /* pdf.js가 buf를 비우므로(detach) 복사본을 넘긴다 */
+    const n=Math.min(pdf.numPages,30);
+    const out=[];
+    const jp=[];
+    {const d=new Uint8Array(buf);let i=0;
+      while(i<d.length-3&&jp.length<=n){
+        if(d[i]===0xFF&&d[i+1]===0xD8&&d[i+2]===0xFF){let j=i+2;while(j<d.length-1&&!(d[j]===0xFF&&d[j+1]===0xD9))j++;
+          if(j<d.length-1){if(j+2-i>=60*1024)jp.push(d.slice(i,j+2));i=j+2;continue;}}
+        i++;}}
+    if(jp.length===pdf.numPages&&jp.length<=n){
+      jp.forEach((b,k)=>out.push(new File([b],base+(jp.length>1?'_'+(k+1):'')+'.jpg',{type:'image/jpeg'})));
+      return {files:out,cut:false};
+    }
+    for(let p=1;p<=n;p++){
+      onMsg('사진으로 바꾸는 중… '+p+'/'+n+'쪽');
+      const page=await pdf.getPage(p);
+      const vp0=page.getViewport({scale:1});
+      const vp=page.getViewport({scale:Math.min(2.5,2200/Math.max(vp0.width,vp0.height))});
+      const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+      const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+      await Promise.race([page.render({canvasContext:ctx,viewport:vp,intent:'print'}).promise,   /* print: requestAnimationFrame을 안 써서 화면이 가려져도 멈추지 않음 */
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('PDF를 사진으로 바꾸지 못했습니다(시간 초과)')),20000))]);
+      const jpg=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
+      out.push(new File([jpg],base+(n>1?'_'+p:'')+'.jpg',{type:'image/jpeg'}));
+    }
+    return {files:out,cut:pdf.numPages>n};
   };
-  const doShare=async()=>{
-    const s=saveSheet;if(!s||!s.files)return;
-    try{await navigator.share({files:s.files});setSaveSheet(null);}
-    catch(e){if(e&&e.name==='AbortError')return;setSaveSheet({...s,err:'공유 시트를 열지 못했습니다: '+(e.message||e)});}
+  /* 저장 버튼 → 시트를 바로 열고, 뒤에서 원본 파일·앨범용 사진을 미리 준비한다.
+     iOS는 다운로드가 끝난 뒤엔 '탭 직후' 권한이 사라져 공유가 막히므로, 준비된 파일을 시트 버튼 탭에서 바로 넘긴다. */
+  const openSave=async(f)=>{
+    const url=fileUrl(f);if(!url){alert('파일 주소를 만들지 못했습니다.');return;}
+    const base=String(f.name).replace(/\.[^.]+$/,'');
+    const live=(p)=>setSaveSheet(s=>s&&s.f.id===f.id?{...s,...p}:s);
+    setSaveSheet({f,url,orig:null,imgs:null,imgMsg:albumable(f)?'준비 중…':''});
+    sbClient.from('shared_files').update({download_count:(f.download_count||0)+1}).eq('id',f.id).then(()=>{},()=>{});
+    let blob;
+    try{const res=await fetch(url);if(!res.ok)throw new Error('다운로드 실패 ('+res.status+')');blob=await res.blob();}
+    catch(e){live({origErr:String(e.message||e),imgErr:String(e.message||e),imgMsg:''});return;}
+    const orig=new File([blob],f.name,{type:blob.type||f.mime_type||'application/octet-stream'});
+    live({orig});
+    if(!albumable(f))return;
+    try{
+      if(isImgName(f.name)||/^image\//.test(blob.type))live({imgs:[orig],imgMsg:''});
+      else{const r=await pdfToJpgs(blob,base,m=>live({imgMsg:m}));live({imgs:r.files,imgCut:r.cut,imgMsg:''});}
+    }catch(e){live({imgErr:String(e.message||e),imgMsg:''});}
+  };
+  const canShareFiles=(files)=>{try{return !!(files&&navigator.canShare&&navigator.canShare({files}));}catch(e){return false;}};
+  const shareFiles=async(files,doneMsg)=>{
+    try{await navigator.share({files});setSaveSheet(null);if(doneMsg){try{bnfToast(doneMsg);}catch(e){}}}
+    catch(e){if(e&&e.name==='AbortError')return;setSaveSheet(s=>s&&{...s,msg:'⚠ 공유 시트를 열지 못했습니다: '+(e.message||e)});}
+  };
+  /* ① 일반 저장: 휴대폰은 공유 시트 → [파일에 저장], PC·미지원 브라우저는 바로 다운로드 */
+  const saveNormal=()=>{
+    const s=saveSheet;if(!s||!s.orig)return;
+    if(isMob&&canShareFiles([s.orig])){shareFiles([s.orig]);return;}
+    const u=URL.createObjectURL(s.orig);const a=document.createElement('a');a.href=u;a.download=s.f.name;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(u),4000);
+    setSaveSheet(null);
+  };
+  /* ② 앨범 저장: 사진(PDF는 쪽별 JPG) → 공유 시트 [이미지 저장] */
+  const saveAlbum=()=>{
+    const s=saveSheet;if(!s||!s.imgs)return;
+    if(canShareFiles(s.imgs)){shareFiles(s.imgs);return;}
+    setSaveSheet({...s,msg:'⚠ 이 브라우저는 앨범 저장을 지원하지 않습니다. [일반 저장]을 이용하세요.'});
+  };
+  /* ③ 카카오톡 나에게 보내기: 웹에서는 카톡 '나와의 채팅'을 직접 지정할 수 없어 공유 시트로 카카오톡을 연다 */
+  const sendKakao=async()=>{
+    const s=saveSheet;if(!s)return;
+    if(s.orig&&canShareFiles([s.orig])){shareFiles([s.orig]);return;}
+    if(navigator.share){try{await navigator.share({title:s.f.name,text:s.f.name,url:s.url});setSaveSheet(null);}catch(e){}return;}
+    bnfCopy(s.url,'파일 링크 복사 — 카카오톡 나와의 채팅에 붙여넣으세요');setSaveSheet(null);
   };
   
   const download=(f)=>{
@@ -17874,7 +17899,7 @@ function PageFiles({user}){
           (f.uploader_id===user.id||isAdmin)&&R('button',{onClick:()=>del(f),'aria-label':'삭제',style:{background:'none',border:'none',cursor:'pointer',color:'#fca5a5',fontSize:16,padding:'2px 4px'}},'✕')
         ),
         R('div',{style:{display:'flex',gap:6,marginTop:10,alignItems:'center'}},
-          R('button',{className:'btn bp',onClick:()=>prepareSave(f),style:{flex:1,justifyContent:'center',padding:'10px 8px',fontSize:13}},/\.(pdf|jpe?g|png|gif|webp|heic)$/i.test(f.name)?'📷 앨범에 저장':'⬇️ 휴대폰에 저장'),
+          R('button',{className:'btn bp',onClick:()=>openSave(f),style:{flex:1,justifyContent:'center',padding:'10px 8px',fontSize:13}},'⬇️ 저장'),
           R('button',{className:'btn bs',onClick:()=>{const u=fileUrl(f);if(u)window.open(u,'_blank');},style:{padding:'10px 12px',fontSize:13}},'열기'),
           R('button',{className:'btn bs',onClick:()=>copyLink(f),'aria-label':'링크 복사',style:{padding:'10px 12px',fontSize:13}},'🔗'),
           R('select',{value:fileCatOf(f),onChange:e=>moveFile(f,e.target.value),'aria-label':'분류 바꾸기',
@@ -17903,25 +17928,34 @@ function PageFiles({user}){
         )))
       )
     ),
-    saveSheet&&R('div',{onClick:e=>{if(e.target===e.currentTarget&&!saveSheet.busy)setSaveSheet(null);},
-      style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:10050,display:'flex',alignItems:'flex-end',justifyContent:'center'}},
-      R('div',{style:{background:'#fff',width:'100%',maxWidth:480,borderRadius:'18px 18px 0 0',padding:'18px 18px calc(18px + env(safe-area-inset-bottom))',boxSizing:'border-box'}},
-        R('div',{style:{fontWeight:800,fontSize:15,wordBreak:'break-all',marginBottom:6}},saveSheet.f.name),
-        saveSheet.busy&&R('div',{style:{fontSize:13,color:'var(--tm)',padding:'14px 0'}},'⏳ '+(saveSheet.msg||'준비 중…')),
-        saveSheet.err&&R('div',{style:{fontSize:13,color:'#b91c1c',margin:'8px 0'}},'⚠ '+saveSheet.err),
-        !saveSheet.busy&&saveSheet.files&&R('div',null,
-          saveSheet.canShare&&R('div',{style:{fontSize:12.5,color:'#5D534B',lineHeight:1.6,margin:'4px 0 12px'}},
-            saveSheet.kind==='file'?'이 파일은 사진으로 바꿀 수 없어 앨범 대신 휴대폰 [파일] 앱에 저장합니다. 아래 버튼 → [파일에 저장]을 누르세요.'
-            :(saveSheet.kind==='image'?'사진 1장':'PDF '+saveSheet.files.length+'쪽 → 사진 '+saveSheet.files.length+'장')+' 준비 완료. 아래 버튼 → ['+(saveSheet.files.length>1?saveSheet.files.length+'개의 이미지 저장':'이미지 저장')+']을 누르면 앨범에 들어갑니다.'+(saveSheet.kind==='pdf-cut'?' (앞 30쪽까지)':'')),
-          saveSheet.canShare
-            ?R('button',{className:'btn bp',onClick:doShare,style:{width:'100%',justifyContent:'center',padding:13,fontSize:15}},saveSheet.kind==='file'?'⬇️ 저장하기':'📷 앨범에 저장')
-            :R('div',{style:{fontSize:12.5,color:'#5D534B'}},'이 브라우저는 바로 저장을 지원하지 않습니다. [원본 열기]로 연 뒤 공유 버튼 → 저장을 이용하세요.')
-        ),
-        R('div',{style:{display:'flex',gap:6,marginTop:8}},
-          saveSheet.url&&R('button',{className:'btn bs',onClick:()=>window.open(saveSheet.url,'_blank'),style:{flex:1,justifyContent:'center',padding:11}},'원본 열기'),
-          !saveSheet.busy&&R('button',{className:'btn bw',onClick:()=>setSaveSheet(null),style:{flex:1,justifyContent:'center',padding:11}},'닫기'))
-      )
-    ),
+    saveSheet&&(()=>{
+      const s=saveSheet;
+      const opt=(ic,title,sub,onClick,ready,primary)=>R('button',{onClick,disabled:!ready,
+        style:{display:'flex',alignItems:'center',gap:12,width:'100%',textAlign:'left',padding:'13px 14px',marginBottom:8,borderRadius:14,
+          border:'1px solid '+(primary?'var(--p)':'var(--bd)'),background:primary?'#FFF4EE':'#fff',cursor:ready?'pointer':'default',opacity:ready?1:.55,fontFamily:'inherit'}},
+        R('span',{style:{fontSize:24,lineHeight:1,width:30,textAlign:'center'}},ic),
+        R('span',{style:{flex:1,minWidth:0}},
+          R('span',{style:{display:'block',fontWeight:800,fontSize:14.5,color:'var(--t)'}},title),
+          R('span',{style:{display:'block',fontSize:11.5,color:'var(--tm)',marginTop:2,lineHeight:1.45}},sub)));
+      const alb=albumable(s.f);
+      const albSub=s.imgErr?('⚠ '+s.imgErr):s.imgs?((/\.pdf$/i.test(s.f.name)?'PDF '+s.imgs.length+'쪽 → 사진 '+s.imgs.length+'장'+(s.imgCut?'(앞 30쪽)':''):'사진 1장')+' · 다음 화면에서 [이미지 저장]'):(s.imgMsg||'준비 중…');
+      return R('div',{onClick:e=>{if(e.target===e.currentTarget)setSaveSheet(null);},
+        style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:10050,display:'flex',alignItems:'flex-end',justifyContent:'center'}},
+        R('div',{style:{background:'#fff',width:'100%',maxWidth:480,borderRadius:'18px 18px 0 0',padding:'16px 16px calc(16px + env(safe-area-inset-bottom))',boxSizing:'border-box'}},
+          R('div',{style:{width:36,height:4,borderRadius:2,background:'#E9E2DC',margin:'0 auto 12px'}}),
+          R('div',{style:{fontWeight:800,fontSize:15,wordBreak:'break-all'}},s.f.name),
+          R('div',{style:{fontSize:11.5,color:'var(--tm)',margin:'2px 0 12px'}},fSize(s.f.size_bytes)+(s.orig||s.origErr?'':' · 파일 받는 중…')),
+          s.origErr&&R('div',{style:{fontSize:12.5,color:'#b91c1c',marginBottom:8}},'⚠ '+s.origErr),
+          opt('📁','일반 저장',isMob?'다음 화면에서 [파일에 저장] → 휴대폰 [파일] 앱':'이 PC의 다운로드 폴더',saveNormal,!!s.orig),
+          alb&&opt('📷','앨범에 저장',albSub,saveAlbum,!!s.imgs,true),
+          opt('💬','카카오톡 나에게 보내기','다음 화면에서 [카카오톡] → [나와의 채팅] 선택',sendKakao,!!s.orig||!!s.origErr),
+          s.msg&&R('div',{style:{fontSize:12.5,color:'#b91c1c',margin:'2px 0 8px'}},s.msg),
+          R('div',{style:{display:'flex',gap:6,marginTop:2}},
+            R('button',{className:'btn bs',onClick:()=>window.open(s.url,'_blank'),style:{flex:1,justifyContent:'center',padding:11}},'원본 열기'),
+            R('button',{className:'btn bw',onClick:()=>setSaveSheet(null),style:{flex:1,justifyContent:'center',padding:11}},'닫기'))
+        )
+      );
+    })(),
     R('div',{style:{marginTop:10,fontSize:11,color:'var(--tm)'}},'💡 분류를 먼저 고른 뒤 업로드하면 그 분류로 저장됩니다 · 표의 [분류] 칸에서 언제든 옮길 수 있습니다 · 드래그&드롭 업로드 · 100MB 이하')
   );
 }
