@@ -16559,7 +16559,7 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
     ...rows.map(r=>{
       const p=r.parsed||{};const items=getItems(r);const st=MSG_ST[r.status]||[r.status,'#999'];
       const rt=replyRoute(r);
-      return R('div',{key:r.id,className:'card',style:{marginBottom:10,borderLeft:'4px solid '+st[1]}},
+      return R('div',{key:r.id,className:'card',style:{marginBottom:10}},
         R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap',alignItems:'center'}},
           R('div',{style:{fontWeight:800,fontSize:14}},r.customer||r.peer_name||r.peer,
             R('span',{style:{fontSize:11,color:'var(--tm)',fontWeight:500,marginLeft:8}},(MSG_CH[r.ch]||r.ch)+' · '+r.peer+' · '+msgAgo(r.created_at))),
