@@ -16470,6 +16470,299 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
 }
 
 /* ────── PAGE: 발주현황 ────── */
+/* ────── PAGE: 메시지 수발주 (업무폰 문자·카톡 ↔ MES, 엣지함수 msg-hub) ──────
+   업무폰(안드로이드 MacroDroid)이 받은 문자/카톡을 msg-hub로 넘기면 AI가 주문을 인식해 접수함에 쌓고 자동 접수 답장을 돌려준다.
+   여기서 확정하면 확정 안내를, 보내기 탭에서는 공급처 발주 문자를 보낸다.
+   발송 경로: phone_sms(업무폰 문자) · kakao_reply(그 카톡방이 다음에 말 걸 때 답장) · api_sms(솔라피 문자) · alimtalk(솔라피 알림톡) */
+const MSGHUB_URL=SB_URL+'/functions/v1/msg-hub';
+async function msgHub(action,body){
+  const res=await fetch(MSGHUB_URL,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify(Object.assign({action},body||{}))});
+  let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류 ('+res.status+')');}
+  if(!res.ok||j.error)throw new Error(j.error||('서버 오류 '+res.status));
+  return j;
+}
+const MSG_CH={sms:'💬 문자',kakao:'🟡 카톡',phone_sms:'📱 업무폰 문자',kakao_reply:'🟡 카톡 답장',api_sms:'✉ 문자 API',alimtalk:'🟨 알림톡'};
+const MSG_ST={new:['접수 대기','#f59e0b'],confirmed:['확정','#10b981'],rejected:['반려','#9A9088'],ignored:['주문 아님','#c0b8b0'],queued:['발송 대기','#3b82f6'],sending:['보내는 중','#8b5cf6'],sent:['발송 완료','#10b981'],failed:['실패','#ef4444']};
+const DEF_CONFIRM_TPL='[B&F글로벌] {customer}님 주문이 확정되었습니다.\n{items}\n{due}감사합니다.';
+const DEF_PO_TPL='[B&F글로벌 발주]\n{supplier} 담당자님, 아래와 같이 발주드립니다.\n{items}\n입고 요청일: {due}\n확인 회신 부탁드립니다.';
+const msgFill=(tpl,v)=>String(tpl||'').replace(/\{(\w+)\}/g,(_,k)=>v[k]==null?'':v[k]);
+const msgItemsLine=(items)=>(items||[]).map(i=>'· '+(i.matched||i.name)+(i.qty?' '+i.qty+(i.unit||''):'')).join('\n');
+const msgAgo=(ts)=>{const s=(Date.now()-Date.parse(ts))/1000;if(!(s>=0))return'';if(s<60)return'방금';if(s<3600)return Math.floor(s/60)+'분 전';if(s<86400)return Math.floor(s/3600)+'시간 전';return new Date(ts).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});};
+
+function PageMsgHub({user,isAdmin,orders}){
+  const[tab,setTab]=useState('inbox');
+  const[rows,setRows]=useState([]);
+  const[cfg,setCfg]=useState({});
+  const[env,setEnv]=useState({has_solapi:false,has_gemini:false});
+  const[err,setErr]=useState('');
+  const[loaded,setLoaded]=useState(false);
+  const[showDone,setShowDone]=useState(false);
+  const[busy,setBusy]=useState(0);
+  const load=()=>msgHub('list',{limit:200}).then(j=>{setRows(j.rows||[]);setCfg(j.cfg||{});setEnv({has_solapi:j.has_solapi,has_gemini:j.has_gemini});setErr('');setLoaded(true);})
+    .catch(e=>{setErr(String(e.message||e));setLoaded(true);});
+  useEffect(()=>{load();const t=setInterval(load,20000);return()=>clearInterval(t);},[]);
+  const contacts=Array.isArray(cfg.contacts)?cfg.contacts:[];
+  const inbox=rows.filter(r=>r.kind==='in'&&(showDone||r.status==='new'));
+  const outbox=rows.filter(r=>r.kind==='out');
+  const newCnt=rows.filter(r=>r.kind==='in'&&r.status==='new').length;
+  const phoneAlive=cfg.last_seen&&(Date.now()-Date.parse(cfg.last_seen))<15*60e3;
+
+  /* 확정 안내를 보낼 기본 경로: 연락처 지정 > 들어온 경로 */
+  const replyRoute=(r)=>{
+    const c=contacts.find(c=>c.name&&c.name===r.customer)||null;
+    if(c&&c.ch){
+      if(c.ch==='kakao_reply')return{ch:'kakao_reply',to:c.room||r.peer};
+      return{ch:c.ch,to:c.phone||(r.ch==='sms'?r.peer:'')};
+    }
+    if(r.ch==='sms')return{ch:'phone_sms',to:r.peer};
+    if(c&&c.phone)return{ch:env.has_solapi&&cfg.pf_id?'alimtalk':'phone_sms',to:c.phone};
+    return{ch:'kakao_reply',to:r.peer};
+  };
+
+  const tabBtn=(id,label)=>R('button',{key:id,className:'btn '+(tab===id?'bp':'bs'),onClick:()=>setTab(id)},label);
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},
+      R('div',null,
+        R('div',{className:'pg-title'},'📨 메시지 수발주'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'업무폰으로 온 문자·카톡 주문을 AI가 정리하고, 접수·확정·발주 문자를 자동으로 보냅니다')
+      ),
+      R('div',{style:{display:'flex',alignItems:'center',gap:6,fontSize:11,color:phoneAlive?'#10b981':'#ef4444',fontWeight:700}},
+        R('span',{style:{width:8,height:8,borderRadius:'50%',background:phoneAlive?'#10b981':'#ef4444',display:'inline-block'}}),
+        cfg.last_seen?('업무폰 '+(phoneAlive?'연결됨':'응답 없음')+' · '+msgAgo(cfg.last_seen)):'업무폰 미연결')
+    ),
+    err&&R('div',{className:'card',style:{borderColor:'#fca5a5',background:'#fef2f2',color:'#b91c1c',fontSize:12,marginBottom:10}},
+      '⚠ '+err,(/Failed to fetch|404|unknown/.test(err)?'\n— 서버 함수(msg-hub)가 아직 배포되지 않았을 수 있습니다.':'')),
+    R('div',{style:{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}},
+      tabBtn('inbox','📥 접수함'+(newCnt?' ('+newCnt+')':'')),
+      tabBtn('send','✉ 보내기 · 발주'),
+      tabBtn('log','📜 발송 내역'),
+      isAdmin&&tabBtn('cfg','⚙ 설정 · 휴대폰 연결')
+    ),
+    !loaded&&R('div',{className:'card',style:{textAlign:'center',color:'var(--tm)'}},'불러오는 중…'),
+    loaded&&tab==='inbox'&&R(MsgInbox,{rows:inbox,showDone,setShowDone,cfg,replyRoute,reload:load,user,busy,setBusy}),
+    loaded&&tab==='send'&&R(MsgSend,{contacts,orders:orders||[],env,cfg,reload:load,user,phoneAlive}),
+    loaded&&tab==='log'&&R(MsgLog,{rows:outbox}),
+    loaded&&tab==='cfg'&&isAdmin&&R(MsgCfg,{cfg,env,reload:load})
+  );
+}
+
+function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,setBusy}){
+  const[edit,setEdit]=useState({});
+  const getItems=(r)=>edit[r.id]||((r.parsed&&r.parsed.items)||[]).map(i=>({...i}));
+  const setItem=(r,idx,k,v)=>setEdit(p=>{const it=getItems(r).map(x=>({...x}));it[idx][k]=k==='qty'?(parseFloat(v)||0):v;return{...p,[r.id]:it};});
+  const act=async(r,status,sendMsg)=>{
+    setBusy(r.id);
+    try{
+      const items=getItems(r);
+      const parsed={...(r.parsed||{}),items};
+      await msgHub('update',{id:r.id,patch:{status,parsed,meta:{...(r.meta||{}),by:user.name,at:new Date().toISOString()}}});
+      if(sendMsg){
+        const rt=replyRoute(r);
+        const text=msgFill(cfg.confirm_tpl||DEF_CONFIRM_TPL,{customer:r.customer||'',items:msgItemsLine(items),due:parsed.due?'출고일 '+parsed.due+'\n':''});
+        if(rt.to)await msgHub('send',{ch:rt.ch,to:rt.to,text,name:r.customer,customer:r.customer,ref:r.id,by:user.name});
+      }
+      reload();
+    }catch(e){alert('처리 실패: '+(e.message||e));}
+    setBusy(0);
+  };
+  const reparse=async(r)=>{setBusy(r.id);try{await msgHub('reparse',{id:r.id});setEdit(p=>{const n={...p};delete n[r.id];return n;});reload();}catch(e){alert('재인식 실패: '+(e.message||e));}setBusy(0);};
+  const inp={padding:'5px 7px',border:'1px solid var(--bd)',borderRadius:6,fontSize:12,fontFamily:'inherit',minWidth:0};
+  return R('div',null,
+    R('label',{style:{fontSize:12,color:'var(--tm)',display:'flex',alignItems:'center',gap:6,marginBottom:10}},
+      R('input',{type:'checkbox',checked:showDone,onChange:e=>setShowDone(e.target.checked)}),'처리한 메시지도 보기'),
+    rows.length===0&&R('div',{className:'card',style:{textAlign:'center',padding:28,color:'#9A9088',border:'2px dashed #E9E2DC'}},
+      showDone?'받은 메시지가 없습니다':'새로 들어온 주문이 없습니다'),
+    ...rows.map(r=>{
+      const p=r.parsed||{};const items=getItems(r);const st=MSG_ST[r.status]||[r.status,'#999'];
+      const rt=replyRoute(r);
+      return R('div',{key:r.id,className:'card',style:{marginBottom:10}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap',alignItems:'center'}},
+          R('div',{style:{fontWeight:800,fontSize:14}},r.customer||r.peer_name||r.peer,
+            R('span',{style:{fontSize:11,color:'var(--tm)',fontWeight:500,marginLeft:8}},(MSG_CH[r.ch]||r.ch)+' · '+r.peer+' · '+msgAgo(r.created_at))),
+          R('span',{style:{background:st[1],color:'#fff',borderRadius:20,fontSize:11,padding:'2px 10px',fontWeight:700}},st[0])
+        ),
+        R('div',{style:{background:'#faf7f4',borderRadius:8,padding:'8px 10px',fontSize:12,whiteSpace:'pre-wrap',margin:'8px 0',color:'#5D534B'}},r.body),
+        items.length>0&&R('div',{style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) 70px 60px',gap:4,marginBottom:6}},
+          R('div',{style:{fontSize:10,color:'var(--tm)'}},'품목 (AI 인식 · 수정 가능)'),R('div',{style:{fontSize:10,color:'var(--tm)'}},'수량'),R('div',{style:{fontSize:10,color:'var(--tm)'}},'단위'),
+          ...items.flatMap((it,i)=>[
+            R('input',{key:'n'+i,style:inp,value:it.matched||it.name||'',disabled:r.status!=='new',title:it.name,onChange:e=>setItem(r,i,'matched',e.target.value)}),
+            R('input',{key:'q'+i,style:inp,type:'number',value:it.qty||0,disabled:r.status!=='new',onChange:e=>setItem(r,i,'qty',e.target.value)}),
+            R('input',{key:'u'+i,style:inp,value:it.unit||'',disabled:r.status!=='new',onChange:e=>setItem(r,i,'unit',e.target.value)})
+          ])
+        ),
+        (p.due||p.note)&&R('div',{style:{fontSize:12,color:'#5D534B',marginBottom:6}},p.due&&('📅 희망일 '+p.due+'  '),p.note&&('📝 '+p.note)),
+        r.reply&&R('div',{style:{fontSize:11,color:'#10b981',marginBottom:6}},'↩ 자동 접수 답장 보냄'),
+        r.meta&&r.meta.perr&&R('div',{style:{fontSize:11,color:'#ef4444',marginBottom:6}},'AI 인식 실패: '+r.meta.perr),
+        r.status==='new'&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          R('button',{className:'btn bp',disabled:busy===r.id,onClick:()=>act(r,'confirmed',true)},'✅ 확정 + 안내 발송 ('+(MSG_CH[rt.ch]||rt.ch)+')'),
+          R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>act(r,'confirmed',false)},'확정만'),
+          R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>reparse(r)},'🔄 다시 인식'),
+          R('button',{className:'btn bw',disabled:busy===r.id,onClick:()=>{if(confirm('이 메시지를 반려(주문 아님) 처리할까요?'))act(r,'rejected',false);}},'반려')
+        ),
+        r.status!=='new'&&r.meta&&r.meta.by&&R('div',{style:{fontSize:11,color:'var(--tm)'}},'처리: '+r.meta.by+' · '+msgAgo(r.meta.at||r.updated_at))
+      );
+    })
+  );
+}
+
+function MsgSend({contacts,orders,env,cfg,reload,user,phoneAlive}){
+  const[to,setTo]=useState('');const[name,setName]=useState('');
+  const[ch,setCh]=useState('phone_sms');const[text,setText]=useState('');
+  const[sending,setSending]=useState(false);const[msg,setMsg]=useState('');
+  const pickContact=(c)=>{setName(c.name||'');if(c.ch==='kakao_reply'){setCh('kakao_reply');setTo(c.room||'');}else{setCh(c.ch||'phone_sms');setTo(c.phone||'');}};
+  const pending=orders.filter(o=>o.status==='발주요청');
+  const fillPO=(o)=>{
+    const sup=contacts.find(c=>c.name&&o.supplier&&(o.supplier.indexOf(c.name)>=0||c.name.indexOf(o.supplier)>=0));
+    setName(o.supplier||'');
+    if(sup){setCh(sup.ch==='kakao_reply'?'kakao_reply':(sup.ch||'phone_sms'));setTo(sup.ch==='kakao_reply'?(sup.room||''):(sup.phone||''));}
+    else setTo(String(o.contact||'').replace(/[^\d-]/g,''));
+    setText(msgFill(cfg.po_tpl||DEF_PO_TPL,{supplier:o.supplier||'',items:'· '+o.matName+(o.amt?' '+o.amt+(o.unit||''):''),due:String(o.expAt||'').slice(0,10)}));
+  };
+  const send=async()=>{
+    if(!to.trim()||!text.trim()){setMsg('받는 사람과 내용을 입력하세요');return;}
+    setSending(true);setMsg('');
+    try{
+      const j=await msgHub('send',{ch,to:to.trim(),text,name,customer:name,by:user.name});
+      const st=j.row&&j.row.status;
+      setMsg(st==='failed'?('❌ 실패: '+(j.row.err||'')):st==='sent'?'✅ 발송 완료':ch==='kakao_reply'?'🟡 대기 중 — 이 카톡방에서 다음 메시지가 오면 답장으로 나갑니다':'📱 업무폰 발송 대기열에 넣었습니다 (1분 안에 업무폰이 보냅니다)');
+      if(st!=='failed')setText('');
+      reload();
+    }catch(e){setMsg('❌ '+(e.message||e));}
+    setSending(false);
+  };
+  const chOpts=[['phone_sms','📱 업무폰 문자 (무료)',true],['kakao_reply','🟡 카톡방 답장 (무료)',true],['api_sms','✉ 문자 API (솔라피)',env.has_solapi],['alimtalk','🟨 카카오 알림톡 (솔라피)',env.has_solapi&&!!cfg.pf_id]];
+  const inp={width:'100%',padding:'8px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box'};
+  return R('div',null,
+    pending.length>0&&R('div',{className:'card',style:{marginBottom:10}},
+      R('div',{style:{fontWeight:700,fontSize:13,marginBottom:6}},'🚚 발주요청 상태인 원자재 → 공급처 발주 문자 채우기'),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        ...pending.slice(0,20).map(o=>R('button',{key:o.id,className:'btn bs',onClick:()=>fillPO(o)},(o.supplier||'공급처?')+' · '+o.matName+(o.amt?' '+o.amt+(o.unit||''):''))))
+    ),
+    contacts.length>0&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}},
+      ...contacts.map((c,i)=>R('button',{key:i,className:'btn bw',onClick:()=>pickContact(c)},(c.type==='supplier'?'🏭 ':'🏪 ')+c.name))),
+    R('div',{className:'card'},
+      R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}},
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)'}},'받는 곳 이름'),R('input',{style:inp,value:name,onChange:e=>setName(e.target.value),placeholder:'거래처/공급처명'})),
+        R('div',null,R('label',{style:{fontSize:11,color:'var(--tm)'}},ch==='kakao_reply'?'카톡방 이름':'휴대폰 번호'),R('input',{style:inp,value:to,onChange:e=>setTo(e.target.value),placeholder:ch==='kakao_reply'?'카톡 알림에 뜨는 방 이름':'010-0000-0000'}))
+      ),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}},
+        ...chOpts.map(([k,l,ok])=>R('button',{key:k,className:'btn '+(ch===k?'bp':'bs'),disabled:!ok,title:ok?'':'설정 탭에서 솔라피 키·채널을 먼저 등록하세요',style:{opacity:ok?1:.45},onClick:()=>setCh(k)},l))),
+      ch==='phone_sms'&&!phoneAlive&&R('div',{style:{fontSize:11,color:'#ef4444',marginBottom:6}},'⚠ 업무폰이 최근 15분간 응답이 없습니다. 휴대폰이 켜져 있고 MacroDroid가 실행 중인지 확인하세요.'),
+      ch==='kakao_reply'&&R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6}},'카톡은 먼저 말을 걸 수 없어서, 그 방에서 다음 메시지가 오면 답장으로 함께 나갑니다. 바로 보내야 하면 알림톡을 쓰세요.'),
+      R('textarea',{style:{...inp,minHeight:130,resize:'vertical'},value:text,onChange:e=>setText(e.target.value),placeholder:'보낼 내용'}),
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}},
+        R('span',{style:{fontSize:12,color:/❌/.test(msg)?'#ef4444':'#10b981'}},msg),
+        R('button',{className:'btn bp',disabled:sending,onClick:send},sending?'보내는 중…':'보내기'))
+    )
+  );
+}
+
+function MsgLog({rows}){
+  if(!rows.length)return R('div',{className:'card',style:{textAlign:'center',padding:28,color:'#9A9088'}},'보낸 메시지가 없습니다');
+  return R('div',{className:'card',style:{padding:0,overflow:'hidden'}},
+    ...rows.map(r=>{const st=MSG_ST[r.status]||[r.status,'#999'];
+      return R('div',{key:r.id,style:{padding:'10px 14px',borderBottom:'1px solid var(--bd)'}},
+        R('div',{style:{display:'flex',justifyContent:'space-between',gap:8,fontSize:12}},
+          R('span',{style:{fontWeight:700}},(r.customer||r.peer_name||'')+' ',R('span',{style:{color:'var(--tm)',fontWeight:400}},r.peer+' · '+(MSG_CH[r.ch]||r.ch)+' · '+msgAgo(r.created_at)+(r.meta&&r.meta.by?' · '+r.meta.by:''))),
+          R('span',{style:{color:st[1],fontWeight:700,flexShrink:0}},st[0])),
+        R('div',{style:{fontSize:12,whiteSpace:'pre-wrap',color:'#5D534B',marginTop:4}},r.body),
+        r.meta&&r.meta.err&&R('div',{style:{fontSize:11,color:'#ef4444',marginTop:2}},r.meta.err));
+    })
+  );
+}
+
+function MsgCfg({cfg,env,reload}){
+  const[f,setF]=useState(()=>({auto_reply:cfg.auto_reply!==false,only_contacts:!!cfg.only_contacts,receipt_tpl:cfg.receipt_tpl||'',confirm_tpl:cfg.confirm_tpl||'',po_tpl:cfg.po_tpl||'',sender:cfg.sender||'',pf_id:cfg.pf_id||'',tpl_id:cfg.tpl_id||'',contacts:(cfg.contacts||[]).map(c=>({...c})),notify_ids:cfg.notify_ids||[]}));
+  const[emps,setEmps]=useState([]);
+  const[key,setKey]=useState('');
+  const[saved,setSaved]=useState('');
+  const[test,setTest]=useState('');const[testRes,setTestRes]=useState(null);const[testBusy,setTestBusy]=useState(false);
+  useEffect(()=>{
+    sbClient.from('emp').select('id,name').eq('status','active').order('name').then(({data})=>setEmps(data||[])).catch(()=>{});
+    msgHub('cfg_get').then(j=>setKey((j.cfg&&j.cfg.device_key)||'')).catch(()=>{});
+  },[]);
+  const save=async()=>{
+    try{await msgHub('cfg_set',{patch:{...f,contacts:f.contacts.filter(c=>c.name&&(c.phone||c.room))}});setSaved('✅ 저장됨');reload();setTimeout(()=>setSaved(''),2500);}
+    catch(e){setSaved('❌ '+(e.message||e));}
+  };
+  const newKey=async()=>{if(!confirm('연결 키를 새로 만들면 업무폰 MacroDroid의 키도 바꿔야 합니다. 계속할까요?'))return;
+    try{const j=await msgHub('cfg_set',{patch:{},new_key:true});setKey(j.cfg.device_key);}catch(e){alert(e.message||e);}};
+  const runTest=async()=>{if(!test.trim())return;setTestBusy(true);setTestRes(null);
+    try{const j=await msgHub('test_in',{text:test});setTestRes(j);}catch(e){setTestRes({error:String(e.message||e)});}setTestBusy(false);};
+  const setC=(i,k,v)=>setF(p=>({...p,contacts:p.contacts.map((c,j)=>j===i?{...c,[k]:v}:c)}));
+  const inp={width:'100%',padding:'7px 9px',border:'1px solid var(--bd)',borderRadius:7,fontSize:12,fontFamily:'inherit',boxSizing:'border-box'};
+  const lbl=(t)=>R('div',{style:{fontSize:11,color:'var(--tm)',margin:'8px 0 3px'}},t);
+  const sec=(t,...ch)=>R('div',{className:'card',style:{marginBottom:10}},R('div',{style:{fontWeight:800,fontSize:13,marginBottom:4}},t),...ch);
+  const base=MSGHUB_URL+'?key='+(key||'(연결키)');
+  const code=(s)=>R('div',{style:{fontFamily:'monospace',fontSize:11,background:'#f6f3f0',borderRadius:6,padding:'6px 8px',wordBreak:'break-all',margin:'3px 0',userSelect:'all'}},s);
+  const step=(n,t,...ch)=>R('div',{style:{margin:'10px 0'}},R('div',{style:{fontWeight:700,fontSize:12}},n+'. '+t),...ch.map(c=>typeof c==='string'?note(c):c));
+  const note=(s)=>R('div',{style:{fontSize:11,color:'#5D534B',lineHeight:1.6,whiteSpace:'pre-wrap'}},s);
+  return R('div',null,
+    sec('🔌 상태',
+      R('div',{style:{fontSize:12,lineHeight:1.9}},
+        '업무폰: ',R('b',null,cfg.last_seen?msgAgo(cfg.last_seen)+' 마지막 연결':'아직 연결 안 됨'),R('br'),
+        'AI 인식(Gemini): ',R('b',{style:{color:env.has_gemini?'#10b981':'#ef4444'}},env.has_gemini?'사용 가능':'키 없음'),R('br'),
+        '문자 API·알림톡(솔라피): ',R('b',{style:{color:env.has_solapi?'#10b981':'#9A9088'}},env.has_solapi?'키 등록됨':'미등록 — 업무폰 문자·카톡 답장만 사용'))),
+    sec('🤖 자동 처리',
+      R('label',{style:{display:'flex',gap:6,fontSize:12,alignItems:'center',marginTop:4}},R('input',{type:'checkbox',checked:f.auto_reply,onChange:e=>setF(p=>({...p,auto_reply:e.target.checked}))}),'주문으로 인식되면 바로 접수 답장 보내기'),
+      R('label',{style:{display:'flex',gap:6,fontSize:12,alignItems:'center',marginTop:4}},R('input',{type:'checkbox',checked:f.only_contacts,onChange:e=>setF(p=>({...p,only_contacts:e.target.checked}))}),'등록된 거래처의 메시지만 처리 (끄면 모르는 번호도 주문 같은 문구면 처리)'),
+      lbl('접수 답장 문구 — {customer} {items} {due} 사용 가능 (비우면 기본 문구)'),
+      R('textarea',{style:{...inp,minHeight:70},value:f.receipt_tpl,placeholder:'[B&F글로벌] {customer}님 주문 접수되었습니다.\n{items}\n{due}확인 후 확정 안내드리겠습니다.',onChange:e=>setF(p=>({...p,receipt_tpl:e.target.value}))}),
+      lbl('확정 안내 문구'),
+      R('textarea',{style:{...inp,minHeight:70},value:f.confirm_tpl,placeholder:DEF_CONFIRM_TPL,onChange:e=>setF(p=>({...p,confirm_tpl:e.target.value}))}),
+      lbl('공급처 발주 문구 — {supplier} {items} {due}'),
+      R('textarea',{style:{...inp,minHeight:70},value:f.po_tpl,placeholder:DEF_PO_TPL,onChange:e=>setF(p=>({...p,po_tpl:e.target.value}))}),
+      lbl('새 주문 알림 받을 직원 (휴대폰 푸시)'),
+      R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},...emps.map(e=>R('label',{key:e.id,style:{fontSize:12,display:'flex',gap:4,alignItems:'center'}},
+        R('input',{type:'checkbox',checked:f.notify_ids.includes(e.id),onChange:ev=>setF(p=>({...p,notify_ids:ev.target.checked?[...p.notify_ids,e.id]:p.notify_ids.filter(x=>x!==e.id)}))}),e.name)))
+    ),
+    sec('📇 거래처·공급처 연락처',
+      note('카톡방 이름은 카톡 알림 제목에 뜨는 이름 그대로 적으세요. 확정 안내는 여기 지정한 방식으로 나갑니다.'),
+      ...f.contacts.map((c,i)=>R('div',{key:i,style:{display:'grid',gridTemplateColumns:'1.2fr 80px 1.1fr 1.1fr 1fr 28px',gap:4,marginTop:6}},
+        R('input',{style:inp,value:c.name||'',placeholder:'이름',onChange:e=>setC(i,'name',e.target.value)}),
+        R('select',{style:inp,value:c.type||'customer',onChange:e=>setC(i,'type',e.target.value)},R('option',{value:'customer'},'거래처'),R('option',{value:'supplier'},'공급처')),
+        R('input',{style:inp,value:c.phone||'',placeholder:'휴대폰',onChange:e=>setC(i,'phone',e.target.value)}),
+        R('input',{style:inp,value:c.room||'',placeholder:'카톡방 이름',onChange:e=>setC(i,'room',e.target.value)}),
+        R('select',{style:inp,value:c.ch||'',onChange:e=>setC(i,'ch',e.target.value)},R('option',{value:''},'받은 경로로'),R('option',{value:'phone_sms'},'업무폰 문자'),R('option',{value:'kakao_reply'},'카톡 답장'),R('option',{value:'api_sms'},'문자 API'),R('option',{value:'alimtalk'},'알림톡')),
+        R('button',{className:'btn bw',style:{padding:'4px 6px'},onClick:()=>setF(p=>({...p,contacts:p.contacts.filter((_,j)=>j!==i)}))},'✕'))),
+      R('button',{className:'btn bs',style:{marginTop:8},onClick:()=>setF(p=>({...p,contacts:[...p.contacts,{name:'',type:'customer',phone:'',room:'',ch:''}]}))},'+ 연락처 추가')
+    ),
+    sec('✉ 솔라피 (문자 API·알림톡) — 선택',
+      note('API 키·시크릿은 보안상 화면이 아니라 Supabase 시크릿(SOLAPI_API_KEY, SOLAPI_API_SECRET)에 등록합니다. 발신번호는 솔라피에서 인증한 회사 번호여야 합니다.'),
+      R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}},
+        R('div',null,lbl('발신번호'),R('input',{style:inp,value:f.sender,placeholder:'031-000-0000',onChange:e=>setF(p=>({...p,sender:e.target.value}))})),
+        R('div',null,lbl('알림톡 채널 pfId'),R('input',{style:inp,value:f.pf_id,onChange:e=>setF(p=>({...p,pf_id:e.target.value}))})),
+        R('div',null,lbl('알림톡 템플릿 ID (변수 #{내용})'),R('input',{style:inp,value:f.tpl_id,onChange:e=>setF(p=>({...p,tpl_id:e.target.value}))}))
+      )
+    ),
+    R('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:14}},R('button',{className:'btn bp',onClick:save},'💾 설정 저장'),R('span',{style:{fontSize:12}},saved)),
+    sec('🧪 AI 인식 테스트 (저장·답장 없음)',
+      R('textarea',{style:{...inp,minHeight:70},value:test,placeholder:'예) 안녕하세요 강남점입니다. 내일 청국장 3박스, 털레기수제비 2박스 보내주세요',onChange:e=>setTest(e.target.value)}),
+      R('button',{className:'btn bs',style:{marginTop:6},disabled:testBusy,onClick:runTest},testBusy?'인식 중…':'인식해 보기'),
+      testRes&&R('pre',{style:{fontSize:11,background:'#f6f3f0',borderRadius:6,padding:8,whiteSpace:'pre-wrap',marginTop:6}},testRes.error?('❌ '+testRes.error):JSON.stringify(testRes.parsed,null,1))
+    ),
+    sec('📱 업무폰 연결 방법 (안드로이드 · MacroDroid 무료앱)',
+      note('업무폰 연결 키: '+(key||'불러오는 중…')+'   (외부에 공유하지 마세요)'),
+      R('button',{className:'btn bw',style:{margin:'4px 0'},onClick:newKey},'🔑 연결 키 새로 만들기'),
+      step(1,'준비','Play 스토어에서 MacroDroid 설치 → 실행 후 요청하는 권한(문자, 알림 접근, 배터리 최적화 제외)을 모두 허용.\n설정 > 애플리케이션 > MacroDroid > 배터리 > "제한 없음"으로 바꿔야 밤에도 꺼지지 않습니다.'),
+      step(2,'매크로 ① 문자 주문 받기',
+        note('트리거: 「SMS 수신」 (모든 번호)\n액션 1: 「HTTP 요청」 방식 POST, 주소:'),
+        code(base+'&action=in&fmt=text&ch=sms'),
+        note('  · 쿼리 파라미터 추가: from = [sms_number], name = [sms_name], text = [sms_message]\n  · "응답을 변수에 저장" → 문자열 변수 reply\n액션 2: 「SMS 보내기」 받는 사람 [sms_number], 내용 [lv=reply]\n   조건: reply 가 비어있지 않음')),
+      step(3,'매크로 ② 카톡 주문 받기',
+        note('트리거: 「알림 수신」 앱 = 카카오톡\n액션 1: 「HTTP 요청」 POST, 주소:'),
+        code(base+'&action=in&fmt=text&ch=kakao'),
+        note('  · 쿼리 파라미터: room = [notification_title], name = [notification_title], text = [notification]\n  · 응답 → 문자열 변수 reply\n액션 2: 「알림에 답장(Notification Reply)」 내용 [lv=reply]\n   조건: reply 가 비어있지 않음')),
+      step(4,'매크로 ③ MES에서 보낸 문자 내보내기',
+        note('트리거: 「일정 간격」 1분\n액션 1: 「HTTP 요청」 GET, 주소:'),
+        code(base+'&action=next'),
+        note('  · 응답 → 딕셔너리 변수 job (JSON 자동 변환)\n조건: [lv=job[id]] 가 0 이 아님 →\n액션 2: 「SMS 보내기」 받는 사람 [lv=job[to]], 내용 [lv=job[text]]\n액션 3: 「HTTP 요청」 GET, 주소:'),
+        code(base+'&action=ack&id=[lv=job[id]]')),
+      step(5,'확인','위 테스트 칸에 주문 문구를 넣어 AI 인식을 확인한 뒤, 다른 휴대폰으로 업무폰에 "청국장 2박스 보내주세요" 문자를 보내 보세요. 접수함에 뜨고 자동 답장이 오면 연결 완료입니다.')
+    )
+  );
+}
+
 function PageOrders({orders,isAdmin,onSetOrders}){
   const[showForm,setShowForm]=useState(false);
   const[nO,setNO]=useState({matName:'',amt:'',unit:'kg',supplier:'',contact:'',total:'',memo:''});
@@ -19036,6 +19329,7 @@ function loadNavSections(){
               const newMenus=[
                 {after:'sched',item:{id:'shipsort',l:'출고 계획',ic:'📦'}},
                 {after:'shipsort',item:{id:'dart',l:'거래처 정보 조회',ic:'🔍'}},
+                {after:'shipsort',item:{id:'msghub',l:'메시지 수발주',ic:'📨'}},
                 {after:'approval',item:{id:'featreq',l:'추가 기능 요청',ic:'💡'}},
                 {after:'featreq',item:{id:'logins',l:'로그인 정보',ic:'🔑'}},
                 {after:'logins',item:{id:'manual',l:'업무 매뉴얼',ic:'📚'}}
@@ -24419,6 +24713,7 @@ function App(){
     if(page==='profit'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageProfit,{});}
     if(page==='salesStat'||page==='purchaseStat'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageTrade,{kind:page==='salesStat'?'sales':'purchase'});}
     if(page==='purchase_data'||page==='adm_purchase'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PagePurchaseAnalysis,{mats,variant:'adm'});}
+    if(page==='msghub')return R(PageMsgHub,{user,isAdmin,orders});
     if(page==='orders')return R(PageOrders,{orders,isAdmin,onSetOrders:setOrders});
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
     if(page==='dart')return R(PageDartLookup,{});
