@@ -1256,17 +1256,13 @@ function PageShipSort({mats,hqItems}){
   const saveAjSkip=async(next)=>{
     setAjSkip(next);
     try{
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-      const ex=(data&&data.state_data)||null; if(!ex)return;
-      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{aj_pal_skip:next}),updated_at:new Date().toISOString()});
+      await sbClient.rpc('set_state_key',{k:'aj_pal_skip',v:next}); /* 키만 저장 — id=1 전체 다시 쓰면 시간초과 */
     }catch(e){}
   };
   const saveAjPalOv=async(next)=>{
     setAjPalOv(next);
     try{
-      const{data}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-      const ex=(data&&data.state_data)||null; if(!ex)return;
-      await sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{aj_pal_override:next}),updated_at:new Date().toISOString()});
+      await sbClient.rpc('set_state_key',{k:'aj_pal_override',v:next}); /* 키만 저장 — id=1 전체 다시 쓰면 시간초과 */
     }catch(e){}
   };
   const[dayMsg,setDayMsg]=useState(''); /* 일자별 복사 알림 "날짜|메시지" */
@@ -1802,11 +1798,7 @@ function PageShipSort({mats,hqItems}){
     });
     if(merged.length===(canonNames||[]).length)return;
     setCanonNames(merged);
-    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
-      const ex=data&&data.state_data?data.state_data:null;
-      if(!ex)return;
-      return sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{shipsort_names:merged.slice(0,400)}),updated_at:new Date().toISOString()});
-    }).catch(()=>{});
+    sbClient.rpc('set_state_key',{k:'shipsort_names',v:merged.slice(0,400)}).then(()=>{},()=>{}); /* 키만 저장 */
   };
   /* 글자 몇 개가 다른지(편집거리)로 유사도 계산 — 한두 글자 오인식에 강하다 (0~1) */
   const nameSim=(a,b)=>{
