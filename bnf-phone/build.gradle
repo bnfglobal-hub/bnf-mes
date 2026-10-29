@@ -1,0 +1,50 @@
+// BNF 업무폰 — 문자·카톡 주문을 MES(msg-hub)로 넘기고 답장/발송을 처리하는 앱
+// 빌드: bnf-phone/build.ps1 (이 PC의 JDK·안드로이드 SDK) → 저장소 루트 bnf-phone.apk. 외부 라이브러리 없음.
+plugins {
+    id 'com.android.application' version '8.5.2'
+}
+
+android {
+    namespace 'com.bnf.phone'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.bnf.phone'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.1'
+    }
+
+    // 서명 키는 저장소 밖(문서/bnf-phone-signing)에만 둔다. 업데이트 설치가 되려면 매번 같은 키여야 함
+    def signDir = new File(System.getProperty('user.home'), 'Documents/bnf-phone-signing')
+    def sp = new Properties()
+    def spf = new File(signDir, 'signing.properties')
+    if (spf.exists()) spf.withInputStream { sp.load(it) }
+    signingConfigs {
+        bnf {
+            storeFile new File(signDir, 'bnf.p12')
+            storePassword sp.getProperty('password', '')
+            keyAlias 'bnf'
+            keyPassword sp.getProperty('password', '')
+            storeType 'pkcs12'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.bnf
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
