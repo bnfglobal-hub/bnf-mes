@@ -22955,7 +22955,7 @@ function PageShipSort({mats,hqItems}){
   const[stmtBusy,setStmtBusy]=useState('');
   const[stmtRes,setStmtRes]=useState(null);
   const stmtPrint=async()=>{
-    setStmtRes(null);setStmtBusy('🖨 거래명세서 내려받아 인쇄 중... (1~2분)');
+    setStmtRes(null);setStmtBusy('🖨 거래명세서 인쇄·저장 중... (1~2분)');
     try{
       const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),240000);
       const r=await fetch(BRIDGE+'/statements/print',{signal:ctl.signal});clearTimeout(tm);
@@ -23147,9 +23147,14 @@ function PageShipSort({mats,hqItems}){
           background:stmtRes.err?'#FEF2F2':'#F0FDF4',border:'1px solid '+(stmtRes.err?'#FECACA':'#BBF7D0'),
           color:stmtRes.err?'#B91C1C':'#15803D',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
         stmtRes.err?('⚠ '+stmtRes.err)
-          :R('span',null,'🖨 '+(stmtRes.date||'')+' 거래명세서 인쇄 완료 — '+
-            (stmtRes.printed||[]).map(x=>String(x.center||x.code).split(' ')[0]+' '+x.copies+'부'+(x.printError?'(인쇄실패)':'')).join(' · ')+
-            ' (짝수 페이지만)'),
+          :R('div',{style:{lineHeight:1.6}},
+            R('div',null,'🖨 '+(stmtRes.date||'')+' 거래명세서 인쇄 '+
+              ((stmtRes.printed||[])[0]&&stmtRes.printed[0].printer?'('+stmtRes.printed[0].printer+') ':'')+'— '+
+              (stmtRes.printed||[]).map(x=>String(x.center||x.code).split(' ')[0]+' '+x.copies+'부'+(x.printError?'(인쇄실패: '+x.printError+')':'')).join(' · ')+
+              ' (짝수 페이지만)'),
+            (stmtRes.printed||[]).map(x=>R('div',{key:x.code,style:{fontWeight:500,color:x.saveError?'#B91C1C':'#166534'}},
+              x.saved?'💾 '+x.saved:'⚠ 파일 저장 실패 '+x.code+(x.saveError?' — '+x.saveError:''))),
+            stmtRes.dir&&R('div',{style:{fontWeight:500,color:'var(--tm)',fontSize:11}},'저장 위치(사무실 PC): '+stmtRes.dir)),
         R('button',{className:'btn bw btn-sm',style:{marginLeft:'auto'},onClick:()=>setStmtRes(null)},'✕')),
       sgnRes&&R('div',{style:{marginTop:8,padding:'8px 12px',borderRadius:9,fontSize:12,fontWeight:700,
           background:sgnRes.err?'#FEF2F2':'#F0FDF4',border:'1px solid '+(sgnRes.err?'#FECACA':'#BBF7D0'),
