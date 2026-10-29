@@ -173,23 +173,8 @@ async function handleIn(b: any, cfg: any) {
     parsed, meta: { contact: contact?.name || "", perr },
   }).select("id").single();
 
+  // 자동 접수 답장 없음(2026-10-29 사장 지시) — 답장은 MES 접수함에서 [확정 + 안내 발송]을 눌렀을 때만 나감
   let reply = "";
-  if (isOrder && cfg.auto_reply !== false) {
-    // 같은 상대에게 3분 내 자동답장 했으면 생략(대화 폭주 방지)
-    const s3 = new Date(Date.now() - 3 * 60e3).toISOString();
-    const { data: recent } = await SB.from("msg_hub").select("id").eq("kind", "in").eq("peer", peer).not("reply", "is", null).gte("created_at", s3).limit(1);
-    if (!recent || !recent.length) {
-      reply = fill(cfg.receipt_tpl || DEF_RECEIPT, {
-        customer, items: itemsLine(parsed.items), due: parsed.due ? "희망일 " + parsed.due + "\n" : "",
-      });
-    }
-  }
-  // 경영지원 요청 접수 답장 — 원장 확인 요청은 담당자 알림만(자동 답장 없음)
-  if (req && cfg.auto_reply !== false) {
-    const mon = parsed.month ? Number(String(parsed.month).slice(5, 7)) + "월 " : "";
-    if (req === "ledger_request") reply = "[B&F글로벌] " + customer + "님 " + mon + "마감원장 확인해서 보내드리겠습니다.";
-    if (req === "invoice_request") reply = "[B&F글로벌] " + customer + "님 " + mon + "계산서 발행 요청 접수되었습니다. 확인 후 발행해드리겠습니다.";
-  }
   // 카톡: 이 방으로 보내려고 쌓아둔 메시지가 있으면 이번 답장에 붙여서 내보냄
   if (ch === "kakao") {
     const { data: q } = await SB.from("msg_hub").select("id,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").eq("peer", peer).order("id");

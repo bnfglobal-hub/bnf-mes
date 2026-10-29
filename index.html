@@ -16613,14 +16613,26 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
     const p=r.parsed||{};const q=MSG_REQ[p.intent];setBusy(r.id);
     try{
       await msgHub('update',{id:r.id,patch:{status:'confirmed',meta:{...(r.meta||{}),by:user.name,at:new Date().toISOString()}}});
-      if(send){const rt=replyRoute(r);const mon=p.month?Number(String(p.month).slice(5,7))+'월 ':'';
-        if(rt.to)await msgHub('send',{ch:rt.ch,to:rt.to,text:msgFill(q.tpl,{customer:r.customer||'',month:mon}),name:r.customer,customer:r.customer,ref:r.id,by:user.name});}
+      if(send){const rt=replyRoute(r);
+        const text=String(msgTextOf(r)).trim();if(!text)throw new Error('보낼 문구가 비어 있습니다');
+        if(rt.to)await msgHub('send',{ch:rt.ch,to:rt.to,text,name:r.customer,customer:r.customer,ref:r.id,by:user.name});}
       reload();
     }catch(e){alert('처리 실패: '+(e.message||e));}
     setBusy(0);
   };
   const[edit,setEdit]=useState({});
   const getItems=(r)=>edit[r.id]||((r.parsed&&r.parsed.items)||[]).map(i=>({...i}));
+  /* 답장 문구: 자동 답장 없음 — [확정 + 안내 발송]/[회신] 누를 때만 이 문구로 보냄. 직접 고치면 그대로 보냄 (2026-10-29) */
+  const[msgTxt,setMsgTxt]=useState({});
+  const msgDefault=(r)=>{const p=r.parsed||{};const q=MSG_REQ[p.intent];
+    if(q&&!getItems(r).length){const mon=p.month?Number(String(p.month).slice(5,7))+'월 ':'';return msgFill(q.tpl,{customer:r.customer||'',month:mon});}
+    return msgFill(cfg.confirm_tpl||DEF_CONFIRM_TPL,{customer:r.customer||'',items:msgItemsLine(getItems(r)),due:p.due?'출고일 '+p.due+'\n':''});};
+  const msgTextOf=(r)=>msgTxt[r.id]!=null?msgTxt[r.id]:msgDefault(r);
+  const msgBox=(r)=>R('div',{style:{marginBottom:8}},
+    R('div',{style:{fontSize:10,color:'var(--tm)',marginBottom:3,display:'flex',justifyContent:'space-between',gap:6}},R('span',null,'✏️ 보낼 안내 문구 (수정 가능 · 버튼을 눌러야 발송됩니다)'),
+      msgTxt[r.id]!=null&&R('a',{style:{cursor:'pointer',color:'#E8590C'},onClick:()=>setMsgTxt(p=>{const n={...p};delete n[r.id];return n;})},'기본 문구로')),
+    R('textarea',{style:{width:'100%',boxSizing:'border-box',minHeight:72,padding:'6px 8px',border:'1px solid var(--bd)',borderRadius:6,fontSize:12,fontFamily:'inherit',lineHeight:1.5},
+      value:msgTextOf(r),onChange:e=>{const v=e.target.value;setMsgTxt(p=>({...p,[r.id]:v}));}}));
   const setItem=(r,idx,k,v)=>setEdit(p=>{const it=getItems(r).map(x=>({...x}));it[idx][k]=k==='qty'?(parseFloat(v)||0):v;return{...p,[r.id]:it};});
   const act=async(r,status,sendMsg)=>{
     setBusy(r.id);
@@ -16630,7 +16642,7 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
       await msgHub('update',{id:r.id,patch:{status,parsed,meta:{...(r.meta||{}),by:user.name,at:new Date().toISOString()}}});
       if(sendMsg){
         const rt=replyRoute(r);
-        const text=msgFill(cfg.confirm_tpl||DEF_CONFIRM_TPL,{customer:r.customer||'',items:msgItemsLine(items),due:parsed.due?'출고일 '+parsed.due+'\n':''});
+        const text=String(msgTextOf(r)).trim();if(!text)throw new Error('보낼 문구가 비어 있습니다');
         if(rt.to)await msgHub('send',{ch:rt.ch,to:rt.to,text,name:r.customer,customer:r.customer,ref:r.id,by:user.name});
       }
       reload();
@@ -16663,7 +16675,7 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
           ])
         ),
         (p.due||p.note)&&R('div',{style:{fontSize:12,color:'#5D534B',marginBottom:6}},p.due&&('📅 희망일 '+p.due+'  '),p.note&&('📝 '+p.note)),
-        r.reply&&R('div',{style:{fontSize:11,color:'#10b981',marginBottom:6}},'↩ 자동 접수 답장 보냄'),
+        r.reply&&R('div',{style:{fontSize:11,color:'#10b981',marginBottom:6}},'↩ 답장 보냄'),
         r.meta&&r.meta.perr&&R('div',{style:{fontSize:11,color:'#ef4444',marginBottom:6}},'AI 인식 실패: '+r.meta.perr),
         MSG_REQ[p.intent]&&!items.length&&(()=>{const q=MSG_REQ[p.intent];const mon=p.month||prevMonth();const bk=msgBookOf(cm,mon,r.customer||r.peer_name);
           return R('div',{style:{border:'1px solid '+q.c+'40',background:q.c+'0D',borderRadius:8,padding:'8px 10px',marginBottom:8,fontSize:12,lineHeight:1.7}},
@@ -16672,11 +16684,13 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
                 p.amount?R('span',{style:{marginLeft:6,fontWeight:700,color:[bk.buy,bk.sales].some(v=>Math.round(+v||0)===Math.round(+p.amount))?'#15803D':'#B91C1C'}},
                   [bk.buy,bk.sales].some(v=>Math.round(+v||0)===Math.round(+p.amount))?'✓ 일치':'⚠ 차이 확인'):null)
               :R('span',{style:{color:'var(--tm)'}},'우리 장부에서 이 거래처의 '+mon+' 금액을 찾지 못했습니다 (거래처원장 메뉴에서 확인)'),
+            r.status==='new'&&R('div',{style:{marginTop:6}},msgBox(r)),
             r.status==='new'&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}},
               R('button',{className:'btn bp',disabled:busy===r.id,onClick:()=>reqDone(r,true)},q.done+' ('+(MSG_CH[replyRoute(r).ch]||'')+')'),
               R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>reqDone(r,false)},'처리 완료만'),
               R('button',{className:'btn bw',disabled:busy===r.id,onClick:()=>act(r,'ignored',false)},'무시')));
         })(),
+        r.status==='new'&&!(MSG_REQ[p.intent]&&!items.length)&&msgBox(r),
         r.status==='new'&&!(MSG_REQ[p.intent]&&!items.length)&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
           R('button',{className:'btn bp',disabled:busy===r.id,onClick:()=>act(r,'confirmed',true)},'✅ 확정 + 안내 발송 ('+(MSG_CH[rt.ch]||rt.ch)+')'),
           R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>act(r,'confirmed',false)},'확정만'),
@@ -16828,11 +16842,9 @@ function MsgCfg({cfg,env,reload}){
         'AI 인식(Gemini): ',R('b',{style:{color:env.has_gemini?'#10b981':'#ef4444'}},env.has_gemini?'사용 가능':'키 없음'),R('br'),
         '문자 API·알림톡(솔라피): ',R('b',{style:{color:env.has_solapi?'#10b981':'#9A9088'}},env.has_solapi?'키 등록됨':'미등록 — 업무폰 문자·카톡 답장만 사용'))),
     sec('🤖 자동 처리',
-      R('label',{style:{display:'flex',gap:6,fontSize:12,alignItems:'center',marginTop:4}},R('input',{type:'checkbox',checked:f.auto_reply,onChange:e=>setF(p=>({...p,auto_reply:e.target.checked}))}),'주문으로 인식되면 바로 접수 답장 보내기'),
+      R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:4}},'자동 답장은 보내지 않습니다 — 접수함에서 [✅ 확정 + 안내 발송]을 눌러야 답장이 나갑니다 (문구는 그 자리에서 수정 가능)'),
       R('label',{style:{display:'flex',gap:6,fontSize:12,alignItems:'center',marginTop:4}},R('input',{type:'checkbox',checked:f.only_contacts,onChange:e=>setF(p=>({...p,only_contacts:e.target.checked}))}),'등록된 거래처의 메시지만 처리 (끄면 모르는 번호도 주문 같은 문구면 처리)'),
-      lbl('접수 답장 문구 — {customer} {items} {due} 사용 가능 (비우면 기본 문구)'),
-      R('textarea',{style:{...inp,minHeight:70},value:f.receipt_tpl,placeholder:'[B&F글로벌] {customer}님 주문 접수되었습니다.\n{items}\n{due}확인 후 확정 안내드리겠습니다.',onChange:e=>setF(p=>({...p,receipt_tpl:e.target.value}))}),
-      lbl('확정 안내 문구'),
+      lbl('확정 안내 기본 문구 — {customer} {items} {due} 사용 가능'),
       R('textarea',{style:{...inp,minHeight:70},value:f.confirm_tpl,placeholder:DEF_CONFIRM_TPL,onChange:e=>setF(p=>({...p,confirm_tpl:e.target.value}))}),
       lbl('공급처 발주 문구 — {supplier} {items} {due}'),
       R('textarea',{style:{...inp,minHeight:70},value:f.po_tpl,placeholder:DEF_PO_TPL,onChange:e=>setF(p=>({...p,po_tpl:e.target.value}))}),
