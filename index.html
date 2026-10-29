@@ -22908,6 +22908,8 @@ function PageShipSort({mats,hqItems}){
       setCfmDone(j);setCfm(null);
       if(j.ok===false)alert('생성 버튼은 눌렀지만 완료 문구를 확인하지 못했습니다.\n컬리 포털에서 꼭 직접 확인해주세요.');
       else alert('✅ 거래명세서 생성 완료!\n컬리 포털의 [거래명세서 내역]에서 확인할 수 있습니다.');
+      /* 이어서 서명완료 PDF 받기 시도 — 입고 전이면 '서명 전'으로 표시되고, 입고 후 버튼으로 다시 받는다 */
+      signedFetch(cfm.date);
     }catch(e){setCfmBusy('');alert('생성 결과를 확인하지 못했습니다. 컬리 포털에서 직접 확인해주세요.');}
   };
   const cfmCancel=()=>{
@@ -22963,6 +22965,25 @@ function PageShipSort({mats,hqItems}){
       if(j&&Array.isArray(j.printed))setStmtRes(j);
       else setStmtRes({err:'결과를 확인하지 못했습니다'});
     }catch(e){setStmtBusy('');setStmtRes({err:'사무실 PC 수집기에 연결하지 못했습니다 (PC에서만 사용 가능)'});}
+  };
+  /* ── 서명완료 거래명세서 받기: 각 명세서 [상세] → [서명완료 거래명세서 (PDF)]를 PC의
+        문서\컬리 서명완료 거래명세서 폴더에 '날짜_센터_코드.pdf'로 저장.
+        서명은 컬리 입고 때 되므로 입고 전 명세서는 '서명 전'으로 남는다.
+        date 없이 부르면 입고일이 지난 것 중 안 받은 것만 모두 받는다. ── */
+  const[sgnBusy,setSgnBusy]=useState('');
+  const[sgnRes,setSgnRes]=useState(null);
+  const signedFetch=async(date)=>{
+    setSgnRes(null);setSgnBusy('📄 서명완료 명세서 받는 중...');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),600000);
+      const r=await fetch(BRIDGE+'/statements/signed'+(date?'?date='+date:''),{signal:ctl.signal});clearTimeout(tm);
+      const j=await r.json();
+      setSgnBusy('');
+      if(j&&j.error==='LOGIN_REQUIRED'){setSgnRes({err:'컬리 로그인이 필요합니다 — 사무실 PC 전용 크롬에서 로그인 후 다시 눌러주세요'});return;}
+      if(j&&j.error){setSgnRes({err:'실패: '+j.error});return;}
+      if(j&&Array.isArray(j.saved))setSgnRes(j);
+      else setSgnRes({err:'결과를 확인하지 못했습니다'});
+    }catch(e){setSgnBusy('');setSgnRes({err:'사무실 PC 수집기에 연결하지 못했습니다 (PC에서만 사용 가능)'});}
   };
 
   const aggregate=(orders,dateStr)=>{
@@ -23107,6 +23128,8 @@ function PageShipSort({mats,hqItems}){
         R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
           R('button',{className:'btn bw btn-sm',disabled:!!stmtBusy,onClick:stmtPrint,
             title:'포털 거래명세서 내역에서 최근 입고예정일 PDF를 받아 사무실 프린터로 인쇄 — 짝수 페이지만, 창원 3부·그 외 1부'},stmtBusy||'🖨 거래명세서 출력'),
+          R('button',{className:'btn bw btn-sm',disabled:!!sgnBusy,onClick:()=>signedFetch(),
+            title:'입고가 끝난 명세서의 서명완료 PDF를 사무실 PC 문서\\컬리 서명완료 거래명세서 폴더에 받습니다 (이미 받은 건 건너뜀)'},sgnBusy||'📄 서명완료 명세서 받기'),
           R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);loadUpcoming();}},'🛒 컬리 발주 확인'),
           R('button',{className:'btn bp btn-sm',onClick:()=>cfmPrepare(),disabled:!!cfmBusy,
             title:'다가오는 발주일을 자동으로 찾아 확정을 준비합니다'},cfmBusy||'✅ 컬리 발주 확정')
@@ -23120,6 +23143,20 @@ function PageShipSort({mats,hqItems}){
             (stmtRes.printed||[]).map(x=>String(x.center||x.code).split(' ')[0]+' '+x.copies+'부'+(x.printError?'(인쇄실패)':'')).join(' · ')+
             ' (짝수 페이지만)'),
         R('button',{className:'btn bw btn-sm',style:{marginLeft:'auto'},onClick:()=>setStmtRes(null)},'✕')),
+      sgnRes&&R('div',{style:{marginTop:8,padding:'8px 12px',borderRadius:9,fontSize:12,fontWeight:700,
+          background:sgnRes.err?'#FEF2F2':'#F0FDF4',border:'1px solid '+(sgnRes.err?'#FECACA':'#BBF7D0'),
+          color:sgnRes.err?'#B91C1C':'#15803D',display:'flex',alignItems:'flex-start',gap:8,flexWrap:'wrap'}},
+        sgnRes.err?('⚠ '+sgnRes.err)
+          :R('div',{style:{lineHeight:1.6}},
+            R('div',null,'📄 서명완료 거래명세서'+(sgnRes.date?' ('+sgnRes.date+' 입고)':'')+' — 새로 받음 '+sgnRes.saved.length+'건'+
+              ((sgnRes.already||[]).length?' · 이미 받음 '+sgnRes.already.length+'건':'')),
+            sgnRes.saved.map(x=>R('div',{key:x.code,style:{fontWeight:500,color:'#166534'}},'· '+x.file)),
+            (sgnRes.pending||[]).length>0&&R('div',{style:{color:'#92400E'}},
+              '⏳ 아직 서명 전 '+sgnRes.pending.length+'건 ('+sgnRes.pending.map(x=>x.center).join('·')+') — 컬리 입고 후 [📄 서명완료 명세서 받기]를 다시 누르세요'),
+            (sgnRes.failed||[]).length>0&&R('div',{style:{color:'#B91C1C'}},
+              '⚠ 실패 '+sgnRes.failed.length+'건: '+sgnRes.failed.map(x=>x.code+' '+(x.msg||'')).join(' / ')),
+            R('div',{style:{fontWeight:500,color:'var(--tm)',fontSize:11}},'저장 위치(사무실 PC): '+(sgnRes.dir||''))),
+        R('button',{className:'btn bw btn-sm',style:{marginLeft:'auto'},onClick:()=>setSgnRes(null)},'✕')),
       /* ── 발주 내용 대시보드: 날짜별 → 센터별 → 품목·재고 상태를 카드에서 바로 ── */
       (()=>{
         const t=today2();
