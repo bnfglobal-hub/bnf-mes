@@ -22608,7 +22608,8 @@ function PageShipSort({mats,hqItems}){
       if(!byC[center])byC[center]=[];
       byC[center].push({name:r.name,total:r.total,box:r.box,exp:r.exp||''});
     });
-    const orders=Object.entries(byC).map(([center,items])=>({center,date:review.date,items}));
+    const mts=review.src==='manual'?Date.now():0;
+    const orders=Object.entries(byC).map(([center,items])=>({center,date:review.date,items,...(mts?{manual:mts}:{})}));
     if(!orders.length){alert('반영할 항목이 없습니다.');return;}
     /* 사람이 확인한 이름을 정식 사전에 등록 → 다음부터 같은 오인식 자동 교정 */
     try{saveCanon(review.rows.map(r=>r.name).filter(Boolean));}catch(e){}
@@ -22620,12 +22621,21 @@ function PageShipSort({mats,hqItems}){
       if(!rv)return rv;
       const rows=rv.rows.slice();
       const r={...rows[i]};
+      if(key==='center'||key==='name'){r[key]=val;if(key==='name'&&!(r.pack>0)){const pk=packOf(val);if(pk>0){r.pack=pk;if(r.box>0)r.total=r.box*pk;}}rows[i]=r;return{...rv,rows};}
       const n=Math.max(0,parseInt(String(val).replace(/[^\d]/g,''))||0);
       r[key]=n;
       if(key==='box'||key==='pack')r.total=(r.pack>0&&r.box>0)?r.box*r.pack:r.total;
       rows[i]=r;return{...rv,rows};
     });
   };
+  /* ✍️ 직접 추가 (2026-10-29) — 발주서 없이 센터·품목·박스를 손으로 넣어 출고계획에 합침 */
+  const blankRow=(center)=>({center:center||'김포(켄달)',name:'',box:0,pack:0,total:0,exp:''});
+  const openManual=(date,center)=>{
+    let d=date||shipDate||'';
+    if(!d){const t=new Date(Date.now()+9*3600e3+86400e3);d=t.toISOString().slice(0,10);}
+    setReview({date:d,rows:[blankRow(center)],src:'manual'});
+  };
+  const addReviewRow=()=>setReview(rv=>rv?{...rv,rows:[...rv.rows,blankRow(rv.rows.length?normCenter2(rv.rows[rv.rows.length-1].center):'')]}:rv);
   const delReviewRow=(i)=>setReview(rv=>rv?{...rv,rows:rv.rows.filter((_,j)=>j!==i)}:rv);
 
   /* 제품 총수량 재계산 (센터별 items 합산) */
@@ -22670,7 +22680,7 @@ function PageShipSort({mats,hqItems}){
   /* 파일(발주) 내용 시그니처 - 같은 내용이면 중복으로 판단 */
   const orderSig=(o)=>{
     const items=(o.items||[]).map(it=>it.name+':'+it.box+':'+it.total).sort().join('|');
-    return (o.center||'')+'#'+(o.date||'')+'#'+items;
+    return (o.center||'')+'#'+(o.date||'')+'#'+items+(o.manual?'#m'+o.manual:'');
   };
   /* 특정 (날짜·센터) 빼기 - 그 시그니처도 제거 → 다시 올릴 수 있음 */
   const removeCenter=(k)=>{
@@ -23501,9 +23511,11 @@ function PageShipSort({mats,hqItems}){
       R('input',{ref:fileRef,type:'file',accept:'.xlsx,.xls,application/pdf,.pdf,image/*',multiple:true,onChange:e=>{handleFiles(e.target.files);e.target.value='';},style:{display:'none'}}),
       /* 발주서 붙여넣기 토글 */
       R('div',{style:{marginTop:12,borderTop:'1px dashed var(--bd)',paddingTop:12}},
+        R('div',{style:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}},
         R('button',{onClick:()=>setShowPaste(v=>!v),style:{background:'none',border:'none',cursor:'pointer',fontSize:12,fontWeight:700,color:'var(--p)',fontFamily:'inherit',padding:0}},
           (showPaste?'▼':'▶')+' 또는 발주서 붙여넣기 (표 텍스트 또는 캡처 이미지)'
         ),
+        R('button',{className:'btn bs',onClick:()=>openManual(),title:'발주서 없이 센터·품목·박스를 직접 입력해 출고 계획에 추가',style:{marginLeft:'auto',fontSize:12,padding:'6px 12px'}},'✍️ 직접 추가')),
         showPaste&&R('div',{style:{marginTop:10}},
           /* ── 이미지 인식 영역 ── */
           R('div',{style:{padding:'10px 12px',background:'#F7F0FA',border:'1px solid #E4CCF0',borderRadius:10,marginBottom:12}},
@@ -23554,12 +23566,14 @@ function PageShipSort({mats,hqItems}){
     review&&R(Portal,null,R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget)setReview(null);}},
       R('div',{className:'mbox',style:{maxWidth:760,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
         R('div',{className:'mhdr'},
-          R('span',{style:{fontSize:15,fontWeight:800}},review.src==='xlsx'?'📗 엑셀 발주서 인식 결과 확인':'🔎 그림 PDF 인식 결과 확인'),
+          R('span',{style:{fontSize:15,fontWeight:800}},review.src==='manual'?'✍️ 출고 계획 직접 추가':review.src==='xlsx'?'📗 엑셀 발주서 인식 결과 확인':'🔎 그림 PDF 인식 결과 확인'),
           R('button',{onClick:()=>setReview(null),style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#6E645C'}},'×')
         ),
         R('div',{className:'mbody',style:{flex:1,overflow:'auto'}},
           R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:9,padding:'9px 12px',fontSize:12,color:'#92400E',marginBottom:10,lineHeight:1.6}},
-            review.src==='xlsx'
+            review.src==='manual'
+              ?R(React.Fragment,null,'입고일·센터·품목·박스수를 입력하세요. ',R('b',null,'입수를 넣으면 총수량이 자동 계산'),'되고, 총수량을 직접 적어도 됩니다.',R('br'),'같은 날짜·센터에 이미 있는 품목이면 수량이 더해집니다.')
+              :review.src==='xlsx'
               ?R(React.Fragment,null,'📗 엑셀에서 ',R('b',null,'정확히 읽은 값'),'입니다 (AI 추측 아님). 센터·박스수·입수·총수량을 그대로 가져왔습니다.',R('br'),'같은 센터·품목은 자동 합산했습니다. 확인 후 반영하세요.')
               :R(React.Fragment,null,'⚠ AI가 읽은 값입니다. ',R('b',null,'✅ 표시는 총수량 = 박스수 × 입수 검산이 맞은 행'),'입니다.',R('br'),
                 R('b',null,'노란 칸(입수 미등록)은 직접 입력'),'하면 총수량이 자동 계산됩니다. 실제 명세서와 대조 후 반영하세요.')),
@@ -23578,15 +23592,20 @@ function PageShipSort({mats,hqItems}){
                 R('td',null,R('select',{value:normCenter2(r.center),onChange:e=>updReviewRow(i,'center',e.target.value),
                   style:{border:'1px solid var(--bd)',borderRadius:6,padding:'3px 4px',fontSize:11,fontFamily:'inherit',background:'#fff',maxWidth:110}},
                   ...['김포(켄달)','김포(삼우)','평택컬리','창원물류대행','기타'].concat(['김포(켄달)','김포(삼우)','평택컬리','창원물류대행','기타'].indexOf(normCenter2(r.center))<0?[normCenter2(r.center)]:[]).map(c=>R('option',{key:c,value:c},c)))),
-                R('td',{style:{fontSize:11.5,fontWeight:600}},r.name),
+                R('td',{style:{fontSize:11.5,fontWeight:600}},review.src==='manual'
+                  ?R('input',{value:r.name||'',list:'shipManualNames',placeholder:'품목명 (입력하면 목록에서 고를 수 있음)',onChange:e=>updReviewRow(i,'name',e.target.value),
+                      style:{width:'100%',minWidth:160,boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:6,padding:'4px 6px',fontSize:12,fontFamily:'inherit'}})
+                  :r.name),
                 R('td',{style:{textAlign:'right'}},inp('box',48)),
                 R('td',{style:{textAlign:'right'}},inp('pack',48)),
                 R('td',{style:{textAlign:'right',fontWeight:800,color:need?'#B45309':'var(--p)'}},
-                  need?'입력필요':((r.total||0).toLocaleString()+(r.pack>0&&r.box>0&&r.box*r.pack===r.total?' ✅':''))),
+                  review.src==='manual'?inp('total',64):need?'입력필요':((r.total||0).toLocaleString()+(r.pack>0&&r.box>0&&r.box*r.pack===r.total?' ✅':''))),
                 R('td',{style:{textAlign:'center',fontSize:11,color:'var(--tm)'}},r.exp||'-'),
                 R('td',{style:{textAlign:'center'}},R('button',{onClick:()=>delReviewRow(i),title:'이 행 삭제(가짜/오류)',style:{background:'none',border:'none',cursor:'pointer',color:'#FCA5A5',fontSize:14,padding:2}},'✕')));
             }))
-          ))
+          )),
+          review.src==='manual'&&R('button',{className:'btn bs',onClick:addReviewRow,style:{marginTop:8,fontSize:12}},'➕ 품목 추가'),
+          review.src==='manual'&&R('datalist',{id:'shipManualNames'},...Array.from(new Set([...(canonNames||[]),...Object.keys((parsed&&parsed.prodTotal)||{})])).sort().map(n=>R('option',{key:n,value:n})))
         ),
         R('div',{className:'mfoot'},
           R('button',{className:'btn bs',onClick:()=>setReview(null),style:{flex:1,padding:10}},'취소'),
