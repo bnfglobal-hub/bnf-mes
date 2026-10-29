@@ -21859,10 +21859,7 @@ function PageShipSort({mats,hqItems}){
   };
   /* 수동 매핑 저장 (Supabase merge) */
   const saveNameMap=(nm)=>{
-    sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data:r})=>{
-      const ex=r&&r.state_data?r.state_data:{};
-      sbClient.from('app_state').upsert({id:1,state_data:{...ex,shipsort_namemap:nm},updated_at:new Date().toISOString()});
-    });
+    sbClient.rpc('set_state_key',{k:'shipsort_namemap',v:nm}).then(({error})=>{if(error)console.error('[ShipSort] 재고 연결 저장 실패',error);});
   };
   const setLink=(prodName,code)=>{
     const nm={...nameMap};
@@ -21930,9 +21927,9 @@ function PageShipSort({mats,hqItems}){
   const saveShipsort=async(data,date)=>{
     setSaveMsg('saving');
     try{
-      const{data:r}=await sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle();
-      const ex=r&&r.state_data?r.state_data:{};
-      const{error}=await sbClient.from('app_state').upsert({id:1,state_data:{...ex,shipsort_data:data,shipsort_date:date||''},updated_at:new Date().toISOString()});
+      /* 출고계획 키만 서버에서 바꿈 (2026-10-29) — 예전엔 id=1 전체(약 900KB)를 읽어 다시 써서 statement timeout이 남 */
+      let{error}=await sbClient.rpc('set_state_key',{k:'shipsort_data',v:data});
+      if(!error)({error}=await sbClient.rpc('set_state_key',{k:'shipsort_date',v:date||''}));
       if(error){
         setSaveMsg('error');console.error('[ShipSort] 저장 실패',error);
         alert('출고계획 저장 실패: '+(error.message||error.code||'알 수 없는 오류')+'\n\n데이터 용량이 너무 크거나 네트워크/권한 문제일 수 있습니다.');
