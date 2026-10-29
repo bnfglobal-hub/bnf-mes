@@ -21559,6 +21559,19 @@ function PageShipSort({mats,hqItems}){
   const[shipDate,setShipDate]=useState('');
   const[loadedFromDB,setLoadedFromDB]=useState(false);
   const[nameMap,setNameMap]=useState({}); /* {정규화제품명: matCode} 수동 연결 매핑 */
+  /* 작업가능 수량 — 완제품 재고 현황과 같은 기준: 그 완제품에 '주요'로 지정한 반제품 재고의 최솟값 (읽기 전용) */
+  const[semiCfg,setSemiCfg]=useState(()=>{try{return{map:JSON.parse(localStorage.getItem('bnf_prod_semi_map')||'{}'),key:JSON.parse(localStorage.getItem('bnf_prod_semi_key')||'{}')};}catch(e){return{map:{},key:{}};}});
+  useEffect(()=>{
+    sbClient.from('app_state').select('m:state_data->bnf_prod_semi_map,k:state_data->bnf_prod_semi_key').eq('id',1).maybeSingle()
+      .then(({data:d})=>{if(d&&(d.m||d.k))setSemiCfg({map:d.m||{},key:d.k||{}});}).catch(()=>{});
+  },[]);
+  const workableOfCode=(code)=>{
+    const p=code&&(mats||[]).find(m=>m.c===code);if(!p)return null;
+    const linked=new Set(semiCfg.map[p.id]||[]);
+    let best=null;
+    (semiCfg.key[p.id]||[]).filter(id=>linked.has(id)).forEach(id=>{const mt=(mats||[]).find(x=>x.id===id);if(!mt)return;const v=+mt.s||0;if(best===null||v<best)best=v;});
+    return best;
+  };
   const[linkTarget,setLinkTarget]=useState(null); /* 연결 모달에서 매핑할 출고 제품명 */
   const[linkSearch,setLinkSearch]=useState('');
   const[saveMsg,setSaveMsg]=useState(''); /* '' | saving | saved | error */
@@ -23853,6 +23866,7 @@ function PageShipSort({mats,hqItems}){
                   st
                     ? R('span',{style:{fontSize:11}},
                         R('span',{style:{color:'#6E645C'}},'재고 ',fN(st.stock),st.unit),
+                        (()=>{const wk=workableOfCode(st.code);return wk===null?null:R('span',{style:{marginLeft:6,color:'#15803D',fontWeight:700},title:'주요 반제품 재고 기준 작업 가능 수량 (완제품 재고 현황과 동일)'},'· 작업가능 ',fN(wk),'ea');})(),
                         isManual&&R('span',{style:{marginLeft:4,fontSize:9,color:'#9333EA',fontWeight:700}},'🔗'),
                         R('span',{style:{marginLeft:6,padding:'2px 8px',borderRadius:10,background:enough?'#DCFCE7':'#FEE2E2',color:enough?'#15803D':'#B91C1C',fontWeight:700,fontSize:10}},enough?'✓ 충분':'⚠ 부족 '+fN(t-st.stock))
                       )
