@@ -46,6 +46,33 @@ function findContact(cfg: any, peer: string, name: string) {
   ) || null;
 }
 
+/* 우리 회사 직원이 보낸 문자·카톡은 접수하지 않음 (2026-10-29 사장 지시)
+   - 직원 명단 emp(이름·전화) + 설정의 추가 제외 목록(cfg.exclude: 이름 또는 번호)
+   - 카톡 보낸사람 '이정길 이사'처럼 이름 뒤에 직함이 붙어도 제외, '이선화'처럼 다른 이름은 제외 안 함 */
+const TITLE_RE = /^(대표|대표이사|사장|부사장|회장|전무|상무|이사|본부장|공장장|실장|부장|차장|과장|팀장|대리|주임|사원|매니저|님|씨)?(님)?$/;
+let staffCache: { at: number; list: { name: string; phone: string }[] } | null = null;
+async function staffList() {
+  if (staffCache && Date.now() - staffCache.at < 10 * 60e3) return staffCache.list;
+  const { data } = await SB.from("emp").select("name,phone,status");
+  const list = (data || []).filter((e: any) => !/퇴사|resign|inactive/i.test(String(e.status || "")))
+    .map((e: any) => ({ name: String(e.name || "").replace(/\s/g, ""), phone: normPhone(e.phone || "") }))
+    .filter((e: any) => e.name.length >= 2 || e.phone.length >= 9);
+  staffCache = { at: Date.now(), list };
+  return list;
+}
+async function isStaff(cfg: any, ch: string, peer: string, name: string) {
+  const extra = (Array.isArray(cfg.exclude) ? cfg.exclude : String(cfg.exclude || "").split(/[\n,]/))
+    .map((s: any) => String(s || "").trim()).filter(Boolean)
+    .map((s: string) => (/^[\d\-\s+]{9,}$/.test(s) ? { name: "", phone: normPhone(s) } : { name: s.replace(/\s/g, ""), phone: "" }));
+  const list = [...(await staffList()), ...extra];
+  const ph = ch === "sms" ? normPhone(peer) : "";
+  const names = [String(name || ""), ch === "kakao" ? String(peer || "") : ""].map((s) => s.replace(/\s/g, "")).filter(Boolean);
+  return list.some((e) =>
+    (ph && e.phone && e.phone === ph) ||
+    (e.name && names.some((n) => n.startsWith(e.name) && TITLE_RE.test(n.slice(e.name.length))))
+  );
+}
+
 /* 주문처럼 보이는지 1차 거름(모르는 번호의 사적인 메시지는 저장도 AI 호출도 하지 않음) */
 const ORDER_HINT = /(발주|주문|보내\s*주|부탁|넣어\s*주|박스|box|ea|개|kg|키로|입고|납품|출고|배송|수량|원장|마감|계산서|세금|발행|잔액|금액\s*확인|정산|대사)/i;
 /* 주문 말고 경영지원 요청 (2026-10-29): 거래처가 보낸 원장 금액 확인 / 우리 원장 요청 / 계산서 발행 요청 */
@@ -152,6 +179,14 @@ async function handleIn(b: any, cfg: any) {
   const peerName = String(b.name || b.from || "").trim();
   if (!text || !peer) return { reply: "", skip: "empty" };
   if (AD_HINT.test(text)) return { reply: "", skip: "ad" };
+  if (await isStaff(cfg, ch, peer, peerName)) {
+    // 직원 메시지는 저장 안 함 — 단, 그 방에 쌓아둔 카톡 답장은 이번 알림에 붙여 내보냄
+    if (ch !== "kakao") return { reply: "", skip: "staff" };
+    const { data: q } = await SB.from("msg_hub").select("id,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").eq("peer", peer).order("id");
+    if (!q || !q.length) return { reply: "", skip: "staff" };
+    await SB.from("msg_hub").update({ status: "sent", updated_at: now() }).in("id", q.map((x: any) => x.id));
+    return { reply: q.map((x: any) => x.body).join("\n\n"), skip: "staff" };
+  }
   const contact = findContact(cfg, peer, peerName);
   if (cfg.only_contacts && !contact) return { reply: "", skip: "not_contact" };
   if (!contact && !ORDER_HINT.test(text)) return { reply: "", skip: "no_hint" };

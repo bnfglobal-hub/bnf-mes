@@ -16820,7 +16820,7 @@ function MsgPhoneApp({key0}){
 }
 
 function MsgCfg({cfg,env,reload}){
-  const[f,setF]=useState(()=>({auto_reply:cfg.auto_reply!==false,only_contacts:!!cfg.only_contacts,receipt_tpl:cfg.receipt_tpl||'',confirm_tpl:cfg.confirm_tpl||'',po_tpl:cfg.po_tpl||'',sender:cfg.sender||'',pf_id:cfg.pf_id||'',tpl_id:cfg.tpl_id||'',contacts:(cfg.contacts||[]).map(c=>({...c})),notify_ids:cfg.notify_ids||[]}));
+  const[f,setF]=useState(()=>({auto_reply:cfg.auto_reply!==false,only_contacts:!!cfg.only_contacts,receipt_tpl:cfg.receipt_tpl||'',confirm_tpl:cfg.confirm_tpl||'',po_tpl:cfg.po_tpl||'',sender:cfg.sender||'',pf_id:cfg.pf_id||'',tpl_id:cfg.tpl_id||'',contacts:(cfg.contacts||[]).map(c=>({...c})),notify_ids:cfg.notify_ids||[],exclude:Array.isArray(cfg.exclude)?cfg.exclude.join('\n'):(cfg.exclude||'')}));
   const[emps,setEmps]=useState([]);
   const[key,setKey]=useState('');
   const[saved,setSaved]=useState('');
@@ -16861,7 +16861,10 @@ function MsgCfg({cfg,env,reload}){
       R('textarea',{style:{...inp,minHeight:70},value:f.po_tpl,placeholder:DEF_PO_TPL,onChange:e=>setF(p=>({...p,po_tpl:e.target.value}))}),
       lbl('새 주문 알림 받을 직원 (휴대폰 푸시)'),
       R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},...emps.map(e=>R('label',{key:e.id,style:{fontSize:12,display:'flex',gap:4,alignItems:'center'}},
-        R('input',{type:'checkbox',checked:f.notify_ids.includes(e.id),onChange:ev=>setF(p=>({...p,notify_ids:ev.target.checked?[...p.notify_ids,e.id]:p.notify_ids.filter(x=>x!==e.id)}))}),e.name)))
+        R('input',{type:'checkbox',checked:f.notify_ids.includes(e.id),onChange:ev=>setF(p=>({...p,notify_ids:ev.target.checked?[...p.notify_ids,e.id]:p.notify_ids.filter(x=>x!==e.id)}))}),e.name))),
+      lbl('🚫 접수 제외 — 직원 명단(인사 정보의 이름·전화번호)은 자동 제외. 명단에 없는 사람·번호를 한 줄에 하나씩 추가'),
+      R('textarea',{style:{...inp,minHeight:54},value:f.exclude,placeholder:'예) 홍길동\n010-1234-5678\nB&F 영업팀',onChange:e=>setF(p=>({...p,exclude:e.target.value}))}),
+      note('카톡 보낸 사람이 “이정길 이사”처럼 이름 뒤에 직함이 붙어도 제외됩니다. 카톡방 이름을 적으면 그 방 전체가 제외됩니다.')
     ),
     sec('📇 거래처·공급처 연락처',
       note('카톡방 이름은 카톡 알림 제목에 뜨는 이름 그대로 적으세요. 확정 안내는 여기 지정한 방식으로 나갑니다.'),
