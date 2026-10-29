@@ -9017,14 +9017,16 @@ const LEDGER_INV={tax:'세금계산서',free:'계산서',both:'동시발행',non
 function PageGaLedger({user}){
   const ymdL=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
   /* 기본 월: 10일까지는 지난달 마감, 그 뒤로는 이번 달 */
-  const[month,setMonth]=useState(()=>{const d=new Date();if(d.getDate()<=10)d.setDate(0);return ymdL(d).slice(0,7);});
+  /* 메시지 수발주 [📒 원장 확인]에서 넘어오면 그 거래처·월로 시작 (2026-10-29) */
+  const jump=(()=>{try{const v=JSON.parse(sessionStorage.getItem('bnf_ledger_jump')||'null');sessionStorage.removeItem('bnf_ledger_jump');return v&&Date.now()-(+v.at||0)<60000?v:null;}catch(e){return null;}})();
+  const[month,setMonth]=useState(()=>{if(jump&&/^\d{4}-\d{2}$/.test(jump.month||''))return jump.month;const d=new Date();if(d.getDate()<=10)d.setDate(0);return ymdL(d).slice(0,7);});
   const[custs,setCusts]=useState(null);
   const[cfg,setCfg]=useState(null);       /* {cust:{key:{inv}}, auto:{enabled,confirm}} */
   const[rec,setRec]=useState(null);       /* {cust:{key:{sent,ok,issued}}, queued:[]} */
   const[loadErr,setLoadErr]=useState(false);
   const[busy,setBusy]=useState('');
-  const[q,setQ]=useState('');
-  const[showAll,setShowAll]=useState(false);
+  const[q,setQ]=useState(()=>(jump&&jump.q)||'');
+  const[showAll,setShowAll]=useState(()=>!!(jump&&jump.q));
   const[sel,setSel]=useState({});
   const[guide,setGuide]=useState('');
   const[msg,setMsg]=useState('');
@@ -16626,6 +16628,12 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
   const getItems=(r)=>edit[r.id]||((r.parsed&&r.parsed.items)||[]).map(i=>({...i}));
   /* 답장 문구: 자동 답장 없음 — [확정 + 안내 발송]/[회신] 누를 때만 이 문구로 보냄. 직접 고치면 그대로 보냄 (2026-10-29) */
   const[msgTxt,setMsgTxt]=useState({});
+  /* 거래처원장 메뉴로 이동 — 카톡방 이름 '우리상사 김해인'은 첫 단어(상호)로 검색 */
+  const openLedger=(name,mon)=>{
+    const q=String(name||'').replace(/\(주\)|\(유\)|㈜|주식회사/g,'').trim().split(/\s+/)[0]||'';
+    try{sessionStorage.setItem('bnf_ledger_jump',JSON.stringify({q,month:mon||'',at:Date.now()}));}catch(e){}
+    window.dispatchEvent(new CustomEvent('bnf-go',{detail:{page:'ga_ledger'}}));
+  };
   const msgDefault=(r)=>{const p=r.parsed||{};const q=MSG_REQ[p.intent];
     if(q&&!getItems(r).length){const mon=p.month?Number(String(p.month).slice(5,7))+'월 ':'';return msgFill(q.tpl,{customer:r.customer||'',month:mon});}
     return msgFill(cfg.confirm_tpl||DEF_CONFIRM_TPL,{customer:r.customer||'',items:msgItemsLine(getItems(r)),due:p.due?'출고일 '+p.due+'\n':''});};
@@ -16685,10 +16693,11 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
             bk?R('span',null,'우리 장부(이카운트) '+mon+': 매입 ',R('b',null,fN(bk.buy||0)),'원 · 매출 ',R('b',null,fN(bk.sales||0)),'원',
                 p.amount?R('span',{style:{marginLeft:6,fontWeight:700,color:[bk.buy,bk.sales].some(v=>Math.round(+v||0)===Math.round(+p.amount))?'#15803D':'#B91C1C'}},
                   [bk.buy,bk.sales].some(v=>Math.round(+v||0)===Math.round(+p.amount))?'✓ 일치':'⚠ 차이 확인'):null)
-              :R('span',{style:{color:'var(--tm)'}},'우리 장부에서 이 거래처의 '+mon+' 금액을 찾지 못했습니다 (거래처원장 메뉴에서 확인)'),
+              :R('span',{style:{color:'var(--tm)'}},'우리 장부에서 이 거래처의 '+mon+' 금액을 찾지 못했습니다 — [📒 원장 확인]으로 거래처원장에서 확인하세요'),
             r.status==='new'&&R('div',{style:{marginTop:6}},msgBox(r)),
             r.status==='new'&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}},
               R('button',{className:'btn bp',disabled:busy===r.id,onClick:()=>reqDone(r,true)},q.done+' ('+(MSG_CH[replyRoute(r).ch]||'')+')'),
+              R('button',{className:'btn bs',onClick:()=>openLedger(r.customer||r.peer_name,mon),title:'거래처원장 메뉴에서 이 거래처의 '+mon+' 원장을 엽니다'},'📒 원장 확인'),
               R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>reqDone(r,false)},'처리 완료만'),
               R('button',{className:'btn bw',disabled:busy===r.id,onClick:()=>act(r,'ignored',false)},'무시')));
         })(),
@@ -24582,6 +24591,8 @@ function App(){
   };
 
   const[page,setPage]=useState('home');
+  /* 다른 화면에서 메뉴 이동: window.dispatchEvent(new CustomEvent('bnf-go',{detail:{page}})) */
+  useEffect(()=>{const go=e=>{const p=e&&e.detail&&e.detail.page;if(p){setPage(p);try{window.scrollTo(0,0);}catch(_){}}};window.addEventListener('bnf-go',go);return()=>window.removeEventListener('bnf-go',go);},[]);
   /* 로그인(사용자 변경) 시 항상 홈 화면부터 시작 */
   useEffect(()=>{if(user)setPage('home');},[user&&user.id]);
   /* ── 뒤로가기 지원: 페이지 이동을 브라우저 히스토리에 쌓아
