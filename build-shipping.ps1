@@ -23,7 +23,7 @@ $style = Get-Block $lines '^<style>' { param($x) $x -match '^</style>' }
 
 # 2) 공용 헬퍼 (한 줄짜리 유틸)
 #    한 줄 const는 그 줄만, function(여러 줄)은 다음 '}'로 시작하는 줄까지 가져온다
-$helperNames = @('fN','addDD','today2','now2','getDate','Portal','hqConvOf','useBnfSyncReload','filesFromDrop')
+$helperNames = @('fN','addDD','today2','now2','getDate','Portal','hqConvOf','useBnfSyncReload','filesFromDrop','appStateChanged')
 $helpers = @()
 foreach ($h in $helperNames) {
   $k = -1

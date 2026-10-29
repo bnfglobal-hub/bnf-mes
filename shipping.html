@@ -1185,6 +1185,16 @@ function filesFromDrop(dt){
   });
   return Promise.all(entries.map(en=>walk(en,''))).then(()=>out.length?out:plainFiles);
 }
+async function appStateChanged(ref){
+  try{
+    const{data}=await sbClient.from('app_state').select('updated_at').eq('id',1).maybeSingle();
+    const ts=data&&data.updated_at;
+    if(!ts)return true;
+    if(ref.current===ts)return false;
+    ref.current=ts;
+    return true;
+  }catch(e){return false;}
+}
 const exportXL=(rows,fname,sheetName)=>{
   try{
     const ws=XLSX.utils.aoa_to_sheet(rows);
