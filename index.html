@@ -16592,7 +16592,33 @@ function PageMsgHub({user,isAdmin,orders}){
   );
 }
 
+/* 카톡·문자 경영지원 요청 (msg-hub가 intent로 분류, 2026-10-29) — 회신 문구 */
+const MSG_REQ={
+  ledger_confirm:{l:'📒 마감원장 확인 요청',c:'#7C3AED',done:'✅ 금액 일치 회신',tpl:'[B&F글로벌] {customer}님 {month}마감원장 금액 확인했습니다. 감사합니다.'},
+  ledger_request:{l:'📤 마감원장 요청',c:'#2563EB',done:'📤 원장 발송 완료 회신',tpl:'[B&F글로벌] {customer}님 {month}마감원장 메일로 보내드렸습니다. 확인 부탁드립니다.'},
+  invoice_request:{l:'🧾 계산서 발행 요청',c:'#B45309',done:'🧾 발행 완료 회신',tpl:'[B&F글로벌] {customer}님 {month}계산서 발행했습니다. 확인 부탁드립니다.'}
+};
+/* 거래처명 → 이카운트 월별 매입/매출(id4 customer_monthly) 찾기: (주)·주식회사·띄어쓰기·우리 회사명 빼고 포함 비교 */
+const msgBookKey=s=>String(s||'').replace(/\(주\)|주식회사|㈜|비엔에프글로벌|B&F글로벌|\s/g,'').toLowerCase();
+function msgBookOf(cm,month,name){
+  const m=cm&&cm[month];const k=msgBookKey(name);if(!m||k.length<2)return null;
+  let hit=null;Object.keys(m).forEach(key=>{const kk=msgBookKey(m[key].name||key);if(!hit&&kk&&(kk.indexOf(k)>=0||k.indexOf(kk)>=0))hit=m[key];});
+  return hit;
+}
 function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,setBusy}){
+  const[cm,setCm]=useState(null);
+  useEffect(()=>{sbClient.from('app_state').select('c:state_data->customer_monthly').eq('id',4).maybeSingle().then(({data})=>setCm((data&&data.c)||{})).catch(()=>{});},[]);
+  const prevMonth=()=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7);};
+  const reqDone=async(r,send)=>{
+    const p=r.parsed||{};const q=MSG_REQ[p.intent];setBusy(r.id);
+    try{
+      await msgHub('update',{id:r.id,patch:{status:'confirmed',meta:{...(r.meta||{}),by:user.name,at:new Date().toISOString()}}});
+      if(send){const rt=replyRoute(r);const mon=p.month?Number(String(p.month).slice(5,7))+'월 ':'';
+        if(rt.to)await msgHub('send',{ch:rt.ch,to:rt.to,text:msgFill(q.tpl,{customer:r.customer||'',month:mon}),name:r.customer,customer:r.customer,ref:r.id,by:user.name});}
+      reload();
+    }catch(e){alert('처리 실패: '+(e.message||e));}
+    setBusy(0);
+  };
   const[edit,setEdit]=useState({});
   const getItems=(r)=>edit[r.id]||((r.parsed&&r.parsed.items)||[]).map(i=>({...i}));
   const setItem=(r,idx,k,v)=>setEdit(p=>{const it=getItems(r).map(x=>({...x}));it[idx][k]=k==='qty'?(parseFloat(v)||0):v;return{...p,[r.id]:it};});
@@ -16639,7 +16665,19 @@ function MsgInbox({rows,showDone,setShowDone,cfg,replyRoute,reload,user,busy,set
         (p.due||p.note)&&R('div',{style:{fontSize:12,color:'#5D534B',marginBottom:6}},p.due&&('📅 희망일 '+p.due+'  '),p.note&&('📝 '+p.note)),
         r.reply&&R('div',{style:{fontSize:11,color:'#10b981',marginBottom:6}},'↩ 자동 접수 답장 보냄'),
         r.meta&&r.meta.perr&&R('div',{style:{fontSize:11,color:'#ef4444',marginBottom:6}},'AI 인식 실패: '+r.meta.perr),
-        r.status==='new'&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        MSG_REQ[p.intent]&&!items.length&&(()=>{const q=MSG_REQ[p.intent];const mon=p.month||prevMonth();const bk=msgBookOf(cm,mon,r.customer||r.peer_name);
+          return R('div',{style:{border:'1px solid '+q.c+'40',background:q.c+'0D',borderRadius:8,padding:'8px 10px',marginBottom:8,fontSize:12,lineHeight:1.7}},
+            R('b',{style:{color:q.c}},q.l),' · '+mon+(p.amount?' · 메시지 금액 '+fN(p.amount)+'원':''),R('br'),
+            bk?R('span',null,'우리 장부(이카운트) '+mon+': 매입 ',R('b',null,fN(bk.buy||0)),'원 · 매출 ',R('b',null,fN(bk.sales||0)),'원',
+                p.amount?R('span',{style:{marginLeft:6,fontWeight:700,color:[bk.buy,bk.sales].some(v=>Math.round(+v||0)===Math.round(+p.amount))?'#15803D':'#B91C1C'}},
+                  [bk.buy,bk.sales].some(v=>Math.round(+v||0)===Math.round(+p.amount))?'✓ 일치':'⚠ 차이 확인'):null)
+              :R('span',{style:{color:'var(--tm)'}},'우리 장부에서 이 거래처의 '+mon+' 금액을 찾지 못했습니다 (거래처원장 메뉴에서 확인)'),
+            r.status==='new'&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}},
+              R('button',{className:'btn bp',disabled:busy===r.id,onClick:()=>reqDone(r,true)},q.done+' ('+(MSG_CH[replyRoute(r).ch]||'')+')'),
+              R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>reqDone(r,false)},'처리 완료만'),
+              R('button',{className:'btn bw',disabled:busy===r.id,onClick:()=>act(r,'ignored',false)},'무시')));
+        })(),
+        r.status==='new'&&!(MSG_REQ[p.intent]&&!items.length)&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
           R('button',{className:'btn bp',disabled:busy===r.id,onClick:()=>act(r,'confirmed',true)},'✅ 확정 + 안내 발송 ('+(MSG_CH[rt.ch]||rt.ch)+')'),
           R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>act(r,'confirmed',false)},'확정만'),
           R('button',{className:'btn bs',disabled:busy===r.id,onClick:()=>reparse(r)},'🔄 다시 인식'),

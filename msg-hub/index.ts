@@ -1,4 +1,4 @@
-// msg-hub: 업무폰(안드로이드 MacroDroid) ↔ MES 메시지 수발주 허브
+// msg-hub: 업무폰(BNF 업무폰 앱, bnf-phone/) ↔ MES 메시지 수발주 허브 — 주문 + 마감원장·계산서 요청 분류
 //  · 휴대폰  → in(문자/카톡 수신 전달) · next/ack(MES가 쌓은 문자 발송 대기열 처리) · ping
 //  · MES     → list · cfg_get/cfg_set · update · send(phone_sms|kakao_reply|api_sms|alimtalk) · reparse
 //  · AI 인식은 Gemini(GEMINI_API_KEY), 문자 API·알림톡은 솔라피(SOLAPI_API_KEY/SOLAPI_API_SECRET)
@@ -47,7 +47,9 @@ function findContact(cfg: any, peer: string, name: string) {
 }
 
 /* 주문처럼 보이는지 1차 거름(모르는 번호의 사적인 메시지는 저장도 AI 호출도 하지 않음) */
-const ORDER_HINT = /(발주|주문|보내\s*주|부탁|넣어\s*주|박스|box|ea|개|kg|키로|입고|납품|출고|배송|수량)/i;
+const ORDER_HINT = /(발주|주문|보내\s*주|부탁|넣어\s*주|박스|box|ea|개|kg|키로|입고|납품|출고|배송|수량|원장|마감|계산서|세금|발행|잔액|금액\s*확인|정산|대사)/i;
+/* 주문 말고 경영지원 요청 (2026-10-29): 거래처가 보낸 원장 금액 확인 / 우리 원장 요청 / 계산서 발행 요청 */
+const REQ_LABEL: Record<string, string> = { ledger_confirm: "마감원장 확인 요청", ledger_request: "마감원장 요청", invoice_request: "계산서 발행 요청" };
 const AD_HINT = /(\(광고\)|무료거부|수신거부|인증번호|본인확인|택배.*도착)/;
 
 async function gemini(prompt: string): Promise<string> {
@@ -86,10 +88,11 @@ async function parseOrder(text: string, contactName: string, cfg: any) {
     "오늘 날짜(한국): " + today + "\n" +
     "보낸 사람(등록된 거래처명, 없으면 빈칸): " + (contactName || "") + "\n" +
     "우리 제품 목록(가능하면 이 이름으로 매칭):\n- " + [...prods, ...extra].join("\n- ") + "\n\n" +
-    "출력 형식: {\"is_order\":true|false, \"kind\":\"수주\"|\"발주회신\"|\"문의\"|\"기타\", \"customer\":\"거래처명(메시지 서명/보낸사람에서)\", " +
+    "출력 형식: {\"is_order\":true|false, \"intent\":\"order\"|\"ledger_confirm\"|\"ledger_request\"|\"invoice_request\"|\"other\", \"month\":\"YYYY-MM 또는 빈칸(10월 마감→올해 10월)\", \"amount\":숫자(메시지에 적힌 금액, 없으면 0), \"kind\":\"수주\"|\"발주회신\"|\"문의\"|\"기타\", \"customer\":\"거래처명(메시지 서명/보낸사람에서)\", " +
     "\"items\":[{\"name\":\"메시지에 적힌 품목명\",\"matched\":\"제품목록의 정확한 이름 또는 빈칸\",\"qty\":숫자,\"unit\":\"박스|ea|kg 등\"}], " +
     "\"due\":\"YYYY-MM-DD 또는 빈칸(내일/모레/요일은 날짜로 변환)\", \"note\":\"요청사항 요약\", \"confidence\":0~1}\n" +
-    "규칙: 주문/발주 요청이 아니면 is_order=false, items=[]. 수량이 없으면 qty=0. 추측으로 품목을 만들지 마라.\n\n" +
+    "규칙: 주문/발주 요청이 아니면 is_order=false, items=[]. 수량이 없으면 qty=0. 추측으로 품목을 만들지 마라.\n" +
+    "intent: 상대가 자기 쪽 마감원장(거래명세/잔액)을 보내며 금액 확인·회신을 부탁하면 ledger_confirm, 우리에게 마감원장(거래처원장)을 보내달라고 하면 ledger_request, 세금계산서·계산서 발행을 요청하면 invoice_request, 주문이면 order, 그 외 other.\n\n" +
     "메시지:\n" + text;
   const raw = await gemini(prompt);
   let s = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -161,11 +164,12 @@ async function handleIn(b: any, cfg: any) {
   let parsed: any = null, perr = "";
   try { parsed = await parseOrder(text, contact?.name || "", cfg); } catch (e) { perr = String((e as Error).message || e); }
   const isOrder = !!(parsed && parsed.is_order && parsed.items.length);
-  if (!isOrder && !contact && !perr) return { reply: "", skip: "not_order" };
+  const req = !isOrder && parsed && REQ_LABEL[parsed.intent] ? String(parsed.intent) : "";
+  if (!isOrder && !req && !contact && !perr) return { reply: "", skip: "not_order" };
 
   const customer = contact?.name || parsed?.customer || peerName || peer;
   const { data: row } = await SB.from("msg_hub").insert({
-    kind: "in", status: isOrder || perr ? "new" : "ignored", ch, peer, peer_name: peerName, customer, body: text,
+    kind: "in", status: isOrder || req || perr ? "new" : "ignored", ch, peer, peer_name: peerName, customer, body: text,
     parsed, meta: { contact: contact?.name || "", perr },
   }).select("id").single();
 
@@ -180,6 +184,12 @@ async function handleIn(b: any, cfg: any) {
       });
     }
   }
+  // 경영지원 요청 접수 답장 — 원장 확인 요청은 담당자 알림만(자동 답장 없음)
+  if (req && cfg.auto_reply !== false) {
+    const mon = parsed.month ? Number(String(parsed.month).slice(5, 7)) + "월 " : "";
+    if (req === "ledger_request") reply = "[B&F글로벌] " + customer + "님 " + mon + "마감원장 확인해서 보내드리겠습니다.";
+    if (req === "invoice_request") reply = "[B&F글로벌] " + customer + "님 " + mon + "계산서 발행 요청 접수되었습니다. 확인 후 발행해드리겠습니다.";
+  }
   // 카톡: 이 방으로 보내려고 쌓아둔 메시지가 있으면 이번 답장에 붙여서 내보냄
   if (ch === "kakao") {
     const { data: q } = await SB.from("msg_hub").select("id,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").eq("peer", peer).order("id");
@@ -190,7 +200,8 @@ async function handleIn(b: any, cfg: any) {
   }
   if (reply && row) await SB.from("msg_hub").update({ reply, updated_at: now() }).eq("id", row.id);
   if (isOrder) notifyStaff(cfg, "📨 새 주문 (" + (ch === "kakao" ? "카톡" : "문자") + ")", customer + ": " + itemsLine(parsed.items).replace(/\n/g, " ").slice(0, 80));
-  return { reply, id: row?.id, order: isOrder };
+  if (req) notifyStaff(cfg, "📒 " + REQ_LABEL[req] + " (" + (ch === "kakao" ? "카톡" : "문자") + ")", customer + ": " + text.replace(/\n/g, " ").slice(0, 80));
+  return { reply, id: row?.id, order: isOrder, req };
 }
 
 async function handleSend(b: any) {
