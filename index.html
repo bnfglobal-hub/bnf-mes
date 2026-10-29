@@ -15914,6 +15914,33 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
   };
   /* 발주방법 더블클릭 편집 → 거래처 CRM 메모로 저장 (양방향 연동) */
   const[ordEdit,setOrdEdit]=useState(null); /* {name,note} */
+  /* 📨 발주 메시지: 부족 품목 → 입고 요청일 고르기 → 메시지 자동 작성 → 업무폰 문자 / 카톡으로 보내기 (2026-10-29) */
+  const[poDraft,setPoDraft]=useState(null); /* {code,name,unit,qty,due,sup,tel,text,edited,busy,msg} */
+  const poText=(d)=>{const w=['일','월','화','수','목','금','토'][new Date(d.due+'T00:00:00').getDay()];
+    return msgFill(DEF_PO_TPL,{supplier:d.sup||'',items:'· '+d.name+' '+d.qty+(d.unit||''),due:d.due?(d.due+' ('+w+')'):''});};
+  const openPO=(r)=>{
+    const s=supOf(r.mat,r.name);
+    const tel=(s.contact&&String(s.contact).trim())||(s.name?crmPhoneOf(s.name):'');
+    const short=Math.max(0,r.needed-(+r.stock||0)-incOf(r.code))||r.short;
+    const dt=new Date(Date.now()+9*3600e3+2*86400e3);
+    const d={code:r.code,name:r.name,unit:r.unit,qty:Math.ceil(short*10)/10,due:dt.toISOString().slice(0,10),sup:s.name||'',tel:tel||'',edited:false,busy:'',msg:''};
+    d.text=poText(d);setPoDraft(d);
+  };
+  const poSet=(k,v)=>setPoDraft(p=>{const n=Object.assign({},p,{[k]:v,msg:''});if(k!=='text'&&!n.edited)n.text=poText(n);if(k==='text')n.edited=true;return n;});
+  const poDone=(how)=>{const d=poDraft;setIncoming(d.code,String(d.qty));setPoDraft(null);bnfToast(how+' — 입고예정 '+d.qty+(d.unit||'')+' 반영');};
+  const poSms=async()=>{const d=poDraft;const to=String(d.tel||'').replace(/[^0-9]/g,'');
+    if(to.length<9){setPoDraft(p=>Object.assign({},p,{msg:'휴대폰 번호를 확인하세요'}));return;}
+    setPoDraft(p=>Object.assign({},p,{busy:'보내는 중…',msg:''}));
+    try{const j=await msgHub('send',{ch:'phone_sms',to,text:d.text,name:d.sup,customer:d.sup,by:'원료 발주'});
+      if(j.row&&j.row.status==='failed')throw new Error(j.row.err||'발송 실패');
+      poDone('📱 업무폰 문자 발송 요청됨');
+    }catch(e){setPoDraft(p=>Object.assign({},p,{busy:'',msg:'❌ '+(e.message||e)}));}
+  };
+  /* 카톡은 먼저 말을 걸 수 없어서: 휴대폰은 공유창 → 카카오톡 → 공급처 방, PC는 복사 후 카톡 창에 붙여넣기 */
+  const poKakao=async()=>{const d=poDraft;
+    if(navigator.share&&matchMedia('(max-width:900px)').matches){try{await navigator.share({text:d.text});poDone('💬 카톡 공유');}catch(e){}return;}
+    bnfCopy(d.text,'발주 메시지 복사됨 — 카톡 '+(d.sup||'공급처')+' 방에 붙여넣고 보내세요');poDone('💬 카톡용 복사');
+  };
   const saveCrmNote=async()=>{
     if(!ordEdit)return;
     const note=(ordEdit.note||'').trim();
@@ -16281,7 +16308,9 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
                   ?(s.name+(s.contact?(' · '+s.contact):'')+(s.from==='buy'?(' · 매입내역 '+fDate(s.date)+' 기준'):'')+(s.price?(' · 단가 '+s.price.toLocaleString()+'원'):''))
                   :'매입처 정보 없음 (재고 관리에 입력하거나 매입내역이 쌓이면 자동 표시)'},
                 s.name||'-',
-                s.from==='buy'&&R('span',{style:{fontSize:'0.78em',color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'));
+                s.from==='buy'&&R('span',{style:{fontSize:'0.78em',color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'),
+                r.short>0&&!ordered&&R('div',null,R('button',{className:'no-capture',onClick:e=>{e.stopPropagation();openPO(r);},title:'입고 요청일을 고르면 발주 메시지를 만들어 문자·카톡으로 보냅니다',
+                  style:Object.assign({},CBTN,{marginTop:4,color:'var(--p)',borderColor:'#F5C9B3',background:'#FFF8F4'})},'📨 발주')));
             })(),
             /* 발주방법: 품목별 메모 우선, 그다음 거래처 CRM 메모 · 더블클릭으로 작성
                (기타구매·비품처럼 묶음 매입처는 품목별로 따로 저장) */
@@ -16465,6 +16494,21 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
           ?'기타구매(비품) 같은 묶음 매입처라 이 품목에만 저장됩니다. 다른 품목에는 영향이 없습니다.'
           :'저장하면 거래처 CRM의 메모에도 그대로 반영됩니다.')
     ),
+    poDraft&&R(Modal2,{title:'📨 발주 메시지 · '+(poDraft.sup||'공급처 미지정'),onClose:()=>setPoDraft(null),size:520,
+      footer:R('div',{style:{display:'flex',gap:8,width:'100%'}},
+        R('button',{className:'btn bs',onClick:()=>setPoDraft(null),style:{flex:1}},'취소'),
+        R('button',{className:'btn bs',disabled:!!poDraft.busy,onClick:poKakao,style:{flex:2,background:'#FEE500',borderColor:'#FEE500',color:'#3C1E1E',fontWeight:800}},'💬 카톡으로'),
+        R('button',{className:'btn bp',disabled:!!poDraft.busy,onClick:poSms,style:{flex:2}},poDraft.busy||'📱 문자 보내기'))},
+      R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+        R('div',{className:'fr'},R('label',{className:'lbl'},'입고 요청일'),R('input',{type:'date',className:'inp',value:poDraft.due,onChange:e=>poSet('due',e.target.value)})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'수량 ('+(poDraft.unit||'')+')'),R('input',{type:'number',className:'inp',value:poDraft.qty,min:0,onChange:e=>poSet('qty',e.target.value)})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'공급처'),R('input',{className:'inp',value:poDraft.sup,onChange:e=>poSet('sup',e.target.value)})),
+        R('div',{className:'fr'},R('label',{className:'lbl'},'휴대폰 (문자용)'),R('input',{className:'inp',value:poDraft.tel,placeholder:'010-0000-0000',onChange:e=>poSet('tel',e.target.value)}))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'메시지 (자동 작성 · 고쳐도 됩니다)'),
+        R('textarea',{className:'inp',value:poDraft.text,onChange:e=>poSet('text',e.target.value),style:{minHeight:150}})),
+      poDraft.msg&&R('div',{style:{fontSize:12,color:'#B91C1C',fontWeight:700}},poDraft.msg),
+      R('div',{style:{fontSize:11,color:'var(--tm)',lineHeight:1.6}},'📱 문자: 업무폰(BNF 업무폰 앱)이 1분 안에 보냅니다.  💬 카톡: 휴대폰에서는 공유창에서 카카오톡 → 공급처 방, PC에서는 복사된 내용을 카톡 방에 붙여넣으세요. 보내면 입고예정 수량이 자동 입력됩니다.')
+    ),
     woModal&&R(WorkOrderImgModal,{data:woModal,onClose:()=>setWoModal(null)})
   );
 }
@@ -16612,14 +16656,6 @@ function MsgSend({contacts,orders,env,cfg,reload,user,phoneAlive}){
   const[ch,setCh]=useState('phone_sms');const[text,setText]=useState('');
   const[sending,setSending]=useState(false);const[msg,setMsg]=useState('');
   const pickContact=(c)=>{setName(c.name||'');if(c.ch==='kakao_reply'){setCh('kakao_reply');setTo(c.room||'');}else{setCh(c.ch||'phone_sms');setTo(c.phone||'');}};
-  const pending=orders.filter(o=>o.status==='발주요청');
-  const fillPO=(o)=>{
-    const sup=contacts.find(c=>c.name&&o.supplier&&(o.supplier.indexOf(c.name)>=0||c.name.indexOf(o.supplier)>=0));
-    setName(o.supplier||'');
-    if(sup){setCh(sup.ch==='kakao_reply'?'kakao_reply':(sup.ch||'phone_sms'));setTo(sup.ch==='kakao_reply'?(sup.room||''):(sup.phone||''));}
-    else setTo(String(o.contact||'').replace(/[^\d-]/g,''));
-    setText(msgFill(cfg.po_tpl||DEF_PO_TPL,{supplier:o.supplier||'',items:'· '+o.matName+(o.amt?' '+o.amt+(o.unit||''):''),due:String(o.expAt||'').slice(0,10)}));
-  };
   const send=async()=>{
     if(!to.trim()||!text.trim()){setMsg('받는 사람과 내용을 입력하세요');return;}
     setSending(true);setMsg('');
@@ -16635,11 +16671,6 @@ function MsgSend({contacts,orders,env,cfg,reload,user,phoneAlive}){
   const chOpts=[['phone_sms','📱 업무폰 문자 (무료)',true],['kakao_reply','🟡 카톡방 답장 (무료)',true],['api_sms','✉ 문자 API (솔라피)',env.has_solapi],['alimtalk','🟨 카카오 알림톡 (솔라피)',env.has_solapi&&!!cfg.pf_id]];
   const inp={width:'100%',padding:'8px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box'};
   return R('div',null,
-    pending.length>0&&R('div',{className:'card',style:{marginBottom:10}},
-      R('div',{style:{fontWeight:700,fontSize:13,marginBottom:6}},'🚚 발주요청 상태인 원자재 → 공급처 발주 문자 채우기'),
-      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
-        ...pending.slice(0,20).map(o=>R('button',{key:o.id,className:'btn bs',onClick:()=>fillPO(o)},(o.supplier||'공급처?')+' · '+o.matName+(o.amt?' '+o.amt+(o.unit||''):''))))
-    ),
     contacts.length>0&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}},
       ...contacts.map((c,i)=>R('button',{key:i,className:'btn bw',onClick:()=>pickContact(c)},(c.type==='supplier'?'🏭 ':'🏪 ')+c.name))),
     R('div',{className:'card'},
@@ -16649,7 +16680,7 @@ function MsgSend({contacts,orders,env,cfg,reload,user,phoneAlive}){
       ),
       R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}},
         ...chOpts.map(([k,l,ok])=>R('button',{key:k,className:'btn '+(ch===k?'bp':'bs'),disabled:!ok,title:ok?'':'설정 탭에서 솔라피 키·채널을 먼저 등록하세요',style:{opacity:ok?1:.45},onClick:()=>setCh(k)},l))),
-      ch==='phone_sms'&&!phoneAlive&&R('div',{style:{fontSize:11,color:'#ef4444',marginBottom:6}},'⚠ 업무폰이 최근 15분간 응답이 없습니다. 휴대폰이 켜져 있고 MacroDroid가 실행 중인지 확인하세요.'),
+      ch==='phone_sms'&&!phoneAlive&&R('div',{style:{fontSize:11,color:'#ef4444',marginBottom:6}},'⚠ 업무폰이 최근 15분간 응답이 없습니다. 휴대폰이 켜져 있고 BNF 업무폰 앱이 실행 중인지 확인하세요.'),
       ch==='kakao_reply'&&R('div',{style:{fontSize:11,color:'var(--tm)',marginBottom:6}},'카톡은 먼저 말을 걸 수 없어서, 그 방에서 다음 메시지가 오면 답장으로 함께 나갑니다. 바로 보내야 하면 알림톡을 쓰세요.'),
       R('textarea',{style:{...inp,minHeight:130,resize:'vertical'},value:text,onChange:e=>setText(e.target.value),placeholder:'보낼 내용'}),
       R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}},
@@ -16673,14 +16704,41 @@ function MsgLog({rows}){
   );
 }
 
+/* MES 거래처(이카운트 수집본) → 연락처 파일(.vcf). 휴대폰에서 열면 '저장할 계정'으로 구글을 고르면 업무폰·구글 주소록에 함께 들어간다 */
+async function bnfContactsVcf(){
+  const{data}=await sbClient.from('app_state').select('c:state_data->ecount_customers').eq('id',4).maybeSingle();
+  const list=(data&&data.c&&data.c.list)||[];
+  const esc=s=>String(s||'').replace(/\\/g,'\\\\').replace(/[,;]/g,m=>'\\'+m).replace(/\r?\n/g,' ').trim();
+  const num=s=>String(s||'').replace(/[^0-9+\-]/g,'');
+  const seen=new Set();const out=[];
+  list.forEach(c=>{
+    const mob=num(c.mobile),tel=num(c.tel);if(!c.name||(!mob&&!tel))return;
+    const k=c.name+'|'+mob+'|'+tel;if(seen.has(k))return;seen.add(k);
+    const v=['BEGIN:VCARD','VERSION:3.0','N:;'+esc(c.name)+';;;','FN:'+esc(c.name),'ORG:'+esc(c.name)];
+    if(c.ceo)v.push('TITLE:대표 '+esc(c.ceo));
+    if(mob)v.push('TEL;TYPE=CELL:'+mob);
+    if(tel&&tel!==mob)v.push('TEL;TYPE=WORK:'+tel);
+    v.push('CATEGORIES:BNF거래처');
+    v.push('NOTE:'+esc('MES 거래처'+(c.code?' · 코드 '+c.code:'')+(c.kind?' · '+c.kind:'')));
+    v.push('END:VCARD');out.push(v.join('\r\n'));
+  });
+  return{text:out.join('\r\n')+'\r\n',count:out.length};
+}
 /* 업무폰 앱(bnf-phone) 설치·연결 — 업무폰이 직원 계정으로 로그인돼 있어도 보이도록 별도 탭 */
 function MsgPhoneApp({key0}){
   const[key,setKey]=useState(key0||'');
+  const[vcf,setVcf]=useState('');
+  const getVcf=async()=>{setVcf('만드는 중…');
+    try{const r=await bnfContactsVcf();if(!r.count){setVcf('전화번호가 있는 거래처가 없습니다');return;}
+      const f=new File([r.text],'BNF거래처_'+new Date().toISOString().slice(0,10)+'.vcf',{type:'text/vcard'});
+      const u=URL.createObjectURL(f);const a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),5000);
+      setVcf('✅ '+r.count+'곳 연락처 파일을 받았습니다');
+    }catch(e){setVcf('❌ '+(e.message||e));}};
   useEffect(()=>{if(key0){setKey(key0);return;}msgHub('cfg_get').then(j=>setKey((j.cfg&&j.cfg.device_key)||'')).catch(()=>{});},[key0]);
   const sec=(t,...ch)=>R('div',{className:'card',style:{marginBottom:10}},R('div',{style:{fontWeight:800,fontSize:13,marginBottom:4}},t),...ch);
   const note=(s)=>R('div',{style:{fontSize:11,color:'#5D534B',lineHeight:1.6,whiteSpace:'pre-wrap'}},s);
   const step=(n,t,...ch)=>R('div',{style:{margin:'10px 0'}},R('div',{style:{fontWeight:700,fontSize:12}},n+'. '+t),...ch.map(c=>typeof c==='string'?note(c):c));
-  return sec('📲 업무폰 앱 설치 (추천 · 3분)',
+  return R('div',null,sec('📲 업무폰 앱 설치 (추천 · 3분)',
       note('업무폰(갤럭시)에서 이 화면을 열고 순서대로 누르세요.'),
       step(1,'앱 받기','아래 버튼 → 다운로드된 파일 열기 → 설치.\n"출처를 알 수 없는 앱" 안내가 나오면 [설정] → 허용 켜기 후 뒤로. "안전하지 않은 앱" 경고가 나오면 [자세히] → [그래도 설치].'),
       R('a',{className:'btn bp',href:PHONE_APK_URL,style:{display:'flex',justifyContent:'center',padding:11,margin:'4px 0',textDecoration:'none'}},'⬇️ BNF 업무폰 앱 받기'),
@@ -16690,7 +16748,12 @@ function MsgPhoneApp({key0}){
       note('연결 버튼이 안 되면: 앱에서 [키 직접 입력]을 누르고 아래 키를 붙여넣으세요.'),
       key&&R('button',{className:'btn bw',style:{margin:'4px 0',fontFamily:'monospace'},onClick:()=>bnfCopy(key,'연결 키 복사됨 — 앱의 [키 직접 입력]에 붙여넣으세요')},'📋 연결 키 복사'),
       step(3,'앱에서 허용 3개','앱 화면의 [허용] 버튼을 위에서부터 차례로 누르면 끝입니다. 4칸이 모두 ✅ 가 되면 [서버 연결 확인]을 눌러 보세요.\n허용이 회색으로 막혀 있으면: 앱 화면 [앱 정보] → 오른쪽 위 ⋮ → "제한된 설정 허용".')
-    );
+    ),
+    sec('📇 MES 거래처 → 업무폰·구글 주소록',
+      note('이카운트 거래처 중 전화번호가 있는 곳을 연락처 파일(.vcf)로 받습니다. 업무폰에서 받은 파일을 열고 "저장할 위치"로 구글 계정(bnfglobal2002)을 고르면 업무폰과 구글 주소록에 함께 들어갑니다.\nPC에서는 contacts.google.com → 가져오기 → 이 파일 선택.'),
+      R('button',{className:'btn bp',style:{display:'flex',justifyContent:'center',padding:11,margin:'6px 0',width:'100%'},onClick:getVcf},'📇 거래처 연락처 파일 받기'),
+      vcf&&note(vcf))
+  );
 }
 
 function MsgCfg({cfg,env,reload}){
