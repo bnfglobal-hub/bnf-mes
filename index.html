@@ -23853,9 +23853,9 @@ function PageShipSort({mats,hqItems}){
                 )
               )));
             }),
-            R('div',{className:'card',style:{marginTop:4,maxWidth:720}},
+            R('div',{className:'card',style:{marginTop:4,maxWidth:960}},
               R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'제품 총수량 ('+(date||'미정')+' · 전 센터 합계) · 현재고 비교'),
-              R('div',{className:'hscroll'},R('div',{style:{minWidth:500}},
+              R('div',{className:'hscroll'},R('div',{style:{minWidth:640}},
               ...Object.entries(pt).map(([name,t])=>{
                 const st=findStock(name);
                 const enough=st?st.stock>=t:null;
@@ -23864,8 +23864,9 @@ function PageShipSort({mats,hqItems}){
                   R('span',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:st&&st.matchedName?('연결: '+st.matchedName+(isManual?' (수동)':'')):''},name),
                   R('span',{style:{fontWeight:700,color:'var(--p)'}},fN(t),' ea 필요'),
                   st
-                    ? R('span',{style:{fontSize:11}},
+                    ? R('span',{style:{fontSize:11,whiteSpace:'nowrap'}},
                         R('span',{style:{color:'#6E645C'}},'재고 ',fN(st.stock),st.unit),
+                        R('span',{style:{marginLeft:6,color:st.stock-t<0?'#B91C1C':'#2B211B',fontWeight:700},title:'현재고 - 출고 수량'},'→ 잔여 ',fN(st.stock-t),st.unit),
                         (()=>{const wk=workableOfCode(st.code);return wk===null?null:R('span',{style:{marginLeft:6,color:'#15803D',fontWeight:700},title:'주요 반제품 재고 기준 작업 가능 수량 (완제품 재고 현황과 동일)'},'· 작업가능 ',fN(wk),'ea');})(),
                         isManual&&R('span',{style:{marginLeft:4,fontSize:9,color:'#9333EA',fontWeight:700}},'🔗'),
                         R('span',{style:{marginLeft:6,padding:'2px 8px',borderRadius:10,background:enough?'#DCFCE7':'#FEE2E2',color:enough?'#15803D':'#B91C1C',fontWeight:700,fontSize:10}},enough?'✓ 충분':'⚠ 부족 '+fN(t-st.stock))
