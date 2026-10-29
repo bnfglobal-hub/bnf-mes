@@ -22546,6 +22546,22 @@ function PageShipSort({mats,hqItems}){
     setParsed(result);saveShipsort(result,shipDate);
   };
 
+  /* 이 날짜의 출고계획 전체 빼기 (2026-10-29) — 그 날짜의 모든 센터를 한 번에 제거 */
+  const removeDay=(day)=>{
+    if(!parsed||!parsed.byCenter)return;
+    const norm=d=>(d&&d!=='미정')?d:'미정';
+    const keys=Object.keys(parsed.byCenter).filter(k=>norm(parseCkey(k).date)===norm(day));
+    if(!keys.length)return;
+    const names=keys.map(k=>parseCkey(k).center);
+    if(!confirm((norm(day)==='미정'?'날짜 미정':day)+' 출고계획 전체('+keys.length+'개 센터: '+names.join(', ')+')를 뺄까요?'))return;
+    const byCenter={...parsed.byCenter};
+    keys.forEach(k=>{delete byCenter[k];});
+    const prefs=keys.map(k=>{const c=parseCkey(k);return c.center+'#'+(c.date||'')+'#';});
+    const sources=(Array.isArray(parsed.sources)?parsed.sources:[]).filter(s=>!prefs.some(pf=>s.startsWith(pf)));
+    const result={byCenter,prodTotal:recomputeProdTotal(byCenter),sources};
+    setParsed(result);saveShipsort(result,shipDate);
+  };
+
   /* 특정 (날짜·센터)의 출고일자 변경 — 미정→날짜 지정, 날짜 이동, 빈 값이면 미정으로 */
   /* 출고일자 수정 — 자체 모달 사용. 예전 prompt()/confirm() 방식은 아이폰 홈화면 앱(PWA)에서
      창이 조용히 무시되어 '미정' 날짜 지정이 안 되던 문제 (2026-10-15) */
@@ -23692,7 +23708,9 @@ function PageShipSort({mats,hqItems}){
                 dayMsg.indexOf(date+'|')===0&&R('span',{style:{fontSize:11,fontWeight:700,color:'#15803D'}},dayMsg.split('|')[1]),
                 R('button',{className:'btn bp btn-sm',onClick:copyDayImage,title:'이 날짜 출고계획을 화면 그대로 이미지로 복사 (카톡에 붙여넣기)'},'🖼 이미지 복사'),
                 R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayText,'✓ 복사됨'),title:'이 날짜 출고계획을 글로 복사 (카톡·메모용)'},'📋 글 복사'),
-                R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayTsv,'✓ 표 복사됨'),title:'엑셀에 붙여넣을 수 있는 표로 복사'},'📊 엑셀용')
+                R('button',{className:'btn bw btn-sm',onClick:()=>copyDay(dayTsv,'✓ 표 복사됨'),title:'엑셀에 붙여넣을 수 있는 표로 복사'},'📊 엑셀용'),
+                R('button',{className:'btn btn-sm',onClick:()=>removeDay(date),title:'이 날짜의 모든 센터를 출고계획에서 한 번에 빼기',
+                  style:{background:'#fff',color:'#DC2626',border:'1px solid #FECACA',fontWeight:800}},'✕ 전체 빼기')
               )
             ),
             /* ── 직전 출고와 소비기한이 달라진 제품 경고 ── */
