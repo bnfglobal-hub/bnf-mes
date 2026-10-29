@@ -22,12 +22,18 @@ function Get-Block([string[]]$L, [string]$startPattern, [scriptblock]$isEnd) {
 $style = Get-Block $lines '^<style>' { param($x) $x -match '^</style>' }
 
 # 2) 공용 헬퍼 (한 줄짜리 유틸)
-$helperNames = @('fN')
+#    한 줄 const는 그 줄만, function(여러 줄)은 다음 '}'로 시작하는 줄까지 가져온다
+$helperNames = @('fN','addDD','today2','now2','getDate','Portal','hqConvOf','useBnfSyncReload','filesFromDrop')
 $helpers = @()
 foreach ($h in $helperNames) {
-  $line = $lines | Where-Object { $_ -match "^const $h=" } | Select-Object -First 1
-  if (-not $line) { throw "헬퍼를 찾지 못함: $h" }
-  $helpers += $line
+  $k = -1
+  for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match "^(?:const $h=|(?:async )?function $h\()") { $k = $i; break } }
+  if ($k -lt 0) { throw "헬퍼를 찾지 못함: $h" }
+  if ($lines[$k] -match '^const ' -and $lines[$k].TrimEnd().EndsWith(';')) { $helpers += $lines[$k]; continue }
+  $m = -1
+  for ($j = $k + 1; $j -lt $lines.Count; $j++) { if ($lines[$j] -match '^\}') { $m = $j; break } }
+  if ($m -lt 0) { throw "헬퍼의 끝을 찾지 못함: $h" }
+  $helpers += $lines[$k..$m]
 }
 
 # 3) exportXL 헬퍼
@@ -52,7 +58,7 @@ if (-not $sbUrl -or -not $sbKey) { throw 'Supabase 설정을 찾지 못했습니
 $provided = @('R','sbClient','SB_URL','SB_KEY','exportXL','useState','useRef','useEffect','useMemo','ReactDOM','React') + $helperNames
 $topLevel = @{}
 foreach ($l in $lines) { if ($l -match '^(?:const|function|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)') { $topLevel[$Matches[1]] = $true } }
-$ssText = ($shipSort -join "`n")
+$ssText = (($shipSort + $helpers) -join "`n")   # 헬퍼가 다시 쓰는 이름도 검사
 # 주석 제거 후 식별자 검사 (주석 속 컴포넌트명 오탐 방지)
 $ssCode = [regex]::Replace($ssText, '/\*[\s\S]*?\*/', ' ')
 $missing = @()
