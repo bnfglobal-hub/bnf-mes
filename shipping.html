@@ -1241,6 +1241,7 @@ function PageShipSort({mats,hqItems}){
   const[shipImg,setShipImg]=useState(null); /* 발주서 이미지(base64 dataURL) */
   const[imgBusy,setImgBusy]=useState(false);
   const[imgErr,setImgErr]=useState('');
+  const[nameSug,setNameSug]=useState(null); /* 직접 추가 품목 검색 드롭다운 {i,rect} */
   const[review,setReview]=useState(null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
   const[ajPalOv,setAjPalOv]=useState({}); /* 파렛트 수 수동 수정값 {날짜|센터: 수} — 서버 공유 */
@@ -2159,10 +2160,37 @@ function PageShipSort({mats,hqItems}){
     const mts=review.src==='manual'?Date.now():0;
     const orders=Object.entries(byC).map(([center,items])=>({center,date:review.date,items,...(mts?{manual:mts}:{})}));
     if(!orders.length){alert('반영할 항목이 없습니다.');return;}
+    /* 직접 추가에서 재고 품목을 골랐으면 그 이름 → 재고코드 연결 (재고 비교가 바로 되도록) */
+    if(review.src==='manual'){
+      const nm={...nameMap};let ch=0;
+      review.rows.forEach(r=>{if(r.name&&r.code&&nm[normName(r.name)]!==r.code){const st=findStock(r.name);if(!st||st.code!==r.code){nm[normName(r.name)]=r.code;ch++;}}});
+      if(ch){setNameMap(nm);saveNameMap(nm);}
+    }
     /* 사람이 확인한 이름을 정식 사전에 등록 → 다음부터 같은 오인식 자동 교정 */
     try{saveCanon(review.rows.map(r=>r.name).filter(Boolean));}catch(e){}
     aggregate(orders,review.date);
     setReview(null);
+  };
+  /* 직접 추가: 품목명 검색 — 출고 품목명 + 본사재고/원재료(재고 수량 표시), 띄어쓰기로 여러 단어 검색 (2026-10-29) */
+  const nameSuggest=(q)=>{
+    const toks=String(q||'').trim().split(/\s+/).map(normName).filter(Boolean);
+    if(!toks.length)return[];
+    const hit=(s)=>{const n=normName(s);return toks.every(t=>n.includes(t));};
+    const out=[],seen=new Set();
+    Array.from(new Set([...(canonNames||[]),...Object.keys((parsed&&parsed.prodTotal)||{})])).forEach(n=>{
+      if(!hit(n)||seen.has(n))return;seen.add(n);const st=findStock(n);
+      out.push({name:n,code:'',stock:st?st.stock:null,unit:st?st.unit:'',src:'출고품목'});
+    });
+    linkCandidates().forEach(cd=>{
+      if(!(hit(cd.name)||hit(cd.code))||seen.has(cd.name))return;seen.add(cd.name);
+      out.push({name:cd.name,code:cd.code,stock:cd.stock,unit:cd.unit,src:cd.src});
+    });
+    return out.slice(0,40);
+  };
+  const pickName=(i,s)=>{
+    updReviewRow(i,'name',s.name);
+    setReview(rv=>{if(!rv)return rv;const rows=rv.rows.slice();rows[i]={...rows[i],code:s.code||''};return{...rv,rows};});
+    setNameSug(null);
   };
   const updReviewRow=(i,key,val)=>{
     setReview(rv=>{
@@ -3152,7 +3180,9 @@ function PageShipSort({mats,hqItems}){
                   style:{border:'1px solid var(--bd)',borderRadius:6,padding:'3px 4px',fontSize:11,fontFamily:'inherit',background:'#fff',maxWidth:110}},
                   ...['김포(켄달)','김포(삼우)','평택컬리','창원물류대행','기타'].concat(['김포(켄달)','김포(삼우)','평택컬리','창원물류대행','기타'].indexOf(normCenter2(r.center))<0?[normCenter2(r.center)]:[]).map(c=>R('option',{key:c,value:c},c)))),
                 R('td',{style:{fontSize:11.5,fontWeight:600}},review.src==='manual'
-                  ?R('input',{value:r.name||'',list:'shipManualNames',placeholder:'품목명 (입력하면 목록에서 고를 수 있음)',onChange:e=>updReviewRow(i,'name',e.target.value),
+                  ?R('input',{value:r.name||'',placeholder:'🔍 품목·재고 검색 (예: 소이연남)',autoComplete:'off',
+                      onFocus:e=>setNameSug({i,rect:e.target.getBoundingClientRect()}),onBlur:()=>setTimeout(()=>setNameSug(s=>s&&s.i===i?null:s),200),
+                      onChange:e=>{updReviewRow(i,'name',e.target.value);setReview(rv=>{if(!rv)return rv;const rows=rv.rows.slice();rows[i]={...rows[i],code:''};return{...rv,rows};});setNameSug({i,rect:e.target.getBoundingClientRect()});},
                       style:{width:'100%',minWidth:160,boxSizing:'border-box',border:'1px solid var(--bd)',borderRadius:6,padding:'4px 6px',fontSize:12,fontFamily:'inherit'}})
                   :r.name),
                 R('td',{style:{textAlign:'right'}},inp('box',48)),
@@ -3164,7 +3194,20 @@ function PageShipSort({mats,hqItems}){
             }))
           )),
           review.src==='manual'&&R('button',{className:'btn bs',onClick:addReviewRow,style:{marginTop:8,fontSize:12}},'➕ 품목 추가'),
-          review.src==='manual'&&R('datalist',{id:'shipManualNames'},...Array.from(new Set([...(canonNames||[]),...Object.keys((parsed&&parsed.prodTotal)||{})])).sort().map(n=>R('option',{key:n,value:n})))
+          review.src==='manual'&&nameSug&&review.rows[nameSug.i]&&(()=>{
+            const q=review.rows[nameSug.i].name;const list=nameSuggest(q);const rc=nameSug.rect;
+            if(!String(q||'').trim())return null;
+            return R(Portal,null,R('div',{style:{position:'fixed',left:rc.left,top:rc.bottom+2,width:Math.max(rc.width,340),maxHeight:280,overflowY:'auto',background:'#fff',border:'1px solid var(--bd)',borderRadius:10,boxShadow:'0 12px 28px rgba(0,0,0,0.18)',zIndex:100000}},
+              list.length===0?R('div',{style:{padding:'12px',fontSize:12,color:'#9A9088'}},'일치하는 품목·재고가 없습니다 — 입력한 이름 그대로 추가됩니다')
+              :list.map((s,k)=>R('div',{key:k,onMouseDown:e=>{e.preventDefault();pickName(nameSug.i,s);},
+                style:{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',borderBottom:'1px solid #F4F1EE'},
+                onMouseEnter:e=>e.currentTarget.style.background='#FFF7ED',onMouseLeave:e=>e.currentTarget.style.background='transparent'},
+                R('span',{style:{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:6,flexShrink:0,background:s.src==='출고품목'?'#F0FDF4':s.src==='본사'?'#EFF6FF':'#F4F1EE',color:s.src==='출고품목'?'#15803D':s.src==='본사'?'#2563EB':'#6E645C'}},s.src),
+                R('div',{style:{flex:1,minWidth:0}},
+                  R('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},s.name),
+                  s.code&&R('div',{style:{fontSize:10,color:'#9A9088'}},s.code)),
+                R('span',{style:{fontSize:11,fontWeight:700,color:s.stock==null?'#D9D2CB':'#0369a1',flexShrink:0}},s.stock==null?'재고 연결 안 됨':'재고 '+fN(s.stock)+s.unit)))));
+          })()
         ),
         R('div',{className:'mfoot'},
           R('button',{className:'btn bs',onClick:()=>setReview(null),style:{flex:1,padding:10}},'취소'),
