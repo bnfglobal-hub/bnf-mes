@@ -23130,17 +23130,28 @@ function PageShipSort({mats,hqItems}){
     const hasExisting=parsed&&parsed.byCenter;
     const prevSources=(hasExisting&&Array.isArray(parsed.sources))?parsed.sources:[];
     const seen=new Set(prevSources);
-    const fresh=[];let dup=0;
+    const fresh=[],dupOrders=[];let dup=0;
     orders.forEach(o=>{
       const sig=orderSig(o);
-      if(seen.has(sig)){dup++;return;}
+      if(seen.has(sig)){dup++;dupOrders.push(o);return;}
       seen.add(sig);fresh.push({o,sig});
     });
+    const byCenter=hasExisting?JSON.parse(JSON.stringify(parsed.byCenter)):{};
+    /* 중복 파일이어도 비어 있는 칸(소비기한)은 채움 (2026-10-29) — 같은 날짜·센터 우선, 없으면 같은 센터의 같은 품목 */
+    let filled=0;
+    dupOrders.forEach(o=>(o.items||[]).forEach(it0=>{
+      if(!it0.exp)return;const nm=fixAiName(it0.name);
+      const cand=[ckey(o.date,o.center),...Object.keys(byCenter).filter(k=>parseCkey(k).center===o.center)];
+      for(const k of cand){const it=byCenter[k]&&byCenter[k].items&&byCenter[k].items[nm];if(it&&!it.exp){it.exp=it0.exp;filled++;break;}}
+    }));
     if(fresh.length===0){
-      alert('이미 추가된 파일입니다 (중복 '+dup+'건 건너뜀). 데이터는 그대로 유지됩니다.');
+      if(filled>0){
+        const result={byCenter,prodTotal:recomputeProdTotal(byCenter),sources:prevSources};
+        setParsed(result);saveShipsort(result,shipDate);recordPlanExps(dupOrders);
+        alert('이미 추가된 파일이라 수량은 그대로 두고, 비어 있던 소비기한 '+filled+'건을 채웠습니다.');
+      }else alert('이미 추가된 파일입니다 (중복 '+dup+'건 건너뜀). 데이터는 그대로 유지됩니다.');
       return;
     }
-    const byCenter=hasExisting?JSON.parse(JSON.stringify(parsed.byCenter)):{};
     fresh.forEach(({o})=>{
       const K=ckey(o.date,o.center);
       if(!byCenter[K])byCenter[K]={items:{},totalBox:0};
@@ -23164,7 +23175,7 @@ function PageShipSort({mats,hqItems}){
     setShipDate(newDate);
     saveShipsort(result,newDate); /* 새로고침해도 남도록 저장 */
     recordPlanExps(fresh.map(f=>f.o)); /* 들어온 소비기한을 직전 기록에 자동 저장 */
-    if(dup>0)alert(fresh.length+'건 추가됨 · 중복 '+dup+'건은 자동 제외했습니다.');
+    if(dup>0)alert(fresh.length+'건 추가됨 · 중복 '+dup+'건은 자동 제외했습니다.'+(filled?' (중복 파일에서 비어 있던 소비기한 '+filled+'건 채움)':''));
   };
 
   const exportResult=()=>{
