@@ -16699,6 +16699,15 @@ function MsgCfg({cfg,env,reload}){
   const step=(n,t,...ch)=>R('div',{style:{margin:'10px 0'}},R('div',{style:{fontWeight:700,fontSize:12}},n+'. '+t),...ch.map(c=>typeof c==='string'?note(c):c));
   const note=(s)=>R('div',{style:{fontSize:11,color:'#5D534B',lineHeight:1.6,whiteSpace:'pre-wrap'}},s);
   return R('div',null,
+    sec('📲 업무폰 앱 설치 (추천 · 3분)',
+      note('업무폰(갤럭시)에서 이 화면을 열고 순서대로 누르세요.'),
+      step(1,'앱 받기','아래 버튼 → 다운로드된 파일 열기 → 설치.\n"출처를 알 수 없는 앱" 안내가 나오면 [설정] → 허용 켜기 후 뒤로. "안전하지 않은 앱" 경고가 나오면 [자세히] → [그래도 설치].'),
+      R('a',{className:'btn bp',href:PHONE_APK_URL,style:{display:'flex',justifyContent:'center',padding:11,margin:'4px 0',textDecoration:'none'}},'⬇️ BNF 업무폰 앱 받기'),
+      step(2,'앱에 연결','설치가 끝나면 아래 버튼을 누르세요. 앱이 열리면서 연결 키가 자동으로 들어갑니다.'),
+      R('a',{className:'btn bs',href:key?'intent://setup?key='+encodeURIComponent(key)+'#Intent;scheme=bnfphone;package=com.bnf.phone;end':undefined,
+        style:{display:'flex',justifyContent:'center',padding:11,margin:'4px 0',textDecoration:'none',opacity:key?1:.5}},'🔗 이 휴대폰 앱에 연결'),
+      step(3,'앱에서 허용 3개','앱 화면의 [허용] 버튼을 위에서부터 차례로 누르면 끝입니다. 4칸이 모두 ✅ 가 되면 [서버 연결 확인]을 눌러 보세요.\n허용이 회색으로 막혀 있으면: 앱 화면 [앱 정보] → 오른쪽 위 ⋮ → "제한된 설정 허용".')
+    ),
     sec('🔌 상태',
       R('div',{style:{fontSize:12,lineHeight:1.9}},
         '업무폰: ',R('b',null,cfg.last_seen?msgAgo(cfg.last_seen)+' 마지막 연결':'아직 연결 안 됨'),R('br'),
@@ -16741,15 +16750,6 @@ function MsgCfg({cfg,env,reload}){
       R('textarea',{style:{...inp,minHeight:70},value:test,placeholder:'예) 안녕하세요 강남점입니다. 내일 청국장 3박스, 털레기수제비 2박스 보내주세요',onChange:e=>setTest(e.target.value)}),
       R('button',{className:'btn bs',style:{marginTop:6},disabled:testBusy,onClick:runTest},testBusy?'인식 중…':'인식해 보기'),
       testRes&&R('pre',{style:{fontSize:11,background:'#f6f3f0',borderRadius:6,padding:8,whiteSpace:'pre-wrap',marginTop:6}},testRes.error?('❌ '+testRes.error):JSON.stringify(testRes.parsed,null,1))
-    ),
-    sec('📲 업무폰 앱 설치 (추천 · 3분)',
-      note('업무폰(갤럭시)에서 이 화면을 열고 순서대로 누르세요.'),
-      step(1,'앱 받기','아래 버튼 → 다운로드된 파일 열기 → 설치.\n"출처를 알 수 없는 앱" 안내가 나오면 [설정] → 허용 켜기 후 뒤로. "안전하지 않은 앱" 경고가 나오면 [자세히] → [그래도 설치].'),
-      R('a',{className:'btn bp',href:PHONE_APK_URL,style:{display:'flex',justifyContent:'center',padding:11,margin:'4px 0',textDecoration:'none'}},'⬇️ BNF 업무폰 앱 받기'),
-      step(2,'앱에 연결','설치가 끝나면 아래 버튼을 누르세요. 앱이 열리면서 연결 키가 자동으로 들어갑니다.'),
-      R('a',{className:'btn bs',href:key?'intent://setup?key='+encodeURIComponent(key)+'#Intent;scheme=bnfphone;package=com.bnf.phone;end':undefined,
-        style:{display:'flex',justifyContent:'center',padding:11,margin:'4px 0',textDecoration:'none',opacity:key?1:.5}},'🔗 이 휴대폰 앱에 연결'),
-      step(3,'앱에서 허용 3개','앱 화면의 [허용] 버튼을 위에서부터 차례로 누르면 끝입니다. 4칸이 모두 ✅ 가 되면 [서버 연결 확인]을 눌러 보세요.\n허용이 회색으로 막혀 있으면: 앱 화면 [앱 정보] → 오른쪽 위 ⋮ → "제한된 설정 허용".')
     ),
     sec('📱 (고급) MacroDroid로 직접 연결 — 앱을 쓰면 필요 없음',
       note('업무폰 연결 키: '+(key||'불러오는 중…')+'   (외부에 공유하지 마세요)'),
