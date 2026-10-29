@@ -16010,13 +16010,13 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
     document.body.style.cursor='col-resize';
     document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
   };
-  /* 재고에 입력된 매입처가 있으면 그것을, 없으면 매입내역의 최근 거래처를 쓴다 */
+  /* 매입처: 이카운트 매입내역의 최근 거래처 우선 (2026-10-29 사장 지시), 매입내역이 없을 때만 재고에 입력된 매입처 */
   const supOf=(mat,fallbackName)=>{
     const m=mat||{};
     const own=(m.supplier||'').trim();
-    if(own)return{name:own,price:+m.price||0,lead:m.lead||3,contact:m.contact||'',from:'stock'};
     const hit=buyHist?(buyHist[normBuyKey(m.n||fallbackName)]||buyHist[normBuyKey(m.c)]):null;
-    if(hit&&hit.latestSupplier)return{name:hit.latestSupplier,price:+hit.latest||0,lead:m.lead||3,contact:'',from:'buy',date:hit.latestDate};
+    if(hit&&hit.latestSupplier)return{name:hit.latestSupplier,price:+hit.latest||0,lead:m.lead||3,contact:(own&&crmNorm(own)===crmNorm(hit.latestSupplier))?(m.contact||''):'',from:'buy',date:hit.latestDate};
+    if(own)return{name:own,price:+m.price||0,lead:m.lead||3,contact:m.contact||'',from:'stock'};
     return{name:'',price:+m.price||0,lead:m.lead||3,contact:m.contact||'',from:''};
   };
   const[showAllFor,setShowAllFor]=useState({}); /* {prodId: true} - 충분한 원재료도 모두 보기 */
@@ -16301,12 +16301,12 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
                   R('div',{style:{fontSize:'0.78em',color:'#2563EB',fontWeight:700}},'입고예정 반영'));
               return R('td',{style:{padding:'6px 12px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',textAlign:'right',fontWeight:800,color:ordered?'#9A9088':'#DC2626',textDecoration:ordered?'line-through':'none'}},'-',r.short.toFixed(2),' ',r.unit);
             })(),
-            /* 매입처: 재고 관리 입력값 우선, 없으면 이카운트 매입내역의 최근 거래처 */
+            /* 매입처: 이카운트 매입내역의 최근 거래처 우선, 없으면 재고 관리 입력값 */
             (()=>{const s=supOf(r.mat,r.name);
               return R('td',{style:{padding:'6px 8px',borderTop:'1px solid #F4F1EE',borderRight:'1px solid #F4F7FA',color:ordered?'#9A9088':(s.name?'#5D534B':'#D9D2CB'),fontSize:'0.96em',lineHeight:1.35,wordBreak:'break-all'},
                 title:s.name
                   ?(s.name+(s.contact?(' · '+s.contact):'')+(s.from==='buy'?(' · 매입내역 '+fDate(s.date)+' 기준'):'')+(s.price?(' · 단가 '+s.price.toLocaleString()+'원'):''))
-                  :'매입처 정보 없음 (재고 관리에 입력하거나 매입내역이 쌓이면 자동 표시)'},
+                  :'매입처 정보 없음 (이카운트 매입내역이 쌓이면 자동 표시 · 없으면 재고 관리 입력값)'},
                 s.name||'-',
                 s.from==='buy'&&R('span',{style:{fontSize:'0.78em',color:'#2563EB',background:'#EFF6FF',borderRadius:5,padding:'1px 4px',marginLeft:4}},'매입내역'),
                 r.short>0&&!ordered&&R('div',null,R('button',{className:'no-capture',onClick:e=>{e.stopPropagation();openPO(r);},title:'입고 요청일을 고르면 발주 메시지를 만들어 문자·카톡으로 보냅니다',
