@@ -22909,6 +22909,7 @@ function PageShipSort({mats,hqItems}){
       if(j.ok===false)alert('생성 버튼은 눌렀지만 완료 문구를 확인하지 못했습니다.\n컬리 포털에서 꼭 직접 확인해주세요.');
       else alert('✅ 거래명세서 생성 완료!\n컬리 포털의 [거래명세서 내역]에서 확인할 수 있습니다.');
       /* 이어서 서명완료 PDF 받기 시도 — 입고 전이면 '서명 전'으로 표시되고, 입고 후 버튼으로 다시 받는다 */
+      pickSgnDate(cfm.date);
       signedFetch(cfm.date);
     }catch(e){setCfmBusy('');alert('생성 결과를 확인하지 못했습니다. 컬리 포털에서 직접 확인해주세요.');}
   };
@@ -22972,6 +22973,9 @@ function PageShipSort({mats,hqItems}){
         date 없이 부르면 입고일이 지난 것 중 안 받은 것만 모두 받는다. ── */
   const[sgnBusy,setSgnBusy]=useState('');
   const[sgnRes,setSgnRes]=useState(null);
+  /* 받을 입고일 — 기본은 마지막으로 거래명세서를 생성한 입고예정일, 비우면 밀린 것 전부 */
+  const[sgnDate,setSgnDate]=useState(()=>{try{return localStorage.getItem('bnf_kurly_signed_date')||'';}catch(e){return '';}});
+  const pickSgnDate=(d)=>{setSgnDate(d);try{localStorage.setItem('bnf_kurly_signed_date',d);}catch(e){}};
   const signedFetch=async(date)=>{
     setSgnRes(null);setSgnBusy('📄 서명완료 명세서 받는 중...');
     try{
@@ -23128,8 +23132,12 @@ function PageShipSort({mats,hqItems}){
         R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
           R('button',{className:'btn bw btn-sm',disabled:!!stmtBusy,onClick:stmtPrint,
             title:'포털 거래명세서 내역에서 최근 입고예정일 PDF를 받아 사무실 프린터로 인쇄 — 짝수 페이지만, 창원 3부·그 외 1부'},stmtBusy||'🖨 거래명세서 출력'),
-          R('button',{className:'btn bw btn-sm',disabled:!!sgnBusy,onClick:()=>signedFetch(),
-            title:'입고가 끝난 명세서의 서명완료 PDF를 사무실 PC 문서\\컬리 서명완료 거래명세서 폴더에 받습니다 (이미 받은 건 건너뜀)'},sgnBusy||'📄 서명완료 명세서 받기'),
+          R('span',{style:{display:'inline-flex',gap:4,alignItems:'center'}},
+            R('input',{type:'date',value:sgnDate,onChange:e=>pickSgnDate(e.target.value),disabled:!!sgnBusy,
+              title:'받을 입고일 — 비우면 입고가 끝난 것 중 안 받은 것 전부',
+              style:{fontSize:12,padding:'3px 6px',border:'1px solid var(--bd)',borderRadius:7,height:30}}),
+            R('button',{className:'btn bw btn-sm',disabled:!!sgnBusy,onClick:()=>signedFetch(sgnDate||undefined),
+              title:'선택한 입고일(비우면 밀린 것 전부)의 서명완료 PDF를 사무실 PC 문서\\컬리 서명완료 거래명세서 폴더에 받습니다 (이미 받은 건 건너뜀)'},sgnBusy||'📄 서명완료 거래명세서 받기')),
           R('button',{className:'btn bw btn-sm',onClick:()=>{loadKurly();setKurlyOpen(true);loadUpcoming();}},'🛒 컬리 발주 확인'),
           R('button',{className:'btn bp btn-sm',onClick:()=>cfmPrepare(),disabled:!!cfmBusy,
             title:'다가오는 발주일을 자동으로 찾아 확정을 준비합니다'},cfmBusy||'✅ 컬리 발주 확정')
