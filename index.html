@@ -22094,7 +22094,53 @@ function PageShipSort({mats,hqItems}){
     return Object.entries(byC).map(([center,items])=>({center,date:gdate,items}));
   };
 
+  /* 컬리 발주 엑셀 피벗표(행 레이블: 센터 → 품목 · 합계:발주수량(박스) · 합계:총 발주수량(낱개)) (2026-11-05)
+     같이 붙여넣은 발주 목록(입고예정일·마스터코드·입수)은 날짜·입수 확인용으로만 쓰고 품목은 피벗의 센터별 수량을 씀
+     (목록은 센터 합계라 따로 넣으면 중복) */
+  const parsePivotLines=(raw)=>{
+    const lines=String(raw||'').replace(/\u00a0/g,' ').split(/\r?\n/);
+    const dm=String(raw||'').match(/(\d{4}-\d{2}-\d{2})/);const gdate=dm?dm[1]:'';
+    const nk=s=>String(s||'').replace(/\s+/g,'');
+    const isNum=c=>/^[\d,]+$/.test(c);
+    /* 발주 목록 줄에서 품목별 입수 */
+    const perOf={};
+    lines.forEach(line=>{
+      if(!/M[K]?\d{6,}/.test(line))return;
+      const cells=line.split(/\t/).map(c=>c.replace(/^'+/,'').trim());
+      const ni=cells.findIndex(c=>/^\[[^\]]+\]/.test(c));if(ni<0)return;
+      const nums=cells.slice(ni+1).filter(isNum).map(c=>parseInt(c.replace(/,/g,''))||0);
+      if(nums.length>=3)perOf[nk(cells[ni])]=nums[nums.length-3];
+    });
+    const byC={};let center=null,hits=0;
+    for(const line of lines){
+      if(/M[K]?\d{6,}/.test(line))continue;           /* 발주 목록 줄은 제외 */
+      const cells=line.split(/\t/).map(c=>c.replace(/^[\s⊟⊞▣□■+\-]+/,'').trim());
+      while(cells.length&&!cells[0])cells.shift();
+      const first=cells[0]||'';
+      if(!first)continue;
+      if(/^총\s*합계/.test(first)){center=null;continue;}
+      const nums=cells.slice(1).filter(isNum).map(c=>parseInt(c.replace(/,/g,''))||0);
+      if(/^\[[^\]]+\]/.test(first)){
+        if(!center||nums.length<2)continue;
+        const name=first.replace(/\s+/g,' ').trim();
+        const box=nums[0],total=nums[nums.length-1];
+        if(total<=0)continue;
+        const per=perOf[nk(name)]||0;
+        const warn=(per>0&&box>0&&per*box!==total)?('입수'+per+'×박스'+box+'='+(per*box)+' ≠ 총수량'+total):'';
+        (byC[center]=byC[center]||[]).push({name,total,box,per,exp:gdate,warn});hits++;
+        continue;
+      }
+      const c=normCenterV2(first);
+      center=c&&first.length<=20?c:null;
+    }
+    if(!hits)return null;
+    return Object.entries(byC).map(([center,items])=>({center,date:gdate,items}));
+  };
+
   const parsePasteText=(raw)=>{
+    /* 0) 컬리 피벗표(센터별 합계) */
+    const pv=parsePivotLines(raw);
+    if(pv&&pv.length)return pv;
     /* 1) 새 양식(탭 구분 줄 단위) 먼저 시도 */
     const v2=parsePasteLines(raw);
     if(v2&&v2.length)return v2;
