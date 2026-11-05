@@ -9076,13 +9076,427 @@ const LEDGER_GUIDES=[
     '→ 즉시전송']}
 ];
 const LEDGER_INV={tax:'세금계산서',free:'계산서',both:'동시발행',none:'발행 안 함'};
+/* ═══ 경영지원부: 거래처원장 — ① 매출 원장 발송 ② 매입 원장 확인 (2026-11-05) ═══ */
 function PageGaLedger({user}){
+  /* 메시지 수발주 [📒 원장 확인]으로 넘어오면 매출 원장 화면으로 */
+  const[mode,setMode]=useState(()=>{try{return sessionStorage.getItem('bnf_ledger_jump')?'sales':'';}catch(e){return'';}});
+  const TABS=[{k:'sales',ic:'✉️',t:'매출 원장 발송',d:'거래처별 원장 메일 → 거래처 확인 → 계산서 발행'},{k:'buy',ic:'🔎',t:'매입 원장 확인',d:'거래처가 보낸 마감장을 우리 매입 장부와 대조'}];
+  const bar=R('div',{style:{display:'flex',gap:8,marginBottom:mode?12:0,flexDirection:mode?'row':'column'}},
+    ...TABS.map(t=>R('button',{key:t.k,onClick:()=>setMode(t.k),style:{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:12,textAlign:'left',padding:mode?'10px 12px':'22px 20px',borderRadius:14,cursor:'pointer',fontFamily:'inherit',
+        border:'1.5px solid '+(mode===t.k?'var(--p)':'var(--bd)'),background:mode===t.k?'var(--pb)':'#fff',color:mode===t.k?'var(--p)':'var(--t)'}},
+      R('span',{style:{fontSize:mode?18:30,lineHeight:1}},t.ic),
+      R('span',{style:{minWidth:0}},
+        R('span',{style:{display:'block',fontSize:mode?13:16,fontWeight:800}},t.t),
+        !mode&&R('span',{style:{display:'block',fontSize:12,fontWeight:500,color:'var(--tm)',marginTop:3}},t.d)))));
+  if(mode==='sales')return R(GaLedgerSales,{user,top:bar});
+  if(mode==='buy')return R(GaLedgerBuy,{user,top:bar});
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr'},R('div',null,R('div',{className:'pg-title'},'📒 거래처원장'),R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'할 일을 골라 주세요'))),
+    R('div',{style:{maxWidth:560}},bar));
+}
+
+/* 거래처원장 목록 정렬: 최근 거래 순 / 금액 순 (2026-11-05) */
+function LedgerSortBtns({value,onChange,amtLabel}){
+  return R('div',{style:{display:'inline-flex',gap:4,flexShrink:0}},
+    ...[['recent','최근 거래 순'],['amt',amtLabel]].map(o=>R('button',{key:o[0],className:'btn btn-sm '+(value===o[0]?'bp':'bw'),onClick:()=>onChange(o[0])},o[1])));
+}
+/* ② 매입 원장 확인: 거래처·월을 고르고 마감장(사진·PDF·엑셀·직접 입력)을 넣으면 우리 매입 장부(이카운트 수집본)와 대조 */
+const LEDGER_NUM=s=>{if(s===null||s===undefined)return 0;const n=parseFloat(String(s).replace(/[^\d.\-]/g,''));return isFinite(n)?n:0;};
+const LEDGER_EMPTY={total:'',carry:'',paid:'',balance:'',vat:'',note:''};
+/* 대조 판정: 끝전 10원까지는 일치, 우리 공급가액 ×1.1 과 맞으면 부가세 포함 금액으로 봄 */
+function ledgerVerdict(theirs,ours,gross){
+  const d=theirs-ours,tol=10;
+  if(Math.abs(d)<=tol)return{k:'ok',l:'일치',d};
+  if(gross&&gross!==ours&&Math.abs(theirs-gross)<=tol)return{k:'vat',l:'부가세 포함 금액으로 일치',d:theirs-gross};
+  if(!gross&&ours>0&&Math.abs(theirs-ours*1.1)<=Math.max(tol,ours*0.0005))return{k:'vat',l:'부가세 포함 금액으로 일치',d:Math.round(theirs-ours*1.1)};
+  return{k:'diff',l:'차이 있음',d};
+}
+/* 품목 대조: 같은 날·같은 금액 → 금액 같고 날짜 다름 → 같은 날·같은 품목(금액 다름) 순서로 짝지음 */
+function ledgerMatchLines(theirs,ours){
+  const used=new Set();const rows=[];
+  const same=(a,u)=>Math.abs(a-u.amount)<=10||(u.vat!==undefined?Math.abs(a-u.amount-u.vat)<=10:Math.abs(a-u.amount*1.1)<=Math.max(10,u.amount*0.0005));
+  const pick=fn=>{for(let i=0;i<ours.length;i++){if(!used.has(i)&&fn(ours[i])){used.add(i);return ours[i];}}return null;};
+  const nm=s=>normBuyKey(s||'');
+  const nameLike=(a,b)=>{const x=nm(a),y=nm(b);return !!x&&!!y&&(x.indexOf(y)>=0||y.indexOf(x)>=0);};
+  const pending=[];
+  theirs.forEach(t=>{const a=LEDGER_NUM(t.amount);const o=pick(u=>u.date===t.date&&same(a,u));if(o)rows.push({t,o,k:'ok',l:'일치'});else pending.push(t);});
+  pending.forEach(t=>{
+    const a=LEDGER_NUM(t.amount);
+    let o=pick(u=>same(a,u));
+    if(o){rows.push({t,o,k:'warn',l:'날짜 다름'});return;}
+    o=pick(u=>u.date===t.date&&nameLike(t.name,u.name));
+    if(o){rows.push({t,o,k:'diff',l:'금액 다름'});return;}
+    rows.push({t,o:null,k:'diff',l:'우리 장부에 없음'});
+  });
+  ours.forEach((u,i)=>{if(!used.has(i))rows.push({t:null,o:u,k:'diff',l:'마감장에 없음'});});
+  return rows.sort((a,b)=>String((a.t||a.o).date||'').localeCompare(String((b.t||b.o).date||'')));
+}
+function GaLedgerBuy({user,top}){
+  const ymdL=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0');
+  const[month,setMonth]=useState(()=>{const d=new Date();if(d.getDate()<=10)d.setDate(0);return ymdL(d);});
+  const[co,setCo]=useState('fac');
+  const[vendor,setVendor]=useState('');
+  const[f,setF]=useState(LEDGER_EMPTY);
+  const[lines,setLines]=useState([]);
+  const[book,setBook]=useState(null);     /* {cm,hq,at,hqAt,custs} */
+  const[prices,setPrices]=useState([]);
+  const[ledger,setLedger]=useState(null); /* 그 달 거래처별 전체 내역 (id=11, 이카운트 구매현황 수집) */
+  const[vq,setVq]=useState('');
+  const[listOpen,setListOpen]=useState(true);
+  const[sortBy,setSortBy]=useState('recent');
+  const[recs,setRecs]=useState(null);
+  const[recErr,setRecErr]=useState(false);
+  const[reading,setReading]=useState(false);
+  const[readInfo,setReadInfo]=useState(null);
+  const[err,setErr]=useState('');
+  const[msg,setMsg]=useState('');
+  const[preview,setPreview]=useState('');
+  const fileRef=useRef(null);
+  const flash=t=>{setMsg(t);setTimeout(()=>setMsg(''),2500);};
+  const recPath=m=>'ga-ledger/buycheck-'+m+'.json';
+  const loadRecs=async()=>{
+    try{
+      const name=recPath(month).split('/').pop();
+      const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(recPath(month));
+      const r=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
+      if(r.ok){const j=await r.json();setRecs(Array.isArray(j&&j.list)?j.list:[]);setRecErr(false);return j;}
+      const{data:ls,error}=await sbClient.storage.from('bnf-files').list('ga-ledger',{search:name});
+      if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name===name)){setRecs([]);setRecErr(false);return{list:[]};}
+      throw new Error('load');
+    }catch(e){setRecErr(true);return null;}
+  };
+  useEffect(()=>{
+    sbClient.from('app_state').select('cm:state_data->customer_monthly,hq:state_data->customer_monthly_hq,at:state_data->>customer_monthly_at,hqAt:state_data->>customer_monthly_hq_at,custs:state_data->ecount_customers').eq('id',4).maybeSingle()
+      .then(({data})=>setBook({cm:(data&&data.cm)||{},hq:(data&&data.hq)||{},at:(data&&data.at)||'',hqAt:(data&&data.hqAt)||'',custs:(data&&data.custs&&data.custs.list)||[]}))
+      .catch(()=>setBook({cm:{},hq:{},at:'',hqAt:'',custs:[]}));
+    sbClient.from('app_state').select('pp:state_data->purchase_prices').eq('id',5).maybeSingle()
+      .then(({data})=>setPrices((data&&data.pp&&data.pp.items)||[])).catch(()=>{});
+  },[]);
+  useEffect(()=>{setRecs(null);loadRecs();},[month]);
+  useEffect(()=>{
+    let dead=false;setLedger(null);
+    sbClient.from('app_state').select('v:state_data->months->m'+month.replace('-','')).eq('id',11).maybeSingle()
+      .then(({data})=>{if(!dead)setLedger((data&&data.v)||{});}).catch(()=>{if(!dead)setLedger({});});
+    return()=>{dead=true;};
+  },[month]);
+  const pickVendor=n=>{setVendor(n);setVq('');setListOpen(false);};
+  const cmOf=c=>book?(c==='hq'?book.hq:book.cm):{};
+  const monthRows=(c,m)=>{const x=(cmOf(c)||{})[m]||{};return Object.keys(x).map(k=>x[k]).filter(v=>v&&v.name);};
+  const buyers=monthRows(co,month).filter(v=>+v.buy>0).sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+  const allNames=useMemo(()=>{
+    const s=new Set();
+    if(book){if(co==='fac')book.custs.forEach(c=>{if(c.name&&c.kind!=='매출처')s.add(c.name);});
+      Object.keys(cmOf(co)||{}).slice(-6).forEach(m=>monthRows(co,m).forEach(v=>{if(+v.buy>0)s.add(v.name);}));}
+    return Array.from(s).sort((a,b)=>a.localeCompare(b,'ko'));
+  },[book,co]);
+  /* 거래처 찾기: 정확히 같은 이름 우선, 없으면 포함되는 후보 */
+  const vKey=msgBookKey(vendor);
+  const pickBook=(m)=>{
+    const rows=monthRows(co,m);
+    if(vKey.length<2)return{hit:null,cands:[]};
+    const ex=rows.find(v=>msgBookKey(v.name)===vKey);
+    if(ex)return{hit:ex,cands:[]};
+    const c=rows.filter(v=>{const k=msgBookKey(v.name);return k&&(k.indexOf(vKey)>=0||vKey.indexOf(k)>=0)&&+v.buy>0;});
+    return c.length===1?{hit:c[0],cands:[]}:{hit:null,cands:c};
+  };
+  const bk=pickBook(month);
+  const prevM=(()=>{const[y,m]=month.split('-').map(Number);return ymdL(new Date(y,m-2,1));})();
+  const prevBk=bk.hit?monthRows(co,prevM).find(v=>msgBookKey(v.name)===msgBookKey(bk.hit.name)):null;
+  /* 우리 원장 내역: 매입 원장(id=11) 전체, 아직 수집 전인 달은 매입단가 수집본(품목당 최근 8건)으로 대신 */
+  const ledgerFull=!!ledger&&Object.keys(ledger).length>0;
+  const ourLines=useMemo(()=>{
+    if(co!=='fac'||!bk.hit)return[];
+    const key=msgBookKey(bk.hit.name);const out=[];
+    if(ledgerFull){
+      Object.keys(ledger).forEach(s=>{if(msgBookKey(s)===key)(ledger[s]||[]).forEach(r=>out.push({date:r.d,name:r.n,qty:+r.q||0,price:+r.p||0,amount:+r.a||0,vat:+r.v||0}));});
+    }else prices.forEach(it=>(it.recent||[]).forEach(r=>{
+      if(String(r.date||'').slice(0,7)===month&&msgBookKey(r.supplier)===key)out.push({date:r.date,name:it.name,qty:+r.qty||0,price:+r.price||0,amount:Math.round((+r.qty||0)*(+r.price||0))});
+    }));
+    return out.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  },[prices,ledger,month,co,bk.hit&&bk.hit.name]);
+  const ourVat=ourLines.reduce((s,x)=>s+(+x.vat||0),0);
+  const ourLineSum=ourLines.reduce((s,x)=>s+x.amount,0);
+  const lineSum=lines.reduce((s,x)=>s+LEDGER_NUM(x.amount),0);
+  const hasTotal=String(f.total).trim()!=='';
+  const theirs=hasTotal?LEDGER_NUM(f.total):lineSum;
+  const entered=hasTotal||lines.length>0;
+  const ourGross=ledgerFull&&ourLines.length&&Math.abs(ourLineSum-(+bk.hit.buy||0))<=10?ourLineSum+ourVat:0;
+  const verdict=entered&&bk.hit?ledgerVerdict(theirs,+bk.hit.buy||0,ourGross):null;
+  const matchRows=lines.length&&ourLines.length?ledgerMatchLines(lines,ourLines):[];
+  const stat=k=>matchRows.filter(r=>r.l===k);
+  const sumT=a=>a.reduce((s,r)=>s+LEDGER_NUM(r.t&&r.t.amount),0);
+  const sumO=a=>a.reduce((s,r)=>s+(r.o?r.o.amount:0),0);
+  const onlyT=stat('우리 장부에 없음'),onlyO=stat('마감장에 없음'),amtD=stat('금액 다름'),dateD=stat('날짜 다름'),okL=stat('일치');
+  const explained=sumT(onlyT)-sumO(onlyO)+sumT(amtD)-sumO(amtD);
+  const hasBal=['carry','paid','balance'].every(k=>String(f[k]).trim()!=='');
+  const balGap=hasBal?(LEDGER_NUM(f.carry)+theirs-LEDGER_NUM(f.paid)-LEDGER_NUM(f.balance)):0;
+  const reset=()=>{setF(LEDGER_EMPTY);setLines([]);setReadInfo(null);setPreview('');setErr('');};
+  const setFld=(k,v)=>setF(p=>Object.assign({},p,{[k]:v}));
+  const setLine=(i,k,v)=>setLines(p=>p.map((x,j)=>j===i?Object.assign({},x,{[k]:v}):x));
+  const applyRead=(j,src)=>{
+    const s=v=>v===null||v===undefined?'':String(v);
+    setF({total:s(j.total),carry:s(j.carry),paid:s(j.paid),balance:s(j.balance),vat:s(j.vat),note:''});
+    setLines((Array.isArray(j.lines)?j.lines:[]).map(x=>({date:s(x.date),name:s(x.name),qty:s(x.qty),unit:s(x.unit),price:s(x.price),amount:s(x.amount)})));
+    setReadInfo({src,month:s(j.month),vendor:s(j.vendor)});
+    if(!vendor.trim()&&j.vendor)pickVendor(String(j.vendor));
+  };
+  const callRead=async(body,src)=>{
+    setReading(true);setErr('');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
+      let res;try{res=await fetch(SB_URL+'/functions/v1/ledger-read',{method:'POST',signal:ctl.signal,headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify(Object.assign({month},body))});}finally{clearTimeout(tm);}
+      let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류 ('+res.status+')');}
+      if(!res.ok||j.error)throw new Error(/429/.test(String(j.error))?'AI 무료 사용량이 잠시 찼습니다. 1분 뒤 다시 시도해 주세요.':/API_KEY/.test(String(j.error))?'AI 읽기가 아직 준비되지 않았습니다. 아래 칸에 직접 입력해 주세요.':(j.error||('서버 오류 '+res.status)));
+      let txt=String(j.text||'').replace(/```json/gi,'').replace(/```/g,'').trim();
+      const a=txt.indexOf('{'),b=txt.lastIndexOf('}');if(a>=0&&b>a)txt=txt.slice(a,b+1);
+      let o;try{o=JSON.parse(txt);}catch(e){throw new Error('읽은 내용을 정리하지 못했습니다. 더 선명한 파일로 다시 시도하거나 직접 입력해 주세요.');}
+      applyRead(o,src);
+    }catch(e){setErr(e&&e.name==='AbortError'?'읽는 시간이 너무 오래 걸렸습니다. 다시 시도해 주세요.':(e.message||String(e)));}
+    setReading(false);
+  };
+  const readImage=(file)=>{
+    const r=new FileReader();
+    r.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const max=2600;let w=img.width,hh=img.height;if(w>max||hh>max){const s=max/Math.max(w,hh);w=Math.round(w*s);hh=Math.round(hh*s);}
+        const c=document.createElement('canvas');c.width=w;c.height=hh;c.getContext('2d').drawImage(img,0,0,w,hh);
+        const url=c.toDataURL('image/jpeg',0.9);setPreview(url);
+        callRead({imageBase64:url.split(',')[1],mediaType:'image/jpeg'},file.name||'붙여넣은 이미지');
+      };
+      img.onerror=()=>setErr('이미지를 열지 못했습니다.');
+      img.src=r.result;
+    };
+    r.readAsDataURL(file);
+  };
+  const onFile=(file)=>{
+    if(!file)return;
+    const n=String(file.name||'').toLowerCase();
+    setPreview('');
+    if(/\.(xlsx|xls|csv)$/.test(n)){
+      const r=new FileReader();
+      r.onload=ev=>{
+        try{
+          const wb=XLSX.read(ev.target.result,{type:'array'});
+          const text=wb.SheetNames.map(s=>'## '+s+'\n'+XLSX.utils.sheet_to_csv(wb.Sheets[s],{blankrows:false})).join('\n\n');
+          if(!text.replace(/[#,\s]/g,''))return setErr('엑셀에 내용이 없습니다.');
+          callRead({text},file.name);
+        }catch(e){setErr('엑셀을 열지 못했습니다: '+(e.message||e));}
+      };
+      r.readAsArrayBuffer(file);
+    }else if(/\.pdf$/.test(n)||file.type==='application/pdf'){
+      if(file.size>10*1024*1024)return setErr('PDF가 너무 큽니다 (10MB 이하).');
+      const r=new FileReader();
+      r.onload=()=>callRead({imageBase64:String(r.result).split(',')[1],mediaType:'application/pdf'},file.name);
+      r.readAsDataURL(file);
+    }else if(/^image\//.test(file.type)||/\.(png|jpe?g|webp|bmp|gif)$/.test(n))readImage(file);
+    else setErr('사진, PDF, 엑셀 파일만 넣을 수 있습니다.');
+  };
+  /* Ctrl+V 로 캡처 이미지 붙여넣기 */
+  useEffect(()=>{
+    const onPaste=e=>{
+      const t=e.target;if(t&&t.closest&&t.closest('input,textarea'))return;
+      const items=(e.clipboardData&&e.clipboardData.items)||[];
+      for(let i=0;i<items.length;i++){if(items[i].type&&items[i].type.indexOf('image')===0){const fl=items[i].getAsFile();if(fl){e.preventDefault();readImage(fl);return;}}}
+    };
+    window.addEventListener('paste',onPaste);return()=>window.removeEventListener('paste',onPaste);
+  },[month]);
+  const saveRec=async()=>{
+    if(!vendor.trim())return alert('거래처를 먼저 입력해 주세요.');
+    if(!entered)return alert('마감장 금액을 먼저 입력해 주세요.');
+    if(recErr)return alert('기록을 불러오지 못해 저장할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+    const cur=await loadRecs();if(!cur)return alert('기록을 불러오지 못해 저장하지 않았습니다.');
+    const item={id:co+'|'+msgBookKey(vendor),co,vendor:vendor.trim(),book:bk.hit?bk.hit.name:'',f,lines,theirs,ours:bk.hit?(+bk.hit.buy||0):null,result:verdict?verdict.k:'nobook',by:user.name,at:new Date().toISOString()};
+    const list=[item,...(Array.isArray(cur.list)?cur.list:[]).filter(x=>x.id!==item.id)];
+    const{error}=await sbClient.storage.from('bnf-files').upload(recPath(month),new Blob([JSON.stringify({list})],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+    if(error)return alert('저장 실패: '+error.message);
+    setRecs(list);flash('확인 기록을 저장했습니다');
+  };
+  const delRec=async(id)=>{
+    if(!confirm('이 확인 기록을 지울까요?'))return;
+    const cur=await loadRecs();if(!cur)return alert('기록을 불러오지 못해 지우지 않았습니다.');
+    const list=(cur.list||[]).filter(x=>x.id!==id);
+    const{error}=await sbClient.storage.from('bnf-files').upload(recPath(month),new Blob([JSON.stringify({list})],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+    if(error)return alert('삭제 실패: '+error.message);
+    setRecs(list);
+  };
+  const openRec=x=>{setCo(x.co||'fac');pickVendor(x.vendor||'');setF(Object.assign({},LEDGER_EMPTY,x.f||{}));setLines(Array.isArray(x.lines)?x.lines:[]);setReadInfo(null);setPreview('');setErr('');try{window.scrollTo(0,0);}catch(e){}};
+  const mv=n=>{const[y,m]=month.split('-').map(Number);setMonth(ymdL(new Date(y,m-1+n,1)));};
+  const money=v=>Math.round(+v||0).toLocaleString();
+  const lbl={fontSize:11,fontWeight:700,color:'var(--tm)',marginBottom:3,display:'block'};
+  const numInp=(k,l,ph)=>R('label',{style:{flex:'1 1 130px',minWidth:0}},R('span',{style:lbl},l),
+    R('input',{className:'inp',inputMode:'numeric',value:f[k],placeholder:ph||'',onChange:e=>setFld(k,e.target.value),style:{textAlign:'right',width:'100%'}}));
+  const TONE={ok:['#F0FDF4','#BBF7D0','#15803D'],vat:['#F0FDF4','#BBF7D0','#15803D'],warn:['#FFFBEB','#FDE68A','#B45309'],diff:['#FEF2F2','#FECACA','#B91C1C'],nobook:['#F4F1EE','#E5DFD9','#6E645C']};
+  const badge=(k,t)=>{const c=TONE[k]||TONE.nobook;return R('span',{style:{display:'inline-block',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:800,background:c[0],border:'1px solid '+c[1],color:c[2],whiteSpace:'nowrap'}},t);};
+  const syncAt=book?(co==='hq'?book.hqAt:book.at):'';
+  const syncTxt=syncAt?(()=>{try{const d=new Date(syncAt);return(d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return'';}})():'';
+
+  return R('div',{className:'pg fa'},
+    top,
+    R('div',{className:'pg-hdr'},
+      R('div',null,R('div',{className:'pg-title'},'🔎 매입 원장 확인'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'거래처를 누르면 우리 월 마감 원장이 나오고, 마감장을 넣으면 비교 분석합니다')),
+      R('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+        msg&&R('span',{style:{fontSize:11.5,fontWeight:700,color:'#15803D'}},msg),
+        R('button',{className:'btn bw btn-sm',onClick:()=>mv(-1)},'◀'),
+        R('input',{type:'month',value:month,onChange:e=>e.target.value&&setMonth(e.target.value),style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 9px',fontSize:12,fontFamily:'inherit'}}),
+        R('button',{className:'btn bw btn-sm',onClick:()=>mv(1)},'▶'))),
+    /* 1. 거래처 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:listOpen?9:0}},
+        R('div',{style:{fontSize:13,fontWeight:800}},'1. 거래처'),
+        !listOpen&&vendor.trim()&&R('div',{style:{fontSize:13.5,fontWeight:900,color:'var(--p)',minWidth:0,wordBreak:'break-all'}},(co==='hq'?'[본사] ':'')+vendor),
+        R('div',{style:{flex:1}}),
+        !listOpen&&R('button',{className:'btn bw btn-sm',onClick:()=>setListOpen(true)},'다른 거래처')),
+      listOpen&&R('div',null,
+        R('div',{style:{display:'flex',gap:8,marginBottom:8}},
+          R('select',{className:'inp',value:co,onChange:e=>setCo(e.target.value),style:{flex:'0 0 104px'},'aria-label':'우리 회사'},R('option',{value:'fac'},'이천공장'),R('option',{value:'hq'},'본사')),
+          R('input',{className:'inp',value:vq,onChange:e=>setVq(e.target.value),placeholder:'거래처 검색 또는 직접 입력',style:{flex:1,minWidth:0},
+            onKeyDown:e=>{if(e.key==='Enter'&&vq.trim()&&!(e.nativeEvent&&e.nativeEvent.isComposing))pickVendor(vq.trim());}})),
+        R('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:6}},R(LedgerSortBtns,{value:sortBy,onChange:setSortBy,amtLabel:'매입액 순'})),
+        (()=>{
+          const qk=msgBookKey(vq);
+          /* 최근 거래일: 그 달 매입 원장의 마지막 거래일 */
+          const lastDay={};Object.keys(ledger||{}).forEach(s=>{const k=msgBookKey(s);(ledger[s]||[]).forEach(r=>{if(String(r.d||'')>String(lastDay[k]||''))lastDay[k]=r.d;});});
+          const lastOf=v=>lastDay[msgBookKey(v.name)]||'';
+          const shown=(qk?allNames.map(n=>buyers.find(b=>b.name===n)||{name:n,buy:0}).concat(buyers.filter(b=>allNames.indexOf(b.name)<0)).filter(v=>msgBookKey(v.name).indexOf(qk)>=0):buyers.slice())
+            .sort((a,b)=>(sortBy==='recent'?String(lastOf(b)).localeCompare(String(lastOf(a))):0)||(+b.buy||0)-(+a.buy||0)||a.name.localeCompare(b.name,'ko')).slice(0,qk?30:200);
+          const doneOf=n=>(recs||[]).find(x=>x.co===co&&msgBookKey(x.vendor)===msgBookKey(n));
+          return R('div',{style:{maxHeight:300,overflowY:'auto',border:'1px solid #F0ECE8',borderRadius:10}},
+            shown.length===0&&!vq.trim()&&R('div',{style:{padding:14,fontSize:12,color:'var(--tm)',textAlign:'center'}},book?month+' 매입 내역이 없습니다. 거래처명을 입력해 주세요.':'불러오는 중...'),
+            ...shown.map(v=>{const d=doneOf(v.name);return R('button',{key:v.name,onClick:()=>pickVendor(v.name),style:{display:'flex',alignItems:'center',gap:8,width:'100%',minHeight:42,padding:'8px 11px',background:'#fff',border:'none',borderBottom:'1px solid #F4F1EE',cursor:'pointer',fontFamily:'inherit',textAlign:'left',color:'var(--t)'}},
+              R('span',{style:{flex:1,minWidth:0,fontSize:12.5,fontWeight:700,wordBreak:'break-all'}},v.name),
+              lastOf(v)&&R('span',{style:{fontSize:10.5,color:'var(--tm)',whiteSpace:'nowrap'}},lastOf(v).slice(5).replace('-','/')),
+              d&&badge(d.result||'nobook',d.result==='diff'?'차이':d.result==='nobook'?'장부 없음':'확인'),
+              R('span',{style:{fontSize:12,fontWeight:800,whiteSpace:'nowrap',color:+v.buy?'var(--t)':'#C9BFB7'}},+v.buy?money(v.buy)+'원':'이 달 없음'));}),
+            vq.trim()&&R('button',{onClick:()=>pickVendor(vq.trim()),style:{display:'block',width:'100%',minHeight:42,padding:'8px 11px',background:'#FFF8F4',border:'none',cursor:'pointer',fontFamily:'inherit',textAlign:'left',fontSize:12.5,fontWeight:800,color:'var(--p)'}},'"'+vq.trim()+'"(으)로 직접 입력'));
+        })())),
+    /* 2. 우리 월 마감 원장 */
+    vendor.trim()&&!listOpen&&R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{fontSize:13,fontWeight:800,marginBottom:9}},'2. 우리 '+month+' 마감 원장'),
+      bk.hit?R('div',null,
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(112px,1fr))',gap:8,marginBottom:10}},
+          ...[['공급가액',money(bk.hit.buy)+'원'],...(ledgerFull&&ourLines.length?[['부가세',money(ourVat)+'원'],['합계',money(ourLineSum+ourVat)+'원'],['거래',ourLines.length+'건']]:[]),['전월('+prevM+')',prevBk?money(prevBk.buy)+'원':'없음']].map(c=>R('div',{key:c[0],style:{background:'#FAF8F6',borderRadius:10,padding:'8px 11px'}},
+            R('div',{style:{fontSize:10.5,color:'var(--tm)',fontWeight:700}},c[0]),R('div',{style:{fontSize:14.5,fontWeight:900,marginTop:1}},c[1])))),
+        co==='hq'?R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'본사는 거래처별 월 합계만 수집하고 있어 상세 내역은 표시되지 않습니다.'):
+        !ledger?R('div',{style:{fontSize:12,color:'var(--tm)'}},'내역을 불러오는 중...'):
+        ourLines.length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'이 달의 상세 내역이 아직 수집되지 않았습니다.'):
+        R('div',null,
+          (!ledgerFull||Math.abs(ourLineSum-(+bk.hit.buy||0))>10)&&R('div',{style:{fontSize:11.5,color:'#B45309',fontWeight:700,marginBottom:6}},'⚠ 아래 내역 합계('+money(ourLineSum)+'원)가 월 합계와 다릅니다. '+(ledgerFull?'수집 시점 차이일 수 있으니 이카운트에서 확인해 주세요.':'이 달은 내역 일부만 수집되어 있습니다.')),
+          R('div',{className:'tw'},R('table',{style:{minWidth:620}},
+            R('thead',null,R('tr',null,...['날짜','품목','수량','단가','공급가액','부가세','합계'].map((t,i)=>R('th',{key:i},t)))),
+            R('tbody',null,...ourLines.map((x,i)=>R('tr',{key:i},
+              R('td',{style:{whiteSpace:'nowrap'}},x.date),R('td',{style:{wordBreak:'break-all'}},x.name),
+              R('td',{style:{textAlign:'right'}},(+x.qty).toLocaleString()),R('td',{style:{textAlign:'right'}},money(x.price)),
+              R('td',{style:{textAlign:'right'}},money(x.amount)),R('td',{style:{textAlign:'right'}},x.vat===undefined?'—':money(x.vat)),
+              R('td',{style:{textAlign:'right',fontWeight:700}},x.vat===undefined?'—':money(x.amount+x.vat)))))))))
+      :bk.cands.length>0
+        ?R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',fontSize:12}},'비슷한 거래처가 여러 곳입니다. 골라 주세요:',...bk.cands.map(v=>R('button',{key:v.name,className:'btn bw btn-sm',onClick:()=>pickVendor(v.name)},v.name+' · '+money(v.buy))))
+        :R('div',{style:{fontSize:12.5,color:'#B45309',fontWeight:700}},'우리 장부에 '+month+' 이 거래처의 매입이 없습니다. 이름을 확인해 주세요.'),
+      syncTxt&&R('div',{style:{marginTop:8,fontSize:10.5,color:'var(--tm)'}},'이카운트 수집본 기준 (최근 수집 '+syncTxt+')')),
+    /* 3. 마감장 내용 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:9}},
+        R('div',{style:{fontSize:13,fontWeight:800}},'3. 거래처 마감장 입력'),
+        (entered||preview)&&R('button',{className:'btn bw btn-sm',onClick:reset},'비우기')),
+      R('input',{ref:fileRef,type:'file',accept:'image/*,.pdf,.xlsx,.xls,.csv',style:{display:'none'},onChange:e=>{const fl=e.target.files&&e.target.files[0];e.target.value='';onFile(fl);}}),
+      R('div',{onClick:()=>!reading&&fileRef.current&&fileRef.current.click(),
+        onDragOver:e=>e.preventDefault(),onDrop:e=>{e.preventDefault();onFile(e.dataTransfer.files&&e.dataTransfer.files[0]);},
+        style:{border:'1.5px dashed #E0BFAE',background:'#FFF8F4',borderRadius:12,padding:'16px 14px',textAlign:'center',cursor:reading?'wait':'pointer',marginBottom:10}},
+        R('div',{style:{fontSize:13.5,fontWeight:800,color:'var(--p)'}},reading?'⏳ 마감장을 읽는 중입니다...':'📎 사진 · PDF · 엑셀 올리기'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},'눌러서 선택 · 끌어다 놓기 · 캡처는 Ctrl+V — 없으면 아래 칸에 직접 입력해도 됩니다')),
+      err&&R('div',{style:{marginBottom:10,padding:'8px 11px',borderRadius:9,background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',fontSize:12,fontWeight:700}},err),
+      readInfo&&R('div',{style:{marginBottom:10,padding:'8px 11px',borderRadius:9,background:'#FFFBEB',border:'1px solid #FDE68A',color:'#92400E',fontSize:12,lineHeight:1.6}},
+        R('b',null,'AI가 읽은 값입니다. 원본과 숫자를 꼭 확인하고 틀리면 고쳐 주세요.'),
+        readInfo.vendor&&R('div',null,'자료의 거래처: '+readInfo.vendor),
+        readInfo.month&&readInfo.month!==month&&R('div',{style:{marginTop:3}},'자료는 '+readInfo.month+' 마감으로 읽혔습니다. ',R('button',{className:'btn bw btn-sm',onClick:()=>setMonth(readInfo.month)},readInfo.month+'로 바꾸기'))),
+      preview&&R('a',{href:preview,target:'_blank',rel:'noopener',style:{display:'block',marginBottom:10}},R('img',{src:preview,alt:'마감장 원본',style:{maxHeight:220,maxWidth:'100%',borderRadius:8,border:'1px solid var(--bd)'}})),
+      R('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+        numInp('total','이번 달 금액 합계',lines.length?money(lineSum):''),
+        numInp('carry','전월 이월'),numInp('paid','입금'),numInp('balance','월말 잔액'),
+        R('label',{style:{flex:'0 0 96px'}},R('span',{style:lbl},'부가세'),
+          R('select',{className:'inp',style:{width:'100%'},value:f.vat,onChange:e=>setFld('vat',e.target.value)},...[['','모름'],['별도','별도'],['포함','포함'],['면세','면세']].map(o=>R('option',{key:o[0],value:o[0]},o[1]))))),
+      R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'12px 0 6px'}},
+        R('div',{style:{fontSize:12,fontWeight:800}},'거래 내역'+(lines.length?' '+lines.length+'건 · '+money(lineSum)+'원':'')),
+        R('button',{className:'btn bw btn-sm',onClick:()=>setLines(p=>[...p,{date:month+'-',name:'',qty:'',unit:'',price:'',amount:''}])},'+ 줄 추가')),
+      lines.length>0&&R('div',{className:'tw'},R('table',{style:{minWidth:640}},
+        R('thead',null,R('tr',null,...['날짜','품목','수량','단위','단가','금액',''].map((t,i)=>R('th',{key:i},t)))),
+        R('tbody',null,...lines.map((x,i)=>R('tr',{key:i},
+          R('td',{style:{width:112}},R('input',{className:'inp',value:x.date,onChange:e=>setLine(i,'date',e.target.value),style:{width:'100%'}})),
+          R('td',null,R('input',{className:'inp',value:x.name,onChange:e=>setLine(i,'name',e.target.value),style:{width:'100%'}})),
+          R('td',{style:{width:72}},R('input',{className:'inp',inputMode:'decimal',value:x.qty,onChange:e=>setLine(i,'qty',e.target.value),style:{width:'100%',textAlign:'right'}})),
+          R('td',{style:{width:52}},R('input',{className:'inp',value:x.unit,onChange:e=>setLine(i,'unit',e.target.value),style:{width:'100%'}})),
+          R('td',{style:{width:84}},R('input',{className:'inp',inputMode:'numeric',value:x.price,onChange:e=>setLine(i,'price',e.target.value),style:{width:'100%',textAlign:'right'}})),
+          R('td',{style:{width:104}},R('input',{className:'inp',inputMode:'numeric',value:x.amount,onChange:e=>setLine(i,'amount',e.target.value),style:{width:'100%',textAlign:'right'}})),
+          R('td',{style:{width:34}},R('button',{onClick:()=>setLines(p=>p.filter((_,j)=>j!==i)),title:'이 줄 삭제',style:{border:'none',background:'none',color:'#B91C1C',cursor:'pointer',fontSize:15,padding:4}},'×')))))))),
+    /* 4. 비교 분석 */
+    R('div',{className:'card',style:{marginBottom:12}},
+      R('div',{style:{fontSize:13,fontWeight:800,marginBottom:9}},'4. 비교 분석'),
+      !vendor.trim()||!entered
+        ?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'8px 0'}},'거래처와 마감장 금액을 넣으면 여기에 결과가 나옵니다.')
+        :R('div',null,
+          R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8,marginBottom:10}},
+            ...[['거래처 마감장',money(theirs)+'원'],['우리 장부(공급가액)',bk.hit?money(bk.hit.buy)+'원':'내역 없음']].map(c=>R('div',{key:c[0],style:{background:'#FAF8F6',borderRadius:10,padding:'9px 12px'}},
+              R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:700}},c[0]),R('div',{style:{fontSize:17,fontWeight:900,marginTop:2}},c[1]))),
+            verdict
+              ?R('div',{style:{background:(TONE[verdict.k]||TONE.diff)[0],borderRadius:10,padding:'9px 12px'}},
+                R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:700}},'결과'),
+                R('div',{style:{fontSize:15,fontWeight:900,marginTop:3,color:(TONE[verdict.k]||TONE.diff)[2]}},verdict.k==='diff'?((verdict.d>0?'마감장이 ':'우리 장부가 ')+money(Math.abs(verdict.d))+'원 많음'):verdict.l))
+              :R('div',{style:{background:'#F4F1EE',borderRadius:10,padding:'9px 12px'}},R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:700}},'결과'),R('div',{style:{fontSize:14,fontWeight:800,marginTop:3}},'우리 장부에서 못 찾음'))),
+          hasBal&&R('div',{style:{fontSize:12,marginBottom:6}},'잔액 계산 (이월 + 금액 − 입금 = 잔액): ',balGap===0?badge('ok','맞음'):badge('diff',money(Math.abs(balGap))+'원 안 맞음')),
+          String(f.carry).trim()!==''&&prevBk&&R('div',{style:{fontSize:12,marginBottom:6,color:'var(--tm)'}},'참고: 전월 이월 '+money(LEDGER_NUM(f.carry))+'원 / 우리 장부 '+prevM+' 매입 '+money(prevBk.buy)+'원 (공급가액 ×1.1 = '+money((+prevBk.buy||0)*1.1)+'원)'),
+          co==='hq'&&R('div',{style:{fontSize:11,color:'var(--tm)'}},'본사는 상세 내역을 수집하지 않아 합계만 비교합니다.'),
+          co==='fac'&&bk.hit&&lines.length===0&&R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'거래 내역까지 넣으면 어느 거래에서 차이가 나는지 건별로 찾아 드립니다.'),
+          co==='fac'&&bk.hit&&lines.length>0&&(ourLines.length===0
+            ?R('div',{style:{fontSize:11.5,color:'var(--tm)'}},'우리 쪽 상세 내역이 수집되어 있지 않아 합계만 비교했습니다.')
+            :R('div',null,
+              !ledgerFull&&R('div',{style:{fontSize:11.5,color:'#B45309',fontWeight:700,marginBottom:6}},'⚠ 이 달은 우리 내역이 일부만 수집되어 "마감장에 없음·우리 장부에 없음"이 실제와 다를 수 있습니다. 최종 판단은 합계로 해 주세요.'),
+              R('div',{style:{background:'#FAF8F6',borderRadius:10,padding:'9px 12px',marginBottom:8,fontSize:12.5,lineHeight:1.8}},
+                R('div',null,'일치 ',R('b',null,okL.length+'건'),dateD.length?' · 날짜만 다름 ':'',dateD.length?R('b',null,dateD.length+'건'):null),
+                amtD.length>0&&R('div',{style:{color:'#B91C1C'}},'금액 다름 ',R('b',null,amtD.length+'건'),' (마감장 − 우리 = '+(sumT(amtD)-sumO(amtD)>=0?'+':'−')+money(Math.abs(sumT(amtD)-sumO(amtD)))+'원)'),
+                onlyT.length>0&&R('div',{style:{color:'#B91C1C'}},'우리 장부에 없는 거래 ',R('b',null,onlyT.length+'건 '+money(sumT(onlyT))+'원')),
+                onlyO.length>0&&R('div',{style:{color:'#B91C1C'}},'마감장에 없는 거래 ',R('b',null,onlyO.length+'건 '+money(sumO(onlyO))+'원')),
+                verdict&&verdict.k==='diff'&&R('div',{style:{marginTop:2,fontWeight:700}},Math.abs(verdict.d-explained)<=10?'→ 합계 차이는 위 건들로 모두 설명됩니다.':'→ 위 건들로 설명되는 금액 '+money(Math.abs(explained))+'원 외에 '+money(Math.abs(verdict.d-explained))+'원은 부가세 기준이나 입력값을 확인해 주세요.')),
+              R('div',{className:'tw'},R('table',{style:{minWidth:680}},
+                R('thead',null,R('tr',null,...['날짜','품목','마감장 수량×단가','마감장 금액','우리 수량×단가','우리 금액','결과'].map((t,i)=>R('th',{key:i},t)))),
+                R('tbody',null,...matchRows.map((r,i)=>R('tr',{key:i},
+                  R('td',{style:{whiteSpace:'nowrap'}},(r.t||r.o).date),
+                  R('td',{style:{wordBreak:'break-all'}},(r.t&&r.t.name)||(r.o&&r.o.name)||''),
+                  R('td',{style:{textAlign:'right',whiteSpace:'nowrap',color:'var(--tm)'}},r.t&&(r.t.qty||r.t.price)?(r.t.qty||'?')+' × '+(r.t.price?money(LEDGER_NUM(r.t.price)):'?'):'—'),
+                  R('td',{style:{textAlign:'right'}},r.t?money(LEDGER_NUM(r.t.amount)):'—'),
+                  R('td',{style:{textAlign:'right',whiteSpace:'nowrap',color:'var(--tm)'}},r.o?(+r.o.qty).toLocaleString()+' × '+money(r.o.price):'—'),
+                  R('td',{style:{textAlign:'right'}},r.o?money(r.o.amount):'—'),
+                  R('td',null,badge(r.k,r.l)))))))))),
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginTop:12}},
+        R('input',{className:'inp',value:f.note,onChange:e=>setFld('note',e.target.value),placeholder:'메모 (예: 거래처에 정정 요청함)',style:{flex:'1 1 220px',minWidth:0}}),
+        R('button',{className:'btn bp',onClick:saveRec,disabled:!vendor.trim()||!entered||recErr,style:{opacity:!vendor.trim()||!entered||recErr?.5:1}},'💾 확인 기록 저장'))),
+    /* 기록 */
+    R('div',{className:'card'},
+      R('div',{style:{fontSize:13,fontWeight:800,marginBottom:8}},month+' 확인 기록'+(recs&&recs.length?' '+recs.length+'건':'')),
+      recErr?R('div',{style:{fontSize:12.5,color:'#B91C1C',fontWeight:700}},'기록을 불러오지 못했습니다. ',R('button',{className:'btn bw btn-sm',onClick:loadRecs},'다시 시도')):
+      !recs?R('div',{style:{fontSize:12,color:'var(--tm)'}},'불러오는 중...'):
+      recs.length===0?R('div',{style:{fontSize:12,color:'var(--tm)'}},'아직 없습니다.'):
+      R('div',null,...recs.map(x=>{
+        const lab=x.result==='ok'?'일치':x.result==='vat'?'부가세 포함 일치':x.result==='diff'?'차이 '+money(Math.abs((+x.theirs||0)-(+x.ours||0)))+'원':'장부 없음';
+        return R('div',{key:x.id,style:{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderTop:'1px solid #F4F1EE',flexWrap:'wrap'}},
+          R('button',{onClick:()=>openRec(x),style:{flex:'1 1 200px',minWidth:0,textAlign:'left',background:'none',border:'none',padding:0,cursor:'pointer',fontFamily:'inherit',color:'var(--t)'}},
+            R('div',{style:{fontSize:12.5,fontWeight:800}},(x.co==='hq'?'[본사] ':'')+x.vendor),
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:1}},'마감장 '+money(x.theirs)+'원 · '+(x.by||'')+(x.f&&x.f.note?' · '+x.f.note:''))),
+          badge(x.result||'nobook',lab),
+          R('button',{className:'btn bw btn-sm',onClick:()=>delRec(x.id)},'삭제'));
+      })))
+  );
+}
+
+function GaLedgerSales({user,top}){
   const ymdL=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
   /* 기본 월: 10일까지는 지난달 마감, 그 뒤로는 이번 달 */
   /* 메시지 수발주 [📒 원장 확인]에서 넘어오면 그 거래처·월로 시작 (2026-10-29) */
   const jump=(()=>{try{const v=JSON.parse(sessionStorage.getItem('bnf_ledger_jump')||'null');sessionStorage.removeItem('bnf_ledger_jump');return v&&Date.now()-(+v.at||0)<60000?v:null;}catch(e){return null;}})();
   const[month,setMonth]=useState(()=>{if(jump&&/^\d{4}-\d{2}$/.test(jump.month||''))return jump.month;const d=new Date();if(d.getDate()<=10)d.setDate(0);return ymdL(d).slice(0,7);});
   const[custs,setCusts]=useState(null);
+  const[salesCm,setSalesCm]=useState({});  /* 거래처별 월 매출 (id=4 customer_monthly) */
+  const[sortBy,setSortBy]=useState('recent');
   const[cfg,setCfg]=useState(null);       /* {cust:{key:{inv}}, auto:{enabled,confirm}} */
   const[rec,setRec]=useState(null);       /* {cust:{key:{sent,ok,issued}}, queued:[]} */
   const[loadErr,setLoadErr]=useState(false);
@@ -9112,7 +9526,7 @@ function PageGaLedger({user}){
   const loadAll=async()=>{
     try{
       const[{data:a},{data:b},c,r]=await Promise.all([
-        sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle(),
+        sbClient.from('app_state').select('v:state_data->ecount_customers,cm:state_data->customer_monthly').eq('id',4).maybeSingle(),
         sbClient.from('app_state').select('v:state_data->bnf_crm').eq('id',1).maybeSingle(),
         readJson(SETTINGS,{cust:{},auto:{enabled:false,confirm:true}}),
         readJson(recPath(month),{cust:{}})
@@ -9123,7 +9537,7 @@ function PageGaLedger({user}){
         const m=crm[crmNorm(x.name)];
         return{key:x.code||crmNorm(x.name),code:x.code||'',name:x.name||'',email:(m&&m.email)||'',salesAmt:+x.salesAmt||0};
       }).filter(x=>x.name);
-      setCusts(list);setCfg(c||{cust:{},auto:{enabled:false,confirm:true}});setRec(r||{cust:{}});setLoadErr(false);
+      setSalesCm((a&&a.cm)||{});setCusts(list);setCfg(c||{cust:{},auto:{enabled:false,confirm:true}});setRec(r||{cust:{}});setLoadErr(false);
     }catch(e){setLoadErr(true);}
   };
   useEffect(()=>{setRec(null);loadAll();},[month]);
@@ -9184,7 +9598,12 @@ function PageGaLedger({user}){
   const recC=rec.cust||{};
   const invOf=k=>((cfg.cust||{})[k]||{}).inv||'tax';
   const kw=q.trim().toLowerCase();
-  const rows=custs.filter(x=>(showAll||x.salesAmt>0||recC[x.key]||(cfg.cust||{})[x.key])&&(!kw||x.name.toLowerCase().indexOf(kw)>=0));
+  /* 선택한 달 매출액과, 그 달까지 중 마지막으로 매출이 있었던 달 (일 단위 매출 내역은 수집하지 않아 월 단위) */
+  const saleIdx={};
+  Object.keys(salesCm).filter(m=>m<=month).sort().forEach(m=>{const o=salesCm[m]||{};Object.keys(o).forEach(k=>{const v=o[k];const a=+(v&&v.sales)||0;if(!a)return;const n=crmNorm(v.name||k);if(!saleIdx[n])saleIdx[n]={};saleIdx[n].last=m;if(m===month)saleIdx[n].amt=a;});});
+  const saleOf=x=>saleIdx[crmNorm(x.name)]||{};
+  const rows=custs.filter(x=>(showAll||x.salesAmt>0||recC[x.key]||(cfg.cust||{})[x.key])&&(!kw||x.name.toLowerCase().indexOf(kw)>=0))
+    .sort((a,b)=>{const sa=saleOf(a),sb=saleOf(b);return (sortBy==='recent'?String(sb.last||'').localeCompare(String(sa.last||'')):0)||(sb.amt||0)-(sa.amt||0)||(b.salesAmt||0)-(a.salesAmt||0)||a.name.localeCompare(b.name,'ko');});
   const cnt=k=>rows.filter(x=>recC[x.key]&&recC[x.key][k]).length;
   const selItems=rows.filter(x=>sel[x.key]);
   const fT=iso=>{try{const d=new Date(iso);return(d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return'';}};
@@ -9192,8 +9611,9 @@ function PageGaLedger({user}){
   const queued=Array.isArray(rec.queued)?rec.queued:[];
 
   return R('div',{className:'pg fa'},
+    top,
     R('div',{className:'pg-hdr'},
-      R('div',null,R('div',{className:'pg-title'},'📒 거래처원장'),
+      R('div',null,R('div',{className:'pg-title'},'✉️ 매출 원장 발송'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'월말 마감 — 거래처별 ① 원장 메일 발송 → ② 거래처 확인 → ③ 계산서 발행')),
       R('div',{style:{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
         msg&&R('span',{style:{fontSize:11.5,fontWeight:700,color:'#15803D'}},msg),
@@ -9237,18 +9657,21 @@ function PageGaLedger({user}){
         R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'거래처 검색',style:{maxWidth:220}}),
         R('label',{style:{display:'flex',alignItems:'center',gap:5,fontSize:12,cursor:'pointer',color:'var(--tm)'}},
           R('input',{type:'checkbox',checked:showAll,onChange:e=>setShowAll(e.target.checked)}),'매출 없는 거래처도 표시'),
+        R(LedgerSortBtns,{value:sortBy,onChange:setSortBy,amtLabel:'매출액 순'}),
         R('div',{style:{flex:1}}),
         R('button',{className:'btn bw btn-sm',onClick:()=>{const all={};rows.filter(x=>!(recC[x.key]&&recC[x.key].sent)&&invOf(x.key)!=='none').forEach(x=>all[x.key]=true);setSel(all);}},'미발송 전체 선택'),
         R('button',{className:'btn bp btn-sm',disabled:!selItems.length||!!busy,onClick:()=>sendLedger(selItems),style:{opacity:!selItems.length||busy?.5:1}},busy||('✉ 선택 '+selItems.length+'곳 원장 발송'))),
       rows.length===0?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'16px 0',textAlign:'center'}},custs.length?'조건에 맞는 거래처가 없습니다':'이카운트 거래처 목록이 아직 수집되지 않았습니다'):
-      R('div',{className:'tw'},R('table',{style:{minWidth:860}},
-        R('thead',null,R('tr',null,R('th',{style:{width:34}},''),R('th',{style:{width:180}},'거래처'),R('th',{style:{width:190}},'이메일'),R('th',{style:{width:110}},'발행 유형'),...STAGES.map(s=>R('th',{key:s.k,style:{width:118}},s.l)))),
+      R('div',{className:'tw'},R('table',{style:{minWidth:1040}},
+        R('thead',null,R('tr',null,R('th',{style:{width:34}},''),R('th',{style:{width:180}},'거래처'),R('th',{style:{width:104,textAlign:'right'}},month.slice(5)+'월 매출'),R('th',{style:{width:76}},'최근 거래'),R('th',{style:{width:190}},'이메일'),R('th',{style:{width:110}},'발행 유형'),...STAGES.map(s=>R('th',{key:s.k,style:{width:118}},s.l)))),
         R('tbody',null,...rows.map(x=>{
           const r=recC[x.key]||{};
           const inv=invOf(x.key);
           return R('tr',{key:x.key},
             R('td',null,R('input',{type:'checkbox',checked:!!sel[x.key],onChange:e=>setSel(p=>Object.assign({},p,{[x.key]:e.target.checked}))})),
             R('td',{style:{fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.name},x.name),
+            R('td',{style:{textAlign:'right',fontWeight:700,whiteSpace:'nowrap',color:saleOf(x).amt?'var(--t)':'#C9BFB7'}},saleOf(x).amt?saleOf(x).amt.toLocaleString():'-'),
+            R('td',{style:{fontSize:11.5,color:'var(--tm)',whiteSpace:'nowrap'}},saleOf(x).last?saleOf(x).last.replace('-','.'):'-'),
             R('td',{style:{fontSize:11.5,color:x.email?'var(--t)':'#B45309',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.email||'거래처 CRM에서 이메일 입력'},x.email||'이메일 없음'),
             R('td',null,R('select',{value:inv,onChange:e=>setInv(x.key,e.target.value),style:{border:'1px solid var(--bd)',borderRadius:6,padding:'3px 4px',fontSize:12,fontFamily:'inherit',width:'100%'}},
               ...Object.keys(LEDGER_INV).map(k=>R('option',{key:k,value:k},LEDGER_INV[k])))),
@@ -20818,7 +21241,7 @@ const NAV_PAGES_INDEX=[
   {p:'autoOrder',title:'자동발주제안',ic:'🤖',keys:['자동발주','제안','auto']},
   {p:'ga_quote',title:'견적서',ic:'📝',keys:['견적','견적서','quote','invoice']},
   {p:'ga_ilgye',title:'일계표 작성',ic:'🧾',keys:['일계표','일계','이카운트','기업은행','증빙','지출결의']},
-  {p:'ga_ledger',title:'거래처원장',ic:'📒',keys:['거래처원장','원장','거래처관리대장','세금계산서','계산서','월말','마감']},
+  {p:'ga_ledger',title:'거래처원장',ic:'📒',keys:['거래처원장','원장','거래처관리대장','세금계산서','계산서','월말','마감','매입원장','매출원장','마감장']},
   {p:'board',title:'게시판',ic:'💬',keys:['게시판','공지','board','notice']},
   {p:'org',title:'조직도',ic:'👥',keys:['조직','조직도','org','people']},
   {p:'approval',title:'전자결재',ic:'📋',keys:['결재','승인','approval']},
