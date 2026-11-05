@@ -1103,6 +1103,68 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
   .sb-overlay{-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);background:rgba(20,12,8,.38)!important}
 }
 @keyframes sbIn{from{transform:translateX(-104%)}to{transform:none}}
+/* ═══ 휴대폰 화면 정리 (2026-11-05) ═══ */
+.mnav-quick .mnav-qic{width:42px;height:42px;margin-top:-20px;border-radius:50%;background:var(--p);color:#fff;font-size:21px;line-height:42px;text-align:center;box-shadow:0 6px 16px rgba(217,79,30,.38);border:3px solid #fff;box-sizing:content-box}
+.qk-bg{position:fixed;inset:0;background:rgba(20,12,8,.42);z-index:10010;display:flex;align-items:flex-end;animation:fa .15s ease}
+.qk-sheet{width:100%;max-height:82vh;overflow-y:auto;background:#fff;border-radius:20px 20px 0 0;padding:10px 14px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -10px 34px rgba(0,0,0,.2)}
+.qk-grab{width:38px;height:4px;border-radius:2px;background:#E5DFD9;margin:0 auto 10px}
+.qk-h{font-size:12px;font-weight:800;color:#6E645C;margin:12px 2px 7px}
+.qk-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.qk-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:70px;padding:7px 3px;background:#FAF8F6;border:1px solid #EFE9E3;border-radius:13px;font-family:inherit;font-size:11px;font-weight:700;color:#3D3630;line-height:1.25;cursor:pointer;word-break:keep-all;-webkit-tap-highlight-color:transparent}
+.qk-tile:active{background:var(--pb)}
+.qk-tile .qk-ic{font-size:22px;line-height:1}
+.qk-acts{display:flex;gap:7px;margin-top:14px}
+.qk-acts button{flex:1;min-height:44px;background:#F4F1EE;border:none;border-radius:11px;font-family:inherit;font-size:12.5px;font-weight:700;color:#5D534B;cursor:pointer}
+@media(max-width:768px){
+  /* 헤더: 글자 버튼은 아이콘만, 로그아웃은 빠른 업무 안으로 — 오른쪽으로 잘리던 문제 */
+  .hdr-lbl,.hdr-logout{display:none!important}
+  .hdr-ic{width:34px;height:34px;padding:0!important;justify-content:center;align-items:center;display:inline-flex!important;border-radius:50%!important}
+  /* 원료 발주 표 → 품목별 카드: 원재료명·부족량이 첫 화면에 보이게 */
+  .cmb-tool{display:none!important}
+  .cmb-tbl{display:block;width:100%!important;max-width:100%!important;table-layout:auto!important}
+  .cmb-tbl colgroup,.cmb-tbl thead{display:none}
+  .cmb-tbl tbody{display:block}
+  .cmb-tbl tr.cmb-hd,.cmb-tbl tr.cmb-hd>td{display:block}
+  .cmb-tbl tr:not(.cmb-hd){display:grid;grid-template-columns:repeat(6,minmax(0,1fr));column-gap:8px;padding:11px 12px;border-top:1px solid #E5DFD9!important}
+  .cmb-tbl tr:not(.cmb-hd)>td{display:block;padding:3px 0!important;border:none!important;text-align:left!important;min-width:0;white-space:normal!important;overflow:visible!important;font-size:12px}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(1){grid-column:1;grid-row:1;padding-top:2px!important}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(1) input{width:24px!important;height:24px!important}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(2){grid-column:2/-1;grid-row:1}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(4){grid-column:span 2;grid-row:2}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(5){grid-column:span 2;grid-row:2}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(7){grid-column:span 2;grid-row:2}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(3){grid-column:span 3;grid-row:3}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(6){grid-column:span 3;grid-row:3}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(8),.cmb-tbl tr:not(.cmb-hd)>td:nth-child(9),.cmb-tbl tr:not(.cmb-hd)>td:nth-child(10){grid-column:1/-1}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(n+3)::before{display:block;font-size:10px;font-weight:600;color:#9A9088;margin-bottom:1px;text-decoration:none}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(3)::before{content:'최근 매입단가'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(4)::before{content:'총 필요'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(5)::before{content:'재고'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(6)::before{content:'입고예정'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(7)::before{content:'부족'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(8)::before{content:'매입처'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(9)::before{content:'발주방법'}
+  .cmb-tbl tr:not(.cmb-hd)>td:nth-child(10)::before{content:'연락처'}
+  .cmb-tbl td input[type=number]{width:100%!important;min-height:36px}
+  .cmb-nm{flex-direction:column-reverse!important;gap:5px!important}
+  .cmb-nm>div:first-child{width:auto!important;max-width:100%;border:none!important;padding:0!important}
+  .cmb-nm>div:last-child{font-size:14px;font-weight:800}
+  /* 매입·매출 거래처 표: 좁은 화면에선 작년 칸을 빼고 폭을 내용에 맞춤 */
+  .pg .card{max-width:100%;min-width:0}
+  .ord-acts{flex-shrink:1!important;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+  .ts-row{gap:6px!important}
+  .ts-row>span:nth-child(2){display:none}
+  .ts-row>span:nth-child(3){width:60px!important}
+  .ts-row>span:nth-child(4){width:66px!important}
+  .ts-row>span:nth-child(5){width:40px!important}
+  /* 제품/BOM 카드: 제품명 한 줄 + 버튼 다음 줄 */
+  .bom-row{flex-wrap:wrap}
+  .bom-row>div:first-child{flex-basis:100%}
+}
+@media(pointer:coarse){
+  .btn-sm{min-height:34px}
+  .nfav{min-width:34px;min-height:34px}
+}
 @media(prefers-reduced-motion:reduce){
   .sb-folder .ni,.sb.sb-open{animation:none!important}
   .ni:hover>span:first-child{transform:none}
