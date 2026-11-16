@@ -16094,8 +16094,20 @@ function PageBOM({mats,prods,cats,isAdmin,onSetProds,onOpenModal,onAddMat}){
       '등록된 제품 없음',
       isAdmin&&R('div',{style:{marginTop:10}},R('button',{className:'btn bp',onClick:()=>onOpenModal(null)},'등록하기'))
     ),
-    /* 폴더별 그룹 */
+    /* 검색 중이면 결과를 폴더 구분 없이 맨 위에 모아 표시 */
+    prodSearch&&prods.length>0&&R('div',{style:{marginBottom:12}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'7px 12px',background:'#FFF8F4',borderLeft:'4px solid var(--p)',borderRadius:8,marginBottom:8}},
+        R('span',{style:{fontWeight:700,fontSize:13,color:'var(--p)'}},'🔍 "'+prodSearch+'" 검색 결과'),
+        R('span',{style:{fontSize:11,color:'#9A9088'}},'('+filtered.length+')'),
+        R('div',{style:{flex:1}}),
+        R('button',{onClick:()=>setProdSearch(''),style:{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#6E645C',fontFamily:'inherit'}},'✕ 검색 지우기')
+      ),
+      filtered.length===0&&R('div',{style:{padding:'16px',textAlign:'center',color:'#9A9088',fontSize:12,border:'1px dashed #E9E2DC',borderRadius:8}},'검색 결과가 없습니다'),
+      ...filtered.map(p=>renderCard(p))
+    ),
+    /* 폴더별 그룹 (검색 중에는 숨김) */
     ...bomFolders.map(folder=>{
+      if(prodSearch)return null;
       const fProds=bomByFolder[folder.id]||[];
       if(folder.id==='_root'&&fProds.length===0&&bomFolders.length>1)return null;
       if(prods.length===0)return null;
