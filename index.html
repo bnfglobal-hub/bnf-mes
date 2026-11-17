@@ -1203,6 +1203,9 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
 .rq-btn.ghost{background:var(--ds-surface);color:var(--ds-text-2);border-color:var(--ds-line-strong);height:var(--ds-ctl-h)}
 .rq-btn.ghost:hover{background:var(--ds-surface-3)}
 .rq-btn:disabled{opacity:.45;cursor:default}
+/* 행마다 반복되는 버튼은 주황 채움 대신 보조 스타일 (주황 채움은 화면의 주요 실행에만) */
+.rq-btn.sec{background:var(--ds-surface);color:var(--ds-brand-strong);border-color:#EBC3B0}
+.rq-btn.sec:hover{background:var(--ds-brand-soft)}
 .rq-count{font-size:var(--ds-fs-sm);color:var(--ds-text-3);margin-left:auto;white-space:nowrap}
 .rq-count b{color:var(--ds-text);font-variant-numeric:tabular-nums;margin-right:1px}
 .rq-seg{display:inline-flex;border:1px solid var(--ds-line-strong);border-radius:var(--ds-radius-sm);overflow:hidden}
@@ -1221,6 +1224,9 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
 .rq-tbl td{padding:10px 12px;border-bottom:var(--ds-bd);vertical-align:middle;line-height:1.4;color:var(--ds-text);background:var(--ds-surface)}
 .rq[data-density=compact] .rq-tbl td{padding:5px 10px}
 .rq[data-density=compact] .rq-tbl th{height:34px;padding:0 10px}
+.rq[data-density=compact] .rq-sub2{display:none}
+.rq[data-density=compact] .rq-name{-webkit-line-clamp:1}
+.rq[data-density=compact] .rq-sub{margin-top:1px}
 .rq-right,.rq-tbl .rq-right{text-align:right!important;font-variant-numeric:tabular-nums;white-space:nowrap}
 .rq-center,.rq-tbl .rq-center{text-align:center!important}
 .rq-tbl th.rq-right .rq-sortbtn{flex-direction:row;justify-content:flex-end;width:100%}
@@ -1285,7 +1291,7 @@ button[disabled],.btn:disabled{opacity:.4;cursor:default}
   .rq-tbl colgroup{display:none}
   .rq-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));column-gap:8px;row-gap:2px;padding:12px;border-bottom:1px solid var(--ds-line-strong)}
   .rq-row.rq-grp>td{border-top:none}
-  .rq-row>td{display:block;position:static!important;padding:3px 0!important;border:none!important;background:none!important;text-align:left!important;white-space:normal!important;min-width:0;box-shadow:none!important}
+  .rq-tbl .rq-row>td{display:block;position:static!important;padding:3px 0!important;border:none!important;background:none!important;text-align:left!important;white-space:normal!important;min-width:0;box-shadow:none!important}
   .rq-row>td.rq-ck{grid-column:1;grid-row:1}
   .rq-row>td.rq-ck input{width:26px;height:26px}
   .rq-row>td.rq-nm{grid-column:2/-1;grid-row:1}
@@ -5931,11 +5937,11 @@ const DOC_SEED=[
   {name:'안전보건 목표·추진계획 수립',place:'경영지원부',cycle:12,unit:'개월',note:'연 1회 수립·점검',cat:'안전보건'},
   {name:'유해·위험요인 확인 및 개선(위험성평가)',place:'생산부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 3호',cat:'안전보건'},
   {name:'안전보건 예산 편성·집행 점검',place:'경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 4호',cat:'안전보건'},
-  {name:'안전보건 업무 담당자 지정·평가',place:'경영지원부',cycle:12,unit:'개월',note:'반기 1회 평가 권장',cat:'안전보건'},
+  {name:'안전보건 업무 담당자 지정·평가',place:'경영지원부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 5호 (반기 1회 이상 평가)',cat:'안전보건'},
   {name:'종사자 의견 청취 및 개선(반기)',place:'경영지원부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 7호',cat:'안전보건'},
   {name:'중대재해 대응 매뉴얼 점검',place:'생산부',cycle:6,unit:'개월',note:'비상대응 절차·훈련',cat:'안전보건'},
-  {name:'도급·용역·위탁 업체 안전 평가',place:'구매/경영지원부',cycle:12,unit:'개월',note:'중처법 시행령 제4조 9호',cat:'안전보건'},
-  {name:'안전보건 교육 실시·기록',place:'생산부',cycle:3,unit:'개월',note:'분기 정기교육',cat:'안전보건'},
+  {name:'도급·용역·위탁 업체 안전 평가',place:'구매/경영지원부',cycle:6,unit:'개월',note:'중처법 시행령 제4조 9호 (반기 1회 이상 점검)',cat:'안전보건'},
+  {name:'안전보건 교육 실시·기록',place:'생산부',cycle:6,unit:'개월',note:'반기 정기교육 (산안법 시행규칙 별표 4)',cat:'안전보건'},
   {name:'작업환경 측정',place:'생산부',cycle:6,unit:'개월',note:'산업안전보건법',cat:'안전보건'},
   {name:'근로자 건강진단',place:'경영지원부',cycle:12,unit:'개월',note:'배치전·정기',cat:'안전보건'},
   {name:'소방시설 자체점검',place:'공장',cycle:12,unit:'개월',note:'작동점검·종합점검',cat:'시설·소방'},
@@ -16598,11 +16604,16 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
   const[dens,setDens]=useState(()=>LS('bnf_req_density','comfort')==='compact'?'compact':'comfort');
   const[open,setOpen]=useState({});        /* 펼친 원재료 code → true */
   const[prodsOpen,setProdsOpen]=useState(false);
-  const fmtQ=v=>(+v||0).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  /* 많은 품목(수백~수천)에서도 가볍게: 정렬·필터는 전체 결과 기준으로 한 뒤, 화면에는 300행씩 그린다 */
+  const STEP=300;
+  const[limit,setLimit]=useState(STEP);
+  /* 소수 2자리 고정. 반올림 결과가 0이면 '-0.00'이 아니라 '0.00' */
+  const r2=v=>{const x=Math.round((+v||0)*100)/100;return x===0?0:x;};
+  const fmtQ=v=>r2(v).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const won=v=>Math.round(+v||0).toLocaleString('ko-KR');
   /* 열 정의 — 텍스트 왼쪽 · 수량/금액 오른쪽 · 체크/작업 가운데 (헤더도 같은 정렬) */
   const COLS=[
-    {k:'ck',l:'발주 완료',w:64,a:'center'},
+    {k:'ck',l:'발주 완료',w:88,a:'center'},
     {k:'nm',l:'원재료',w:250,s:'name'},
     {k:'use',l:'사용 제품',w:112},
     {k:'nd',l:'필요량',w:118,a:'right',s:'needed'},
@@ -16613,7 +16624,7 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
     {k:'sup',l:'매입처',w:180,s:'sup'},
     {k:'ord',l:'발주방법',w:170},
     {k:'tel',l:'연락처',w:126},
-    {k:'act',l:'작업',w:112,a:'center'}
+    {k:'act',l:'작업',w:128,a:'center'}
   ];
   const[colW,setColW]=useState(()=>{try{const v=JSON.parse(LS('bnf_req_colw_v3','null'));return(v&&typeof v==='object')?v:{};}catch(e){return{};}});
   const wOf=k=>{const v=colW[k];if(v>0)return v;const c=COLS.find(x=>x.k===k);return c?c.w:100;};
@@ -16636,7 +16647,7 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
     combined.rows.forEach(r=>{
       const s=supOf(r.mat,r.name);
       const matPrice=s.from==='buy'?(+(r.mat&&r.mat.price)||0):0;
-      const e=bnfReqEst(r.short,s.price,matPrice,r.unitMix);
+      const e=bnfReqEst(r.short,s.price,matPrice,r.unitMix||r.unitMis);
       m[r.code]={s,est:e.est,warn:e.warn};
     });
     return m;
@@ -16665,6 +16676,8 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
     return true;
   });
   const sorted=bnfSortReq(filtered,sort,supName,estOf);
+  const fKey=[kw,supF,shortF,ordF,sort&&sort.k,sort&&sort.d].join('|');
+  useEffect(()=>{setLimit(STEP);},[fKey]);
   const openRows=sorted.filter(r=>!inDone(r.code)), doneRows=sorted.filter(r=>inDone(r.code));
   const doneVisible=ordF==='done'||ordDoneOpen;
   const isDefault=!kw&&!supF&&shortF==='short'&&ordF==='all'&&!sort;
@@ -16694,12 +16707,13 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
         R('div',{className:'rq-name',title:r.name},r.name),
         R('div',{className:'rq-sub'},R('span',{className:'rq-code'},String(r.code)),
           r.unitMix&&R('span',{className:'rq-tag warn',title:'제품별 BOM 단위가 다릅니다: '+r.units.join(', ')+' — 단위를 맞추기 전까지 필요량 합계를 그대로 믿지 마세요'},R(ReqIco,{n:'alert',s:12}),'단위 혼재'),
+          r.unitMis&&!r.unitMix&&R('span',{className:'rq-tag warn',title:'BOM 단위('+r.units.join(', ')+')와 재고 관리 단위('+r.matUnit+')가 다릅니다 — 필요량과 재고를 그대로 비교한 값이라 부족 수량을 믿을 수 없습니다. BOM 또는 재고 단위를 맞춰 주세요'},R(ReqIco,{n:'alert',s:12}),'재고 단위 '+r.matUnit),
           r.noMat&&R('span',{className:'rq-tag',title:'재고 관리에 없는 품목코드입니다 (재고 0으로 계산)'},'재고 미등록'))),
       cell(C('use'),null,R('button',{type:'button',className:'rq-disc','aria-expanded':isOpen,'aria-controls':rowId,onClick:()=>setOpen(p=>Object.assign({},p,{[r.code]:!p[r.code]})),title:r.prods.map(p=>p.name).join('\n')},
         R(ReqIco,{n:isOpen?'down':'right',s:13}),'제품 '+r.prods.length+'개')),
       cell(C('nd'),null,fmtQ(r.needed),U(r.unit)),
       cell(C('st'),{title:r.noMat?'재고 관리에 없는 품목':(r.stock<0?'음수 재고 — 재고 관리 확인 필요':'')},
-        r.noMat?R('span',{className:'rq-muted'},'미등록'):R('span',{className:r.stock<0?'rq-neg':''},fmtQ(r.stock)),r.noMat?null:U(r.unit)),
+        r.noMat?R('span',{className:'rq-muted'},'미등록'):R('span',{className:r2(r.stock)<0?'rq-neg':''},fmtQ(r.stock)),r.noMat?null:U(r.unit)),
       cell(C('sh'),null,r.short>0
         ?R('span',{className:'rq-short'},R(ReqIco,{n:'alert',s:13}),R('span',{className:'rq-sr'},'부족 '),fmtQ(r.short),U(r.unit))
         :R('span',{className:'rq-ok'},R(ReqIco,{n:'check',s:13}),'충분')),
@@ -16707,10 +16721,10 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
         buyLoading?R('span',{className:'rq-muted'},'불러오는 중'):
         s.price>0?[R('div',{key:'p'},won(s.price),R('span',{className:'rq-unit'},'원')),R('div',{key:'d',className:'rq-sub2'},s.from==='buy'?('매입 '+String(s.date||'').slice(2).replace(/-/g,'.')):'재고관리 입력')]
           :R('span',{className:'rq-muted'},'단가 없음')),
-      cell(C('est'),{title:I.warn==='ratio'?'이카운트 매입단가가 재고관리 단가와 5배 이상 달라 단위가 다를 수 있습니다 — 계산에서 제외':I.warn==='unit'?'BOM 단위가 섞여 있어 계산에서 제외':I.warn==='noprice'?'단가가 없어 계산할 수 없음':(I.est>0?'부족 수량 × 최근 단가 (참고용)':'')},
+      cell(C('est'),{title:I.warn==='ratio'?'이카운트 매입단가가 재고관리 단가와 5배 이상 달라 단위가 다를 수 있습니다 — 계산에서 제외':I.warn==='unit'?'BOM 단위가 섞여 있거나 재고 단위와 달라 계산에서 제외':I.warn==='noprice'?'단가가 없어 계산할 수 없음':(I.est>0?'부족 수량 × 최근 단가 (참고용)':'')},
         r.short<=0?R('span',{className:'rq-muted'},'—'):
         I.est>0?[won(I.est),R('span',{key:'u',className:'rq-unit'},'원')]:
-        R('span',{className:'rq-tag '+(I.warn==='noprice'?'':'warn')},I.warn==='ratio'?'단위 확인':I.warn==='unit'?'단위 혼재':'계산 불가')),
+        R('span',{className:'rq-tag '+(I.warn==='noprice'?'':'warn')},I.warn==='ratio'?'단위 확인':I.warn==='unit'?'단위 확인':'단가 없음')),
       cell(C('sup'),{title:s.name?(s.name+(s.from==='buy'?' · 이카운트 매입내역 '+(s.date||'')+' 기준':' · 재고 관리 입력값')):'매입처 정보 없음'},
         s.name?[R('div',{key:'n',className:'rq-ell'},s.name),R('div',{key:'f',className:'rq-sub2'},s.from==='buy'?'최근 매입처':'재고관리 입력')]
           :R('span',{className:'rq-muted'},'매입처 미등록')),
@@ -16720,7 +16734,7 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
           R('button',{type:'button',className:'rq-icobtn',onClick:editNote,'aria-label':r.name+' 발주방법 편집',title:'발주방법 편집'},R(ReqIco,{n:'edit',s:14})))),
       cell(C('tel'),null,tel?(telNum.length>=8?R('a',{href:'tel:'+telNum,className:'rq-link',onClick:e=>e.stopPropagation()},tel):tel):R('span',{className:'rq-muted'},'—')),
       cell(C('act'),null,
-        r.short>0&&!ordered?R('button',{type:'button',className:'rq-btn',onClick:e=>{e.stopPropagation();openPO(r);},title:'입고 요청일을 고르면 발주 메시지를 만들어 줍니다 (보내기 전 확인 창이 열립니다)'},R(ReqIco,{n:'msg',s:14}),'발주 메시지')
+        r.short>0&&!ordered?R('button',{type:'button',className:'rq-btn sec',onClick:e=>{e.stopPropagation();openPO(r);},title:'입고 요청일을 고르면 발주 메시지를 만들어 줍니다 (보내기 전 확인 창이 열립니다)'},R(ReqIco,{n:'msg',s:14}),'발주 메시지')
         :ordered?R('span',{className:'rq-done'},R(ReqIco,{n:'check',s:13}),'발주 완료'):R('span',{className:'rq-muted'},'—'))
     );
     if(!isOpen)return[tr];
@@ -16748,7 +16762,10 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
   };
 
   const body=[];
-  openRows.forEach((r,i)=>body.push(...renderRow(r,i>0?openRows[i-1]:null)));
+  const openShown=openRows.slice(0,limit);
+  openShown.forEach((r,i)=>body.push(...renderRow(r,i>0?openShown[i-1]:null)));
+  if(openRows.length>openShown.length)body.push(R('tr',{key:'__more',className:'rq-empty'},R('td',{colSpan:COLS.length},
+    openShown.length+' / '+openRows.length+'행 표시 (정렬·필터는 전체 결과 기준) ',R('button',{type:'button',className:'rq-linkbtn',onClick:()=>setLimit(l=>l+STEP)},'300행 더 보기'))));
   if(doneRows.length){
     const doneShort=doneRows.filter(x=>x.short>0).length;
     body.push(R('tr',{key:'__done',className:'rq-donehd'},R('td',{colSpan:COLS.length},
@@ -16756,7 +16773,7 @@ function ReqBoard({combined,supOf,crmNoteOf,crmPhoneOf,isGenericSup,itemNotes,in
         R(ReqIco,{n:doneVisible?'down':'right',s:14}),'발주 완료 표시 '+doneRows.length+'건',
         doneShort>0&&R('span',{className:'rq-tag danger'},'아직 부족 '+doneShort+'건'),
         R('span',{className:'rq-sub2'},ordF==='done'?'':(doneVisible?'접기':'펼치기')+' · 체크 후 7일 지나면 자동 해제 · 이 PC 브라우저에만 저장')))));
-    if(doneVisible)doneRows.forEach((r,i)=>body.push(...renderRow(r,i>0?doneRows[i-1]:null)));
+    if(doneVisible)doneRows.slice(0,limit).forEach((r,i,a)=>body.push(...renderRow(r,i>0?a[i-1]:null)));
   }
   const tableW=COLS.reduce((a,c)=>a+wOf(c.k),0);
   const prodList=combined.prods||[];
@@ -16851,6 +16868,10 @@ function bnfCombineReq(prods,pqty,mats){
   const rows=Object.keys(agg).map(k=>{const r=agg[k];
     r.needed=Math.round(r.needed*1e6)/1e6; /* 부동소수 오차(0.1+0.2) 정리 — 표시는 소수 2자리 */
     r.unitMix=r.units.length>1;
+    /* BOM 단위와 재고 관리 단위가 다르면(예: BOM ea · 재고 kg) 필요량과 재고를 직접 비교할 수 없다 → 경고 */
+    const mu=r.mat?bnfReqUnit(r.mat.u):'';
+    r.matUnit=r.mat?(r.mat.u||''):'';
+    r.unitMis=!!(mu&&r.units.some(u=>u!==mu));
     r.short=Math.max(0,Math.round((r.needed-r.stock)*1e6)/1e6);
     return r;});
   rows.sort((a,b)=>(b.short>0?1:0)-(a.short>0?1:0)||b.short-a.short||String(a.name).localeCompare(String(b.name),'ko'));
@@ -20986,10 +21007,10 @@ const SAFETY_CATS=[
      note:'대상이 된 날부터 30일 이내 최초, 이후 반기 1회. 최근 2회 연속 기준 미만이면 연 1회 가능.'}
   ]},
   {k:'edu',ic:'🎓',name:'안전보건교육',items:[
-    {k:'edu_reg',name:'근로자 정기 안전보건교육',cycleM:6,law:'산업안전보건법 제29조 · 시행규칙 제26조(별표 4)',verify:true,
-     note:'교육시간은 별표 4 기준. 이수 기록은 [법정의무교육] 메뉴에서도 관리.'},
-    {k:'edu_hire',name:'채용 시·작업내용 변경 시 교육',cycleM:0,law:'산업안전보건법 제29조 제2항',
-     note:'신규 채용, 작업내용 변경 때마다.'},
+    {k:'edu_reg',name:'근로자 정기 안전보건교육',cycleM:6,law:'산업안전보건법 제29조 · 시행규칙 제26조(별표 4)',
+     note:'매반기 12시간 이상(사무직·판매직 6시간), 관리감독자 연 16시간 이상 — 별표 4(2025.5.30 개정) 원문 확인. 이수 기록은 [법정의무교육] 메뉴에서도 관리.'},
+    {k:'edu_hire',name:'채용 시·작업내용 변경 시 교육',cycleM:0,law:'산업안전보건법 제29조 제2항 · 시행규칙 별표 4',
+     note:'채용 시 8시간 이상(일용·1주 이하 1시간, 1주~1개월 4시간), 작업내용 변경 시 2시간 이상(일용 1시간).'},
     {k:'edu_msds',name:'물질안전보건자료(MSDS) 교육',cycleM:0,law:'산업안전보건법 제114조 · 시행규칙 제169조',cond:'MSDS 대상물질 취급 시',
      note:'대상물질 취급 작업 배치, 신규 물질 도입, 유해성 정보 변경 시.'}
   ]},
@@ -21153,8 +21174,8 @@ function PageSafety({user}){
    분기/연 단위 기간이 날짜에 따라 자동으로 넘어가고, 기간마다 이수 기록(일자·방법·메모·증빙)을 남긴다.
    미이수·기한 임박(30일)은 상단에 자동 경고. 저장: 스토리지 ga-edu/records.json (전 직원 공유) */
 const EDU_DEFS=[
-  {k:'safety',ic:'🦺',name:'산업안전보건교육',cycle:'Q',target:'5인 이상 사업장 (일부 업종 제외)',time:'매분기 6시간 이상 (사무직/판매업 3시간)',self:'자체교육 가능',
-   teacher:'관리책임자·관리감독자, 공단 강사요원 교육과정 이수자, 산업안전/위생지도사 등',law:'산업안전보건법 제31조',fine:'500만원 이하 과태료',
+  {k:'safety',ic:'🦺',name:'산업안전보건교육',cycle:'H',target:'5인 이상 사업장 (일부 업종 제외)',time:'근로자 매반기 12시간 이상 (사무직·판매직 매반기 6시간) · 관리감독자 연 16시간 (2025.5.30 개정 별표 4)',self:'자체교육 가능',
+   teacher:'관리책임자·관리감독자, 공단 강사요원 교육과정 이수자, 산업안전/위생지도사 등',law:'산업안전보건법 제29조 · 시행규칙 제26조(별표 4)',fine:'500만원 이하 과태료',
    contact:'한국산업안전보건공단 1644-4544 · 안전보건교육포털',url:'https://www.koshats.or.kr'},
   {k:'harass',ic:'🚫',name:'직장 내 성희롱예방교육',cycle:'Y',target:'근로자를 사용하는 모든 사업장 (10인 미만 등은 자료 게시·배포 가능)',time:'연 1회, 1시간 이상',self:'자체교육 가능 · 강사자격 없음',
    teacher:'없음',law:'남녀고용평등법 제13조',fine:'500만원 이하 과태료',
@@ -21174,21 +21195,24 @@ function PageEdu({user}){
   const curPeriod=(cycle)=>{
     const y=today.getFullYear();
     if(cycle==='Q')return y+'-Q'+(Math.floor(today.getMonth()/3)+1);
+    if(cycle==='H')return y+'-H'+(today.getMonth()<6?1:2);
     return String(y);
   };
   const prevPeriod=(cycle)=>{
     const y=today.getFullYear();
     if(cycle==='Q'){const q=Math.floor(today.getMonth()/3)+1;return q===1?(y-1)+'-Q4':y+'-Q'+(q-1);}
+    if(cycle==='H')return today.getMonth()<6?(y-1)+'-H2':y+'-H1';
     return String(y-1);
   };
   const periodEnd=(p)=>{
-    const m=String(p).match(/^(\d{4})(?:-Q(\d))?$/);if(!m)return null;
+    const m=String(p).match(/^(\d{4})(?:-([QH])(\d))?$/);if(!m)return null;
     const y=+m[1];
-    if(m[2])return new Date(y,(+m[2])*3,0);           /* 분기 말일 */
+    if(m[2]==='Q')return new Date(y,(+m[3])*3,0);      /* 분기 말일 */
+    if(m[2]==='H')return new Date(y,(+m[3])*6,0);      /* 반기 말일 */
     return new Date(y,12,0);                            /* 12/31 */
   };
   const dLeft=(p)=>{const e=periodEnd(p);return e?Math.ceil((e-today)/86400000):null;};
-  const pLabel=(p)=>String(p).replace(/^(\d{4})-Q(\d)$/,'$1년 $2분기').replace(/^(\d{4})$/,'$1년');
+  const pLabel=(p)=>String(p).replace(/^(\d{4})-Q(\d)$/,'$1년 $2분기').replace(/^(\d{4})-H1$/,'$1년 상반기').replace(/^(\d{4})-H2$/,'$1년 하반기').replace(/^(\d{4})$/,'$1년');
   const[recs,setRecs]=useState(null);   /* [{edu,period,doneAt,by,how,note}] */
   const[assets,setAssets]=useState({}); /* {eduKey:[{type:'link'|'file',name,url,path?,by,at}]} 교육별 자료 */
   const[form,setForm]=useState(null);   /* {edu,period,doneAt,how,note} 완료 처리 입력 중 */
@@ -21222,7 +21246,10 @@ function PageEdu({user}){
       setSt('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
     }catch(e){alert('저장 실패: '+e.message);load();}
   };
-  const recOf=(edu,p)=>(recs||[]).find(r=>r.edu===edu&&r.period===p);
+  /* 2026-11-17 산업안전보건교육 분기→반기 전환: 예전 분기 기록(YYYY-Q1~Q4)도 해당 반기 이수로 인정 */
+  const recOf=(edu,p)=>{const L=recs||[];const hit=L.find(r=>r.edu===edu&&r.period===p);if(hit)return hit;
+    const m=String(p).match(/^(\d{4})-H([12])$/);if(!m)return undefined;const qs=m[2]==='1'?['Q1','Q2']:['Q3','Q4'];
+    return L.find(r=>r.edu===edu&&qs.some(q=>r.period===m[1]+'-'+q));};
   const saveDone=async()=>{
     if(!form)return;
     if(!form.doneAt)return alert('이수일을 입력하세요');
@@ -21307,7 +21334,7 @@ function PageEdu({user}){
     R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
       R('div',null,
         R('div',{className:'pg-title'},'🎓 법정의무교육'),
-        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'5대 의무교육 — 분기/연 주기가 자동으로 넘어가며 이수 여부를 관리합니다 · 기록은 전 직원 공유')),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'5대 의무교육 — 반기/연 주기가 자동으로 넘어가며 이수 여부를 관리합니다 · 기록은 전 직원 공유')),
       st&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--ok)'}},st)),
     /* 요약 띠 */
     R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',padding:'10px 14px',borderRadius:11,marginBottom:14,
@@ -21315,7 +21342,7 @@ function PageEdu({user}){
       R('span',{style:{fontSize:13,fontWeight:800,color:missCnt?'var(--p)':'#15803D'}},
         missCnt?('⚠ 이번 기간 미이수 '+missCnt+'건'+(soonCnt?' · 기한 30일 이내 '+soonCnt+'건':'')):'✓ 이번 기간 전 교육 이수 완료'),
       R('div',{style:{flex:1}}),
-      R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'기간이 끝나기 전 이수 처리하세요 — 분기·연도가 바뀌면 자동으로 새 기간이 시작됩니다')),
+      R('span',{style:{fontSize:10.5,color:'var(--tm)'}},'기간이 끝나기 전 이수 처리하세요 — 반기·연도가 바뀌면 자동으로 새 기간이 시작됩니다')),
     ...summary.map(({d,cp,done,left})=>{
       const rec=recOf(d.k,cp);
       const myHist=(recs||[]).filter(r=>r.edu===d.k).sort((a,b)=>String(b.period).localeCompare(String(a.period)));
@@ -21325,7 +21352,7 @@ function PageEdu({user}){
           border:'1.5px solid '+(done?'var(--bd)':(left!=null&&left<=30?'#FCA5A5':'#FED7AA'))}},
         R('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
           R('span',{style:{fontSize:15,fontWeight:800}},d.ic+' '+d.name),
-          badge(d.cycle==='Q'?'매분기':'연 1회','#EFF6FF','#1D4ED8'),
+          badge(d.cycle==='Q'?'매분기':d.cycle==='H'?'매반기':'연 1회','#EFF6FF','#1D4ED8'),
           done
             ?badge('✓ '+pLabel(cp)+' 이수 완료','#DCFCE7','#15803D')
             :badge('미이수 · '+pLabel(cp)+(left!=null?' · D-'+left:''),left!=null&&left<=30?'#FEE2E2':'#FFEDD5',left!=null&&left<=30?'#B91C1C':'#B45309'),
