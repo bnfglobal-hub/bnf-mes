@@ -23754,7 +23754,7 @@ function PageShipSort({mats,hqItems}){
   useEffect(()=>{loadKurly();},[]);
   /* 출고 계획에 들어오면 자동으로 컬리 발주 조회 — 로그인 만료 시 수집기가 스스로 로그인 후 재시도.
      저장본을 먼저 보여주고 1초 뒤 백그라운드로 최신 조회 (휴대폰 등 수집기 미연결은 조용히 저장본 유지) */
-  useEffect(()=>{const t=setTimeout(()=>loadUpcoming(),1000);return()=>clearTimeout(t);},[]);
+  useEffect(()=>{const t=setTimeout(()=>loadUpcoming(),300);return()=>clearTimeout(t);},[]);
   useBnfSyncReload(()=>loadKurly());
   /* PC에서 열었고 수집기가 켜져 있으면 지금 즉시 다시 읽어온다 */
   const refreshKurly=async(dArg,silent)=>{
@@ -23797,6 +23797,31 @@ function PageShipSort({mats,hqItems}){
   };
   const loadUpcoming=async()=>{
     setKurlyUp(null);setKurlyErr(null);
+    /* 빠른 경로(2026-11-18): 수집기가 날짜 목록+다가오는 발주 내역을 한 번에 돌려준다 (상주 브라우저) */
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),120000);
+      const r=await fetch('http://127.0.0.1:8788/upcoming',{signal:ctl.signal});
+      clearTimeout(tm);
+      if(r.status!==404){
+        const j=await r.json();
+        if(j&&j.error==='LOGIN_REQUIRED'){setKurlyUp([]);setKurlyErr('login');return;}
+        if(j&&Array.isArray(j.dates)){
+          setKurlyUp(j.dates);
+          const od=j.orders||{};const ks=Object.keys(od).sort();
+          if(ks.length){
+            setKurlyDate(ks[0]);
+            setKurly(p=>{
+              const keep=((p&&p.rows)||[]).filter(x=>!od[x.date]);
+              const fresh=[];ks.forEach(d=>(od[d].rows||[]).forEach(x=>fresh.push(Object.assign({},x,{date:d}))));
+              const dates=Array.from(new Set([].concat((p&&p.dates)||[],ks))).sort();
+              return{at:new Date().toISOString(),dates,rows:keep.concat(fresh)};
+            });
+          }
+          return;
+        }
+        if(j&&j.error){setKurlyUp([]);setKurlyErr('offline');return;}
+      }
+    }catch(e){setKurlyUp([]);setKurlyErr('offline');return;}
     try{
       const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),90000);
       const r=await fetch('http://127.0.0.1:8788/dates',{signal:ctl.signal});
@@ -25221,35 +25246,68 @@ function App(){
   /* ── 사용자별 메뉴 즐겨찾기 (사이드바 최상단 고정, 기기 간 공유) ── */
   const favLsKey='bnf_nav_favs_'+((user&&user.id)||'anon');
   const[navFavs,setNavFavs]=useState(()=>{try{const v=JSON.parse(localStorage.getItem(favLsKey)||'[]');return Array.isArray(v)?v:[];}catch(e){return[];}});
-  useEffect(()=>{
-    if(!user)return;
+  /* 같은 아이디면 어느 PC에서든 같은 즐겨찾기 (2026-11-18):
+     서버(bnf_nav_favs[user.id])가 기준 — 처음 열 때·창으로 돌아올 때·동기화 때마다 다시 읽고,
+     저장은 '추가/해제' 한 건만 서버 최신 목록에 적용해 set_nav_favs(사용자 키만 원자 교체)로 쓴다.
+     (예전: 오래 열어둔 PC가 옛 목록 전체로 덮어써 PC마다 달라짐) */
+  const navFavPending=useRef(false);
+  const loadNavFavs=()=>{
+    if(!user||navFavPending.current)return;
     sbClient.from('app_state').select('v:state_data->bnf_nav_favs').eq('id',1).maybeSingle().then(({data})=>{
+      if(navFavPending.current)return;
       const mine=data&&data.v&&data.v[user.id];
       if(Array.isArray(mine)){setNavFavs(mine);try{localStorage.setItem(favLsKey,JSON.stringify(mine));}catch(e){}}
+      else if(data){
+        /* 서버에 아직 없으면 이 기기 목록을 올려 기준으로 삼는다 */
+        let loc=[];try{loc=JSON.parse(localStorage.getItem(favLsKey)||'[]');}catch(e){}
+        if(Array.isArray(loc)&&loc.length)sbClient.rpc('set_nav_favs',{uid:user.id,favs:loc}).then(()=>{},()=>{});
+      }
     }).catch(()=>{});
+  };
+  useEffect(()=>{loadNavFavs();},[user&&user.id]);
+  useEffect(()=>{
+    const f=()=>{if(document.visibilityState==='visible')loadNavFavs();};
+    document.addEventListener('visibilitychange',f);window.addEventListener('focus',f);
+    return()=>{document.removeEventListener('visibilitychange',f);window.removeEventListener('focus',f);};
   },[user&&user.id]);
+  useBnfSyncReload(()=>loadNavFavs());
   const navFavTimer=useRef(null);
-  const persistNavFavs=(next)=>{
+  const navFavOps=useRef([]);
+  /* op: {add:id} | {del:id} | {set:[...]} — 서버 최신 목록에 순서대로 적용 */
+  const applyFavOp=(list,op)=>{
+    if(op.add)return list.includes(op.add)?list:[...list,op.add];
+    if(op.del)return list.filter(x=>x!==op.del);
+    if(op.set){const extra=list.filter(x=>!op.set.includes(x)&&!op.drop);return[...op.set,...extra];}
+    return list;
+  };
+  const persistNavFavs=(next,op)=>{
     setNavFavs(next);
     try{localStorage.setItem(favLsKey,JSON.stringify(next));}catch(e){}
+    if(!user)return;
+    navFavOps.current.push(op||{set:next,drop:true});
+    navFavPending.current=true;
     if(navFavTimer.current)clearTimeout(navFavTimer.current);
-    navFavTimer.current=setTimeout(()=>{
-      sbClient.from('app_state').select('state_data').eq('id',1).maybeSingle().then(({data})=>{
-        const ex=data&&data.state_data;
-        if(!ex)return; /* 읽기 실패 시 저장 중단 — 다른 키를 덮어쓰지 않도록 */
-        const all=Object.assign({},ex.bnf_nav_favs||{});
-        all[user.id]=next;
-        return sbClient.from('app_state').upsert({id:1,state_data:Object.assign({},ex,{bnf_nav_favs:all}),updated_at:new Date().toISOString()});
-      }).catch(()=>{});
+    navFavTimer.current=setTimeout(async()=>{
+      const ops=navFavOps.current;navFavOps.current=[];
+      try{
+        const{data,error}=await sbClient.from('app_state').select('v:state_data->bnf_nav_favs').eq('id',1).maybeSingle();
+        if(error||!data)throw error||new Error('read');
+        const srv=data.v&&Array.isArray(data.v[user.id])?data.v[user.id]:next;
+        const merged=ops.reduce(applyFavOp,srv);
+        const{error:e2}=await sbClient.rpc('set_nav_favs',{uid:user.id,favs:merged});
+        if(e2)throw e2;
+        if(!navFavOps.current.length){setNavFavs(merged);try{localStorage.setItem(favLsKey,JSON.stringify(merged));}catch(e){}}
+      }catch(e){console.warn('즐겨찾기 저장 실패',e);}
+      if(!navFavOps.current.length)navFavPending.current=false;
     },600);
   };
-  const toggleNavFav=(id)=>persistNavFavs(navFavs.includes(id)?navFavs.filter(x=>x!==id):[...navFavs,id]);
+  const toggleNavFav=(id)=>navFavs.includes(id)?persistNavFavs(navFavs.filter(x=>x!==id),{del:id}):persistNavFavs([...navFavs,id],{add:id});
   /* 즐겨찾기 순서 이동 — PC는 드래그, 휴대폰은 ▲▼ */
   const moveNavFav=(id,dir)=>{
     const arr=[...navFavs];const i=arr.indexOf(id);const j=i+dir;
     if(i<0||j<0||j>=arr.length)return;
     const t=arr[i];arr[i]=arr[j];arr[j]=t;
-    persistNavFavs(arr);
+    persistNavFavs(arr,{set:arr});
   };
   const favDragId=useRef(null);
   const[favOverId,setFavOverId]=useState(null);
@@ -25261,7 +25319,7 @@ function App(){
     const j=arr.indexOf(dstId);
     if(j<0)return;
     arr.splice(j,0,src);           /* 놓은 항목 자리 '앞'에 끼워 넣기 */
-    persistNavFavs(arr);
+    persistNavFavs(arr,{set:arr});
   };
   /* 사이드바 메뉴 검색 */
   const[sbQ,setSbQ]=useState('');
