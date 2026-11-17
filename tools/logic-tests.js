@@ -132,6 +132,8 @@ function eq(name, actual, expected) {
   eq('미등록 품목 표시 + 재고 0', [by('M5').noMat, by('M5').stock, by('M5').short], [true, 0, 2000]);
   eq('재고값 비어 있으면 NaN 아닌 0', by('M6').stock, 0);
   eq('단위 혼재 플래그 (kg+g)', [by('M6').unitMix, by('M1').unitMix], [true, false]);
+  eq('BOM 단위 ≠ 재고 단위 플래그 (BOM ea · 재고 kg)', bnfCombineReq([{ id: 'X', name: 'X', bom: [{ c: 'M1', amt: 2, unit: 'ea' }] }, { id: 'Y', name: 'Y', bom: [{ c: 'M2', amt: 1, unit: 'kg' }] }], { X: '1', Y: '1' }, mats).rows.map(x => [x.code, x.unitMis]).sort(), [['M1', true], ['M2', false]]);
+  eq('BOM 단위 비어 있으면 재고 단위 사용 → 불일치 아님', by('M4').unitMis, false);
   eq('부족 품목 수', r.shortCount, r.rows.filter(x => x.short > 0).length);
 
   eq('예상금액 계산', bnfReqEst(384.3, 1725, 1700, false), { est: 662918, warn: '' });
