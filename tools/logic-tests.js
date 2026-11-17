@@ -101,6 +101,60 @@ function eq(name, actual, expected) {
   eq('2026-01 근무일(공휴일 1/1 제외)', calcWorkingDays(2026, 1) <= 22, true);
 }
 
+/* ── 3-b) 원료 발주 · 통합 소요량 합산/금액/정렬 (2026-11-17) ── */
+{
+  const code = extract('function bnfReqUnit(u)', "return bnfReqUnit(a.unit).localeCompare(bnfReqUnit(b.unit))||d*((+a[k]||0)-(+b[k]||0))||nm(a,b);\n  });\n}");
+  const { bnfCombineReq, bnfReqEst, bnfSortReq } = new Function(code + '\nreturn {bnfCombineReq,bnfReqEst,bnfSortReq};')();
+  const mats = [
+    { c: 'M1', n: '된장', u: 'kg', s: 169.1 },
+    { c: 'M2', n: '설탕', u: 'kg', s: 0 },
+    { c: 'M3', n: '설탕', u: 'kg', s: 50 },      /* 이름 같고 코드 다름 */
+    { c: 'M4', n: '소금', u: 'kg', s: -12.5 },   /* 음수 재고 */
+    { c: 'M6', n: '고춧가루', u: 'kg' },          /* 재고값 비어 있음 */
+  ];
+  const prods = [
+    { id: 'A', name: '제품A', bom: [{ c: 'M1', amt: 0.1, unit: 'kg' }, { c: 'M2', amt: 1, unit: 'kg' }, { c: 'M4', amt: 0.5 }, { c: 'M5', name: '미등록원료', amt: 2, unit: 'ea' }, { c: 'M6', amt: 0.2, unit: 'kg' }] },
+    { id: 'B', name: '제품B', bom: [{ c: 'M1', amt: 0.2, unit: 'kg' }, { c: 'M3', amt: 1, unit: 'kg' }, { c: 'M6', amt: 200, unit: 'g' }] },
+    { id: 'C', name: '제품C', bom: [{ c: 'M1', amt: 1 }] },
+  ];
+  eq('제품 1개면 통합 없음', bnfCombineReq(prods, { A: '3' }, mats), null);
+  const r = bnfCombineReq(prods, { A: '1000', B: '1000', C: '' }, mats);
+  const by = c => r.rows.find(x => x.code === c);
+  eq('수량 입력 제품만 집계', r.prodCount, 2);
+  eq('같은 코드 병합 + 소수점 오차 정리 (0.1·1000+0.2·1000)', by('M1').needed, 300);
+  eq('같은 코드 병합: 사용 제품 2개', by('M1').prods.map(x => x.name), ['제품A', '제품B']);
+  eq('제품별 소요 추적', by('M1').prods.map(x => x.needed), [100, 200]);
+  eq('부족 수량 양수 (300-169.1)', by('M1').short, 130.9);
+  eq('같은 이름 다른 코드는 따로', [by('M2').needed, by('M3').needed], [1000, 1000]);
+  eq('재고 0 → 부족 = 필요량', by('M2').short, 1000);
+  eq('재고 충분 → 부족 0 (음수 아님)', bnfCombineReq(prods, { A: '1', B: '1' }, mats).rows.find(x => x.code === 'M3').short, 0);
+  eq('음수 재고 → 부족 = 필요 − 재고', by('M4').short, 512.5);
+  eq('미등록 품목 표시 + 재고 0', [by('M5').noMat, by('M5').stock, by('M5').short], [true, 0, 2000]);
+  eq('재고값 비어 있으면 NaN 아닌 0', by('M6').stock, 0);
+  eq('단위 혼재 플래그 (kg+g)', [by('M6').unitMix, by('M1').unitMix], [true, false]);
+  eq('부족 품목 수', r.shortCount, r.rows.filter(x => x.short > 0).length);
+
+  eq('예상금액 계산', bnfReqEst(384.3, 1725, 1700, false), { est: 662918, warn: '' });
+  eq('예상금액: 충분하면 0', bnfReqEst(0, 1725, 0, false), { est: 0, warn: '' });
+  eq('예상금액: 단가 없음', bnfReqEst(5, 0, 0, false), { est: null, warn: 'noprice' });
+  eq('예상금액: 단위 혼재 제외', bnfReqEst(5, 100, 0, true), { est: null, warn: 'unit' });
+  eq('예상금액: 재고단가와 5배 이상 차이 → 단위 의심', bnfReqEst(5, 34500, 1725, false), { est: null, warn: 'ratio' });
+  eq('예상금액: 큰 금액 정수', bnfReqEst(1839, 250, 0, false).est, 459750);
+
+  const rows = [
+    { code: 'K1', name: '나', unit: 'kg', short: 5, needed: 10, stock: 5 },
+    { code: 'K2', name: '가', unit: 'ea', short: 900, needed: 900, stock: 0 },
+    { code: 'K3', name: '다', unit: 'kg', short: 50, needed: 60, stock: 10 },
+  ];
+  const sup = { K1: '을', K2: '', K3: '갑' };
+  eq('기본 정렬: 매입처 있는 것 먼저·매입처 이름순', bnfSortReq(rows, null, x => sup[x.code]).map(x => x.code), ['K3', 'K1', 'K2']);
+  eq('이름 오름차순', bnfSortReq(rows, { k: 'name', d: 'asc' }).map(x => x.code), ['K2', 'K1', 'K3']);
+  eq('부족 내림차순: 단위별로 묶어 비교 (ea 900을 kg와 섞지 않음)', bnfSortReq(rows, { k: 'short', d: 'desc' }).map(x => x.code), ['K2', 'K3', 'K1']);
+  const est = { K1: 1000, K2: null, K3: 50 };
+  eq('금액 내림차순, 금액 없음은 맨 뒤', bnfSortReq(rows, { k: 'est', d: 'desc' }, null, x => est[x.code]).map(x => x.code), ['K1', 'K3', 'K2']);
+  eq('금액 오름차순, 금액 없음은 맨 뒤', bnfSortReq(rows, { k: 'est', d: 'asc' }, null, x => est[x.code]).map(x => x.code), ['K3', 'K1', 'K2']);
+}
+
 /* ── 4) 재발 방지 정적 검사 ──
    과거 장애 원인이 된 패턴이 다시 들어오면 커밋을 막는다. */
 {
@@ -119,6 +173,25 @@ function eq(name, actual, expected) {
          alert/confirm 안의 \n 표기가 유지되는지 최소 확인 */
   if (/confirm\('[^']*\\n/.test(html) || /alert\('[^']*\\n/.test(html)) passes++;
   else { failures++; console.error('  ✗ 경고창 줄바꿈 표기(\\n)가 사라졌습니다 — 실제 줄바꿈이 들어갔는지 확인'); }
+}
+
+/* ── 안전관리: 다음 예정일·상태 계산 (safetyStatus) ── */
+{
+  const code = extract('function safetyStatus(def,cfg,logs,today){', "return{st:'ok',label:'정상',last,next,left,cyc};\n}");
+  const safetyStatus = new Function(code + '\nreturn safetyStatus;')();
+  const T = new Date('2026-11-17T09:00:00');
+  const D = { k: 'a', cycleM: 12 };
+  eq('기록 없음', safetyStatus(D, null, [], T).st, 'none');
+  eq('해당 없음 우선', safetyStatus(D, { na: true }, [{ k: 'a', date: '2020-01-01' }], T).st, 'na');
+  eq('발생 시 항목', safetyStatus({ k: 'a', cycleM: 0 }, null, [], T).st, 'event');
+  eq('매년: 다음 예정일', safetyStatus(D, null, [{ k: 'a', date: '2026-03-10' }], T).next, '2027-03-10');
+  eq('최근 기록 기준(여러 건)', safetyStatus(D, null, [{ k: 'a', date: '2025-01-01' }, { k: 'a', date: '2026-03-10' }, { k: 'b', date: '2026-11-01' }], T).last, '2026-03-10');
+  eq('지남', safetyStatus(D, null, [{ k: 'a', date: '2025-11-10' }], T).st, 'over');
+  eq('지남 일수', safetyStatus(D, null, [{ k: 'a', date: '2025-11-10' }], T).left, -7);
+  eq('30일 이내', safetyStatus(D, null, [{ k: 'a', date: '2025-12-10' }], T).st, 'soon');
+  eq('당일 = 30일 이내(0일)', safetyStatus(D, null, [{ k: 'a', date: '2025-11-17' }], T).left, 0);
+  eq('주기 변경(6개월) 반영', safetyStatus(D, { cycleM: 6 }, [{ k: 'a', date: '2026-03-10' }], T).st, 'over');
+  eq('주기 0으로 변경 → 발생 시', safetyStatus(D, { cycleM: 0 }, [{ k: 'a', date: '2026-03-10' }], T).st, 'event');
 }
 
 console.log(failures === 0
