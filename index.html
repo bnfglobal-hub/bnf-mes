@@ -9624,6 +9624,11 @@ function GaLedgerSales({user,top}){
   const[month,setMonth]=useState(()=>{if(jump&&/^\d{4}-\d{2}$/.test(jump.month||''))return jump.month;const d=new Date();if(d.getDate()<=10)d.setDate(0);return ymdL(d).slice(0,7);});
   const[custs,setCusts]=useState(null);
   const[sortBy,setSortBy]=useState('recent');
+  /* 공장/본사 처음부터 분리해서 보기 (2026-11-17) — 마지막 선택 기억 */
+  const coOf=x=>x.co==='h'?'h':'f';
+  const[co,setCoS]=useState(()=>{try{return localStorage.getItem('bnf_ledger_sales_co')==='h'?'h':'f';}catch(e){return 'f';}});
+  const setCo=v=>{setCoS(v);setSel({});try{localStorage.setItem('bnf_ledger_sales_co',v);}catch(e){}};
+  const jumpCoDone=useRef(false);
   const[cfg,setCfg]=useState(null);       /* {cust:{key:{inv}}, auto:{popup}} */
   const[rec,setRec]=useState(null);       /* {cust:{key:{sent,ok,issued,sendReq,sendErr}}} */
   const[loadErr,setLoadErr]=useState(false);
@@ -9691,9 +9696,14 @@ function GaLedgerSales({user,top}){
   if(loadErr&&!custs)return R('div',{className:'pg fa'},R('div',{className:'card',style:{color:'#B91C1C',fontWeight:700}},'거래처원장 기록을 불러오지 못했습니다. ',R('button',{className:'btn bw btn-sm',onClick:loadAll},'다시 시도')));
   if(!custs||!cfg||!rec)return R('div',{className:'pg fa'},R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'불러오는 중...'));
   const recC=rec.cust||{};
+  /* 메시지 수발주에서 거래처로 넘어온 경우 그 거래처 쪽(공장/본사)으로 */
+  if(!jumpCoDone.current){jumpCoDone.current=true;const jq=(q||'').trim().toLowerCase();
+    if(jq){const hit=custs.find(x=>x.name.toLowerCase().indexOf(jq)>=0);if(hit&&coOf(hit)!==co)setTimeout(()=>setCoS(coOf(hit)),0);}}
+  const coN={f:custs.filter(x=>coOf(x)==='f').length,h:custs.filter(x=>coOf(x)==='h').length};
+  const coLbl={f:'🏭 공장',h:'🏢 본사'};
   const invOf=k=>((cfg.cust||{})[k]||{}).inv||'tax';
   const kw=q.trim().toLowerCase();
-  const rows=custs.filter(x=>!kw||x.name.toLowerCase().indexOf(kw)>=0)
+  const rows=custs.filter(x=>coOf(x)===co&&(!kw||x.name.toLowerCase().indexOf(kw)>=0))
     .sort((a,b)=>(sortBy==='recent'?String(b.last).localeCompare(String(a.last)):0)||b.amt-a.amt||a.name.localeCompare(b.name,'ko'));
   const cnt=k=>rows.filter(x=>recC[x.key]&&recC[x.key][k]).length;
   const selItems=rows.filter(x=>sel[x.key]);
@@ -9713,10 +9723,17 @@ function GaLedgerSales({user,top}){
         R('button',{className:'btn bp btn-sm',onClick:()=>window.open('https://login.ecount.com','_blank','noopener')},'↗ 이카운트 열기'))
     ),
     loadErr&&R('div',{className:'card',style:{marginBottom:12,color:'#B91C1C',fontWeight:700,fontSize:13}},'최신 기록을 불러오지 못해 저장을 막아 두었습니다. ',R('button',{className:'btn bw btn-sm',onClick:loadAll},'다시 시도')),
+    /* 공장 / 본사 분리 탭 */
+    R('div',{style:{display:'flex',gap:8,marginBottom:12}},
+      ...['f','h'].map(k=>R('button',{key:k,onClick:()=>setCo(k),
+        style:{flex:'1 1 0',padding:'12px 14px',borderRadius:12,cursor:'pointer',fontFamily:'inherit',textAlign:'left',
+          border:'2px solid '+(co===k?'#D94F1E':'var(--bd)'),background:co===k?'#FFF4EE':'#fff',color:co===k?'#B8400F':'var(--t)'}},
+        R('div',{style:{fontSize:15,fontWeight:900}},coLbl[k]+' 매출 거래처'),
+        R('div',{style:{fontSize:12,fontWeight:700,marginTop:2,color:co===k?'#B8400F':'var(--tm)'}},coN[k]+'곳 · '+(+month.slice(5))+'월')))),
     /* 진행 요약 */
     R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
       ...STAGES.map(s=>R('div',{key:s.k,className:'card',style:{flex:'1 1 150px',padding:'12px 14px'}},
-        R('div',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)'}},s.l),
+        R('div',{style:{fontSize:11.5,fontWeight:700,color:'var(--tm)'}},coLbl[co]+' · '+s.l),
         R('div',{style:{fontSize:22,fontWeight:900,marginTop:2,color:cnt(s.k)===rows.length&&rows.length?'#15803D':'var(--t)'}},cnt(s.k)+' / '+rows.length)))),
     /* 월말 발송 확인 팝업 설정 */
     R('div',{className:'card',style:{marginBottom:12}},
@@ -9740,7 +9757,7 @@ function GaLedgerSales({user,top}){
         R('div',{style:{flex:1}}),
         R('button',{className:'btn bw btn-sm',onClick:()=>{const all={};rows.filter(x=>!(recC[x.key]&&recC[x.key].sent)&&!ledgerPending(recC[x.key])&&x.email&&invOf(x.key)!=='none').forEach(x=>all[x.key]=true);setSel(all);}},'미발송 전체 선택'),
         R('button',{className:'btn bp btn-sm',disabled:!selItems.length||!!busy,onClick:()=>sendLedger(selItems),style:{opacity:!selItems.length||busy?.5:1}},busy||('✉ 선택 '+selItems.length+'곳 원장 발송'))),
-      rows.length===0?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'16px 0',textAlign:'center'}},custs.length?'조건에 맞는 거래처가 없습니다':(+month.slice(5)+'월 매출이 있는 거래처가 없습니다')):
+      rows.length===0?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'16px 0',textAlign:'center'}},coN[co]?'조건에 맞는 거래처가 없습니다':(+month.slice(5)+'월 '+coLbl[co].slice(3)+' 매출 거래처가 없습니다')):
       R('div',{className:'tw'},R('table',{style:{minWidth:1040}},
         R('thead',null,R('tr',null,R('th',{style:{width:34}},''),R('th',{style:{width:180}},'거래처'),R('th',{style:{width:104,textAlign:'right'}},month.slice(5)+'월 매출'),R('th',{style:{width:76}},'최근 거래'),R('th',{style:{width:190}},'이메일'),R('th',{style:{width:110}},'발행 유형'),...STAGES.map(s=>R('th',{key:s.k,style:{width:118}},s.l)))),
         R('tbody',null,...rows.map(x=>{
@@ -9748,7 +9765,7 @@ function GaLedgerSales({user,top}){
           const inv=invOf(x.key);
           return R('tr',{key:x.key},
             R('td',null,R('input',{type:'checkbox',checked:!!sel[x.key],onChange:e=>setSel(p=>Object.assign({},p,{[x.key]:e.target.checked}))})),
-            R('td',{style:{fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.name},R('span',{style:{fontSize:10,fontWeight:800,marginRight:5,padding:'1px 5px',borderRadius:5,background:x.co==='h'?'#EFF6FF':'#F5F1EC',color:x.co==='h'?'#1D4ED8':'#6B5F55'}},x.co==='h'?'본사':'공장'),x.name),
+            R('td',{style:{fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.name},x.name),
             R('td',{style:{textAlign:'right',fontWeight:700,whiteSpace:'nowrap'}},x.amt.toLocaleString()),
             R('td',{style:{fontSize:11.5,color:'var(--tm)',whiteSpace:'nowrap'}},x.last.replace('-','.')),
             R('td',{style:{fontSize:11.5,color:x.email?'var(--t)':'#B45309',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:x.email||'이카운트 거래처등록의 Email에 입력하면 다음 날 반영됩니다'},x.email||'이메일 없음'),
