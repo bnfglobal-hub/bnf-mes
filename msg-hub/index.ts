@@ -191,8 +191,8 @@ async function handleIn(b: any, cfg: any) {
   // 카톡 방 이름 확인용: 최근 알림의 방 이름·보낸 사람 15개만 기록(내용은 기록 안 함) — 단체방 이름 설정할 때 대조
   if (ch === "kakao") {
     const seen = Array.isArray(cfg.recent_rooms) ? cfg.recent_rooms : [];
-    const item = { room: peer, name: peerName, at: now() };
-    if (!seen.length || seen[0].room !== peer) await patchCfg({ recent_rooms: [item, ...seen.filter((x: any) => x.room !== peer)].slice(0, 15) });
+    const item = { room: peer, name: peerName, dbg: String(b.dbg || "").slice(0, 300), at: now() };
+    await patchCfg({ recent_rooms: [item, ...seen.filter((x: any) => x.room !== peer)].slice(0, 15) });
   }
   if (AD_HINT.test(text)) return { reply: "", skip: "ad" };
   if (await isStaff(cfg, ch, peer, peerName)) {
