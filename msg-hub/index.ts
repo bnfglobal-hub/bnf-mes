@@ -1,5 +1,5 @@
 // msg-hub: 업무폰(BNF 업무폰 앱, bnf-phone/) ↔ MES 메시지 수발주 허브 — 주문 + 마감원장·계산서 요청 분류
-//  · 휴대폰  → in(문자/카톡 수신 전달) · next/ack(MES가 쌓은 문자 발송 대기열 처리) · ping
+//  · 휴대폰  → in(문자/카톡 수신 전달) · next/ack(MES가 쌓은 문자 발송 대기열 처리) · next_kakao(앱이 [답장] 버튼을 기억하는 카톡방으로 바로 보낼 글) · ping
 //  · MES     → list · cfg_get/cfg_set · update · send(phone_sms|kakao_reply|api_sms|alimtalk) · reparse
 //  · AI 인식은 Gemini(GEMINI_API_KEY), 문자 API·알림톡은 솔라피(SOLAPI_API_KEY/SOLAPI_API_SECRET)
 // 배포: verify_jwt=false (휴대폰은 device_key, MES는 apikey 헤더로 호출)
@@ -171,6 +171,16 @@ async function notifyStaff(cfg: any, title: string, body: string) {
   } catch (_) { /* 알림 실패는 무시 */ }
 }
 
+/* 이 카톡방으로 보내려고 쌓아둔 글(kakao_reply 대기열)을 꺼내 '보냄' 처리하고 본문을 돌려줌 */
+const roomKey = (s: string) => String(s || "").replace(/\s/g, "");
+async function takeKakaoQueue(peer: string) {
+  const { data } = await SB.from("msg_hub").select("id,peer,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").order("id").limit(50);
+  const q = (data || []).filter((x: any) => roomKey(x.peer) === roomKey(peer));
+  if (!q.length) return "";
+  await SB.from("msg_hub").update({ status: "sent", updated_at: now() }).in("id", q.map((x: any) => x.id));
+  return q.map((x: any) => x.body).join("\n\n");
+}
+
 /* 휴대폰에서 들어온 메시지 처리 → 자동답장 문구 반환 */
 async function handleIn(b: any, cfg: any) {
   const ch = b.ch === "kakao" ? "kakao" : "sms";
@@ -182,25 +192,22 @@ async function handleIn(b: any, cfg: any) {
   if (await isStaff(cfg, ch, peer, peerName)) {
     // 직원 메시지는 저장 안 함 — 단, 그 방에 쌓아둔 카톡 답장은 이번 알림에 붙여 내보냄
     if (ch !== "kakao") return { reply: "", skip: "staff" };
-    const { data: q } = await SB.from("msg_hub").select("id,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").eq("peer", peer).order("id");
-    if (!q || !q.length) return { reply: "", skip: "staff" };
-    await SB.from("msg_hub").update({ status: "sent", updated_at: now() }).in("id", q.map((x: any) => x.id));
-    return { reply: q.map((x: any) => x.body).join("\n\n"), skip: "staff" };
+    return { reply: await takeKakaoQueue(peer), skip: "staff" };
   }
   const contact = findContact(cfg, peer, peerName);
-  if (cfg.only_contacts && !contact) return { reply: "", skip: "not_contact" };
-  if (!contact && !ORDER_HINT.test(text)) return { reply: "", skip: "no_hint" };
+  if (cfg.only_contacts && !contact) return { reply: ch === "kakao" ? await takeKakaoQueue(peer) : "", skip: "not_contact" };
+  if (!contact && !ORDER_HINT.test(text)) return { reply: ch === "kakao" ? await takeKakaoQueue(peer) : "", skip: "no_hint" };
 
   // 카톡 알림은 같은 내용이 여러 번 올라옴 → 10분 내 동일 메시지 무시
   const since = new Date(Date.now() - 10 * 60e3).toISOString();
   const { data: dup } = await SB.from("msg_hub").select("id").eq("kind", "in").eq("peer", peer).eq("body", text).gte("created_at", since).limit(1);
-  if (dup && dup.length) return { reply: "", skip: "dup" };
+  if (dup && dup.length) return { reply: ch === "kakao" ? await takeKakaoQueue(peer) : "", skip: "dup" };
 
   let parsed: any = null, perr = "";
   try { parsed = await parseOrder(text, contact?.name || "", cfg); } catch (e) { perr = String((e as Error).message || e); }
   const isOrder = !!(parsed && parsed.is_order && parsed.items.length);
   const req = !isOrder && parsed && REQ_LABEL[parsed.intent] ? String(parsed.intent) : "";
-  if (!isOrder && !req && !contact && !perr) return { reply: "", skip: "not_order" };
+  if (!isOrder && !req && !contact && !perr) return { reply: ch === "kakao" ? await takeKakaoQueue(peer) : "", skip: "not_order" };
 
   const customer = contact?.name || parsed?.customer || peerName || peer;
   const { data: row } = await SB.from("msg_hub").insert({
@@ -211,13 +218,7 @@ async function handleIn(b: any, cfg: any) {
   // 자동 접수 답장 없음(2026-10-29 사장 지시) — 답장은 MES 접수함에서 [확정 + 안내 발송]을 눌렀을 때만 나감
   let reply = "";
   // 카톡: 이 방으로 보내려고 쌓아둔 메시지가 있으면 이번 답장에 붙여서 내보냄
-  if (ch === "kakao") {
-    const { data: q } = await SB.from("msg_hub").select("id,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").eq("peer", peer).order("id");
-    if (q && q.length) {
-      reply = [reply, ...q.map((x: any) => x.body)].filter(Boolean).join("\n\n");
-      await SB.from("msg_hub").update({ status: "sent", updated_at: now() }).in("id", q.map((x: any) => x.id));
-    }
-  }
+  if (ch === "kakao") reply = [reply, await takeKakaoQueue(peer)].filter(Boolean).join("\n\n");
   if (reply && row) await SB.from("msg_hub").update({ reply, updated_at: now() }).eq("id", row.id);
   if (isOrder) notifyStaff(cfg, "📨 새 주문 (" + (ch === "kakao" ? "카톡" : "문자") + ")", customer + ": " + itemsLine(parsed.items).replace(/\n/g, " ").slice(0, 80));
   if (req) notifyStaff(cfg, "📒 " + REQ_LABEL[req] + " (" + (ch === "kakao" ? "카톡" : "문자") + ")", customer + ": " + text.replace(/\n/g, " ").slice(0, 80));
@@ -273,7 +274,7 @@ Deno.serve(async (req) => {
   const asText = b.fmt === "text";
   try {
     const cfg = await getCfg();
-    const PHONE_ACTS = ["in", "next", "ack", "ping"];
+    const PHONE_ACTS = ["in", "next", "next_kakao", "ack", "ping"];
     if (PHONE_ACTS.includes(act)) {
       if (!cfg.device_key || b.key !== cfg.device_key) return asText ? T("") : J({ error: "bad key" }, 401);
       // 휴대폰 생존 신호 (1분에 한 번만 기록)
@@ -294,10 +295,29 @@ Deno.serve(async (req) => {
       if (asText) return T(it.id + "\n" + it.peer + "\n" + it.body);
       return J({ id: it.id, to: it.peer, text: it.body });
     }
+    if (act === "next_kakao") {
+      // 앱이 [답장] 버튼을 기억하고 있는 카톡방 목록(rooms, 줄바꿈 구분) 중 보낼 글이 있는 방 하나를 넘겨줌
+      await SB.from("msg_hub").update({ status: "queued" }).eq("kind", "out").eq("ch", "kakao_reply").eq("status", "sending").lt("updated_at", new Date(Date.now() - 120e3).toISOString());
+      const rooms = String(b.rooms || "").split("\n").map((r) => r.trim()).filter(Boolean);
+      const { data } = rooms.length
+        ? await SB.from("msg_hub").select("id,peer,body").eq("kind", "out").eq("ch", "kakao_reply").eq("status", "queued").order("id").limit(50)
+        : { data: [] as any[] };
+      let hit: any = null, room = "";
+      for (const x of data || []) {
+        room = rooms.find((r) => roomKey(r) === roomKey(x.peer)) || "";
+        if (room) { hit = x; break; }
+      }
+      if (!hit) return asText ? T("") : J({ id: 0 });
+      await SB.from("msg_hub").update({ status: "sending", updated_at: now() }).eq("id", hit.id);
+      if (asText) return T(hit.id + "\n" + room + "\n" + hit.body);
+      return J({ id: hit.id, room, text: hit.body });
+    }
     if (act === "ack") {
       const id = parseInt(String(b.id || "0"));
-      const ok = String(b.ok ?? "1") !== "0";
-      await SB.from("msg_hub").update({ status: ok ? "sent" : "failed", updated_at: now() }).eq("id", id).eq("kind", "out");
+      // ok: 1=보냄, 0=실패, 2=답장 버튼이 만료돼 못 보냄 → 그 방에 다음 카톡이 올 때 보내도록 대기열로 되돌림
+      const okv = String(b.ok ?? "1");
+      const ok = okv !== "0";
+      await SB.from("msg_hub").update({ status: okv === "2" ? "queued" : ok ? "sent" : "failed", updated_at: now() }).eq("id", id).eq("kind", "out");
       return asText ? T("ok") : J({ ok: true });
     }
 

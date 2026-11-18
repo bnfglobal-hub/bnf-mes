@@ -17196,7 +17196,7 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
    여기서 확정하면 확정 안내를, 보내기 탭에서는 공급처 발주 문자를 보낸다.
    발송 경로: phone_sms(업무폰 문자) · kakao_reply(그 카톡방이 다음에 말 걸 때 답장) · api_sms(솔라피 문자) · alimtalk(솔라피 알림톡) */
 const MSGHUB_URL=SB_URL+'/functions/v1/msg-hub';
-const PHONE_APK_URL='bnf-phone.apk?v=1';   /* bnf-phone/ 앱 — bnf-phone/build.ps1로 빌드해 저장소 루트에 둠 */
+const PHONE_APK_URL='bnf-phone.apk?v=2';   /* bnf-phone/ 앱 — bnf-phone/build.ps1로 빌드해 저장소 루트에 둠 */
 async function msgHub(action,body){
   const res=await fetch(MSGHUB_URL,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},body:JSON.stringify(Object.assign({action},body||{}))});
   let j;try{j=await res.json();}catch(e){throw new Error('서버 응답 오류 ('+res.status+')');}

@@ -10,10 +10,14 @@ import android.service.notification.StatusBarNotification;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** 카톡 알림 → msg-hub(action=in, ch=kakao) → 답장 문구가 오면 알림의 [답장]으로 그 방에 보냄 */
 public class KakaoListener extends NotificationListenerService {
     static final String KAKAO = "com.kakao.talk";
+    /** 방 이름 → 그 방 마지막 알림의 [답장] 버튼. MES가 보낼 글(next_kakao)을 새 카톡 없이도 바로 그 방에 보낼 때 씀.
+        앱이 다시 켜지면 비워지므로, 그 방에 카톡이 한 번 더 와야 다시 기억함 */
+    static final Map<String, Notification.Action> ROOMS = new ConcurrentHashMap<>();
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -40,6 +44,7 @@ public class KakaoListener extends NotificationListenerService {
                 }
             }
         }
+        if (replyAct != null) ROOMS.put(room, replyAct);
         final Notification.Action act = replyAct;
         final String fRoom = room, fTitle = title, fText = text;
         final Context c = getApplicationContext();
@@ -69,6 +74,24 @@ public class KakaoListener extends NotificationListenerService {
             Hub.log(c, "💬 카톡 주문 접수 [" + room + "] → 답장 보냄");
         } catch (Exception e) {
             Hub.log(c, "⚠ 카톡 처리 실패 [" + room + "]: " + e.getMessage());
+        }
+    }
+
+    /** 기억해 둔 [답장] 버튼으로 그 방에 글을 보냄. 버튼이 만료됐으면 false */
+    static boolean sendTo(Context c, String room, String text) {
+        Notification.Action act = ROOMS.get(room);
+        if (act == null) return false;
+        try {
+            Intent i = new Intent();
+            Bundle res = new Bundle();
+            for (RemoteInput ri : act.getRemoteInputs()) res.putCharSequence(ri.getResultKey(), text);
+            RemoteInput.addResultsToIntent(act.getRemoteInputs(), i, res);
+            act.actionIntent.send(c, 0, i);
+            return true;
+        } catch (Exception e) {
+            ROOMS.remove(room);
+            Hub.log(c, "⚠ 카톡 [" + room + "] 답장 버튼 만료 — 그 방에 카톡이 오면 다시 보냄");
+            return false;
         }
     }
 

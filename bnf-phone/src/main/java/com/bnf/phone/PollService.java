@@ -69,6 +69,40 @@ public class PollService extends Service {
     };
 
     static void pollOnce(Context c) {
+        pollSms(c);
+        pollKakao(c);
+    }
+
+    /** MES가 카톡방(단체방 포함)으로 보낼 글: 앱이 [답장] 버튼을 기억하는 방이면 새 카톡을 기다리지 않고 바로 보냄 */
+    static void pollKakao(Context c) {
+        if (KakaoListener.ROOMS.isEmpty()) return;
+        for (int k = 0; k < 5; k++) {
+            try {
+                Map<String, String> p = new LinkedHashMap<>();
+                p.put("action", "next_kakao");
+                p.put("fmt", "text");
+                p.put("rooms", String.join("\n", KakaoListener.ROOMS.keySet()));
+                String r = Hub.post(c, p);
+                if (r == null || r.trim().isEmpty()) return;
+                String[] a = r.split("\n", 3);
+                if (a.length < 3) return;
+                String id = a[0].trim(), room = a[1], text = a[2];
+                boolean ok = KakaoListener.sendTo(c, room, text);
+                if (ok) Hub.log(c, "💬 MES 카톡 발송 [" + room + "] " + Hub.cut(text, 18));
+                Map<String, String> q = new LinkedHashMap<>();
+                q.put("action", "ack");
+                q.put("id", id);
+                q.put("ok", ok ? "1" : "2");
+                Hub.post(c, q);
+                if (!ok) return;
+            } catch (Exception e) {
+                Hub.prefs(c).edit().putString("last_err", String.valueOf(e.getMessage())).apply();
+                return;
+            }
+        }
+    }
+
+    static void pollSms(Context c) {
         // 한 번에 최대 10건까지 연달아 처리
         for (int k = 0; k < 10; k++) {
             try {
