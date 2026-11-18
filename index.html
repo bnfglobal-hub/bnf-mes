@@ -10153,7 +10153,7 @@ function PageRndOem({user}){
           badge(r.status,st.c,st.bg),
           R('span',{style:{fontSize:15,fontWeight:800}},d.company||'(회사명 없음)'),
           R('span',{style:{fontSize:10,fontWeight:800,borderRadius:8,padding:'1px 8px',flexShrink:0,
-            background:d.formType==='B2B'?'#EFF6FF':'#F0FDF4',color:d.formType==='B2B'?'#1D4ED8':'#15803D'}},d.formType==='B2B'?'🏭 B2B':'🛒 B2C'),
+            background:d.formType==='문의'?'#FFF7ED':d.formType==='B2B'?'#EFF6FF':'#F0FDF4',color:d.formType==='문의'?'#C2410C':d.formType==='B2B'?'#1D4ED8':'#15803D'}},d.formType==='문의'?'📩 홈페이지 문의':d.formType==='B2B'?'🏭 B2B':'🛒 B2C'),
           R('span',{style:{fontSize:12,color:'var(--tm)',fontWeight:700}},(d.person||'')+(d.title?' '+d.title:'')),
           R('span',{style:{fontSize:12,color:'var(--tm)'}},d.phone||''),
           R('div',{style:{flex:1}}),
