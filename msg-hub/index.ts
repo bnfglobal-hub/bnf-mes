@@ -188,6 +188,12 @@ async function handleIn(b: any, cfg: any) {
   const peer = ch === "sms" ? normPhone(b.from) : String(b.room || b.from || "").trim();
   const peerName = String(b.name || b.from || "").trim();
   if (!text || !peer) return { reply: "", skip: "empty" };
+  // 카톡 방 이름 확인용: 최근 알림의 방 이름·보낸 사람 15개만 기록(내용은 기록 안 함) — 단체방 이름 설정할 때 대조
+  if (ch === "kakao") {
+    const seen = Array.isArray(cfg.recent_rooms) ? cfg.recent_rooms : [];
+    const item = { room: peer, name: peerName, at: now() };
+    if (!seen.length || seen[0].room !== peer) await patchCfg({ recent_rooms: [item, ...seen.filter((x: any) => x.room !== peer)].slice(0, 15) });
+  }
   if (AD_HINT.test(text)) return { reply: "", skip: "ad" };
   if (await isStaff(cfg, ch, peer, peerName)) {
     // 직원 메시지는 저장 안 함 — 단, 그 방에 쌓아둔 카톡 답장은 이번 알림에 붙여 내보냄
