@@ -30,9 +30,14 @@ public class KakaoListener extends NotificationListenerService {
         String title = str(x.getCharSequence(Notification.EXTRA_TITLE));
         String text = str(x.getCharSequence(Notification.EXTRA_TEXT));
         // 단톡방은 방 이름이 부제목/대화 제목에, 1:1은 제목(보낸 사람)이 곧 방 이름
-        String room = str(x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
-        if (room.isEmpty()) room = str(x.getCharSequence(Notification.EXTRA_SUB_TEXT));
-        if (room.isEmpty()) room = title;
+        // 단톡방 이름: 최근 카톡은 '숨김 대화 제목'(android.hiddenConversationTitle)에 넣음 → 그다음 대화 제목·부제목·요약, 없으면 1:1 이라 보낸 사람
+        String conv = str(x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
+        String hidden = str(x.getCharSequence("android.hiddenConversationTitle"));
+        String sub = str(x.getCharSequence(Notification.EXTRA_SUB_TEXT));
+        String summary = str(x.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
+        boolean group = x.getBoolean("android.isGroupConversation", false);
+        String room = !hidden.isEmpty() ? hidden : !conv.isEmpty() ? conv : !sub.isEmpty() ? sub : !summary.isEmpty() ? summary : title;
+        final String dbg = "g=" + group + "|hid=" + hidden + "|conv=" + conv + "|sub=" + sub + "|sum=" + summary;
         if (text.isEmpty() || room.isEmpty()) return;
 
         Notification.Action replyAct = null;
@@ -48,10 +53,10 @@ public class KakaoListener extends NotificationListenerService {
         final Notification.Action act = replyAct;
         final String fRoom = room, fTitle = title, fText = text;
         final Context c = getApplicationContext();
-        Hub.IO.execute(() -> handle(c, fRoom, fTitle, fText, act));
+        Hub.IO.execute(() -> handle(c, fRoom, fTitle, fText, act, dbg));
     }
 
-    static void handle(Context c, String room, String name, String text, Notification.Action act) {
+    static void handle(Context c, String room, String name, String text, Notification.Action act, String dbg) {
         try {
             Map<String, String> p = new LinkedHashMap<>();
             p.put("action", "in");
@@ -60,6 +65,7 @@ public class KakaoListener extends NotificationListenerService {
             p.put("room", room);
             p.put("name", name);
             p.put("text", text);
+            p.put("dbg", dbg);   // 방 이름이 어느 칸에 오는지 확인용(내용 아님)
             String reply = Hub.post(c, p).trim();
             if (reply.isEmpty()) return;   // 주문 아닌 카톡은 기록도 안 남김(사적 대화)
             if (act == null) {
