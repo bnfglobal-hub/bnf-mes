@@ -1305,6 +1305,66 @@ function bnfCopy(text,label){
    가둬 모달이 어긋나거나 깜빡이는 문제 방지 */
 const Portal=({children})=>ReactDOM.createPortal(children,document.body);
 
+/* ═══ 다른 메뉴로 가도 계속 도는 작업 (2026-11-18) ═══
+   화면(페이지)을 옮기면 그 화면이 통째로 사라져, 진행 중이던 컬리 확정·전표 실행·AI 인식의
+   결과가 버려지고 돌아오면 처음 상태였다. useKeptState는 값을 화면 밖 공용 저장소에 두므로
+   ① 작업은 그대로 끝까지 돌고 ② 결과·진행 문구가 저장되고 ③ 돌아오면 그대로 보인다.
+   새로고침(F5)하면 비워진다 (작업 자체는 PC 수집기에서 계속 진행). */
+const __kept={v:{},subs:{},set:{},all:new Set()};
+function keptGet(k){return __kept.v[k];}
+function keptSetter(k){
+  if(!__kept.set[k])__kept.set[k]=(u)=>{
+    const next=typeof u==='function'?u(__kept.v[k]):u;
+    if(next===__kept.v[k])return;
+    __kept.v[k]=next;
+    (__kept.subs[k]||[]).slice().forEach(f=>{try{f();}catch(e){}});
+    __kept.all.forEach(f=>{try{f();}catch(e){}});
+  };
+  return __kept.set[k];
+}
+function useKeptState(k,init){
+  if(!Object.prototype.hasOwnProperty.call(__kept.v,k))__kept.v[k]=typeof init==='function'?init():init;
+  const[,force]=useState(0);
+  const seen=__kept.v[k];
+  useEffect(()=>{
+    const f=()=>force(n=>n+1);
+    (__kept.subs[k]=__kept.subs[k]||[]).push(f);
+    if(__kept.v[k]!==seen)f();      /* 그리는 사이에 바뀐 값 반영 */
+    return()=>{__kept.subs[k]=(__kept.subs[k]||[]).filter(x=>x!==f);};
+  },[k]);
+  return[__kept.v[k],keptSetter(k)];
+}
+/* 어느 화면에서나 보이는 '진행 중인 작업' 표시 — 누르면 그 화면으로 이동 */
+function BgJobBar({page,onGo}){
+  const[,force]=useState(0);
+  useEffect(()=>{const f=()=>force(n=>n+1);__kept.all.add(f);return()=>{__kept.all.delete(f);};},[]);
+  const v=__kept.v;
+  const aj=v['ship:ajRun'];
+  /* 출고 계획에 들어가면 끝난 전표 결과는 본 것으로 처리 */
+  useEffect(()=>{if(page==='shipsort'&&aj&&aj.done&&v['ship:ajAck']!==aj)keptSetter('ship:ajAck')(aj);},[page,aj]);
+  if(page==='shipsort')return null;
+  const items=[];
+  ['ship:cfmBusy','ship:stmtBusy','ship:sgnBusy','ship:kurlyBusy'].forEach(k=>{if(v[k])items.push({t:String(v[k]).replace(/^📡\s*/,'컬리 '),run:true});});
+  if(v['ship:loading'])items.push({t:v['ship:progress']||'발주서 읽는 중...',run:true});
+  if(v['ship:imgBusy'])items.push({t:'발주서 이미지 AI 인식 중...',run:true});
+  const ajName=aj?(aj.dry?'파렛트 전표 미리보기':aj.mode==='print'?'파렛트 전표 출력':'파렛트 전표 등록'):'';
+  if(aj&&!aj.done)items.push({t:ajName+' 진행 중...',run:true});
+  else if(aj&&aj.done&&v['ship:ajAck']!==aj)items.push({t:ajName+(aj.code===0?' 완료':' 확인 필요'),run:false,bad:aj.code!==0});
+  if(v['ship:cfm'])items.push({t:'컬리 발주 확정 준비 완료 — 승인 대기',run:false});
+  if(v['ship:review'])items.push({t:'발주서 인식 완료 — 검토 대기',run:false});
+  if(!items.length)return null;
+  const any=items.some(x=>x.run);
+  return R('button',{onClick:()=>onGo('shipsort'),title:'출고 계획으로 이동',
+    style:{position:'fixed',left:'50%',transform:'translateX(-50%)',bottom:'calc(74px + env(safe-area-inset-bottom))',zIndex:9100,
+      maxWidth:'calc(100vw - 150px)',display:'flex',alignItems:'center',gap:8,padding:'9px 16px',borderRadius:999,border:'none',cursor:'pointer',
+      fontFamily:'inherit',fontSize:13,fontWeight:800,color:'#fff',boxShadow:'0 6px 20px rgba(0,0,0,0.25)',
+      background:items.some(x=>x.bad)?'#B91C1C':any?'#1F2937':'#15803D'}},
+    R('span',{style:{display:'inline-block',width:8,height:8,borderRadius:'50%',flexShrink:0,background:any?'#FBBF24':'#fff',
+      animation:any?'pulse 1.2s ease-in-out infinite':'none'}}),
+    R('span',{style:{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},'출고 계획 · '+items[0].t+(items.length>1?' 외 '+(items.length-1)+'건':'')),
+    R('span',{style:{opacity:.8,flexShrink:0}},'→'));
+}
+
 /* ═══ 휴대폰 손가락 확대·축소 (2026-10-12) ═══
    ① 화면 전체: 두 손가락으로 확대 가능 (viewport 확대 허용, 최대 5배)
    ② 좌우로 스크롤되는 넓은 표 안에서 두 손가락: 그 표만 확대·축소 — 화면보다 넓은 표를 한눈에 줄여 볼 수 있음
@@ -22525,8 +22585,8 @@ function PageShipSort({mats,hqItems}){
   const[parsed,setParsed]=useState(null);
   const[rawDbg,setRawDbg]=useState('');
   const[showDbg,setShowDbg]=useState(false);
-  const[loading,setLoading]=useState(false);
-  const[progress,setProgress]=useState('');
+  const[loading,setLoading]=useKeptState('ship:loading',false);
+  const[progress,setProgress]=useKeptState('ship:progress','');
   const[shipDate,setShipDate]=useState('');
   const[loadedFromDB,setLoadedFromDB]=useState(false);
   const[nameMap,setNameMap]=useState({}); /* {정규화제품명: matCode} 수동 연결 매핑 */
@@ -22549,10 +22609,10 @@ function PageShipSort({mats,hqItems}){
   const[pasteText,setPasteText]=useState(''); /* 발주서 표 붙여넣기 원문 */
   const[showPaste,setShowPaste]=useState(false);
   const[shipImg,setShipImg]=useState(null); /* 발주서 이미지(base64 dataURL) */
-  const[imgBusy,setImgBusy]=useState(false);
-  const[imgErr,setImgErr]=useState('');
+  const[imgBusy,setImgBusy]=useKeptState('ship:imgBusy',false);
+  const[imgErr,setImgErr]=useKeptState('ship:imgErr','');
   const[nameSug,setNameSug]=useState(null); /* 직접 추가 품목 검색 드롭다운 {i,rect} */
-  const[review,setReview]=useState(null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
+  const[review,setReview]=useKeptState('ship:review',null); /* AI 인식 검토: {date, rows:[{center,name,box,pack,total}], src} */
   const[ajMsg,setAjMsg]=useState(''); /* 파렛트 전표 복사 알림 */
   const[ajPalOv,setAjPalOv]=useState({}); /* 파렛트 수 수동 수정값 {날짜|센터: 수} — 서버 공유 */
   const[ajSkip,setAjSkip]=useState({});   /* 전표 등록에서 뺀 행 {날짜|센터: true} — 서버 공유(등록 스크립트도 봄) */
@@ -22578,7 +22638,7 @@ function PageShipSort({mats,hqItems}){
   const[dayMsg,setDayMsg]=useState(''); /* 일자별 복사 알림 "날짜|메시지" */
   const dayRefs=useRef({});             /* 날짜별 섹션 DOM (이미지 캡처용) */
   const[ajBridge,setAjBridge]=useState(null);   /* null=확인중 true=연결됨 false=꺼짐 */
-  const[ajRun,setAjRun]=useState(null);         /* {mode,dry,lines,done,code} */
+  const[ajRun,setAjRun]=useKeptState('ship:ajRun',null);         /* {mode,dry,lines,done,code} */
   const[ajBridgeVer,setAjBridgeVer]=useState(0); /* 3 이상이어야 등록/출력 분리 실행 지원 */
   const AJ_BRIDGE='http://127.0.0.1:8777';
 
@@ -23730,10 +23790,10 @@ function PageShipSort({mats,hqItems}){
   /* ── 컬리 발주 확인 ──
      PC 수집기가 컬리 포털에서 읽어 서버에 저장해둔 발주를 불러온다.
      서버에 저장돼 있으므로 휴대폰에서도 그대로 보인다. */
-  const[kurly,setKurly]=useState(null);      /* {at,dates,rows} */
+  const[kurly,setKurly]=useKeptState('ship:kurly',null);      /* {at,dates,rows} */
   const[kurlyOpen,setKurlyOpen]=useState(false);
-  const[kurlyDate,setKurlyDate]=useState('');
-  const[kurlyBusy,setKurlyBusy]=useState('');
+  const[kurlyDate,setKurlyDate]=useKeptState('ship:kurlyDate','');
+  const[kurlyBusy,setKurlyBusy]=useKeptState('ship:kurlyBusy','');
   const loadKurly=async()=>{
     try{
       const{data}=await sbClient.from('app_state').select('v:state_data->kurly_orders').eq('id',1).maybeSingle();
@@ -23754,7 +23814,13 @@ function PageShipSort({mats,hqItems}){
   useEffect(()=>{loadKurly();},[]);
   /* 출고 계획에 들어오면 자동으로 컬리 발주 조회 — 로그인 만료 시 수집기가 스스로 로그인 후 재시도.
      저장본을 먼저 보여주고 1초 뒤 백그라운드로 최신 조회 (휴대폰 등 수집기 미연결은 조용히 저장본 유지) */
-  useEffect(()=>{const t=setTimeout(()=>loadUpcoming(),300);return()=>clearTimeout(t);},[]);
+  useEffect(()=>{
+    /* 다른 메뉴에 다녀온 경우: 조회·확정 등이 아직 진행 중이거나 3분 안에 받아왔으면 다시 부르지 않는다
+       (수집기는 한 번에 하나씩 처리 — 겹쳐 부르면 진행 중인 확정이 늦어짐) */
+    if(keptGet('ship:upRun')||keptGet('ship:cfmBusy')||keptGet('ship:stmtBusy')||keptGet('ship:sgnBusy'))return;
+    if(keptGet('ship:upAt')&&Date.now()-keptGet('ship:upAt')<180000)return;
+    const t=setTimeout(()=>loadUpcoming(),300);return()=>clearTimeout(t);
+  },[]);
   useBnfSyncReload(()=>loadKurly());
   /* PC에서 열었고 수집기가 켜져 있으면 지금 즉시 다시 읽어온다 */
   const refreshKurly=async(dArg,silent)=>{
@@ -23787,15 +23853,21 @@ function PageShipSort({mats,hqItems}){
   };
   /* 다가오는 발주일 자동 탐색 — 수집기가 포털의 '발주 내역' 화면에서 입고예정일 목록을 읽어온다.
      발주가 있는 가장 가까운 날짜를 자동 선택하고 내역까지 바로 불러온다. */
-  const[kurlyUp,setKurlyUp]=useState(null);   /* [{date,sku,created}] · null=확인 중 */
+  const[kurlyUp,setKurlyUp]=useKeptState('ship:kurlyUp',null);   /* [{date,sku,created}] · null=확인 중 */
   const[kurlyMore,setKurlyMore]=useState(false); /* '다른 날짜 보기' 펼침 */
-  const[kurlyErr,setKurlyErr]=useState(null); /* 'login'=로그인 만료 · 'login-sent'=로그인 창 띄움 · 'offline'=수집기 연결 안 됨 */
+  const[kurlyErr,setKurlyErr]=useKeptState('ship:kurlyErr',null); /* 'login'=로그인 만료 · 'login-sent'=로그인 창 띄움 · 'offline'=수집기 연결 안 됨 */
   /* 모달 안에서 바로 쓰는 로그인 창 띄우기 (confirm/alert 없이 — 아이폰 PWA 호환) */
   const kurlyLoginNow=async()=>{
     try{await fetch('http://127.0.0.1:8788/login');setKurlyErr('login-sent');}
     catch(e){setKurlyErr('offline');}
   };
   const loadUpcoming=async()=>{
+    if(keptGet('ship:upRun'))return;
+    keptSetter('ship:upRun')(1);
+    try{await loadUpcoming0();}
+    finally{keptSetter('ship:upRun')(0);keptSetter('ship:upAt')(Date.now());}
+  };
+  const loadUpcoming0=async()=>{
     setKurlyUp(null);setKurlyErr(null);
     /* 빠른 경로(2026-11-18): 수집기가 날짜 목록+다가오는 발주 내역을 한 번에 돌려준다 (상주 브라우저) */
     try{
@@ -23897,9 +23969,9 @@ function PageShipSort({mats,hqItems}){
       await sbClient.rpc('set_state_key',{k:'bnf_ship_exp_history',v:{at:nowIso,items:hist.slice(-3000)}});
     }catch(e){}
   };
-  const[cfm,setCfm]=useState(null);        /* {token,date,rows,...} 채움 완료 → 승인 대기 */
-  const[cfmBusy,setCfmBusy]=useState('');
-  const[cfmDone,setCfmDone]=useState(null);
+  const[cfm,setCfm]=useKeptState('ship:cfm',null);        /* {token,date,rows,...} 채움 완료 → 승인 대기 */
+  const[cfmBusy,setCfmBusy]=useKeptState('ship:cfmBusy','');
+  const[cfmDone,setCfmDone]=useKeptState('ship:cfmDone',null);
   const BRIDGE='http://127.0.0.1:8788';
   /* 컬리 로그인은 몇 시간이면 만료된다. 사무실 PC 화면에 로그인 창을 띄워준다. */
   const kurlyLogin=async()=>{
@@ -24034,8 +24106,8 @@ function PageShipSort({mats,hqItems}){
   };
   /* ── 거래명세서 출력: 포털 '거래명세서 내역'에서 최근 입고예정일 PDF를 받아
         사무실 프린터로 짝수 페이지만 인쇄 (창원 3부 · 그 외 1부) ── */
-  const[stmtBusy,setStmtBusy]=useState('');
-  const[stmtRes,setStmtRes]=useState(null);
+  const[stmtBusy,setStmtBusy]=useKeptState('ship:stmtBusy','');
+  const[stmtRes,setStmtRes]=useKeptState('ship:stmtRes',null);
   const stmtPrint=async()=>{
     setStmtRes(null);setStmtBusy('🖨 거래명세서 인쇄·저장 중... (1~2분)');
     try{
@@ -24053,10 +24125,10 @@ function PageShipSort({mats,hqItems}){
         문서\컬리 서명완료 거래명세서 폴더에 '날짜_센터_코드.pdf'로 저장.
         서명은 컬리 입고 때 되므로 입고 전 명세서는 '서명 전'으로 남는다.
         date 없이 부르면 입고일이 지난 것 중 안 받은 것만 모두 받는다. ── */
-  const[sgnBusy,setSgnBusy]=useState('');
-  const[sgnRes,setSgnRes]=useState(null);
+  const[sgnBusy,setSgnBusy]=useKeptState('ship:sgnBusy','');
+  const[sgnRes,setSgnRes]=useKeptState('ship:sgnRes',null);
   /* 받을 입고일 — 기본은 마지막으로 거래명세서를 생성한 입고예정일, 비우면 밀린 것 전부 */
-  const[sgnDate,setSgnDate]=useState(()=>{try{return localStorage.getItem('bnf_kurly_signed_date')||'';}catch(e){return '';}});
+  const[sgnDate,setSgnDate]=useKeptState('ship:sgnDate',()=>{try{return localStorage.getItem('bnf_kurly_signed_date')||'';}catch(e){return '';}});
   const pickSgnDate=(d)=>{setSgnDate(d);try{localStorage.setItem('bnf_kurly_signed_date',d);}catch(e){}};
   const signedFetch=async(date)=>{
     setSgnRes(null);setSgnBusy('📄 서명완료 명세서 받는 중...');
@@ -26615,6 +26687,7 @@ function App(){
 ,
     globalSearch&&R(GlobalSearchModal,{mats,prods,user,onClose:()=>setGlobalSearch(false),onGoPage:(p,extra)=>{setPage(p);setGlobalSearch(false);}}),
     notifPanel&&R(NotifPanel,{mats,user,onClose:()=>setNotifPanel(false),onGoPage:(p)=>{setPage(p);setNotifPanel(false);}}),
+    R(BgJobBar,{page,onGo:setPage}),
     R(ScrollTopButton)
   );
 }
