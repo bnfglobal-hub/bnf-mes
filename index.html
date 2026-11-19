@@ -19050,6 +19050,8 @@ function PageWehago({user}){
     R('div',{style:{fontSize:11,marginTop:6,color:'var(--tm)'}},'PC 문서 → bnf-wehago → "위하고재무-수집.bat" 실행')));
 
   const cc=companies[Math.min(ci,companies.length-1)];
+  const wfAgeD=Math.floor((Date.now()-new Date(data.pulledAt||data.at).getTime())/86400000)||0;
+  const wfStale=wfAgeD>=2;
   const pl=cc.pl||[],bs=cc.bs||[];
   const 매출=find(pl,'매출액'),매출전=findP(pl,'매출액');
   const 판관비=find(pl,'판매비와관리비'),판관전=findP(pl,'판매비와관리비');
@@ -19070,9 +19072,13 @@ function PageWehago({user}){
     R('div',{className:'pg-hdr'},
       R('div',null,R('div',{className:'pg-title'},'🏦 재무 현황'),
         R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'위하고(Smart A) 법인 회계 기준',
-          data.at&&R('span',{style:{marginLeft:8,color:'#15803D',fontWeight:600}},'· '+String(data.at).slice(0,10)+' 수집')))
+          (data.pulledAt||data.at)&&R('span',{style:{marginLeft:8,color:wfStale?'#B91C1C':'#15803D',fontWeight:600}},'· 위하고 '+String(data.pulledAt||data.at).slice(0,10)+' 기준')))
     ),
     R('div',{style:{maxWidth:860}},
+      /* 수집이 멈추면 옛 숫자를 최신처럼 보이지 않게 — 위하고 QR 2차 인증 등 (2026-11-20) */
+      wfStale&&R('div',{style:{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#991B1B',marginBottom:12,fontWeight:600,lineHeight:1.5}},
+        '⛔ 위하고 자동 수집이 '+wfAgeD+'일째 멈춰 있어 아래 숫자는 '+String(data.pulledAt||data.at).slice(0,10)+' 기준입니다. ',
+        '위하고가 QR 2차 인증을 요구하면 사무실 PC의 문서 → bnf-wehago → "위하고-기기등록.bat"을 실행하고 휴대폰 위하고 앱으로 QR을 스캔해 주세요.'),
       /* 회사 선택 탭 */
       companies.length>1&&R('div',{style:{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}},
         ...companies.map((c,i)=>R('button',{key:i,onClick:()=>setCi(i),
