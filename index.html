@@ -19194,7 +19194,8 @@ function PageWehago({user}){
       bsCurLabel:first.bsCurLabel,bsPrevLabel:first.bsPrevLabel,
       unclosed:baseCompanies.some(c=>c.unclosed),
       pl:mergeRows(baseCompanies.map(c=>c.pl)),
-      est:baseCompanies.every(c=>c.est)?['sales','cogs','goods','mat','lab','exp','sga','op','pretax','net'].reduce((o,k)=>(o[k]=baseCompanies.reduce((t,c)=>t+(+c.est[k]||0),0),o),{}):null,
+      est:baseCompanies.every(c=>c.est)?Object.assign(['sales','cogs','goods','mat','lab','exp','sga','op','pretax','net'].reduce((o,k)=>(o[k]=baseCompanies.reduce((t,c)=>t+(+c.est[k]||0),0),o),{}),
+        baseCompanies.every(c=>c.est.basis==='monthly')?{basis:'monthly',closedThru:Math.min(...baseCompanies.map(c=>c.est.closedThru||0)),openMonths:baseCompanies[0].est.openMonths||[]}:{}):null,
       bs:mergeRows(baseCompanies.map(c=>c.bs)),
     }];
   },[data]);
