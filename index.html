@@ -23273,6 +23273,8 @@ function PageShipSort({mats,hqItems}){
     [/렐레기|털래기|텔레기|틸레기|벌레기|털레지/g,'털레기'],
     [/외할머니택|외할머니덱|외할머니맥|외할머니액/g,'외할머니댁'],
     [/엄마밥성|엄마밥싱/g,'엄마밥상'],
+    /* 2026-11-20: 압구정푸드 창원 명세서의 '[엄마밥상]'을 AI가 '[맘상]'으로 읽어 다른 재고(원료)와 엮이던 오류 */
+    [/\[\s*(맘상|엄마상|엄마밥|엄밥상|마밥상|엄마밤상|엄마빕상|암마밥상)\s*\]/g,'[엄마밥상]'],
     [/맑은콤탕|맑은곰당/g,'맑은곰탕'],
     [/청국징|정국장/g,'청국장'],
     /* 발주서 인식 때 옆 제품 브랜드가 섞이는 오류 교정 (2026-10-07: '[리틀 후쿠오카] 소고기 쌀국수'는 존재하지 않는 제품) */
@@ -23285,7 +23287,11 @@ function PageShipSort({mats,hqItems}){
      글자 한두 개가 틀리는 OCR 오인식을 규칙 추가 없이 자동으로 잡는다. */
   const[canonNames,setCanonNames]=useState([]);
   const loadCanon=()=>sbClient.from('app_state').select('v:state_data->shipsort_names').eq('id',1).maybeSingle()
-    .then(({data})=>{if(Array.isArray(data&&data.v))setCanonNames(data.v);}).catch(()=>{});
+    .then(({data})=>{if(Array.isArray(data&&data.v)){
+      /* 사전에 이미 들어간 오인식 이름(예: '[맘상] 청국장')도 교정 규칙을 거쳐 정식 이름으로 합친다 */
+      const seen=new Set();const out=[];
+      data.v.forEach(n=>{let v=String(n||'');NAME_FIX.forEach(([re,to])=>{v=v.replace(re,to);});const k=v.replace(/\s/g,'');if(k&&!seen.has(k)){seen.add(k);out.push(v);}});
+      setCanonNames(out);}}).catch(()=>{});
   useEffect(()=>{loadCanon();},[]);
   const saveCanon=(names)=>{
     const merged=[];
