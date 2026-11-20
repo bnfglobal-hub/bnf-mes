@@ -52,6 +52,7 @@ kbd{font-family:inherit;font-size:.9em}
 .ni .nbdg{background:var(--p);color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;font-weight:700;margin-left:auto}
 .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .pg{flex:1;overflow-y:auto;padding:16px}
+.webana-t th,.webana-t td{padding:8px 6px;border-bottom:1px solid var(--bd,#E5E7EB);font-weight:inherit}.webana-t th{color:var(--tm);font-size:12px;font-weight:600}
 .pg-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
 .pg-title{font-size:17px;font-weight:800;color:var(--t)}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 18px}
@@ -20459,7 +20460,8 @@ function loadNavSections(){
             {id:'ga_health',l:'보건증 관리',ic:'🩺'},
             {id:'ga_quote',l:'견적서',ic:'📝'},
             {id:'ga_ilgye',l:'일계표',ic:'🧾'},
-            {id:'ga_ledger',l:'거래처원장',ic:'📒'}]);
+            {id:'ga_ledger',l:'거래처원장',ic:'📒'},
+            {id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}]);
           ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
             {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
@@ -20870,6 +20872,88 @@ function safetyStatus(def,cfg,logs,today){
   if(left<=30)return{st:'soon',label:left+'일 남음',last,next,left,cyc};
   return{st:'ok',label:'정상',last,next,left,cyc};
 }
+/* ═══ 홈페이지 방문 분석 (bnfglobal.co.kr) ═══
+   수집: 홈페이지 /api/track → site.pageviews (쿠키 없음, IP 원문 저장 안 함, 방문자 구분값은 매일 바뀜)
+   조회: RPC homepage_analytics(p_days) — 숫자 집계만 내려옴. 문의 = oem_requests 의 formType '문의' */
+const WEBANA_PAGES={'/':'메인','/company/greeting':'인사말','/company/history':'연혁','/company/ci':'CI','/company/business':'사업분야','/company/manufacturing':'제조시설','/company/certifications':'인증현황','/company/location':'오시는 길','/products':'제품소개','/newsroom':'뉴스룸','/newsroom/sns':'SNS','/support/inquiry':'문의하기','/support/contact':'고객센터'};
+const WEBANA_CATS={military:'군 전용제품',imported:'수입 제품','edible-oil':'식용유지','frozen-seafood-meat':'냉동 수산·축산',hmr:'HMR','sauce-broth':'소스·육수',noodles:'면류','seafood-pickled':'수산 절임',others:'기타'};
+const WEBANA_SRC=[['direct','직접 방문','#0F766E'],['naver','네이버','#22C55E'],['google','구글','#F59E0B'],['kakao','다음·카카오','#FACC15'],['sns','인스타·SNS','#EC4899'],['search','기타 검색','#8B5CF6'],['other','기타 사이트','#3B82F6']];
+function webanaPageName(p){
+  if(WEBANA_PAGES[p])return WEBANA_PAGES[p];
+  const m=/^\/products\/([^/]+)(?:\/(.+))?$/.exec(p||'');
+  if(m)return(WEBANA_CATS[m[1]]||m[1])+(m[2]?' › '+m[2]:'');
+  return p;
+}
+function PageWebAnalytics({user}){
+  const[days,setDays]=useState(30);
+  const[d,setD]=useState(null);
+  const[err,setErr]=useState('');
+  const[busy,setBusy]=useState(false);
+  const dailyRef=useRef(null),srcRef=useRef(null);
+  const load=async()=>{
+    setBusy(true);setErr('');
+    try{const{data,error}=await sbClient.rpc('homepage_analytics',{p_days:days});if(error)throw error;setD(data);}
+    catch(e){setErr(e.message||String(e));}
+    setBusy(false);
+  };
+  useEffect(()=>{load();},[days]);
+  useEffect(()=>{
+    if(!window.Chart||!d)return;
+    if(dailyRef.current){
+      const ex=Chart.getChart(dailyRef.current);if(ex)ex.destroy();
+      const rows=d.daily||[];
+      new Chart(dailyRef.current,{data:{labels:rows.map(r=>String(r.d).slice(5)),datasets:[
+        {type:'bar',label:'페이지뷰',data:rows.map(r=>r.pv),backgroundColor:'#0F766E',borderRadius:3,yAxisID:'y',order:3},
+        {type:'line',label:'방문자',data:rows.map(r=>r.v),borderColor:'#22C55E',backgroundColor:'#fff',pointRadius:2,tension:.3,yAxisID:'y',order:1},
+        {type:'line',label:'문의',data:rows.map(r=>r.q),borderColor:'#EA580C',borderDash:[5,4],pointRadius:rows.map(r=>r.q?4:0),pointBackgroundColor:'#EA580C',yAxisID:'y2',order:0}]},
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}}},
+          scales:{y:{beginAtZero:true,ticks:{precision:0}},y2:{beginAtZero:true,position:'right',grid:{display:false},ticks:{precision:0}},x:{ticks:{font:{size:10},maxRotation:0,autoSkip:true}}}}});
+    }
+    if(srcRef.current){
+      const ex=Chart.getChart(srcRef.current);if(ex)ex.destroy();
+      const s=d.sources||{};const rows=WEBANA_SRC.filter(x=>s[x[0]]);
+      if(rows.length)new Chart(srcRef.current,{type:'doughnut',data:{labels:rows.map(x=>x[1]),datasets:[{data:rows.map(x=>s[x[0]]),backgroundColor:rows.map(x=>x[2]),borderWidth:2,borderColor:'#fff'}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);return c.label+' '+c.raw+'명 ('+(c.raw/t*100).toFixed(1)+'%)';}}}}}});
+    }
+  },[d]);
+  const delta=(cur,prev)=>{const diff=(cur||0)-(prev||0);return R('div',{style:{fontSize:12,marginTop:4,color:diff>0?'#15803D':diff<0?'#B91C1C':'var(--tm)'}},(diff>0?'▲ ':diff<0?'▼ ':'')+Math.abs(diff).toLocaleString(),R('span',{style:{color:'var(--tm)',marginLeft:6}},'지난 '+days+'일 '+(prev||0).toLocaleString()));};
+  const kpi=(label,val,unit,sub)=>R('div',{className:'card',style:{padding:'14px 16px',margin:0}},R('div',{style:{fontSize:13,color:'var(--tm)',fontWeight:600}},label),R('div',{style:{fontSize:28,fontWeight:800,marginTop:4}},val,unit?R('span',{style:{fontSize:14,fontWeight:600,marginLeft:3}},unit):null),sub);
+  const pv=d?d.pv:0,vis=d?d.visitors:0,inq=d?d.inquiries:0,prev=(d&&d.prev)||{};
+  const totalEntry=d?Object.values(d.sources||{}).reduce((a,b)=>a+b,0):0;
+  return R('div',{className:'pg fa'},
+    R('div',{className:'ph'},R('div',null,R('div',{className:'pt'},'🌐 홈페이지 방문 분석'),
+      R('div',{className:'ps'},'bnfglobal.co.kr 방문 기록(쿠키 없이, 사람이 연 페이지만)과 홈페이지 문의를 함께 봅니다.'+(d&&d.since?' · 수집 시작 '+d.since:'')))),
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}},
+      [7,30,90,365].map(n=>R('button',{key:n,className:'btn btn-sm '+(days===n?'bp':'bw'),onClick:()=>setDays(n)},n===365?'1년':n+'일')),
+      R('button',{className:'btn btn-sm bw',onClick:load,disabled:busy,style:{marginLeft:'auto'}},busy?'불러오는 중…':'새로고침'),
+      R('a',{className:'btn btn-sm bw',href:'https://bnfglobal.co.kr',target:'_blank',rel:'noopener'},'홈페이지 열기')),
+    err?R('div',{className:'card',style:{color:'#B91C1C'}},'불러오지 못했습니다: '+err,R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:6}},'방문 기록 표(site.pageviews)·집계 함수(homepage_analytics)가 아직 DB에 없으면 이 메시지가 뜹니다.')):null,
+    !d&&!err?R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'불러오는 중...'):null,
+    d?R(React.Fragment,null,
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:12}},
+        kpi('페이지뷰',pv.toLocaleString(),'',delta(pv,prev.pv)),
+        kpi('방문자',vis.toLocaleString(),'명',delta(vis,prev.visitors)),
+        kpi('홈페이지 문의',inq.toLocaleString(),'건',delta(inq,prev.inquiries)),
+        kpi('방문당 페이지',vis?(pv/vis).toFixed(1):'0','쪽',R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:4}},'한 사람이 평균 본 페이지 수')),
+        kpi('문의 전환율',vis?(inq/vis*100).toFixed(2):'0','%',R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:4}},'방문자 중 문의한 비율'))),
+      R('div',{className:'card',style:{marginBottom:12}},R('div',{style:{fontWeight:800,marginBottom:8}},'일별 방문 ',R('span',{style:{fontSize:12,color:'var(--tm)',fontWeight:500}},'페이지뷰 · 방문자 · 문의(오른쪽 눈금)')),
+        R('div',{style:{height:280}},R('canvas',{ref:dailyRef}))),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:12}},
+        R('div',{className:'card',style:{margin:0}},R('div',{style:{fontWeight:800,marginBottom:8}},'어디서 들어왔나 ',R('span',{style:{fontSize:12,color:'var(--tm)',fontWeight:500}},'방문자가 그날 처음 들어온 경로')),
+          totalEntry?R('div',{style:{height:220}},R('canvas',{ref:srcRef})):R('div',{style:{color:'var(--tm)',padding:20,textAlign:'center'}},'아직 기록이 없습니다'),
+          (d.refs||[]).length?R('table',{className:'webana-t',style:{borderCollapse:'collapse',width:'100%',marginTop:10,fontSize:13}},R('thead',null,R('tr',null,R('th',{style:{textAlign:'left'}},'들어온 사이트'),R('th',{style:{textAlign:'right'}},'방문'))),
+            R('tbody',null,d.refs.map(r=>R('tr',{key:r.host},R('td',null,r.host),R('td',{style:{textAlign:'right'}},r.n))))):null),
+        R('div',{className:'card',style:{margin:0}},R('div',{style:{fontWeight:800,marginBottom:8}},'많이 본 페이지'),
+          (d.pages||[]).length?R('table',{className:'webana-t',style:{borderCollapse:'collapse',width:'100%',fontSize:13}},R('thead',null,R('tr',null,R('th',{style:{width:28}},''),R('th',{style:{textAlign:'left'}},'페이지'),R('th',{style:{textAlign:'right'}},'페이지뷰'),R('th',{style:{textAlign:'right'}},'방문자'))),
+            R('tbody',null,d.pages.map((p,i)=>R('tr',{key:p.path},R('td',{style:{color:'var(--tm)'}},i+1),
+              R('td',null,R('a',{href:'https://bnfglobal.co.kr'+p.path,target:'_blank',rel:'noopener',style:{color:'#0F766E',fontWeight:600}},webanaPageName(p.path))),
+              R('td',{style:{textAlign:'right'}},p.pv),R('td',{style:{textAlign:'right'}},p.v))))):R('div',{style:{color:'var(--tm)',padding:20,textAlign:'center'}},'아직 기록이 없습니다'),
+          d.devices&&(d.devices.mobile||d.devices.pc)?R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:10}},'기기: 휴대폰 '+(d.devices.mobile||0)+' · PC '+(d.devices.pc||0)+' (그날 첫 방문 기준)'):null))
+    ):null
+  );
+}
+
 function PageSafety({user}){
   const[data,setData]=useState(null);
   const[err,setErr]=useState(false);
@@ -21688,6 +21772,7 @@ const NAV_PAGES_INDEX=[
   {p:'remote',title:'원격접속',ic:'🖥',keys:['원격','원격접속','원격제어','크롬원격','remote','crd']},
   {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']},
   {p:'pm_lot',title:'로트 전달',ic:'🏷',keys:['로트','lot','소비기한','입고일자','포장일자']},
+  {p:'webana',title:'홈페이지 방문 분석',ic:'🌐',keys:['홈페이지','방문','방문자','방문분석','유입','검색유입','페이지뷰','analytics','웹사이트']},
   {p:'safety',title:'안전관리',ic:'🦺',keys:['안전','안전관리','소방','전기안전','위험성평가','중대재해','안전검사','건강진단','작업환경측정','safety']},
   {p:'ga_edu',title:'법정의무교육',ic:'🎓',keys:['교육','의무교육','법정교육','산업안전','성희롱','개인정보','장애인','퇴직연금']}
 ];
@@ -26214,6 +26299,7 @@ function App(){
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='safety')return R(PageSafety,{user});
+    if(page==='webana')return R(PageWebAnalytics,{user});
     if(page==='files')return R(PageFiles,{user});
     if(page==='links')return R(PageLinks,{user});
     /* ══ 본사 (HQ) ══ */
