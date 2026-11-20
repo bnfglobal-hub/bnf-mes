@@ -20205,7 +20205,8 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'data',l:'데이터관리',ic:'💾'},
     {id:'admin',l:'사용자 관리',ic:'👤'},
     {id:'meeting',l:'주간 회의 자료',ic:'📋'},
-    {id:'remote',l:'원격접속',ic:'🖥'}
+    {id:'remote',l:'원격접속',ic:'🖥'},
+    {id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}
   ]}
 ];
 function loadNavSections(){
@@ -20460,7 +20461,8 @@ function loadNavSections(){
             {id:'ga_health',l:'보건증 관리',ic:'🩺'},
             {id:'ga_quote',l:'견적서',ic:'📝'},
             {id:'ga_ilgye',l:'일계표',ic:'🧾'},
-            {id:'ga_ledger',l:'거래처원장',ic:'📒'},
+            {id:'ga_ledger',l:'거래처원장',ic:'📒'}]);
+          ensure({t:'admin',m:'관리자',label:'⚙️ 관리자'},[
             {id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}]);
           ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
             {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
@@ -20480,7 +20482,8 @@ function loadNavSections(){
    서버 구성은 관리자가 메뉴를 편집할 때만 저장되므로, 새 메뉴가 전 직원에게 바로 보이도록 (2026-10-15) */
 const NAV_NEW_ITEMS=[
   {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ilgye',l:'일계표',ic:'🧾'}},
-  {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ledger',l:'거래처원장',ic:'📒'}}
+  {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ledger',l:'거래처원장',ic:'📒'}},
+  {sec:{t:'admin',m:'관리자'},item:{id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}}
 ];
 function ensureNavItems(arr){
   if(!Array.isArray(arr))return arr;
@@ -26299,7 +26302,7 @@ function App(){
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='safety')return R(PageSafety,{user});
-    if(page==='webana')return R(PageWebAnalytics,{user});
+    if(page==='webana'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageWebAnalytics,{user});}
     if(page==='files')return R(PageFiles,{user});
     if(page==='links')return R(PageLinks,{user});
     /* ══ 본사 (HQ) ══ */
