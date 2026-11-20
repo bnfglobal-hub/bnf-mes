@@ -18995,97 +18995,157 @@ function PageAutoOrder({user,mats,onCreateOrder}){
 
 /* ═══ 매입단가 조회 (이카운트 구매현황 수집 → 품목별 단가 검색) ═══ */
 /* ═══ 재무 현황 (위하고 Smart A · 다중회사) ═══════════════════ */
-/* ── 위하고 월별 손익 대시보드 (2026-11-20) ──
-   위하고 손익계산서를 1월~이번 달까지 매달 조회한 누계의 차이 = 그 달 값.
+/* ── 위하고 월별·연별 손익 대시보드 (2026-11-20) ──
+   월별: 위하고 손익계산서를 1월~이번 달까지 매달 조회한 누계의 차이 = 그 달 값.
+   연별: 지난 해는 위하고 연도 버튼(12월 누계 = 결산 확정치), 올해는 1~이번 달 합계.
    결산 전 달은 매출원가가 0이라 → 매입·제조비용 기준 추정 순이익(netEst)을 쓴다. */
-function WehagoMonthly({mo,coKey,eok,nf}){
+function WehagoMonthly({mo,coKey,nf}){
+  /* 금액 표기: 1억 이상 '1.8억', 그 아래는 만원 단위 반올림 '5,532만' */
+  const eok=v=>{v=+v||0;const a=Math.abs(v);return a>=1e8?(v/1e8).toFixed(1)+'억':a>=1e4?Math.round(v/1e4).toLocaleString()+'만':Math.round(v).toLocaleString();};
+  const[view,setView]=useState(()=>{try{return localStorage.getItem('wfView')||'m';}catch(e){return 'm';}});
   const[hov,setHov]=useState(null);
   const co=(mo&&mo.companies||[]).find(c=>c.key===coKey);
   if(!co)return null;
+  const setV=v=>{setView(v);setHov(null);try{localStorage.setItem('wfView',v);}catch(e){}};
   const N=mo.lastMonth||12;
-  const ms=Array.from({length:12},(_,i)=>co.months[i]||null);
-  const val=d=>d?(d.netEst!=null?d.netEst:d.net):null;
+  const val=d=>d&&!d.open?(d.netEst!=null?d.netEst:d.net):null;
   const opv=d=>d?(d.opEst!=null?d.opEst:d.op):null;
   const cogsv=d=>d?(d.cogsEst!=null?d.cogsEst:d.cogs):null;
-  const done=ms.filter((d,i)=>d&&i<N);
+  const POS='#15803D',NEG='#B91C1C';
+  const pct=(a,b)=>b?(a*100/b).toFixed(1)+'%':'-';
+  const signed=v=>(v>0?'+':'')+eok(v);
+  const ms=Array.from({length:12},(_,i)=>co.months[i]||null);
+  const done=ms.filter((d,i)=>d&&i<N&&!d.open);           /* 월결산이 끝난 달만 */
+  const openM=ms.filter(d=>d&&d.open);
+  const NC=done.length?done[done.length-1].m:0;
   const sum=k=>done.reduce((t,d)=>t+(+k(d)||0),0);
   const ytdNet=sum(val),ytdSales=sum(d=>d.sales);
-  const fullMonths=done.filter(d=>d.m<N);           /* 이번 달은 진행 중이라 평균·최고·최저에서 뺀다 */
-  const avg=fullMonths.length?fullMonths.reduce((t,d)=>t+val(d),0)/fullMonths.length:0;
-  const best=fullMonths.reduce((b,d)=>!b||val(d)>val(b)?d:b,null),worst=fullMonths.reduce((b,d)=>!b||val(d)<val(b)?d:b,null);
   const anyEst=done.some(d=>d.netEst!=null);
-  const POS='#15803D',NEG='#B91C1C';
-  /* 차트 기하 */
-  const W=720,H=230,padL=46,padR=10,padT=22,padB=28;
-  const vals=ms.map(val).filter(v=>v!=null);
-  let mx=Math.max(0,...vals),mn=Math.min(0,...vals);if(mx===mn)mx=mn+1;
-  const span=mx-mn;mx+=span*0.12;if(mn<0)mn-=span*0.12;
-  const y=v=>padT+(mx-v)/(mx-mn)*(H-padT-padB);
-  const bw=(W-padL-padR)/12;
-  const ticks=[mx,(mx+mn)/2,mn].map(v=>Math.round(v/1e7)*1e7);
-  const pct=(a,b)=>b?(a*100/b).toFixed(1)+'%':'-';
+  const yrs=(co.years||[]).slice().sort((a,b)=>a.y-b.y);
+  const lastFull=yrs.filter(y=>!y.partial).slice(-1)[0];
+  /* 화면별 막대 목록 */
+  const items=view==='y'
+    ?yrs.map(y=>({key:y.y,label:y.partial?y.y+' (1~'+y.partial+'월)':String(y.y),short:y.partial?y.y+'*':String(y.y),d:y,partial:!!y.partial}))
+    :ms.map((d,i)=>({key:i+1,label:(i+1)+'월'+(d&&d.open?' (마감 전)':''),short:(i+1)+'월',d,partial:false,open:!!(d&&d.open)}));
   const tile=(t,v,sub,col)=>R('div',{className:'card',style:{padding:'12px 14px'}},
     R('div',{style:{fontSize:10.5,fontWeight:700,color:'var(--tm)'}},t),
     R('div',{style:{fontSize:19,fontWeight:800,marginTop:3,color:col||'var(--t)',fontVariantNumeric:'tabular-nums'}},v),
     sub&&R('div',{style:{fontSize:9.5,color:'var(--tm)',marginTop:2}},sub));
-  const lbl=new Set([best&&best.m,worst&&worst.m,N].filter(Boolean));
-  const hd=hov!=null?ms[hov]:null;
-  return R('div',{style:{marginBottom:16}},
-    R('div',{style:{display:'flex',alignItems:'baseline',gap:8,marginBottom:8,flexWrap:'wrap'}},
-      R('div',{style:{fontSize:14,fontWeight:800}},'📈 '+mo.year+'년 월별 당기순이익'),
-      R('div',{style:{fontSize:10.5,color:'var(--tm)'}},co.name+' · 위하고 손익계산서 월별'+(anyEst?' · 결산 전 달은 추정':''))),
-    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:10}},
-      tile('누적 순이익 (1~'+N+'월)'+(anyEst?' · 추정':''),eok(ytdNet),'순이익률 '+pct(ytdNet,ytdSales)+' · 매출 '+eok(ytdSales),ytdNet>=0?POS:NEG),
-      tile('월평균 (1~'+(N-1)+'월)',eok(avg),'이번 달 제외',avg>=0?POS:NEG),
+  /* 요약 카드 */
+  let tiles;
+  if(view==='y'){
+    const ann=NC?ytdNet/NC*12:0;
+    tiles=[
+      tile(mo.year+'년 누계 (1~'+NC+'월)',eok(ytdNet),'순이익률 '+pct(ytdNet,ytdSales),ytdNet>=0?POS:NEG),
+      tile(mo.year+'년 연간 환산',eok(ann),'지금 속도로 12월까지 · 단순 환산',ann>=0?POS:NEG),
+      lastFull&&tile(lastFull.y+'년 (확정)',eok(val(lastFull)),'매출 '+eok(lastFull.sales)+' · 순이익률 '+pct(val(lastFull),lastFull.sales),val(lastFull)>=0?POS:NEG),
+      lastFull&&tile('전년 대비 (환산 기준)',signed(ann-val(lastFull)),lastFull.y+'년 '+eok(val(lastFull))+' → '+mo.year+'년 '+eok(ann),ann-val(lastFull)>=0?POS:NEG)];
+  }else{
+    const full=done;
+    const avg=full.length?full.reduce((t,d)=>t+val(d),0)/full.length:0;
+    const best=full.reduce((b,d)=>!b||val(d)>val(b)?d:b,null),worst=full.reduce((b,d)=>!b||val(d)<val(b)?d:b,null);
+    tiles=[
+      tile('누적 순이익 (1~'+NC+'월)',eok(ytdNet),'순이익률 '+pct(ytdNet,ytdSales)+' · 매출 '+eok(ytdSales),ytdNet>=0?POS:NEG),
+      tile('월평균 (1~'+NC+'월)',eok(avg),'월결산 끝난 달 기준',avg>=0?POS:NEG),
       best&&tile('가장 좋았던 달',best.m+'월 '+eok(val(best)),'매출 '+eok(best.sales),POS),
       worst&&tile('가장 나빴던 달',worst.m+'월 '+eok(val(worst)),'매출 '+eok(worst.sales),val(worst)>=0?'var(--t)':NEG),
-      ms[N-1]&&tile(N+'월 (진행 중)',eok(val(ms[N-1])),'매출 '+eok(ms[N-1].sales)+' · 월말까지 바뀜')),
+      ...openM.map(d=>tile(d.m+'월 (마감 전)','매출 '+eok(d.sales),'위하고 월결산 후 순이익 표시'))];
+  }
+  /* 막대그래프 */
+  const W=720,H=230,padL=50,padR=10,padT=22,padB=28;
+  const vals=items.map(it=>val(it.d)).filter(v=>v!=null);
+  let mx=Math.max(0,...vals),mn=Math.min(0,...vals);if(mx===mn)mx=mn+1;
+  const span=mx-mn;mx+=span*0.14;if(mn<0)mn-=span*0.14;
+  const y=v=>padT+(mx-v)/(mx-mn)*(H-padT-padB);
+  const n=Math.max(items.length,view==='y'?4:12);
+  const bw=(W-padL-padR)/n;
+  const bwFill=Math.min(bw*0.6,view==='y'?90:40);
+  const ticks=[mx,(mx+mn)/2,mn].map(v=>Math.round(v/1e7)*1e7);
+  let lbl;
+  if(view==='y')lbl=new Set(items.map(it=>it.key));
+  else{const f=done;const b=f.reduce((x,d)=>!x||val(d)>val(x)?d:x,null),w=f.reduce((x,d)=>!x||val(d)<val(x)?d:x,null);lbl=new Set([b&&b.m,w&&w.m,NC].filter(Boolean));}
+  const hit=hov!=null?items.find(it=>it.key===hov):null;const hd=hit&&hit.d;
+  const btn=(k,l)=>R('button',{onClick:()=>setV(k),'aria-pressed':view===k,
+    style:{border:'1px solid '+(view===k?'var(--p)':'var(--bd)'),background:view===k?'var(--p)':'#fff',color:view===k?'#fff':'var(--tm)',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',minHeight:32}},l);
+  const rowsT=view==='y'?yrs.map(y=>({key:y.y,label:y.partial?y.y+'년 (1~'+y.partial+'월)':y.y+'년',d:y,partial:!!y.partial})):ms.filter(d=>d).map(d=>({key:d.m,label:d.m+'월'+(d.open?' (마감 전)':''),d,open:!!d.open}));
+  const prevOf=it=>{if(view!=='y')return null;const i=yrs.indexOf(it.d);return i>0?yrs[i-1]:null;};
+  return R('div',{style:{marginBottom:16}},
+    R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}},
+      R('div',{style:{fontSize:14,fontWeight:800}},'📈 당기순이익'),
+      R('div',{style:{display:'flex',gap:4}},btn('m','월별'),btn('y','연별')),
+      R('div',{style:{fontSize:10.5,color:'var(--tm)',flex:'1 1 200px'}},co.name+' · 위하고 손익계산서'+(anyEst?' · 결산 전 기간은 추정':''))),
+    R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:10}},...tiles.filter(Boolean)),
     R('div',{className:'card',style:{padding:'10px 10px 4px',position:'relative'}},
-      R('svg',{viewBox:'0 0 '+W+' '+H,style:{width:'100%',height:'auto',display:'block'},role:'img','aria-label':mo.year+'년 월별 당기순이익 막대그래프',onMouseLeave:()=>setHov(null)},
+      R('svg',{viewBox:'0 0 '+W+' '+H,style:{width:'100%',height:'auto',display:'block'},role:'img','aria-label':(view==='y'?'연도별':mo.year+'년 월별')+' 당기순이익 막대그래프',onMouseLeave:()=>setHov(null)},
         ...ticks.map((t,i)=>R('g',{key:'t'+i},
           R('line',{x1:padL,x2:W-padR,y1:y(t),y2:y(t),stroke:'#E7E2DC',strokeWidth:1}),
           R('text',{x:padL-6,y:y(t)+3,textAnchor:'end',fontSize:10,fill:'#8A817A'},eok(t)))),
         R('line',{x1:padL,x2:W-padR,y1:y(0),y2:y(0),stroke:'#B8B0A8',strokeWidth:1}),
-        ...ms.map((d,i)=>{
-          const x=padL+i*bw;const v=val(d);
-          const g=[R('text',{key:'m',x:x+bw/2,y:H-10,textAnchor:'middle',fontSize:10.5,fill:hov===i?'#2B2622':'#8A817A',fontWeight:hov===i?700:400},(i+1)+'월')];
+        ...items.map((it,i)=>{
+          const x=padL+i*bw;const v=val(it.d);const on=hov===it.key;
+          const g=[R('text',{key:'m',x:x+bw/2,y:H-10,textAnchor:'middle',fontSize:10.5,fill:on?'#2B2622':'#8A817A',fontWeight:on?700:400},it.short)];
+          if(it.open){
+            g.push(R('rect',{key:'o',x:x+(bw-bwFill)/2,y:y(0)-26,width:bwFill,height:26,rx:4,fill:'none',stroke:'#B8B0A8',strokeDasharray:'3 3'}));
+            g.push(R('text',{key:'ot',x:x+bw/2,y:y(0)-31,textAnchor:'middle',fontSize:9.5,fill:'#8A817A'},'마감 전'));
+          }
           if(v!=null){
             const y0=y(0),y1=y(v),top=Math.min(y0,y1),h=Math.max(2,Math.abs(y1-y0));
-            const partial=d.m===N;
-            g.push(R('rect',{key:'b',x:x+bw*0.2,y:top,width:bw*0.6,height:h,rx:4,fill:v>=0?POS:NEG,opacity:partial?0.4:(hov==null||hov===i?1:0.55)}));
-            if(lbl.has(d.m))g.push(R('text',{key:'v',x:x+bw/2,y:v>=0?top-5:top+h+12,textAnchor:'middle',fontSize:10,fontWeight:700,fill:'#2B2622'},eok(v)));
+            g.push(R('rect',{key:'b',x:x+(bw-bwFill)/2,y:top,width:bwFill,height:h,rx:4,fill:v>=0?POS:NEG,opacity:it.partial?0.45:(hov==null||on?1:0.55)}));
+            if(lbl.has(it.key))g.push(R('text',{key:'v',x:x+bw/2,y:v>=0?top-5:top+h+12,textAnchor:'middle',fontSize:10.5,fontWeight:700,fill:'#2B2622'},eok(v)));
           }
-          g.push(R('rect',{key:'h',x:x,y:padT,width:bw,height:H-padT-padB+18,fill:'transparent',onMouseEnter:()=>setHov(i),onClick:()=>setHov(i),style:{cursor:d?'pointer':'default'}}));
-          return R('g',{key:i},...g);
+          g.push(R('rect',{key:'h',x:x,y:padT,width:bw,height:H-padT-padB+18,fill:'transparent',onMouseEnter:()=>setHov(it.key),onClick:()=>setHov(it.key),style:{cursor:it.d?'pointer':'default'}}));
+          return R('g',{key:it.key},...g);
         })),
-      hd&&R('div',{style:{position:'absolute',top:8,right:12,background:'#fff',border:'1px solid var(--bd)',borderRadius:8,padding:'7px 10px',fontSize:11,boxShadow:'0 4px 14px rgba(0,0,0,.08)',lineHeight:1.6,pointerEvents:'none'}},
-        R('div',{style:{fontWeight:800}},hd.m+'월'+(hd.m===N?' (진행 중)':'')),
+      hd&&hd.open&&R('div',{style:{position:'absolute',top:8,right:12,background:'#fff',border:'1px solid var(--bd)',borderRadius:8,padding:'7px 10px',fontSize:11,boxShadow:'0 4px 14px rgba(0,0,0,.08)',lineHeight:1.6,pointerEvents:'none'}},
+        R('div',{style:{fontWeight:800}},hit.label),R('div',null,'매출 ',R('b',null,eok(hd.sales))),R('div',{style:{color:'var(--tm)'}},'위하고 월결산 전 — 순이익은 마감 후 표시')),
+      hd&&!hd.open&&R('div',{style:{position:'absolute',top:8,right:12,background:'#fff',border:'1px solid var(--bd)',borderRadius:8,padding:'7px 10px',fontSize:11,boxShadow:'0 4px 14px rgba(0,0,0,.08)',lineHeight:1.6,pointerEvents:'none'}},
+        R('div',{style:{fontWeight:800}},hit.label),
         R('div',null,'매출 ',R('b',null,eok(hd.sales))),
         R('div',null,'매출원가'+(hd.cogsEst!=null?'(추정) ':' '),R('b',null,eok(cogsv(hd)))),
         R('div',null,'판관비 ',R('b',null,eok(hd.sga))),
-        R('div',null,'당기순이익'+(hd.netEst!=null?'(추정) ':' '),R('b',{style:{color:val(hd)>=0?POS:NEG}},eok(val(hd))))),
+        R('div',null,'당기순이익'+(hd.netEst!=null?'(추정) ':' '),R('b',{style:{color:val(hd)>=0?POS:NEG}},eok(val(hd)))),
+        R('div',{style:{color:'var(--tm)'}},'순이익률 '+pct(val(hd),hd.sales))),
       R('div',{style:{display:'flex',gap:12,fontSize:10,color:'var(--tm)',padding:'2px 4px 6px',flexWrap:'wrap'}},
         R('span',null,R('span',{style:{display:'inline-block',width:9,height:9,borderRadius:2,background:POS,marginRight:4}}),'흑자'),
         R('span',null,R('span',{style:{display:'inline-block',width:9,height:9,borderRadius:2,background:NEG,marginRight:4}}),'적자'),
-        R('span',null,R('span',{style:{display:'inline-block',width:9,height:9,borderRadius:2,background:POS,opacity:.4,marginRight:4}}),'이번 달(진행 중)'))),
+        R('span',null,R('span',{style:{display:'inline-block',width:9,height:9,borderRadius:2,background:view==='y'?POS:'transparent',opacity:view==='y'?.45:1,border:view==='y'?'none':'1px dashed #B8B0A8',marginRight:4,verticalAlign:'-1px'}}),view==='y'?'올해(1~'+NC+'월 누계, *)':'점선 = 위하고 월결산 전'))),
     R('div',{className:'card',style:{marginTop:10}},
-      R('div',{className:'tw'},R('table',{style:{width:'100%',minWidth:640}},
-        R('thead',null,R('tr',null,...['월','매출','매출원가'+(anyEst?'(추정)':''),'판관비','영업이익','영업외손익','당기순이익','순이익률'].map((h,i)=>R('th',{key:i,style:{textAlign:i?'right':'left'}},h)))),
+      R('div',{className:'tw'},R('table',{style:{width:'100%',minWidth:660}},
+        R('thead',null,R('tr',null,...[view==='y'?'연도':'월','매출','매출원가'+(anyEst?'(추정)':''),'판관비','영업이익','영업외손익','당기순이익','순이익률',...(view==='y'?['전년 대비']:[])].map((h,i)=>R('th',{key:i,style:{textAlign:i?'right':'left'}},h)))),
         R('tbody',null,
-          ...done.map(d=>R('tr',{key:d.m,style:hov===d.m-1?{background:'#FFF8F4'}:null,onMouseEnter:()=>setHov(d.m-1)},
-            R('td',{style:{fontWeight:700}},d.m+'월'+(d.m===N?' ·진행':'')),
+          ...rowsT.map(it=>{const d=it.d;const pv=prevOf(it);
+            if(it.open)return R('tr',{key:it.key,style:{color:'var(--tm)'}},R('td',{style:{fontWeight:700,whiteSpace:'nowrap'}},it.label),R('td',{style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},nf(d.sales)),R('td',{colSpan:6,style:{textAlign:'center',fontSize:11}},'위하고 월결산 전 — 마감 후 표시'));
+            return R('tr',{key:it.key,style:hov===it.key?{background:'#FFF8F4'}:null,onMouseEnter:()=>setHov(it.key)},
+            R('td',{style:{fontWeight:700,whiteSpace:'nowrap'}},it.label),
             ...[d.sales,cogsv(d),d.sga,opv(d),(d.nin||0)-(d.nout||0)].map((v,i)=>R('td',{key:i,style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},nf(v))),
             R('td',{style:{textAlign:'right',fontWeight:800,color:val(d)>=0?POS:NEG,fontVariantNumeric:'tabular-nums'}},nf(val(d))),
-            R('td',{style:{textAlign:'right',color:'var(--tm)'}},pct(val(d),d.sales)))),
-          R('tr',{style:{background:'#FBFAF8',fontWeight:800}},
-            R('td',null,'합계'),
+            R('td',{style:{textAlign:'right',color:'var(--tm)'}},pct(val(d),d.sales)),
+            ...(view==='y'?[R('td',{key:'yoy',style:{textAlign:'right',color:'var(--tm)',whiteSpace:'nowrap'}},pv&&!it.partial?signed(val(d)-val(pv)):(pv&&it.partial?'누계 중':'-'))]:[]));}),
+          view==='m'&&R('tr',{style:{background:'#FBFAF8',fontWeight:800}},
+            R('td',null,'합계 (1~'+NC+'월)'),
             ...[ytdSales,sum(cogsv),sum(d=>d.sga),sum(opv),sum(d=>(d.nin||0)-(d.nout||0))].map((v,i)=>R('td',{key:i,style:{textAlign:'right',fontVariantNumeric:'tabular-nums'}},nf(v))),
             R('td',{style:{textAlign:'right',color:ytdNet>=0?POS:NEG,fontVariantNumeric:'tabular-nums'}},nf(ytdNet)),
             R('td',{style:{textAlign:'right',color:'var(--tm)'}},pct(ytdNet,ytdSales))))))),
     anyEst&&R('div',{style:{fontSize:10.5,color:'var(--tm)',marginTop:6,lineHeight:1.5}},
-      '※ 결산 전 달은 위하고 장부의 매출원가가 0원이라, 그 달의 상품매입+원재료매입+노무비+제조경비를 원가로 본 추정치입니다. 재고 증감·감가상각은 빠져 있어 결산 후 확정치와 다를 수 있습니다.'));
+      '※ 결산 전 기간은 위하고 장부의 매출원가가 0원이라, 그 기간의 상품매입+원재료매입+노무비+제조경비를 원가로 본 추정치입니다. 재고 증감·감가상각은 빠져 있어 결산 후 확정치와 다를 수 있습니다.'+(view==='y'?' 지난 해는 위하고 결산 확정치입니다.':'')));
 }
 
+/* 경영 대시보드용: 위하고 당기순이익(월별·연별) + 회사 선택 */
+function WehagoProfitPanel(){
+  const fin=useWehagoFinance();
+  const[co,setCo]=useState(()=>{try{return localStorage.getItem('wfCo')||'boncom';}catch(e){return 'boncom';}});
+  const mo=fin&&fin.monthly;
+  if(!mo||!(mo.companies||[]).length)return null;
+  const cos=mo.companies;
+  const key=cos.some(c=>c.key===co)?co:cos[0].key;
+  const nf=(n)=>(+n||0).toLocaleString();
+  const pick=k=>{setCo(k);try{localStorage.setItem('wfCo',k);}catch(e){}};
+  return R('div',{className:'card',style:{padding:'14px 14px 4px',marginBottom:14,borderRadius:12}},
+    R('div',{style:{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}},
+      ...cos.map(c=>R('button',{key:c.key,onClick:()=>pick(c.key),'aria-pressed':key===c.key,
+        style:{border:'1.5px solid '+(key===c.key?'var(--p)':'var(--bd)'),background:key===c.key?'var(--p)':'#fff',color:key===c.key?'#fff':'var(--t)',borderRadius:9,padding:'6px 13px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',minHeight:32}},c.label))),
+    R(WehagoMonthly,{mo,coKey:key,nf}));
+}
 
 function PageWehago({user}){
   const[data,setData]=useState(null);
@@ -19181,16 +19241,17 @@ function PageWehago({user}){
           style:{border:'1.5px solid '+(ci===i?'var(--p)':'var(--bd)'),background:ci===i?'var(--p)':'#fff',color:ci===i?'#fff':'var(--t)',borderRadius:10,padding:'8px 15px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},
           (c.label||c.name),c.bizno&&R('span',{style:{display:'block',fontSize:9,fontWeight:500,color:ci===i?'rgba(255,255,255,0.85)':'var(--tm)',marginTop:1}},c.bizno)))),
       /* 월별 당기순이익 대시보드 — 통합 탭은 위하고 '통합-신고용' 회사 장부 사용 */
-      data.monthly&&R(WehagoMonthly,{mo:data.monthly,coKey:cc.key,eok,nf}),
+      data.monthly&&R(WehagoMonthly,{mo:data.monthly,coKey:cc.key,nf}),
       cc.key==='total'&&R('div',{style:{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#1E40AF',marginBottom:12,fontWeight:600}},
         'ℹ️ 본점+이선 단순 합산입니다 — 두 회사 간 내부거래(지점계정 등)가 제거되지 않아 실제 연결재무와 다를 수 있습니다.'),
       cc.unclosed&&R('div',{style:{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'9px 13px',fontSize:11.5,color:'#92400E',marginBottom:12,fontWeight:600}},
         '⚠️ '+String(cc.curLabel||'당기')+'는 결산 전입니다 — 위하고 장부엔 매출원가가 0원이라 아래 손익계산서의 이익은 실제가 아닙니다.',
-        est&&R('div',{style:{fontWeight:500,marginTop:4,lineHeight:1.5}},'위 이익 카드는 추정치: 매출원가 ≈ 올해 상품매입 '+eok(est.goods)+' + 원재료매입 '+eok(est.mat)+' + 노무비 '+eok(est.lab)+' + 제조경비 '+eok(est.exp)+' = '+eok(est.cogs)+' (원가율 '+(est.sales?(est.cogs*100/est.sales).toFixed(1):'-')+'%). 매입분이 모두 팔렸다고 본 값이라 재고가 늘었다면 실제 이익은 더 크고, 감가상각은 빠져 있습니다.')),
+        est&&est.basis==='monthly'&&R('div',{style:{fontWeight:500,marginTop:4,lineHeight:1.5}},'이익 카드는 위하고 월결산이 끝난 1~'+est.closedThru+'월 합계입니다 (매출 '+eok(est.sales)+' · 매출원가 '+eok(est.cogs)+' · 원가율 '+(est.sales?(est.cogs*100/est.sales).toFixed(1):'-')+'%).'+((est.openMonths||[]).length?' '+est.openMonths.join('·')+'월은 마감 전이라 빠져 있습니다.':'')),
+        est&&est.basis!=='monthly'&&R('div',{style:{fontWeight:500,marginTop:4,lineHeight:1.5}},'위 이익 카드는 추정치: 매출원가 ≈ 올해 상품매입 '+eok(est.goods)+' + 원재료매입 '+eok(est.mat)+' + 노무비 '+eok(est.lab)+' + 제조경비 '+eok(est.exp)+' = '+eok(est.cogs)+' (원가율 '+(est.sales?(est.cogs*100/est.sales).toFixed(1):'-')+'%). 매입분이 모두 팔렸다고 본 값이라 재고가 늘었다면 실제 이익은 더 크고, 감가상각은 빠져 있습니다.')),
       R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginBottom:14}},
         kpi('매출 ('+String(cc.curLabel||'').replace(/^\d+기 /,'')+')',eok(매출),'전기 '+eok(매출전),'#2563EB'),
-        kpi('영업이익'+(est?' (추정)':cc.unclosed?' (결산 전)':''),eok(영업이익),(est?'이익률 '+(매출?(영업이익*100/매출).toFixed(1):'-')+'% · ':cc.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(영업이익전)+(매출전?' ('+(영업이익전*100/매출전).toFixed(1)+'%)':''),영업이익>=0?'#15803D':'#B91C1C'),
-        kpi('순이익'+(est?' (추정)':cc.unclosed?' (결산 전)':''),eok(순이익),(est?'':cc.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(순이익전),순이익>=0?'#15803D':'#B91C1C'),
+        kpi('영업이익'+(est?(est.basis==='monthly'?' (1~'+est.closedThru+'월)':' (추정)'):cc.unclosed?' (결산 전)':''),eok(영업이익),(est?'이익률 '+(est.sales?(영업이익*100/est.sales).toFixed(1):'-')+'% · ':cc.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(영업이익전)+(매출전?' ('+(영업이익전*100/매출전).toFixed(1)+'%)':''),영업이익>=0?'#15803D':'#B91C1C'),
+        kpi('순이익'+(est?(est.basis==='monthly'?' (1~'+est.closedThru+'월)':' (추정)'):cc.unclosed?' (결산 전)':''),eok(순이익),(est?'':cc.unclosed?'⚠ 원가 미반영 · ':'')+'전기 '+eok(순이익전),순이익>=0?'#15803D':'#B91C1C'),
         kpi('판매관리비',eok(판관비),'전기 '+eok(판관전)),
         kpi('현금성 자산',eok(현금성),cc.bsCurLabel+' 기준','#15803D'),
         kpi('차입금',eok(차입),'단기+장기','#B91C1C'),
@@ -19875,6 +19936,9 @@ function PageDashboard({user,variant='hq'}){
       ),
       R('button',{className:'btn bs btn-sm',onClick:load},'🔄')
     ),
+
+    /* 위하고 당기순이익 월별·연별 (회사 3곳) */
+    R(WehagoProfitPanel),
 
     /* 손익 요약 카드 */
     R('div',{className:'card',style:{padding:0,overflow:'hidden',marginBottom:14,borderRadius:12,boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}},
