@@ -20328,6 +20328,9 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'org',l:'조직도',ic:'👥'},
     {id:'files',l:'파일 공유',ic:'📁'},
   ]},
+  {label:'🛡 FSSC 22000',type:'fssc',items:[
+    {id:'fssc',l:'관리 포인트',ic:'📋'},
+  ]},
   {label:'🔬 연구개발부서',type:'dept_rnd',items:[
     {id:'rnd_sched',l:'연구개발 스케줄',ic:'🗓'},
     {id:'rnd_log',l:'연구개발 일지',ic:'📔'},
@@ -20596,8 +20599,9 @@ function loadNavSections(){
             }
             if(!sec){
               sec={label:secMatch.label,type:secMatch.t,items:[]};
+              const ai=secMatch.after?filtered.findIndex(x=>x&&x.type===secMatch.after):-1;
               const qi=filtered.findIndex(x=>x&&x.type==='quicklinks');
-              if(qi>=0)filtered.splice(qi,0,sec);else filtered.push(sec);
+              if(ai>=0)filtered.splice(ai+1,0,sec);else if(qi>=0)filtered.splice(qi,0,sec);else filtered.push(sec);
               changed=true;
             }
             if(!Array.isArray(sec.items))sec.items=[];
@@ -20619,6 +20623,8 @@ function loadNavSections(){
             {id:'crm',l:'거래처 CRM',ic:'🤝',before:'dart'},
             {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'},
             {id:'safety',l:'안전관리',ic:'🦺'}]);
+          ensure({t:'fssc',m:'FSSC',label:'🛡 FSSC 22000',after:'factory'},[
+            {id:'fssc',l:'관리 포인트',ic:'📋'}]);
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
             {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
             {id:'ga_health',l:'보건증 관리',ic:'🩺'},
@@ -21010,18 +21016,22 @@ const SAFETY_CATS=[
   ]}
 ];
 const SAFETY_PATH='safety/records.json';
-const safetyRead=async()=>{
-  const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(SAFETY_PATH);
+/* 주기 점검 기록 파일 읽기/쓰기 (안전관리·FSSC 공용) — path 예: 'safety/records.json' */
+const ckRead=async(path)=>{
+  const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
   const r=await fetch((pub&&pub.publicUrl||'')+'?t='+Date.now());
   if(r.ok)return await r.json();
-  const{data:ls,error}=await sbClient.storage.from('bnf-files').list('safety',{search:'records.json'});
-  if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name==='records.json'))return{items:{},logs:[]};
+  const dir=path.split('/')[0],file=path.split('/').pop();
+  const{data:ls,error}=await sbClient.storage.from('bnf-files').list(dir,{search:file});
+  if(!error&&Array.isArray(ls)&&!ls.find(x=>x.name===file))return{items:{},logs:[]};
   throw new Error('load');
 };
-const safetyWrite=async(obj)=>{
-  const{error}=await sbClient.storage.from('bnf-files').upload(SAFETY_PATH,new Blob([JSON.stringify(obj)],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+const ckWrite=async(path,obj)=>{
+  const{error}=await sbClient.storage.from('bnf-files').upload(path,new Blob([JSON.stringify(obj)],{type:'application/json'}),{upsert:true,contentType:'application/json'});
   if(error)throw error;
 };
+const safetyRead=()=>ckRead(SAFETY_PATH);
+const safetyWrite=(obj)=>ckWrite(SAFETY_PATH,obj);
 /* 다음 예정일·상태 계산 (순수 함수) */
 function safetyStatus(def,cfg,logs,today){
   const c=cfg||{};
@@ -21121,7 +21131,156 @@ function PageWebAnalytics({user}){
   );
 }
 
-function PageSafety({user}){
+const SAFETY_CONF={cats:SAFETY_CATS,path:SAFETY_PATH,title:'🦺 안전관리',name:'안전관리',
+  desc:'소방·전기·위험성평가 등 법정 주기 점검 — 수행하면 기록을 남기고, 다음 예정일을 자동 계산합니다',
+  ph:'예: ○○소방 점검업체 작동점검, 지적 2건 → 이행계획 보고',ownerPh:'예: 홍길동 / ○○전기안전대행',
+  verifyTip:'주기가 법령 별표(첨부표)에 있어 설비·용량별로 다릅니다. 검사 통지서·계약서로 확인 후 [설정]에서 주기를 맞추세요.',
+  foot:['※ 근거 조문은 국가법령정보센터 현행 법령(2026-11-17 기준)으로 확인했습니다. [주기 확인 필요] 항목은 주기가 법령 별표에 설비·용량별로 정해져 있어, 검사 통지서나 대행 계약서 기준으로 [설정]에서 주기를 맞춰 주세요. ',
+    '사업장 규모(상시근로자 수)·설비에 따라 해당하지 않는 항목은 [설정] → 해당 없음으로 끌 수 있습니다. 참고용 관리 도구이며 법률 자문이 아닙니다.']};
+function PageSafety({user}){return R(PageCycleChecklist,{user,conf:SAFETY_CONF});}
+
+/* ═══ FSSC 22000: 인증 유지 관리 포인트 (2026-11-23) ═══
+   ISO 22000:2018 + ISO/TS 22002-1(선행요건) + FSSC 22000 v6 추가 요구사항을 '주기 점검 항목'으로 정리.
+   항목마다 수행 기록을 남기면 다음 예정일을 계산하고, 지남·30일 이내를 위에 모은다 (안전관리와 같은 틀).
+   주기는 일반적인 운영 기준 — 우리 공장 HACCP·FSSC 매뉴얼(절차서)에 정한 주기로 [설정]에서 맞춘다.
+   저장: 스토리지 fssc/records.json (전 직원 공유) */
+const FSSC_CATS=[
+  {k:'fsms',ic:'🧭',name:'경영시스템 (ISO 22000)',items:[
+    {k:'fs_policy',name:'식품안전 방침·목표 검토',cycleM:12,law:'ISO 22000:2018 5.2 · 6.2',
+     note:'방침이 현재 사업과 맞는지, 목표(측정 가능한 지표) 달성 현황 확인 후 다음 연도 목표 수립.'},
+    {k:'fs_context',name:'내·외부 이슈와 이해관계자 요구 검토',cycleM:12,law:'ISO 22000:2018 4.1 · 4.2',
+     note:'법규 개정, 고객 요구, 신규 거래처·제품 등 변화 사항을 정리하고 시스템 반영 여부 판단.'},
+    {k:'fs_internal',name:'내부심사',cycleM:12,law:'ISO 22000:2018 9.2 · FSSC 22000 v6 추가 요구사항',
+     note:'계획된 주기로 전 요구사항(FSSC 추가 요구사항 포함)을 연 1회 이상 심사. 심사원 독립성 확보, 부적합은 시정조치로 연결.'},
+    {k:'fs_review',name:'경영검토',cycleM:12,law:'ISO 22000:2018 9.3',
+     note:'내부·외부 심사 결과, 고객 불만, 모니터링·검증 결과, 시정조치, 자원 적정성 등 입력 항목을 갖춰 경영자가 검토·기록.'},
+    {k:'fs_team',name:'식품안전팀 구성·역량(교육) 평가',cycleM:12,law:'ISO 22000:2018 5.3 · 7.2',
+     note:'팀장·팀원 지정 현황, 필요 역량 대비 교육 이수 기록, 교육 효과성 평가.'},
+    {k:'fs_doc',name:'문서·기록 관리 상태 점검',cycleM:12,law:'ISO 22000:2018 7.5',
+     note:'현행본 배포, 구본 회수, 기록 보존기간(최소 제품 유통기한 이상) 준수 여부 확인.'},
+    {k:'fs_capa',name:'부적합·시정조치 진행 점검',cycleM:1,law:'ISO 22000:2018 10.1 · 10.2',inner:true,
+     note:'월 1회 미결 시정조치 목록 확인 — 원인 분석, 조치 완료, 효과성 확인까지 닫혔는지.'}
+  ]},
+  {k:'haccp',ic:'🧪',name:'위해요소 관리 (HACCP)',items:[
+    {k:'hc_plan',name:'위해요소 분석·HACCP 플랜 재검토',cycleM:12,law:'ISO 22000:2018 8.5 · 8.6',
+     note:'연 1회 이상 + 원료·공정·설비·제품 변경 시. 위해요소 평가, CCP·OPRP 결정, 한계기준 타당성 재확인.'},
+    {k:'hc_flow',name:'공정흐름도 현장 일치 확인',cycleM:12,law:'ISO 22000:2018 8.5.1.5',
+     note:'식품안전팀이 현장에서 흐름도·작업장 평면도와 실제를 대조하고 확인 기록.'},
+    {k:'hc_ccp',name:'CCP 모니터링 기록 검토',cycleM:1,law:'ISO 22000:2018 8.5.4',inner:true,
+     note:'일일 모니터링 기록(가열 온도·시간, 금속검출 등)을 책임자가 검토·서명했는지, 이탈 시 조치가 기록됐는지.'},
+    {k:'hc_oprp',name:'OPRP 모니터링 기록 검토',cycleM:1,law:'ISO 22000:2018 8.5.4',inner:true,
+     note:'OPRP 행동 기준 이탈 여부와 조치 기록 확인.'},
+    {k:'hc_verify',name:'검증 활동 (CCP·OPRP·PRP 효과성)',cycleM:12,law:'ISO 22000:2018 8.8',
+     note:'검증 계획에 따라 실시 — 결과를 분석해 식품안전팀 회의·경영검토에 보고.'},
+    {k:'hc_valid',name:'관리 수단 유효성 확인 (밸리데이션)',cycleM:0,law:'ISO 22000:2018 8.5.3',
+     note:'신규 관리 수단 도입, 한계기준·공정 조건 변경 시 — 시험·문헌·과학적 근거로 유효성 확인.'},
+    {k:'hc_calib',name:'계측기 검·교정',cycleM:12,law:'ISO 22000:2018 8.7',
+     note:'온도계·저울·금속검출기 시험편 등 CCP·OPRP에 쓰는 계측기. 교정 기관 성적서 보관, 불합격 시 이전 측정 영향 평가.'}
+  ]},
+  {k:'prp',ic:'🧼',name:'선행요건 (PRP · ISO/TS 22002-1)',items:[
+    {k:'pr_clean',name:'세척·소독 효과 검증',cycleM:1,law:'ISO/TS 22002-1 11',
+     note:'세척·소독 계획 이행 확인 + 효과 검증(ATP·낙하균·표면 검사 등).'},
+    {k:'pr_pest',name:'방충·방서 점검',cycleM:1,law:'ISO/TS 22002-1 12',
+     note:'포획 현황·추세 분석, 트랩 위치도 최신화. 외부 방역업체 보고서 검토.'},
+    {k:'pr_hygiene',name:'개인위생·작업복·출입 관리 점검',cycleM:1,law:'ISO/TS 22002-1 13',
+     note:'손 세척·위생복·장신구 금지, 외부인 출입 기록, 위생교육 이수.'},
+    {k:'pr_maint',name:'시설·설비 유지보수 점검',cycleM:1,law:'ISO/TS 22002-1 8',
+     note:'예방정비 계획 이행, 식품 접촉 윤활유(식품용 등급), 정비 후 청소·인수 확인.'},
+    {k:'pr_water',name:'용수·얼음·압축공기 검사',cycleM:12,law:'ISO/TS 22002-1 6',verify:true,
+     note:'먹는물 수질검사(지하수 사용 시 법정 주기 적용), 제품에 닿는 압축공기·증기 품질 확인. 주기는 공장 절차서 기준으로 맞추세요.'},
+    {k:'pr_foreign',name:'이물 관리 (유리·경질 플라스틱·금속)',cycleM:1,law:'ISO/TS 22002-1 10',
+     note:'유리·경질 플라스틱 목록 점검, 파손 시 절차, 금속검출기 작동 검증 기록 확인.'},
+    {k:'pr_waste',name:'폐기물 관리 점검',cycleM:3,law:'ISO/TS 22002-1 7',
+     note:'폐기물 용기 표시·덮개, 수거 주기, 상표가 있는 폐포장재 파기.'},
+    {k:'pr_store',name:'보관·운송 조건 점검',cycleM:1,law:'ISO/TS 22002-1 16 · FSSC 22000 v6 추가 요구사항(운송·보관)',
+     note:'냉장·냉동 온도 기록, 선입선출, 바닥·벽과 이격, 운송 차량 온도·청결.'},
+    {k:'pr_rework',name:'재작업·회수품 관리 점검',cycleM:3,law:'ISO/TS 22002-1 14',
+     note:'재작업품 식별·추적, 알레르기 교차오염 방지, 사용 기록.'}
+  ]},
+  {k:'fsscadd',ic:'🛡',name:'FSSC 22000 추가 요구사항 (v6)',items:[
+    {k:'fa_defense',name:'식품 방어 — 위협 평가·계획 검토',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (식품 방어)',
+     note:'의도적 오염 위협 평가 → 방어 계획(출입 통제, 잠금, CCTV 등) 수립. 연 1회 이상·변경 시 재검토.'},
+    {k:'fa_fraud',name:'식품 사기 — 취약성 평가·저감 계획 검토',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (식품 사기 저감)',
+     note:'원료별 대체·희석·허위표시 취약성 평가 → 저감 계획. 연 1회 이상·원료·공급자 변경 시 재검토.'},
+    {k:'fa_allergen',name:'알레르기 관리 계획 검토',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (알레르기 관리)',
+     note:'알레르기 유발물질 목록·교차접촉 위험 평가, 세척 검증, 라벨 표시 일치. 신제품·배합 변경 시 재검토.'},
+    {k:'fa_emp',name:'환경 모니터링 (EMP) 결과 검토',cycleM:3,law:'FSSC 22000 v6 추가 요구사항 (환경 모니터링)',
+     note:'위험 기반 환경 모니터링 프로그램 — 시료 채취 지점·빈도, 결과 추세 분석, 이상 시 조치.'},
+    {k:'fa_prpver',name:'PRP 현장 점검 (PRP 검증)',cycleM:3,law:'FSSC 22000 v6 추가 요구사항 (PRP 검증)',
+     note:'정기 현장 점검(위생·시설 점검표)으로 PRP가 계속 적합한지 확인하고 미흡 사항 조치.'},
+    {k:'fa_culture',name:'식품안전·품질 문화 목표 점검',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (식품안전 문화) · ISO 22000:2018 5.1',
+     note:'경영진 주도 — 소통·교육·직원 의견·성과 측정을 포함한 문화 목표와 실행 계획을 세우고 결과 확인.'},
+    {k:'fa_quality',name:'품질 관리 (품질 방침·목표·검사)',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (품질 관리)',
+     note:'품질 방침·목표, 제품 사양 적합성(중량·관능 등) 관리 현황 검토.'},
+    {k:'fa_label',name:'라벨·인쇄 포장재 검증',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (제품 표시·인쇄물)',
+     note:'표시 사항(원재료·알레르기·소비기한) 법규 적합, 인쇄물 변경 시 승인·구판 폐기.'},
+    {k:'fa_supplier',name:'공급자·외부 서비스 평가',cycleM:12,law:'ISO 22000:2018 7.1.6 · FSSC 22000 v6 추가 요구사항 (구매)',
+     note:'원부재료·포장재·외부 시험기관·방역 등 승인 공급자 목록 유지, 연 1회 평가. 긴급 구매 절차 포함.'},
+    {k:'fa_waste',name:'식품 손실·폐기 관리',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (식품 손실·폐기)',
+     note:'손실·폐기 감축 목표와 정책, 폐기·기부·사료 전환 시 안전 관리.'},
+    {k:'fa_equip',name:'설비 구매·설치 사양 관리',cycleM:0,law:'FSSC 22000 v6 추가 요구사항 (설비 관리)',
+     note:'신규 설비 구매 시 위생 설계·식품 접촉 재질 사양 문서화, 변경 관리 절차로 도입.'}
+  ]},
+  {k:'recall',ic:'🚨',name:'비상·회수 대응',items:[
+    {k:'rc_mock',name:'회수(리콜) 모의훈련',cycleM:12,law:'ISO 22000:2018 8.9.5',
+     note:'연 1회 이상 — 원료 입고부터 출고까지 추적 시간 측정, 수량 일치(물질 수지) 확인, 결과 기록.'},
+    {k:'rc_trace',name:'추적성 시험 (원료→제품)',cycleM:12,law:'ISO 22000:2018 7.1.6 · 8.3',
+     note:'임의 로트를 골라 원료·포장재 로트와 출고처까지 추적되는지 확인.'},
+    {k:'rc_emergency',name:'비상사태 대응 훈련·점검',cycleM:12,law:'ISO 22000:2018 8.4',
+     note:'정전·단수·화재·설비 고장 등 시나리오별 대응 절차 점검, 필요 시 훈련.'},
+    {k:'rc_notify',name:'인증기관 통보 (중대 사건)',cycleM:0,law:'FSSC 22000 v6 인증 규정 (통보 의무)',verify:true,
+     note:'리콜, 식품안전 관련 행정처분·중대 사건 발생 시 인증기관에 정해진 기한 내 통보(규정상 영업일 3일 이내로 알려짐 — 인증기관 계약서로 확인).'}
+  ]},
+  {k:'cert',ic:'🏅',name:'인증 심사',items:[
+    {k:'ce_surv',name:'인증 심사 (사후·갱신)',cycleM:12,law:'FSSC 22000 v6 인증 규정',
+     note:'매년 사후심사, 3년마다 갱신심사. 심사일 전 내부심사·경영검토 완료 상태로 준비.'},
+    {k:'ce_unannounced',name:'비공지 심사 대비 점검',cycleM:36,law:'FSSC 22000 v6 인증 규정',verify:true,
+     note:'인증 주기(3년) 중 최소 1회 비공지 심사 — 평소 기록·현장 상태 유지가 핵심. 시기는 인증기관이 정함.'},
+    {k:'ce_findings',name:'심사 부적합 시정조치 완료 확인',cycleM:0,law:'FSSC 22000 v6 인증 규정',
+     note:'심사 후 인증기관이 정한 기한 안에 원인 분석·시정조치 증빙 제출.'},
+    {k:'ce_logo',name:'인증 로고·문구 사용 점검',cycleM:12,law:'FSSC 22000 v6 추가 요구사항 (로고 사용)',
+     note:'홈페이지·명함·제안서의 인증 로고 사용이 규정에 맞는지 (제품 포장에는 사용 불가).'}
+  ]}
+];
+const FSSC_CONF={cats:FSSC_CATS,path:'fssc/records.json',title:'🛡 FSSC 22000 관리 포인트',name:'FSSC 22000',std:true,
+  desc:'ISO 22000 · 선행요건(ISO/TS 22002-1) · FSSC v6 추가 요구사항 — 항목별 수행 기록과 다음 예정일, 점검표 인쇄',
+  ph:'예: 2026 내부심사 실시 — 부적합 3건(PRP 2, 문서 1) 시정조치 요청, 보고서 QA-2026-11',ownerPh:'예: 품질관리팀 홍길동 / 식품안전팀장',
+  verifyTip:'주기·기한이 인증기관 계약이나 법정 기준에 따라 달라질 수 있습니다. 확인 후 [설정]에서 주기를 맞추세요.',
+  foot:['※ 항목과 주기는 ISO 22000:2018, ISO/TS 22002-1, FSSC 22000 v6 요구사항을 바탕으로 한 일반적인 운영 기준입니다. 우리 공장 FSSC 매뉴얼·절차서에 정한 주기가 있으면 [설정]에서 맞춰 주세요. ',
+    '규격 원문은 유료 문서라 조항 번호는 참고용이며, 최종 판단은 인증기관 심사 기준을 따릅니다. 해당하지 않는 항목은 [설정] → 해당 없음으로 끌 수 있습니다.']};
+function PageFssc({user}){return R(PageCycleChecklist,{user,conf:FSSC_CONF});}
+
+/* 점검표 인쇄 서식 — 분류별 표: 항목·근거·주기·최근 수행·다음 예정 + 빈칸(점검일·결과·조치·확인) */
+function ckPrint(conf,cats,data,stOf){
+  const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const cyc=m=>!m?'발생 시':m%12===0?(m/12===1?'매년':m/12+'년마다'):m===6?'반기':m===3?'분기':m===1?'매월':m+'개월';
+  const d=new Date();const today=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const sec=cats.map(c=>{
+    const rows=c.items.map((it,i)=>{const cfg=(data.items||{})[it.k]||{};const s=stOf(Object.assign({cat:c},it));
+      if(cfg.na)return '';
+      return '<tr><td class="c">'+(i+1)+'</td><td><b>'+esc(it.name)+'</b><div class="n">'+esc(it.note)+'</div><div class="l">'+esc(it.law)+'</div></td>'+
+        '<td class="c">'+esc(cyc(s.cyc!=null?s.cyc:it.cycleM))+'</td><td class="c">'+esc(s.last||'')+'</td><td class="c">'+esc(s.next||'')+'</td>'+
+        '<td class="c">'+esc(cfg.owner||'')+'</td><td></td><td class="c">□적합<br>□부적합</td><td></td><td></td></tr>';}).join('');
+    return '<h2>'+esc(c.ic+' '+c.name)+'</h2><table><thead><tr><th style="width:26px">No</th><th>관리 포인트 / 점검 내용</th><th style="width:52px">주기</th><th style="width:70px">최근 수행</th><th style="width:70px">다음 예정</th><th style="width:62px">담당</th><th style="width:70px">점검일</th><th style="width:56px">결과</th><th style="width:110px">개선 조치</th><th style="width:52px">확인</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }).join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(conf.title.replace(/^\S+\s/,''))+' 점검표</title><style>'+
+    '@page{size:A4 landscape;margin:12mm}body{font-family:"Malgun Gothic",sans-serif;font-size:10.5px;color:#111}'+
+    'h1{font-size:17px;margin:0 0 4px}h2{font-size:13px;margin:14px 0 5px;break-after:avoid}.hd{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:6px}'+
+    '.sign{border-collapse:collapse}.sign td{border:1px solid #555;width:64px;height:18px;text-align:center;font-size:10px}.sign tr:last-child td{height:38px}'+
+    'table{width:100%;border-collapse:collapse;break-inside:auto}th,td{border:1px solid #777;padding:4px 5px;vertical-align:top}th{background:#eee;font-size:10px}tr{break-inside:avoid}'+
+    'table.sign{width:auto;flex:0 0 auto}.hd h1+div{max-width:520px}.c{text-align:center;vertical-align:middle}.n{color:#444;margin-top:2px;font-size:9.5px}.l{color:#777;font-size:9px;margin-top:2px}.ft{margin-top:10px;font-size:9px;color:#555}'+
+    '</style></head><body><div class="hd"><div><h1>'+esc(conf.title.replace(/^\S+\s/,''))+' 점검표</h1><div>(주)비엔에프글로벌 이천공장 · 출력일 '+today+' · 점검 기간: ________________</div></div>'+
+    '<table class="sign"><tr><td>작성</td><td>검토</td><td>승인</td></tr><tr><td></td><td></td><td></td></tr></table></div>'+sec+
+    '<div class="ft">최근 수행·다음 예정은 MES 기록 기준으로 자동 기입됩니다. 점검 후 결과를 MES [수행 기록]에도 남겨 주세요.</div>'+
+    '<script>window.onload=function(){setTimeout(function(){window.print();},300)}<\/script></body></html>';
+  const w=window.open('','_blank');
+  if(!w){alert('팝업이 막혀 인쇄 창을 열지 못했습니다. 브라우저에서 팝업을 허용해 주세요.');return;}
+  w.document.open();w.document.write(html);w.document.close();
+}
+
+/* 주기 점검 공용 화면 — 안전관리·FSSC가 conf(항목·저장 경로·문구)만 바꿔 쓴다 */
+function PageCycleChecklist({user,conf}){
+  const CATS=conf.cats;
   const[data,setData]=useState(null);
   const[err,setErr]=useState(false);
   const[cat,setCat]=useState('all');
@@ -21130,23 +21289,23 @@ function PageSafety({user}){
   const[open,setOpen]=useState({});     /* 기록 펼침 */
   const[busy,setBusy]=useState(false);
   const isAdmin=['admin','superadmin'].includes(user&&user.role);
-  const load=async()=>{try{const j=await safetyRead();setData({items:j.items||{},logs:Array.isArray(j.logs)?j.logs:[]});setErr(false);}catch(e){setErr(true);}};
+  const load=async()=>{try{const j=await ckRead(conf.path);setData({items:j.items||{},logs:Array.isArray(j.logs)?j.logs:[]});setErr(false);}catch(e){setErr(true);}};
   useEffect(()=>{load();},[]);
   useBnfSyncReload(()=>load());
   /* 저장: 최신본을 다시 읽어 바꿀 부분만 적용 — 다른 사람 기록 덮어쓰기 방지 */
   const patch=async(fn)=>{
     if(busy)return false;
     setBusy(true);
-    try{const cur=await safetyRead();const base={items:Object.assign({},cur.items||{}),logs:Array.isArray(cur.logs)?cur.logs.slice():[]};
-      const next=fn(base);await safetyWrite(next);setData(next);setBusy(false);return true;}
+    try{const cur=await ckRead(conf.path);const base={items:Object.assign({},cur.items||{}),logs:Array.isArray(cur.logs)?cur.logs.slice():[]};
+      const next=fn(base);await ckWrite(conf.path,next);setData(next);setBusy(false);return true;}
     catch(e){setBusy(false);alert('저장 실패: '+(e.message||e)+'\n잠시 후 다시 시도해주세요.');return false;}
   };
   const today=new Date();
   const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   const lawUrl=l=>'https://www.law.go.kr/법령/'+encodeURIComponent(String(l).split(/[·(]/)[0].replace(/제\d+조.*$/,'').replace(/\s+/g,''));
-  if(err&&!data)return R('div',{className:'pg fa'},R('div',{className:'card',style:{color:'#B91C1C',fontWeight:700}},'안전관리 기록을 불러오지 못했습니다. ',R('button',{className:'btn bw btn-sm',onClick:load},'다시 시도')));
+  if(err&&!data)return R('div',{className:'pg fa'},R('div',{className:'card',style:{color:'#B91C1C',fontWeight:700}},conf.name+' 기록을 불러오지 못했습니다. ',R('button',{className:'btn bw btn-sm',onClick:load},'다시 시도')));
   if(!data)return R('div',{className:'pg fa'},R('div',{className:'card',style:{textAlign:'center',padding:36,color:'var(--tm)'}},'불러오는 중...'));
-  const all=[];SAFETY_CATS.forEach(c=>c.items.forEach(it=>all.push(Object.assign({cat:c},it))));
+  const all=[];CATS.forEach(c=>c.items.forEach(it=>all.push(Object.assign({cat:c},it))));
   const stOf=it=>safetyStatus(it,data.items[it.k],data.logs,today);
   const cnt=s=>all.filter(it=>stOf(it).st===s).length;
   const TONE={over:['#FEF2F2','#FECACA','#B91C1C'],soon:['#FFFBEB','#FDE68A','#B45309'],none:['#F4F1EE','#E2DAD3','#5D534B'],ok:['#F0FDF4','#BBF7D0','#15803D'],event:['#EFF6FF','#BFDBFE','#1D4ED8'],na:['#F9F8F7','#E9E2DC','#9A9088']};
@@ -21164,12 +21323,12 @@ function PageSafety({user}){
         R('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
           R('span',{style:{fontSize:14,fontWeight:800,color:'#2A211B'}},it.name),
           badge(s),
-          it.verify&&R('span',{title:'주기가 법령 별표(첨부표)에 있어 설비·용량별로 다릅니다. 검사 통지서·계약서로 확인 후 [설정]에서 주기를 맞추세요.',style:{fontSize:11,fontWeight:700,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 6px'}},'주기 확인 필요'),
+          it.verify&&R('span',{title:conf.verifyTip,style:{fontSize:11,fontWeight:700,color:'#B45309',background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:6,padding:'1px 6px'}},'주기 확인 필요'),
           it.inner&&R('span',{style:{fontSize:11,fontWeight:700,color:'#6E645C',background:'#F4F1EE',borderRadius:6,padding:'1px 6px'}},'사내 기준'),
           it.cond&&R('span',{style:{fontSize:11,fontWeight:700,color:'#1D4ED8',background:'#EFF6FF',borderRadius:6,padding:'1px 6px'}},'해당 시: '+it.cond)),
         R('div',{style:{fontSize:12.5,color:'#5D534B',marginTop:4,lineHeight:1.55}},it.note),
         R('div',{style:{fontSize:11.5,color:'#7A7068',marginTop:4}},'근거: ',
-          it.inner?it.law:R('a',{href:lawUrl(it.law),target:'_blank',rel:'noopener noreferrer',style:{color:'#1D4ED8',textDecoration:'underline'}},it.law)),
+          (it.inner||conf.std)?it.law:R('a',{href:lawUrl(it.law),target:'_blank',rel:'noopener noreferrer',style:{color:'#1D4ED8',textDecoration:'underline'}},it.law)),
         logs.length>0&&R('button',{onClick:()=>setOpen(o=>Object.assign({},o,{[it.k]:!o[it.k]})),style:{marginTop:6,background:'none',border:'none',padding:0,color:'var(--p)',fontWeight:700,fontSize:12,cursor:'pointer',fontFamily:'inherit'}},(open[it.k]?'▲ ':'▼ ')+'수행 기록 '+logs.length+'건'),
         open[it.k]&&R('div',{style:{marginTop:6,background:'#FAF8F6',borderRadius:8,padding:'6px 10px'}},
           ...logs.map(l=>R('div',{key:l.id,style:{display:'flex',gap:8,alignItems:'center',fontSize:12,padding:'4px 0',borderTop:'1px solid #F0ECE8',flexWrap:'wrap'}},
@@ -21189,8 +21348,9 @@ function PageSafety({user}){
   };
   return R('div',{className:'pg fa'},
     R('div',{className:'pg-hdr'},
-      R('div',null,R('div',{className:'pg-title'},'🦺 안전관리'),
-        R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},'소방·전기·위험성평가 등 법정 주기 점검 — 수행하면 기록을 남기고, 다음 예정일을 자동 계산합니다'))),
+      R('div',null,R('div',{className:'pg-title'},conf.title),
+        R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:2}},conf.desc)),
+      R('button',{className:'btn bw btn-sm',onClick:()=>ckPrint(conf,CATS.filter(c=>cat==='all'||c.k===cat),data,stOf),style:{minHeight:34}},'🖨 점검표 인쇄')),
     /* 요약 */
     R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8,marginBottom:12}},
       ...[['over','기한 지남'],['soon','30일 이내'],['none','기록 없음'],['ok','정상']].map(([k,l])=>{const t=TONE[k];return R('div',{key:k,className:'card',style:{padding:'12px 14px'}},
@@ -21201,18 +21361,17 @@ function PageSafety({user}){
         R('span',null,it.cat.ic),R('b',null,it.name),badge(s),R('span',{style:{color:'#7A7068',fontVariantNumeric:'tabular-nums'}},'예정 '+s.next));})),
     /* 분류 탭 */
     R('div',{role:'tablist',style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}},
-      ...[{k:'all',ic:'📋',name:'전체'}].concat(SAFETY_CATS).map(c=>{
+      ...[{k:'all',ic:'📋',name:'전체'}].concat(CATS).map(c=>{
         const n=c.k==='all'?all.length:c.items.length;
         const bad=(c.k==='all'?all:all.filter(it=>it.cat.k===c.k)).filter(it=>['over','soon'].includes(stOf(it).st)).length;
         return R('button',{key:c.k,role:'tab','aria-selected':cat===c.k,onClick:()=>setCat(c.k),className:'btn btn-sm '+(cat===c.k?'bp':'bw'),style:{minHeight:36}},
           c.ic+' '+c.name+' '+n,bad>0&&R('span',{style:{marginLeft:5,background:'#B91C1C',color:'#fff',borderRadius:999,padding:'0 6px',fontSize:11}},bad));})),
     /* 항목 */
-    ...(cat==='all'?SAFETY_CATS:SAFETY_CATS.filter(c=>c.k===cat)).map(c=>R('div',{key:c.k,className:'card',style:{marginBottom:12}},
+    ...(cat==='all'?CATS:CATS.filter(c=>c.k===cat)).map(c=>R('div',{key:c.k,className:'card',style:{marginBottom:12}},
       R('div',{style:{fontSize:15,fontWeight:900,color:'#2A211B',marginBottom:4}},c.ic+' '+c.name),
       ...list.filter(it=>it.cat.k===c.k).sort((a,b)=>order[stOf(a).st]-order[stOf(b).st]).map(renderItem))),
     R('div',{style:{fontSize:11.5,color:'#7A7068',lineHeight:1.7,padding:'4px 4px 16px'}},
-      '※ 근거 조문은 국가법령정보센터 현행 법령(2026-11-17 기준)으로 확인했습니다. [주기 확인 필요] 항목은 주기가 법령 별표에 설비·용량별로 정해져 있어, 검사 통지서나 대행 계약서 기준으로 [설정]에서 주기를 맞춰 주세요. ',
-      '사업장 규모(상시근로자 수)·설비에 따라 해당하지 않는 항목은 [설정] → 해당 없음으로 끌 수 있습니다. 참고용 관리 도구이며 법률 자문이 아닙니다.'),
+      ...conf.foot),
     /* 수행 기록 입력 */
     form&&R(Modal2,{title:'✓ 수행 기록 · '+form.name,onClose:()=>!busy&&setForm(null),size:440,
       footer:R('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
@@ -21223,7 +21382,7 @@ function PageSafety({user}){
           if(ok){setForm(null);bnfToast('수행 기록 저장됨 — '+form.name);}
         }},busy?'저장 중…':'저장'))},
       R('div',{className:'fr'},R('label',{className:'lbl'},'수행일'),R('input',{type:'date',className:'inp',value:form.date,onChange:e=>setForm(f=>Object.assign({},f,{date:e.target.value}))})),
-      R('div',{className:'fr'},R('label',{className:'lbl'},'내용·증빙 메모'),R('textarea',{className:'inp',rows:3,value:form.note,placeholder:'예: ○○소방 점검업체 작동점검, 지적 2건 → 이행계획 보고',onChange:e=>setForm(f=>Object.assign({},f,{note:e.target.value}))}))),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'내용·증빙 메모'),R('textarea',{className:'inp',rows:3,value:form.note,placeholder:conf.ph,onChange:e=>setForm(f=>Object.assign({},f,{note:e.target.value}))}))),
     /* 항목 설정 */
     edit&&R(Modal2,{title:'설정 · '+edit.name,onClose:()=>!busy&&setEdit(null),size:440,
       footer:R('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},
@@ -21237,7 +21396,7 @@ function PageSafety({user}){
         }},busy?'저장 중…':'저장'))},
       R('div',{className:'fr'},R('label',{className:'lbl'},'주기 (개월, 비우면 기본 '+edit.def+'개월'+(edit.def?'':' = 발생 시')+')'),
         R('input',{className:'inp',inputMode:'numeric',value:edit.cycleM,placeholder:String(edit.def),onChange:e=>setEdit(x=>Object.assign({},x,{cycleM:e.target.value.replace(/[^0-9]/g,'')}))})),
-      R('div',{className:'fr'},R('label',{className:'lbl'},'담당자'),R('input',{className:'inp',value:edit.owner,placeholder:'예: 홍길동 / ○○전기안전대행',onChange:e=>setEdit(x=>Object.assign({},x,{owner:e.target.value}))})),
+      R('div',{className:'fr'},R('label',{className:'lbl'},'담당자'),R('input',{className:'inp',value:edit.owner,placeholder:conf.ownerPh,onChange:e=>setEdit(x=>Object.assign({},x,{owner:e.target.value}))})),
       R('label',{style:{display:'flex',gap:8,alignItems:'center',fontSize:13,fontWeight:700,cursor:'pointer',marginTop:4}},
         R('input',{type:'checkbox',checked:edit.na,onChange:e=>setEdit(x=>Object.assign({},x,{na:e.target.checked})),style:{width:18,height:18}}),'우리 공장은 해당 없음 (목록 맨 아래로, 경고 제외)'))
   );
@@ -21940,6 +22099,7 @@ const NAV_PAGES_INDEX=[
   {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']},
   {p:'pm_lot',title:'로트 전달',ic:'🏷',keys:['로트','lot','소비기한','입고일자','포장일자']},
   {p:'webana',title:'홈페이지 방문 분석',ic:'🌐',keys:['홈페이지','방문','방문자','방문분석','유입','검색유입','페이지뷰','analytics','웹사이트']},
+  {p:'fssc',title:'FSSC 22000 관리 포인트',ic:'🛡',keys:['fssc','FSSC','22000','ISO 22000','식품안전','HACCP','haccp','선행요건','PRP','내부심사','경영검토','식품방어','식품사기','알레르기','회수','리콜','인증심사']},
   {p:'safety',title:'안전관리',ic:'🦺',keys:['안전','안전관리','소방','전기안전','위험성평가','중대재해','안전검사','건강진단','작업환경측정','safety']},
   {p:'ga_edu',title:'법정의무교육',ic:'🎓',keys:['교육','의무교육','법정교육','산업안전','성희롱','개인정보','장애인','퇴직연금']}
 ];
@@ -26472,6 +26632,7 @@ function App(){
     if(SHARED_PAGES[page])return R(SharedTable,Object.assign({key:page,user},SHARED_PAGES[page]));
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='safety')return R(PageSafety,{user});
+    if(page==='fssc')return R(PageFssc,{user});
     if(page==='webana'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageWebAnalytics,{user});}
     if(page==='files')return R(PageFiles,{user});
     if(page==='links')return R(PageLinks,{user});
