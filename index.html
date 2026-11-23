@@ -2467,8 +2467,19 @@ function PageProdSchedule(){
         secRows.push(days7.map((_,di)=>String(j.cells[s.k+'_'+ri+'_'+di]||'').trim()));
       let last=0;
       secRows.forEach((cells,ri)=>{if(cells.some(Boolean)){last=ri;any=true;}});
+      const base=rows.length;
       for(let ri=0;ri<=last;ri++)
-        rows.push({label:ri===0?s.l:'',bg:s.bg,cells:secRows[ri],al:(j.aligns&&j.aligns[s.k])||'left'});
+        rows.push({label:ri===0?s.l:'',bg:s.bg,cells:secRows[ri],al:(j.aligns&&j.aligns[s.k])||'left',span:{},cov:{}});
+      /* 병합 셀(가로·세로) — 화면·인쇄처럼 하나의 칸으로 그리기 위해 (2026-11-23) */
+      const mg=j.merges||{};
+      for(let ri=0;ri<=last;ri++)for(let di=0;di<7;di++){
+        const m=mg[s.k+'_'+ri+'_'+di];if(!m)continue;
+        const rs=Math.max(1,Math.min(m.rs||1,last-ri+1)),cs=Math.max(1,Math.min(m.cs||1,7-di));
+        if(rs<2&&cs<2)continue;
+        if(rows[base+ri].cov[di])continue;
+        rows[base+ri].span[di]={rs,cs};
+        for(let r=0;r<rs;r++)for(let c=0;c<cs;c++)if(r||c)rows[base+ri+r].cov[di+c]=1;
+      }
     });
     if(!any)return null;
     /* 요일은 자르지 않는다 — 일~토 7일 전체 표시 (빈 줄만 제외) */
@@ -2488,6 +2499,7 @@ function PageProdSchedule(){
       const need=Array.from({length:7},(_,ci)=>{
         let w=0;
         ts.forEach(t=>t.rows.forEach(r=>{
+          if((r.cov&&r.cov[ci])||(r.span&&r.span[ci]&&r.span[ci].cs>1))return;
           String(r.cells[ci]||'').split('\n').forEach(ln=>{
             w=Math.max(w,ctx.measureText(ln).width*1.03+pad*2+4);
           });
@@ -2512,8 +2524,20 @@ function PageProdSchedule(){
       });
       return out.length?out:[''];
     };
+    const spanW=(ci,cs)=>{let w=0;for(let i=ci;i<ci+cs;i++)w+=colWs[i]||0;return w;};
     const blocks=ts.map(t=>{
-      const rowHs=t.rows.map(r=>Math.max(1,...r.cells.map((c,ci)=>wrap(c,colWs[ci]).length))*lh+pad*2);
+      const rowHs=t.rows.map(r=>Math.max(1,...r.cells.map((c,ci)=>{
+        if(r.cov&&r.cov[ci])return 1;
+        const sp=r.span&&r.span[ci];
+        if(sp&&sp.rs>1)return 1;
+        return wrap(c,spanW(ci,sp?sp.cs:1)).length;
+      }))*lh+pad*2);
+      t.rows.forEach((r,ri)=>Object.keys(r.span||{}).forEach(k=>{
+        const ci=+k,sp=r.span[k];if(sp.rs<2)return;
+        const need=wrap(r.cells[ci],spanW(ci,sp.cs)).length*lh+pad*2;
+        let have=0;for(let i=ri;i<ri+sp.rs;i++)have+=rowHs[i];
+        if(need>have)rowHs[ri+sp.rs-1]+=need-have;
+      }));
       return{t,rowHs,h:titleH+headH+rowHs.reduce((a,b)=>a+b,0)};
     });
     const H=blocks.reduce((a,b)=>a+b.h,0)+gap*(blocks.length-1)+2;
@@ -2531,33 +2555,47 @@ function PageProdSchedule(){
       ctx.fillStyle='#43403C';
       t.days.forEach((d,i)=>ctx.fillText(d,colX(i)+pad,y+21));
       y+=headH;
-      const ys=[yOff+titleH,y];
+      const top=yOff+titleH;
+      const rowY=[];{let yy=y;rowHs.forEach(h=>{rowY.push(yy);yy+=h;});}
       ctx.font=bodyFont;
+      /* 1) 배경 */
       t.rows.forEach((r,ri)=>{
         const h=rowHs[ri];
-        ctx.fillStyle='#F4F1EE';ctx.fillRect(0,y,labW,h);
-        ctx.fillStyle=r.bg||'#fff';ctx.fillRect(labW,y,W-labW,h);
-        ctx.fillStyle='#2E2B28';
-        if(r.label){ctx.font='800 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';ctx.fillText(r.label,6,y+pad+fs-1);}
-        ctx.font=bodyFont;
-        r.cells.forEach((c,ci)=>{
-          const cw=colWs[ci];
-          wrap(c,cw).forEach((ln,li)=>{
-            const lw=ctx.measureText(ln).width;
-            const x0=colX(ci);
-            const x=r.al==='center'?x0+(cw-lw)/2:(r.al==='right'?x0+cw-pad-lw:x0+pad);
-            ctx.fillText(ln,x,y+pad+fs-2+li*lh);
-          });
-        });
-        y+=h;ys.push(y);
+        ctx.fillStyle='#F4F1EE';ctx.fillRect(0,rowY[ri],labW,h);
+        ctx.fillStyle=r.bg||'#fff';ctx.fillRect(labW,rowY[ri],W-labW,h);
+        if(r.label){ctx.fillStyle='#2E2B28';ctx.font='800 13px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';ctx.fillText(r.label,6,rowY[ri]+pad+fs-1);ctx.font=bodyFont;}
       });
+      /* 2) 글자 + 칸 테두리 (병합 칸은 합친 영역 하나로) */
       ctx.strokeStyle='#CBC4BC';ctx.lineWidth=1;
-      ys.forEach(yy=>{ctx.beginPath();ctx.moveTo(0,yy+.5);ctx.lineTo(W,yy+.5);ctx.stroke();});
-      for(let i=0;i<=7;i++){
-        const x=(i===0?0:colX(i-1)+colWs[i-1])+.5;
-        ctx.beginPath();ctx.moveTo(i===0?.5:x,yOff+titleH);ctx.lineTo(i===0?.5:x,y);ctx.stroke();
-      }
-      ctx.beginPath();ctx.moveTo(labW+.5,yOff+titleH);ctx.lineTo(labW+.5,y);ctx.stroke();
+      t.rows.forEach((r,ri)=>{
+        r.cells.forEach((c,ci)=>{
+          if(r.cov&&r.cov[ci])return;
+          const sp=(r.span&&r.span[ci])||{rs:1,cs:1};
+          const x0=colX(ci),cw=spanW(ci,sp.cs);
+          let ch=0;for(let i=ri;i<ri+sp.rs;i++)ch+=rowHs[i];
+          const lines=wrap(c,cw);
+          /* 세로 병합은 칸 가운데, 나머지는 기존처럼 위쪽부터 */
+          const y0=rowY[ri]+(sp.rs>1?Math.max(0,(ch-(lines.length*lh+pad*2))/2):0);
+          ctx.fillStyle='#2E2B28';
+          lines.forEach((ln,li)=>{
+            const lw=ctx.measureText(ln).width;
+            const al=sp.cs>1&&r.al==='left'?'center':r.al;   /* 가로로 합친 칸은 화면처럼 가운데 */
+            const x=al==='center'?x0+(cw-lw)/2:(al==='right'?x0+cw-pad-lw:x0+pad);
+            ctx.fillText(ln,x,y0+pad+fs-2+li*lh);
+          });
+          ctx.strokeRect(x0+.5,rowY[ri]+.5,cw,ch);
+        });
+      });
+      y=rowY.length?rowY[rowY.length-1]+rowHs[rowHs.length-1]:y;
+      /* 라벨 열·머리글 선 */
+      ctx.beginPath();ctx.moveTo(0,top+.5);ctx.lineTo(W,top+.5);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(0,top+headH+.5);ctx.lineTo(W,top+headH+.5);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(0,y+.5);ctx.lineTo(W,y+.5);ctx.stroke();
+      for(let i=0;i<=7;i++){const x=(i===0?labW:colX(i-1)+colWs[i-1])+.5;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,top+headH);ctx.stroke();}
+      ctx.beginPath();ctx.moveTo(.5,top);ctx.lineTo(.5,y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(labW+.5,top);ctx.lineTo(labW+.5,y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(W-.5,top);ctx.lineTo(W-.5,y);ctx.stroke();
+      t.rows.forEach((r,ri)=>{if(r.label&&ri>0){ctx.beginPath();ctx.moveTo(0,rowY[ri]+.5);ctx.lineTo(labW,rowY[ri]+.5);ctx.stroke();}});
       yOff=y+gap;
     });
     return cv;
