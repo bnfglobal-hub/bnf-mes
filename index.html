@@ -1280,16 +1280,24 @@ function bnfToast(msg){
 /* 본사재고 환산계수 — 본사는 박스 단위, 공장은 ea 단위이므로
    규격 [3.59kgx2]/[1kg*10] 끝의 입수량(2/10)을 자동으로 곱해 통일한다.
    사용자가 모달에서 1이 아닌 값을 직접 저장했으면 그 값이 우선. */
-/* 제품 1개(박스)의 kg: [2kg*5]→10, [3.59kg*2]→7.18, [5kg]→5, [270g*10]→2.7 (2026-11-24) */
+/* 제품 1개 규격 kg — 규격의 첫 숫자: [3.59kg*2]→3.59, [2kg*5]→2, [5kg]→5, [270g*10]→0.27
+   (공장 재고 단위 ea = 낱개 1개. 본사 박스는 환산 ×2·×5로 낱개로 바뀜) — 2026-11-24 사용자 기준 */
 function bnfPackKg(name){
-  const t=String(name||'');
-  let m=t.match(/(\d+(?:\.\d+)?)\s*(kg|g)\s*[*xX×]\s*(\d+(?:\.\d+)?)/i);
-  if(m)return (+m[1])*(m[2].toLowerCase()==='g'?0.001:1)*(+m[3]);
-  m=t.match(/(\d+(?:\.\d+)?)\s*(kg|g)(?![a-z])/i);
+  const m=String(name||'').match(/(\d+(?:\.\d+)?)\s*(kg|g)(?![a-z])/i);
   return m?(+m[1])*(m[2].toLowerCase()==='g'?0.001:1):0;
 }
-/* BOM 1배합 kg: "... 200kg 배합" */
-function bnfBatchKg(name){const m=String(name||'').match(/(\d+(?:\.\d+)?)\s*kg\s*배합/i);return m?+m[1]:0;}
+/* BOM 1회 생산량 — 제품명 뒤 ']' 다음의 첫 수량: "558kg 배합"→558, "246kg (3배합…)"→246, "1t"→1000, "103kg"→103 (kg 단위) */
+function bnfBatchKg(name){
+  const t=String(name||''),i=t.lastIndexOf(']'),tail=i>=0?t.slice(i+1):t;
+  const m=tail.match(/(\d+(?:\.\d+)?)\s*(kg|t|톤)(?![a-z])/i);
+  if(!m)return 0;
+  return (+m[1])*(/^(t|톤)$/i.test(m[2])?1000:1);
+}
+/* BOM 1회 생산 개수가 이름에 있을 때: "8019ea" → 8019 */
+function bnfBatchEa(name){
+  const t=String(name||''),i=t.lastIndexOf(']'),tail=i>=0?t.slice(i+1):t;
+  const m=tail.match(/(\d+(?:\.\d+)?)\s*(ea|개)(?![a-z])/i);return m?+m[1]:0;
+}
 const bnfPNorm=s=>String(s||'').replace(/\s+/g,'').replace(/[()（）]/g,'').toLowerCase();
 function hqConvOf(h){
   const c=+((h&&h.hqConv)||0);
@@ -14548,7 +14556,8 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat,prods,onPlanOr
     const batches=+row.planQty||0;if(!(batches>0))return null;
     const p=prodOfRow(row);
     const pk=bnfPackKg(row.matName),bk=p?bnfBatchKg(p.name):0,conv=pk>0&&bk>0;
-    const made=conv?Math.round(batches*bk/pk*10)/10:batches;
+    const be=p&&!conv?bnfBatchEa(p.name):0;
+    const made=conv?Math.round(batches*bk/pk*10)/10:(be?batches*be:batches);
     const short=p?(p.bom||[]).filter(b=>{const m=mats.find(x=>x.c===b.c);return (+b.amt||0)*batches>(m?(+m.s||0):0);}).length:0;
     return{batches,p,conv,bk,made,short,after:row.totalStock+made};
   };
@@ -17344,7 +17353,8 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
           /* 생산 예정 수량: 'NNkg 배합' BOM이고 제품 규격 kg를 알면 박스 수로 환산, 아니면 입력 수량 그대로 */
           const conv=bk>0&&ps.packKg>0;
           if(!(qty>0)&&!conv)return null;
-          const made=conv?qty*bk/ps.packKg:qty;
+          const be=!conv?bnfBatchEa(p.name):0;
+          const made=conv?qty*bk/ps.packKg:(be?qty*be:qty);
           /* 품목 수량(박스 등)으로 입력 → 배합 회분으로 바꿔 생산 수량 칸에 넣는다 */
           const eaInput=conv&&R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:qty>0?6:0}},
             R('span',{style:{fontSize:11,fontWeight:800,color:'#1D4ED8'}},'품목 수량으로 입력'),
