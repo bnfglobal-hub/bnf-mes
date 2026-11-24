@@ -23801,9 +23801,17 @@ function PageShipSort({mats,hqItems}){
   };
 
   /* 결과 영역을 이미지로 캡처 */
+  /* 모바일에서 좌우 스크롤로 접혀 있는 표를 캡처 동안만 펼친다 */
+  const withExpanded=async(node,fn)=>{
+    const els=[node,...node.querySelectorAll('.hscroll')];
+    const prev=els.map(e=>[e.style.maxWidth,e.style.overflow,e.style.overflowX]);
+    els.forEach(e=>{e.style.maxWidth='none';e.style.overflow='visible';e.style.overflowX='visible';});
+    try{return await fn();}
+    finally{els.forEach((e,i)=>{e.style.maxWidth=prev[i][0];e.style.overflow=prev[i][1];e.style.overflowX=prev[i][2];});}
+  };
   const captureCanvas=async()=>{
     if(!captureRef.current||typeof html2canvas==='undefined')return null;
-    return await html2canvas(captureRef.current,{scale:2,backgroundColor:'#ffffff',useCORS:true});
+    return await withExpanded(captureRef.current,()=>html2canvas(captureRef.current,{scale:2,backgroundColor:'#ffffff',useCORS:true}));
   };
   const saveImage=async()=>{
     const canvas=await captureCanvas();
@@ -25907,7 +25915,7 @@ function PageShipSort({mats,hqItems}){
       );
     })(),
     /* 결과 */
-    parsed&&R('div',{ref:captureRef,style:{background:'#fff',display:'inline-block',padding:10,boxSizing:'border-box'}},
+    parsed&&R('div',{ref:captureRef,style:{background:'#fff',display:'inline-block',padding:10,boxSizing:'border-box',maxWidth:'100%',minWidth:0}},
       ...(()=>{
         /* 입고예정일별 그룹핑 → 날짜마다 별도 섹션 */
         const groups={};
@@ -25919,7 +25927,7 @@ function PageShipSort({mats,hqItems}){
           '평택컬리':{hdr:'#2563EB',hdrD:'#1D4ED8',sum:'#EFF6FF',sumT:'#2563EB'},
           '창원물류대행':{hdr:'#D94F1E',hdrD:'#B83E15',sum:'#FFF8F4',sumT:'#D94F1E'}
         };
-        const gridCols='minmax(180px,260px) 40px 60px 85px 120px';
+        const gridCols='200px 40px 60px 96px 130px';   /* 고정 폭 — 줄마다 어긋나지 않게 */
         const rowSty={display:'grid',gridTemplateColumns:gridCols,columnGap:'12px',alignItems:'center'};
         return dates.map(date=>{
           const centers=groups[date].slice().sort((a,b)=>a.center.localeCompare(b.center,'ko'));
@@ -25967,8 +25975,8 @@ function PageShipSort({mats,hqItems}){
             if(!node||typeof html2canvas==='undefined'){alert('이미지 캡처를 준비하지 못했습니다. 잠시 후 다시 시도해주세요.');return;}
             setDayMsg(date+'|이미지 만드는 중...');
             try{
-              const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff',useCORS:true,
-                ignoreElements:(el)=>!!(el.classList&&el.classList.contains('no-capture'))});
+              const canvas=await withExpanded(captureRef.current||node,()=>html2canvas(node,{scale:2,backgroundColor:'#ffffff',useCORS:true,
+                ignoreElements:(el)=>!!(el.classList&&el.classList.contains('no-capture'))}));
               const fin=(m)=>{setDayMsg(date+'|'+m);setTimeout(()=>setDayMsg(''),2500);};
               canvas.toBlob(async(blob)=>{
                 try{
@@ -26019,7 +26027,7 @@ function PageShipSort({mats,hqItems}){
                     R('button',{onClick:()=>moveCenterDate(key),title:'출고일자 수정 — 미정을 날짜로 지정하거나 다른 날짜로 이동',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'📅 날짜'),
                     R('button',{onClick:()=>removeCenter(key),title:'이 센터 빼기',style:{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.35)',color:'#fff',borderRadius:6,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},'✕ 빼기'))
                 ),
-                R('div',{className:'hscroll'},R('div',{style:{minWidth:540}},
+                R('div',{className:'hscroll'},R('div',{style:{minWidth:600}},
                 R('div',{style:{...rowSty,padding:'5px 12px',background:'#FAFAFA',fontSize:10,color:'#6E645C',fontWeight:600}},
                   R('div',null,'제품명'),
                   R('div',null,'박스'),
@@ -26062,17 +26070,17 @@ function PageShipSort({mats,hqItems}){
             }),
             R('div',{className:'card',style:{marginTop:4,maxWidth:960}},
               R('div',{style:{fontSize:12,fontWeight:700,marginBottom:8}},'제품 총수량 ('+(date||'미정')+' · 전 센터 합계) · 현재고 비교'),
-              R('div',{className:'hscroll'},R('div',{style:{minWidth:640}},
+              R('div',{className:'hscroll'},R('div',{style:{minWidth:700}},
               ...Object.entries(pt).map(([name,t])=>{
                 const st=findStock(name);
                 const enough=st?st.stock>=t:null;
                 const isManual=st&&/수동/.test(st.source);
-                return R('div',{key:name,style:{display:'grid',gridTemplateColumns:'minmax(160px,240px) 92px 1fr auto',columnGap:'12px',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #F4F1EE',fontSize:12}},
+                return R('div',{key:name,style:{display:'grid',gridTemplateColumns:'200px 112px minmax(0,1fr) 60px',columnGap:'12px',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #F4F1EE',fontSize:12}},
                   R('span',{style:{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title:st&&st.matchedName?('연결: '+st.matchedName+(isManual?' (수동)':'')):''},name),
-                  R('span',{style:{fontWeight:700,color:'var(--p)'}},fN(t),' ea 필요'),
+                  R('span',{style:{fontWeight:700,color:'var(--p)',whiteSpace:'nowrap',textAlign:'right'}},fN(t),' ea 필요'),
                   st
-                    ? R('span',{style:{fontSize:11,whiteSpace:'nowrap'}},
-                        R('span',{style:{color:'#6E645C'}},'재고 ',fN(st.stock),st.unit),
+                    ? R('span',{style:{fontSize:11,display:'flex',flexWrap:'wrap',alignItems:'center',rowGap:2,minWidth:0}},
+                        R('span',{style:{color:'#6E645C',whiteSpace:'nowrap'}},'재고 ',fN(st.stock),st.unit),
                         R('span',{style:{marginLeft:6,color:st.stock-t<0?'#B91C1C':'#2B211B',fontWeight:700},title:'현재고 - 출고 수량'},'→ 잔여 ',fN(st.stock-t),st.unit),
                         (()=>{const wk=workableOfCode(st.code);return wk===null?null:R('span',{style:{marginLeft:6,color:'#15803D',fontWeight:700},title:'주요 반제품 재고 기준 작업 가능 수량 (완제품 재고 현황과 동일)'},'· 작업가능 ',fN(wk),'ea');})(),
                         isManual&&R('span',{style:{marginLeft:4,fontSize:9,color:'#9333EA',fontWeight:700}},'🔗'),
