@@ -14516,7 +14516,33 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   );
 }
 
-function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
+function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat,prods,onPlanOrder}){
+  /* 제품명 → 원료 발주 연동 (2026-11-24): 제품명을 누르면 그 제품 BOM 원료의 필요량·재고·부족을 보고
+     생산 수량을 생산계획(원료 발주)에 바로 담는다. 제품 매칭은 이름 자동 → 안 맞으면 직접 선택(h.prodId 저장) */
+  const[bomPop,setBomPop]=useState(null);   /* {row,prodId,qty} */
+  const pNorm=s=>String(s||'').replace(/\s+/g,'').replace(/[()（）]/g,'').toLowerCase();
+  const prodOfRow=row=>{
+    const ps=prods||[];
+    if(row.prodId){const p=ps.find(x=>String(x.id)===String(row.prodId));if(p)return p;}
+    const k=pNorm(row.matName);if(!k)return null;
+    return ps.find(p=>pNorm(p.name)===k)
+      ||ps.find(p=>{const n=pNorm(p.name);return n.length>3&&(n.includes(k)||k.includes(n));})||null;
+  };
+  /* 제품 1개(박스)의 kg: [2kg*5]→10, [3.59kg*2]→7.18, [5kg]→5, [270g*10]→2.7 */
+  const packKgOf=name=>{
+    const t=String(name||'');
+    let m=t.match(/(\d+(?:\.\d+)?)\s*(kg|g)\s*[*xX×]\s*(\d+(?:\.\d+)?)/i);
+    if(m)return (+m[1])*(m[2].toLowerCase()==='g'?0.001:1)*(+m[3]);
+    m=t.match(/(\d+(?:\.\d+)?)\s*(kg|g)(?![a-z])/i);
+    return m?(+m[1])*(m[2].toLowerCase()==='g'?0.001:1):0;
+  };
+  /* BOM 1배합 kg: "... 200kg 배합" */
+  const batchKgOf=name=>{const m=String(name||'').match(/(\d+(?:\.\d+)?)\s*kg\s*배합/i);return m?+m[1]:0;};
+  const openBomPop=row=>{
+    const p=prodOfRow(row);
+    const def=row.short>0?Math.ceil(row.short):(+row.mu>0?Math.ceil(+row.mu):'');
+    setBomPop({row,prodId:p?p.id:'',qty:def===''?'':String(def)});
+  };
   const[search,setSearch]=useState('');const[showD,setShowD]=useState(false);
   const searchRef=useRef(null);
   const ignoreBlur=useRef(false);
@@ -14764,7 +14790,9 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
     style:{cursor:'move',background:draggedItem&&draggedItem.id===row.id?'#FEF3C7':undefined,opacity:draggedItem&&draggedItem.id===row.id?0.5:1}
   },
     R('td',{style:{width:24,textAlign:'center',color:'#D9D2CB',fontSize:14,cursor:'move'},title:'드래그로 폴더 이동'},'⋮⋮'),
-    R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170,borderLeft:'3px solid '+(folderColor||'#E9E2DC')}},row.matName),
+    R('td',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:170,borderLeft:'3px solid '+(folderColor||'#E9E2DC')}},
+      R('span',{onClick:e=>{e.stopPropagation();openBomPop(row);},title:'눌러서 원료 발주 연동 — BOM 원료 필요량·부족 확인',
+        style:{cursor:'pointer',textDecoration:'underline',textDecorationColor:'#D9D2CB',textUnderlineOffset:3}},row.matName)),
     R('td',{style:{textAlign:'right'}},
       row.live
         ?R('div',{title:'이카운트 본사(171542) 실시간 수집값 — 5분마다 자동 갱신',style:{fontWeight:700,color:'#0369a1',fontSize:13}},row.hqRaw)
@@ -14818,6 +14846,65 @@ function PageHQ({mats,hqItems,rk,onUpdHQ,onAddHQ,onDelHQ,onUpdMat}){
   );
 
   return R('div',{className:'pg fa'},
+    bomPop&&(()=>{
+      const row=bomPop.row;
+      const p=(prods||[]).find(x=>String(x.id)===String(bomPop.prodId))||null;
+      const eaQty=parseFloat(bomPop.qty)||0;
+      const packKg=packKgOf(row.matName),batchKg=p?batchKgOf(p.name):0;
+      const conv=packKg>0&&batchKg>0;
+      /* 제품 수량 → BOM 배합 수 (BOM이 'Nkg 배합' 기준일 때) */
+      const qty=conv?Math.ceil(eaQty*packKg/batchKg*100)/100:eaQty;
+      const lines=p?(p.bom||[]).map(b=>{
+        const mat=mats.find(m=>m.c===b.c);
+        const need=(+b.amt||0)*qty,st=mat?(+mat.s||0):0;
+        return{name:b.name||(mat?mat.n:b.c),unit:b.unit||(mat?mat.u:''),amt:+b.amt||0,need,st,short:Math.max(0,need-st),sup:mat?(mat.supplier||''):''};
+      }):[];
+      const nShort=lines.filter(l=>l.short>0).length;
+      const f1=n=>(Math.round(n*100)/100).toLocaleString('ko-KR');
+      const close=()=>setBomPop(null);
+      return R(Portal,null,R('div',{className:'mbg',onClick:close},
+        R('div',{className:'mbox',onClick:e=>e.stopPropagation(),style:{maxWidth:640,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
+          R('div',{className:'mhdr'},
+            R('div',null,
+              R('div',{style:{fontSize:15,fontWeight:800}},'🧾 원료 발주 연동'),
+              R('div',{style:{fontSize:11.5,color:'var(--tm)',marginTop:2}},row.matName+' · 총재고 '+row.totalStock.toFixed(1)+(row.unit||'')+(+row.mu>0?' · 월사용량 '+row.mu:'')+(row.short>0?' · 부족 '+row.short.toFixed(1):''))),
+            R('button',{onClick:close,style:{background:'none',border:'none',fontSize:18,cursor:'pointer',color:'var(--tm)'}},'✕')),
+          R('div',{style:{padding:'14px 18px',overflowY:'auto',flex:1}},
+            R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end',marginBottom:12}},
+              R('label',{style:{display:'flex',flexDirection:'column',gap:3,fontSize:11,fontWeight:700,color:'var(--tm)',flex:'2 1 240px',minWidth:0}},
+                'BOM 제품'+(row.prodId?' (직접 연결됨)':(p?' (이름 자동 매칭)':'')),
+                R('select',{className:'inp',value:bomPop.prodId,onChange:e=>{const v=e.target.value;setBomPop(Object.assign({},bomPop,{prodId:v}));onUpdHQ(row.id,'prodId',v);}},
+                  R('option',{value:''},'-- 제품 선택 --'),
+                  ...(prods||[]).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko')).map(x=>R('option',{key:x.id,value:x.id},x.name+' (BOM '+((x.bom||[]).length)+'종)')))),
+              R('label',{style:{display:'flex',flexDirection:'column',gap:3,fontSize:11,fontWeight:700,color:'var(--tm)',flex:'1 1 120px'}},
+                '생산 수량 ('+(row.unit||'ea')+')',
+                R('input',{className:'inp',type:'number',inputMode:'decimal',value:bomPop.qty,onChange:e=>setBomPop(Object.assign({},bomPop,{qty:e.target.value})),placeholder:'0'})),
+              R('div',{style:{display:'flex',gap:4}},
+                row.short>0&&R('button',{className:'btn btn-sm bw',onClick:()=>setBomPop(Object.assign({},bomPop,{qty:String(Math.ceil(row.short))}))},'부족분'),
+                +row.mu>0&&R('button',{className:'btn btn-sm bw',onClick:()=>setBomPop(Object.assign({},bomPop,{qty:String(Math.ceil(+row.mu))}))},'1개월분'))),
+            !p?R('div',{style:{padding:'26px 10px',textAlign:'center',color:'var(--tm)',fontSize:12.5,border:'2px dashed var(--bd)',borderRadius:10}},
+                '이 품목과 이름이 같은 BOM 제품을 찾지 못했습니다. 위에서 제품을 골라 주세요 — 한 번 고르면 다음부터 자동으로 연결됩니다.'):
+            !lines.length?R('div',{style:{padding:20,textAlign:'center',color:'var(--tm)',fontSize:12.5}},'이 제품에 등록된 BOM 원료가 없습니다.'):
+            R('div',null,
+              conv&&eaQty>0&&R('div',{style:{fontSize:12,color:'#1D4ED8',background:'#EFF6FF',borderRadius:8,padding:'6px 10px',marginBottom:8}},
+                '환산: '+eaQty+(row.unit||'ea')+' × '+(Math.round(packKg*1000)/1000)+'kg = '+(Math.round(eaQty*packKg*100)/100)+'kg → '+batchKg+'kg 배합 '+qty+'회분'),
+              !conv&&eaQty>0&&R('div',{style:{fontSize:11.5,color:'#B45309',marginBottom:8}},'※ 제품 규격이나 BOM 배합량(kg)을 이름에서 못 읽어 생산 수량을 BOM 1회분 개수로 그대로 계산합니다'),
+              R('div',{style:{fontSize:12,fontWeight:800,marginBottom:6,color:nShort?'#B91C1C':'#15803D'}},
+                qty>0?(nShort?('⚠ '+(conv?batchKg+'kg 배합 '+qty+'회분':qty)+' 생산 시 부족 원료 '+nShort+'종'):('✓ '+(conv?batchKg+'kg 배합 '+qty+'회분':qty)+' 생산 — 원료 재고 충분')):'생산 수량을 넣으면 필요량이 계산됩니다'),
+              R('div',{className:'hscroll'},R('table',{className:'tbl',style:{width:'100%',fontSize:12.5,minWidth:480}},
+                R('thead',null,R('tr',null,...['원료','1개당','필요량','공장 재고','부족','매입처'].map((h,i)=>R('th',{key:i,style:{textAlign:i&&i<5?'right':'left'}},i===1&&conv?'1배합당':h)))),
+                R('tbody',null,...lines.sort((a,b)=>b.short-a.short).map((l,i)=>R('tr',{key:i,style:{background:l.short>0?'#FEF2F2':undefined}},
+                  R('td',{style:{fontWeight:700}},l.name),
+                  R('td',{style:{textAlign:'right',color:'var(--tm)'}},f1(l.amt)+l.unit),
+                  R('td',{style:{textAlign:'right',fontWeight:700}},f1(l.need)+l.unit),
+                  R('td',{style:{textAlign:'right'}},f1(l.st)+l.unit),
+                  R('td',{style:{textAlign:'right',fontWeight:800,color:l.short>0?'#DC2626':'#15803D'}},l.short>0?f1(l.short)+l.unit:'충분'),
+                  R('td',{style:{fontSize:11.5,color:'var(--tm)'}},l.sup)))))))),
+          R('div',{className:'mfoot'},
+            R('button',{className:'btn bp',style:{flex:1,padding:11,fontWeight:800},disabled:!p||!(qty>0)||!onPlanOrder,
+              onClick:()=>{onPlanOrder(p.id,qty);close();}},'📋 생산계획에 담고 원료 발주로 이동'),
+            R('button',{className:'btn bs',style:{padding:'11px 14px'},onClick:close},'닫기')))));
+    })(),
     R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}},
       R('div',{className:'pg-title',style:{margin:0,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},'🏢 본사재고 관리',R(EcountSyncBadge,null)),
       R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
@@ -26819,7 +26906,7 @@ function App(){
       R(OngoingWork,{user,personal:true,storeKey:'mytasks_'+(user.id||user.email||'guest')})
     );
     if(page==='inv')return R(PageInv,{...p,onUpd:updMat,onAdd:()=>{const n=prompt('새 품목명:');if(n)setMats(prev=>[...prev,{id:uid(),c:'N'+uid(),g:cats[0]||'원재료',n,u:'kg',s:0,mu:0,supplier:'',contact:'',lead:3,price:0,addedAt:Date.now()}]);},onDel:id=>setMats(p=>p.filter(m=>m.id!==id)),parseXL,fRef});
-    if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat});
+    if(page==='hq')return R(PageHQ,{mats,hqItems,rk,onUpdHQ:(id,k,v)=>setHqItems(p=>p.map(h=>h.id===id?{...h,[k]:v}:h)),onAddHQ:item=>{if(!hqItems.find(h=>h.matCode===item.matCode))setHqItems(p=>[...p,item]);},onDelHQ:id=>setHqItems(p=>p.filter(h=>h.id!==id)),onUpdMat:updMat,prods,onPlanOrder:(pid,q)=>{setPqtyUser(pv=>({...pv,[pid]:String(q)}));setPage('prod');try{bnfToast('생산계획에 '+q+' 담음 — 원료 발주 확인');}catch(e){}}});
     if(page==='bom')return R(PageBOM,{mats,prods,cats,isAdmin,onSetProds:setProds,onOpenModal:()=>setBomModal(true),onAddMat:addMatQuick});
     if(page==='prod')return R(PageProd,{mats,prods,cats,pqty,setPqty:setPqtyUser,isAdmin,onConfirmOrder:newOrders=>setOrders(p=>[...p,...newOrders]),onOpenImg:d=>setImgModal(d),onOpenBOM:()=>{setPage('bom');setBomModal(true);},onSetProds:setProds,onAddMat:addMatQuick});
     if(page==='prodResult')return R(PageProdResult,{user,prods,mats});
