@@ -12365,6 +12365,42 @@ function PageSampleDev({user}){
 }
 
 /* 홈 요약: 신제품 현황 */
+/* 홈 최상단 왼쪽: 신제품·OEM 문의 (oem_requests 최신 3건, 2026-11-24) */
+function HomeOemInquiries({onGoPage}){
+  const[rows,setRows]=useState(null);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('oem_requests').select('id,created_at,status,data').order('created_at',{ascending:false}).limit(60);
+      setRows(data||[]);
+    }catch(e){setRows(r=>r||[]);}
+  };
+  useEffect(()=>{load();},[]);
+  useBnfSyncReload(()=>load());
+  const nNew=(rows||[]).filter(r=>(r.status||'신규')==='신규').length;
+  const ago=t=>{const m=Math.floor((Date.now()-new Date(t).getTime())/60000);
+    if(!(m>=0))return '';if(m<1)return '방금';if(m<60)return m+'분 전';const h=Math.floor(m/60);if(h<24)return h+'시간 전';return Math.floor(h/24)+'일 전';};
+  const kind=d=>d.formType==='문의'?['홈페이지 문의','#C2410C','#FFF7ED']:d.formType==='B2B'?['B2B','#1D4ED8','#EFF6FF']:['B2C','#15803D','#F0FDF4'];
+  return R('div',{className:'card',style:{padding:'12px 16px',height:'100%',boxSizing:'border-box'}},
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:8}},
+      R('span',{style:{fontSize:12.5,fontWeight:800}},'📦 신제품·OEM 문의',
+        nNew>0&&R('span',{style:{marginLeft:8,background:'#C2410C',color:'#fff',fontSize:10,fontWeight:800,borderRadius:10,padding:'2px 8px'}},'신규 '+nNew+'건')),
+      R('button',{onClick:()=>onGoPage('rnd_oem'),style:{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'var(--p)',fontWeight:700,fontFamily:'inherit',padding:0}},'전체 보기 →')),
+    rows===null?R('div',{style:{fontSize:11.5,color:'var(--tm)',padding:'6px 0'}},'불러오는 중...'):
+    rows.length===0?R('div',{style:{fontSize:11.5,color:'var(--tm)',padding:'6px 0'}},'접수된 문의가 없습니다.'):
+    R('div',null,...rows.slice(0,3).map((r,i)=>{
+      const d=r.data||{},k=kind(d),st=OEM_STATUSES.find(x=>x.v===(r.status||'신규'))||OEM_STATUSES[0];
+      const what=[d.foodtype,d.dev||d.note].filter(Boolean).join(' · ').replace(/\s+/g,' ').trim();
+      return R('div',{key:r.id,onClick:()=>onGoPage('rnd_oem'),title:'클릭하면 신규 OEM 의뢰 화면으로 이동합니다',
+        style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:i?'1px solid #F4F1EE':'none',fontSize:12,cursor:'pointer',borderRadius:6,transition:'background .12s'},
+        onMouseEnter:e=>{e.currentTarget.style.background='#FBF8F5';},
+        onMouseLeave:e=>{e.currentTarget.style.background='transparent';}},
+        R('span',{style:{fontSize:10,fontWeight:800,color:st.c,background:st.bg,borderRadius:999,padding:'1px 8px',flexShrink:0}},st.v),
+        R('span',{style:{fontWeight:800,flexShrink:0,maxWidth:'40%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},d.company||'(회사명 없음)'),
+        R('span',{style:{fontSize:10,fontWeight:700,color:k[1],background:k[2],borderRadius:999,padding:'1px 8px',flexShrink:0}},k[0]),
+        R('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--t)'}},what||(d.person||'')),
+        R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},ago(r.created_at)));
+    })));
+}
 function NewProductHome({onGoPage}){
   const[items,setItems]=useState([]);
   const[loaded,setLoaded]=useState(false);
@@ -14329,7 +14365,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
     if(h<24)return h+'시간 전';
     return Math.floor(h/24)+'일 전';
   };
-  const buildActs=()=>R('div',{className:'card',style:{padding:'12px 16px'}},
+  const buildActs=()=>R('div',{className:'card',style:{padding:'12px 16px',height:'100%',boxSizing:'border-box'}},
     R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
       R('span',{style:{fontSize:12.5,fontWeight:800}},'👀 업무 현황'),
       R('span',{style:{fontSize:10,color:'var(--tm)'}},'최신 3건')),
@@ -14363,7 +14399,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const renderSection=(id,idx)=>{
     const builder=builders[id];if(!builder)return null;
     if(id==='sales'&&!isBoss)return null;
-    if(id==='acts'&&!isBossView)return null;
+    if(id==='acts')return null;   /* 업무 현황은 최상단 반반 줄(왼쪽 OEM 문의)로 이동 — 2026-11-24 */
     const isHidden=hiddenSecs.includes(id);
     if(isHidden&&!editMode)return null;
     const dragProps=editMode?{
@@ -14439,6 +14475,10 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       ),
       R('button',{onClick:()=>setEditMode(!editMode),style:{background:editMode?'#D94F1E':'#fff',color:editMode?'#fff':'#3D3630',border:'1px solid '+(editMode?'#D94F1E':'#E9E2DC'),borderRadius:8,padding:'7px 14px',cursor:'pointer',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}},editMode?'✓ 완료':'⠿ 편집')
     ),
+    /* 최상단 반반: 왼쪽 신제품·OEM 문의 / 오른쪽 업무 현황 */
+    isBossView&&!editMode&&R('div',{className:'home-sec',style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:14,marginBottom:14,alignItems:'stretch'}},
+      R(HomeOemInquiries,{onGoPage}),
+      buildActs()),
     /* 오늘 할 일 요약줄 */
     (()=>{
       const ti=todayInfo||{};
