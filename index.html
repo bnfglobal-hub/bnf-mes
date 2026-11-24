@@ -20623,6 +20623,7 @@ const DEFAULT_NAV_SECTIONS=[
   ]},
   {label:'🛡 FSSC 22000',type:'fssc',items:[
     {id:'fssc',l:'관리 포인트',ic:'📋'},
+    {id:'fssc_forms',l:'양식집',ic:'📚'},
   ]},
   {label:'🔬 연구개발부서',type:'dept_rnd',items:[
     {id:'rnd_sched',l:'연구개발 스케줄',ic:'🗓'},
@@ -20919,7 +20920,8 @@ function loadNavSections(){
             {id:'trend',l:'업계 동향',ic:'📈',before:'pricelookup'},
             {id:'safety',l:'안전관리',ic:'🦺'}]);
           ensure({t:'fssc',m:'FSSC',label:'🛡 FSSC 22000',after:'factory'},[
-            {id:'fssc',l:'관리 포인트',ic:'📋'}]);
+            {id:'fssc',l:'관리 포인트',ic:'📋'},
+            {id:'fssc_forms',l:'양식집',ic:'📚'}]);
           ensure({t:'dept_ga',m:'경영지원',label:'🏢 경영지원부'},[
             {id:'ga_leave',l:'휴무자 관리',ic:'🌴'},
             {id:'ga_health',l:'보건증 관리',ic:'🩺'},
@@ -21701,6 +21703,150 @@ const FSSC_CONF={cats:FSSC_CATS,path:'fssc/records.json',title:'🛡 FSSC 22000 
   foot:['※ 항목과 주기는 ISO 22000:2018, ISO/TS 22002-1, FSSC 22000 v6 요구사항을 바탕으로 한 일반적인 운영 기준입니다. 우리 공장 FSSC 매뉴얼·절차서에 정한 주기가 있으면 [설정]에서 맞춰 주세요. ',
     '규격 원문은 유료 문서라 조항 번호는 참고용이며, 최종 판단은 인증기관 심사 기준을 따릅니다. 해당하지 않는 항목은 [설정] → 해당 없음으로 끌 수 있습니다.']};
 function PageFssc({user}){return R(PageCycleChecklist,{user,conf:FSSC_CONF});}
+/* ═══ FSSC 22000 양식집 — SP-01~SP-19 절차서 소속 양식 65종 (2026-11-24)
+   원본: 「식품안전경영시스템 양식집 SP-01~SP-19」 Rev.0 (2026.07.01, (주)비엔에프글로벌 이선)
+   데이터: app_state id=13 state_data.fssc_forms = {rev,enact,std,company,src,at,
+     items:[{no,name,dir,proc,title,notes[],secs:[{kv:[[라벨,예시]]}|{cols[],rows[][],n}],paras[],pages}]}
+   (문서 내용은 공개 저장소에 넣지 않고 서버에만 둔다) */
+function fsscFormPrint(f,meta,withEx){
+  const esc=v=>String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/\n/g,'<br>');
+  const land=f.dir==='가로';
+  const body=(f.secs||[]).map(s=>{
+    if(s.kv){
+      return '<table class="kv"><tr>'+s.kv.map(([k,v])=>'<th>'+esc(k)+'</th><td>'+(withEx?esc(v):'')+'</td>').join('</tr><tr>')+'</tr></table>';
+    }
+    const cols=s.cols||[];
+    const rows=withEx?(s.rows||[]):[];
+    const blank=Math.max(withEx?0:Math.min(Math.max(s.n||0,6),land?14:20),0);
+    const tr=r=>'<tr>'+cols.map((_,i)=>'<td>'+esc(r[i]||'')+'</td>').join('')+'</tr>';
+    return '<table><thead><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+
+      rows.map(tr).join('')+Array.from({length:blank}).map(()=>'<tr>'+cols.map(()=>'<td>&nbsp;</td>').join('')+'</tr>').join('')+'</tbody></table>';
+  }).join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(f.no+' '+f.name)+'</title><style>'+
+    '@page{size:A4 '+(land?'landscape':'portrait')+';margin:12mm}body{font-family:"Malgun Gothic",sans-serif;font-size:10.5px;color:#111}'+
+    '.hd{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:8px}h1{font-size:17px;margin:0 0 3px}'+
+    '.sign{border-collapse:collapse;width:auto}.sign td{border:1px solid #555;width:62px;height:16px;text-align:center;font-size:10px}.sign tr:last-child td{height:36px}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #777;padding:4px 5px;vertical-align:top;text-align:left}th{background:#eee;font-size:10px}'+
+    'tbody tr{height:22px}table.kv th{width:22%}.note{font-size:9.5px;color:#333;background:#f6f6f6;border:1px solid #ccc;padding:5px 7px;margin-bottom:8px}.ft{font-size:9px;color:#666;margin-top:6px}'+
+    '</style></head><body><div class="hd"><div><div style="font-size:10px">문서번호 : '+esc(f.no)+'</div><h1>'+esc(f.title||f.name)+'</h1>'+
+    '<div style="font-size:9.5px;color:#444">'+esc((meta&&meta.company)||'')+' · '+esc((meta&&meta.std)||'')+' · '+esc((meta&&meta.rev)||'')+' · '+esc(f.proc)+'</div></div>'+
+    '<table class="sign"><tr><td>작성</td><td>검토</td><td>승인</td></tr><tr><td></td><td></td><td></td></tr></table></div>'+
+    (f.notes||[]).map(n=>'<div class="note">'+esc(n)+'</div>').join('')+body+
+    '<div class="ft">'+(withEx?'※ 작성 예시 포함 출력 — 실제 기록 시 내용을 바꿔 적으세요.':'')+'</div>'+
+    '<script>window.onload=function(){setTimeout(function(){window.print();},300)}<\/script></body></html>';
+  const w=window.open('','_blank');
+  if(!w){alert('팝업이 막혀 인쇄 창을 열지 못했습니다. 브라우저에서 팝업을 허용해 주세요.');return;}
+  w.document.open();w.document.write(html);w.document.close();
+}
+/* 절차서별 아이콘·짧은 설명 (양식집 목록의 소속 절차서 이름 기준) */
+const FSSC_PROC_IC={'SP-01':'🎯','SP-02':'👥','SP-03':'📁','SP-04':'🎓','SP-05':'⚖','SP-06':'🤝','SP-07':'🧭','SP-08':'🏭','SP-09':'🧼','SP-10':'🔧',
+  'SP-11':'🚫','SP-12':'🧫','SP-13':'🛡','SP-14':'🧪','SP-15':'🔬','SP-16':'🚨','SP-17':'✅','SP-18':'⚠','SP-19':'📊'};
+/* 양식의 ※ 안내문에서 작성 주기만 짧게 뽑는다 */
+function fsscCycleOf(f){
+  const t=(f.notes||[]).join(' ');
+  const pats=[[/매일|일일|작업 ?(시작|전)/,'매일'],[/매주|주 ?1회/,'매주'],[/월 ?1회|매월|월말/,'매월'],[/분기/,'분기'],[/반기|6개월/,'반기'],[/연 ?1회|매년|연간|연 ?2회/,'매년'],
+    [/때마다|발생 ?시|할 때|있을 때|경우|착수 시|양산 전|때만|검토 때|종료 후/,'발생 시'],[/로트[^。.]{0,20}마다/,'로트마다']];
+  /* 안내문에서 가장 먼저 나오는 주기 표현을 쓴다 (예: '발생할 때마다 적고 월말 집계' → 발생 시) */
+  let best='',at=1e9;
+  for(const [re,l] of pats){const m=t.match(re);if(m&&m.index<at){at=m.index;best=l;}}
+  return best;
+}
+function PageFsscForms({user}){
+  const[doc,setDoc]=useState(null);
+  const[q,setQ]=useState('');
+  const[proc,setProc]=useState('');
+  const[sel,setSel]=useState(null);
+  const[open,setOpen]=useState(()=>{try{return JSON.parse(localStorage.getItem('fsscFormsOpen')||'{}');}catch(e){return{};}});
+  useEffect(()=>{
+    sbClient.from('app_state').select('v:state_data->fssc_forms').eq('id',13).maybeSingle()
+      .then(({data})=>setDoc((data&&data.v)||{items:[]})).catch(()=>setDoc({items:[]}));
+  },[]);
+  const togg=k=>{const n=Object.assign({},open,{[k]:!open[k]});setOpen(n);try{localStorage.setItem('fsscFormsOpen',JSON.stringify(n));}catch(e){}};
+  if(doc===null)return R('div',{className:'pg'},R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'불러오는 중...'));
+  const items=doc.items||[];
+  const procs=[];const byP={};
+  items.forEach(f=>{const k=String(f.proc||'').slice(0,5);if(!byP[k]){byP[k]={k,name:String(f.proc||'').replace(/^SP-\d\d\s*/,''),list:[]};procs.push(byP[k]);}byP[k].list.push(f);});
+  const qq=q.trim().toLowerCase();
+  const hit=f=>!qq||(f.no+' '+f.name+' '+f.proc+' '+(f.notes||[]).join(' ')+' '+(f.secs||[]).map(s=>s.cols?s.cols.join(' '):(s.kv||[]).map(x=>x[0]).join(' ')).join(' ')).toLowerCase().includes(qq);
+  const shown=procs.filter(p=>!proc||p.k===proc).map(p=>Object.assign({},p,{list:p.list.filter(hit)})).filter(p=>p.list.length);
+  const nForms=items.length,nBody=items.filter(f=>(f.secs||[]).length).length;
+  const cyc=f=>fsscCycleOf(f);
+  const cycC={'로트마다':'#B91C1C','매일':'#B91C1C','매주':'#C2410C','매월':'#1D4ED8','분기':'#7C3AED','반기':'#0F766E','매년':'#15803D','발생 시':'#6B7280'};
+  const badge=(t,c,bg)=>R('span',{style:{fontSize:10,fontWeight:800,color:c,background:bg||'#F4F1EE',borderRadius:999,padding:'1px 8px',whiteSpace:'nowrap',flexShrink:0}},t);
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'📚 FSSC 22000 양식집'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},
+          (doc.src||'식품안전경영시스템 양식집')+' · '+(doc.std||'')+' · '+(doc.rev||'')+' ('+(doc.enact||'')+') · 양식 '+nForms+'종 / 절차서 '+procs.length+'개')),
+      R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'양식명·항목 검색 (예: 알레르겐, 세척, 회수)',style:{width:260,maxWidth:'100%'}})),
+    !items.length&&R('div',{className:'card',style:{textAlign:'center',padding:40,color:'var(--tm)'}},'양식집 데이터가 없습니다.'),
+    /* 절차서 칩 */
+    items.length>0&&R('div',{className:'hscroll',style:{marginBottom:12}},R('div',{style:{display:'flex',gap:6,paddingBottom:2}},
+      R('button',{className:'btn btn-sm '+(proc?'bw':'bp'),onClick:()=>setProc(''),style:{flexShrink:0}},'전체 '+nForms),
+      ...procs.map(p=>R('button',{key:p.k,className:'btn btn-sm '+(proc===p.k?'bp':'bw'),onClick:()=>setProc(proc===p.k?'':p.k),title:p.name,style:{flexShrink:0,whiteSpace:'nowrap'}},
+        (FSSC_PROC_IC[p.k]||'📄')+' '+p.k+' '+p.list.length)))),
+    shown.length===0&&items.length>0&&R('div',{className:'card',style:{textAlign:'center',padding:30,color:'var(--tm)',fontSize:12.5}},'검색 결과가 없습니다'),
+    ...shown.map(p=>{
+      const isOpen=!!qq||!!proc||!!open[p.k];
+      return R('div',{key:p.k,className:'card',style:{padding:0,marginBottom:10,overflow:'hidden'}},
+        R('div',{onClick:()=>togg(p.k),style:{display:'flex',alignItems:'center',gap:10,padding:'11px 16px',cursor:'pointer',background:isOpen?'#FBF8F5':'#fff'}},
+          R('span',{style:{fontSize:18}},FSSC_PROC_IC[p.k]||'📄'),
+          R('div',{style:{flex:1,minWidth:0}},
+            R('div',{style:{fontSize:13.5,fontWeight:800}},p.k+' '+p.name),
+            R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},p.list.map(f=>f.name).join(' · '))),
+          badge(p.list.length+'종','#5D534B'),
+          R('span',{style:{color:'var(--tm)',fontSize:12}},isOpen?'▲':'▼')),
+        isOpen&&R('div',{style:{borderTop:'1px solid var(--bd)'}},
+          ...p.list.map((f,i)=>{const cy=cyc(f);const empty=!(f.secs||[]).length;
+            return R('div',{key:f.no,onClick:()=>setSel(f),
+              style:{display:'flex',alignItems:'center',gap:10,padding:'9px 16px',borderTop:i?'1px solid #F4F1EE':'none',cursor:'pointer'},
+              onMouseEnter:e=>{e.currentTarget.style.background='#FBF8F5';},onMouseLeave:e=>{e.currentTarget.style.background='transparent';}},
+              R('span',{style:{fontSize:11,fontWeight:800,color:'var(--p)',width:64,flexShrink:0,fontFamily:'monospace'}},f.no),
+              R('div',{style:{flex:1,minWidth:0}},
+                R('div',{style:{fontSize:13,fontWeight:700}},f.name),
+                (f.notes||[])[0]&&R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},String(f.notes[0]).replace(/^※\s*/,''))),
+              cy&&badge(cy,cycC[cy]||'#5D534B','#fff'),
+              badge(f.dir||'','#6B7280'),
+              empty?badge('본문 없음','#B45309','#FFFBEB'):(f.pages>1&&badge('예시 '+f.pages+'장','#0F766E','#F0FDFA')));
+          })));
+    }),
+    /* 상세 */
+    sel&&(()=>{
+      const f=sel;const cy=cyc(f);
+      const close=()=>setSel(null);
+      return R(Portal,null,R('div',{className:'mbg',onClick:close},
+        R('div',{className:'mbox',onClick:e=>e.stopPropagation(),style:{maxWidth:980,width:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column'}},
+          R('div',{className:'mhdr'},
+            R('div',{style:{minWidth:0}},
+              R('div',{style:{fontSize:11,color:'var(--p)',fontWeight:800,fontFamily:'monospace'}},f.no+' · '+f.proc),
+              R('div',{style:{fontSize:16,fontWeight:800}},f.title||f.name),
+              R('div',{style:{display:'flex',gap:6,marginTop:4,flexWrap:'wrap'}},cy&&badge('작성 주기: '+cy,cycC[cy]||'#5D534B','#fff'),badge('용지 '+(f.dir||'')+'형','#6B7280'),f.pages>0&&badge('원본 작성 예시 '+f.pages+'장','#0F766E','#F0FDFA'))),
+            R('button',{onClick:close,style:{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'var(--tm)'}},'✕')),
+          R('div',{style:{padding:'14px 18px',overflowY:'auto',flex:1}},
+            !(f.secs||[]).length&&R('div',{style:{padding:24,textAlign:'center',color:'#B45309',fontSize:12.5,border:'2px dashed #FDE68A',borderRadius:10}},
+              '양식집 목록에는 있지만 원본 파일에 이 양식 본문이 들어 있지 않습니다. 원본 파일을 확인해 주세요.'),
+            ...(f.notes||[]).map((n,i)=>R('div',{key:'n'+i,style:{fontSize:12.5,lineHeight:1.65,background:'#FFF8F4',border:'1px solid #FED7AA',borderRadius:10,padding:'10px 13px',marginBottom:10,whiteSpace:'pre-wrap'}},
+              R('b',{style:{color:'var(--p)'}},'작성 방법 · 책임  '),String(n).replace(/^※\s*/,''))),
+            ...(f.secs||[]).map((s,si)=>s.kv
+              ?R('div',{key:si,style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:6,marginBottom:10}},
+                  ...s.kv.map(([k,v],i)=>R('div',{key:i,style:{border:'1px solid var(--bd)',borderRadius:8,padding:'6px 10px',background:'#fff'}},
+                    R('div',{style:{fontSize:10.5,fontWeight:800,color:'var(--tm)'}},k),
+                    R('div',{style:{fontSize:12,marginTop:2,whiteSpace:'pre-wrap',wordBreak:'break-word',color:v?'#3D3630':'#C9C2BB'}},v||'(기입란)'))))
+              :R('div',{key:si,style:{marginBottom:12}},
+                  R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:700,marginBottom:4}},'기록 항목 '+(s.cols||[]).length+'개'+(s.n?(' · 원본 예시 '+s.n+'행'+((s.rows||[]).length<s.n?(' 중 '+(s.rows||[]).length+'행 표시'):'')):'')),
+                  R('div',{className:'hscroll'},R('table',{className:'tbl',style:{width:'100%',fontSize:11.5,minWidth:Math.min(1400,(s.cols||[]).length*110)}},
+                    R('thead',null,R('tr',null,...(s.cols||[]).map((c,i)=>R('th',{key:i,style:{whiteSpace:'pre-wrap',background:'#F4F1EE'}},c)))),
+                    R('tbody',null,...(s.rows||[]).map((r,ri)=>R('tr',{key:ri},...(s.cols||[]).map((_,ci)=>R('td',{key:ci,style:{whiteSpace:'pre-wrap',verticalAlign:'top',color:'#5D534B'}},r[ci]||''))))))))),
+            (f.paras||[]).length>0&&R('div',{style:{fontSize:11.5,color:'var(--tm)',marginTop:4,whiteSpace:'pre-wrap'}},(f.paras||[]).join('\n'))),
+          R('div',{className:'mfoot'},
+            R('button',{className:'btn bp',style:{flex:1,padding:11,fontWeight:800},disabled:!(f.secs||[]).length,onClick:()=>fsscFormPrint(f,doc,false)},'🖨 빈 양식 인쇄'),
+            R('button',{className:'btn bw',style:{flex:1,padding:11},disabled:!(f.secs||[]).length,onClick:()=>fsscFormPrint(f,doc,true)},'📄 작성 예시 포함 인쇄'),
+            R('button',{className:'btn bs',style:{padding:'11px 14px'},onClick:close},'닫기')))));
+    })()
+  );
+}
+
 
 /* 점검표 인쇄 서식 — 분류별 표: 항목·근거·주기·최근 수행·다음 예정 + 빈칸(점검일·결과·조치·확인) */
 function ckPrint(conf,cats,data,stOf){
@@ -22552,6 +22698,7 @@ const NAV_PAGES_INDEX=[
   {p:'meeting',title:'주간 회의 자료',ic:'📋',keys:['회의','주간회의','회의자료','meeting']},
   {p:'pm_lot',title:'로트 전달',ic:'🏷',keys:['로트','lot','소비기한','입고일자','포장일자']},
   {p:'webana',title:'홈페이지 방문 분석',ic:'🌐',keys:['홈페이지','방문','방문자','방문분석','유입','검색유입','페이지뷰','analytics','웹사이트']},
+  {p:'fssc_forms',title:'FSSC 22000 양식집',ic:'📚',keys:['양식','양식집','서식','절차서','SP-','fssc','FSSC','기록지','대장','점검표']},
   {p:'fssc',title:'FSSC 22000 관리 포인트',ic:'🛡',keys:['fssc','FSSC','22000','ISO 22000','식품안전','HACCP','haccp','선행요건','PRP','내부심사','경영검토','식품방어','식품사기','알레르기','회수','리콜','인증심사']},
   {p:'safety',title:'안전관리',ic:'🦺',keys:['안전','안전관리','소방','전기안전','위험성평가','중대재해','안전검사','건강진단','작업환경측정','safety']},
   {p:'ga_edu',title:'법정의무교육',ic:'🎓',keys:['교육','의무교육','법정교육','산업안전','성희롱','개인정보','장애인','퇴직연금']}
@@ -27094,6 +27241,7 @@ function App(){
     if(page==='featreq')return R(PageFeatureReq,{user});
     if(page==='safety')return R(PageSafety,{user});
     if(page==='fssc')return R(PageFssc,{user});
+    if(page==='fssc_forms')return R(PageFsscForms,{user});
     if(page==='webana'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageWebAnalytics,{user});}
     if(page==='files')return R(PageFiles,{user});
     if(page==='links')return R(PageLinks,{user});
