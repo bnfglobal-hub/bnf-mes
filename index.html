@@ -13722,12 +13722,15 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
   const[syncHealth,setSyncHealth]=useState(null);  /* 연동 헬스체크 결과 (bnf-health, 관리자 배너) */
   useEffect(()=>{
     let dead=false;
-    sbClient.from('app_state').select('eq:state_data->bnf_pm_equip,qs:state_data->bnf_qc_self,sh:state_data->bnf_sync_health').eq('id',1).maybeSingle()
+    sbClient.from('app_state').select('eq:state_data->bnf_pm_equip,qs:state_data->bnf_qc_self,sh:state_data->bnf_sync_health,mc:state_data->bnf_machine').eq('id',1).maybeSingle()
       .then(({data:d})=>{
         if(dead)return;
         const eq=(Array.isArray(d&&d.eq)?d.eq:[]).map(x=>Object.assign({},x,{_kind:'설비',_page:'pm_equip'}));
         const qs=(Array.isArray(d&&d.qs)?d.qs:[]).map(x=>Object.assign({},x,{_kind:'자가품질',_page:'qc_self'}));
-        setEquipList(eq.concat(qs));
+        const mc=[];
+        ((d&&d.mc&&d.mc.list)||[]).forEach(m=>(m.parts||[]).forEach(p=>{
+          if(p&&p.last&&+p.cycle>0)mc.push({name:m.name+' · '+p.name,place:m.place||'',last:p.last,cycle:p.cycle,unit:p.cunit||'개월',_kind:'설비 부품',_page:'pm_machine'});}));
+        setEquipList(eq.concat(mc,qs));
         setSyncHealth((d&&d.sh)||null);
       })
       .catch(()=>{if(!dead)setEquipList([]);});
@@ -14481,7 +14484,15 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
           if(Math.floor((due-new Date())/86400000)<=3)eqSoon++;
         }catch(e){}
       });
-      setTodayInfo({shipBox,recSoon,eqSoon});
+      let mcShort=0;
+      try{
+        const mst=d.bnf_machine;
+        if(mst&&Array.isArray(mst.list)){
+          const al=mcAlerts(Object.assign({},mst,{alertDays:3}));
+          eqSoon+=al.due.length;mcShort=al.short.length;
+        }
+      }catch(e){}
+      setTodayInfo({shipBox,recSoon,eqSoon,mcShort});
     }catch(e){}
   };
   useEffect(()=>{loadToday();},[]);
@@ -14514,6 +14525,7 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
       if(ti.shipBox>0)mk('📦','오늘 출고 '+ti.shipBox+'박스','shipsort',false);
       if(shortCnt>0)mk('⚠','재고 부족 '+shortCnt+'건','prod',true);
       if(ti.eqSoon>0)mk('🔧','점검 임박 '+ti.eqSoon+'건','pm_equip',true);
+      if(ti.mcShort>0)mk('🛠','설비 부품 부족 '+ti.mcShort+'건','pm_machine',true);
       if(ti.recSoon>0)mk('🔁','주기 업무 '+ti.recSoon+'건','workreq',false);
       if(!chips.length)return null;
       return R('div',{className:'hscroll',style:{marginBottom:16}},
@@ -20645,6 +20657,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'pm_staffing',l:'인원배치',ic:'👥'},
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
     {id:'pm_spec',l:'설비 제원',ic:'📐'},
+    {id:'pm_machine',l:'설비 관리',ic:'🛠'},
     {id:'pm_loss',l:'폐기율 관리',ic:'🗑'},
   ]},
   {label:'🏢 경영지원부',type:'dept_ga',items:[
@@ -20912,6 +20925,7 @@ function loadNavSections(){
             {id:'pm_workorder',l:'작업지시서',ic:'📋',before:'pm_equip'},
             {id:'pm_staffing',l:'인원배치',ic:'👥',before:'pm_equip'},
             {id:'pm_equip',l:'설비 점검',ic:'🔧'},
+            {id:'pm_machine',l:'설비 관리',ic:'🛠',before:'pm_loss'},
             {id:'pm_loss',l:'폐기율 관리',ic:'🗑'}]);
           ensure({t:'dept_qc',m:'품질',label:'🧪 품질관리'},[
             {id:'qc_self',l:'자가품질검사',ic:'🧪',before:'qc_process'}]);
@@ -21336,6 +21350,318 @@ const LOSS_REASONS=[
   {v:'규격 미달',c:'#B45309'},{v:'이물 혼입',c:'#B91C1C'},{v:'포장 불량',c:'#7C3AED'},{v:'온도 이탈',c:'#0369A1'},
   {v:'소비기한 경과',c:'#6B7280'},{v:'설비 고장',c:'#C2410C'},{v:'작업 실수',c:'#BE185D'},{v:'원료 불량',c:'#15803D'},
   {v:'시생산·테스트',c:'#0F766E'},{v:'공정 로스(정상)',c:'#475569'},{v:'기타',c:'#78716C'}];
+/* ═══ 설비 관리 — 장비별 부품(장착 개수·안전재고·보유) + 교체·점검 주기, 자동 알림 ═══
+   app_state id=1 state_data.bnf_machine = {list:[{id,name,place,note,parts:[{id,name,mount,safe,stock,unit,cycle,cunit,last,note,history:[{d,act,qty,by,note}]}]}],notifyTo:[empId],alertDays:3}
+   state_data.bnf_machine_alerted = 'YYYY-MM-DD' (하루 1번 알림 중복 방지). 저장은 set_state_key (키만) */
+const MACHINE_SEED={list:[{id:'m_rotary',name:'로타리 포장기',place:'포장실',note:'',parts:[
+  {id:'p_heater',name:'히터봉',mount:0,safe:0,stock:0,unit:'개',cycle:'',cunit:'개월',last:'',note:'',history:[]},
+  {id:'p_cupfeeder',name:'컵피더',mount:0,safe:0,stock:0,unit:'개',cycle:'',cunit:'개월',last:'',note:'',history:[]}]}],notifyTo:[],alertDays:3};
+const mcNum=v=>{const n=parseFloat(v);return isFinite(n)?n:0;};
+const mcCyc=p=>({last:p.last,cycle:p.cycle,unit:p.cunit||'개월'});
+const mcShort=p=>mcNum(p.safe)>0&&mcNum(p.stock)<mcNum(p.safe);
+function mcAlerts(st){
+  const days=+((st&&st.alertDays)||3);
+  const due=[],short=[];
+  ((st&&st.list)||[]).forEach(m=>(m.parts||[]).forEach(p=>{
+    const d=equipDday(mcCyc(p));
+    if(d!==null&&d<=days)due.push({m,p,d});
+    if(mcShort(p))short.push({m,p});
+  }));
+  due.sort((a,b)=>a.d-b.d);
+  return{due,short};
+}
+/* 하루 1번: 기한 도래·안전재고 미달을 알림 받을 사람에게 (팝업·휴대폰 푸시) */
+async function bnfMachineDailyAlert(user){
+  try{
+    const t=today2();
+    if(localStorage.getItem('bnf_machine_alert_chk')===t)return;
+    localStorage.setItem('bnf_machine_alert_chk',t);
+    const{data}=await sbClient.from('app_state').select('v:state_data->bnf_machine,a:state_data->bnf_machine_alerted').eq('id',1).maybeSingle();
+    const st=data&&data.v;
+    if(!st||!Array.isArray(st.list)||data.a===t)return;
+    const{due,short}=mcAlerts(st);
+    await sbClient.rpc('set_state_key',{k:'bnf_machine_alerted',v:t});
+    if(!due.length&&!short.length)return;
+    let to=Array.isArray(st.notifyTo)?st.notifyTo.filter(Boolean):[];
+    if(!to.length){
+      const{data:emps}=await sbClient.from('emp').select('id,role').eq('status','active');
+      to=(emps||[]).filter(e=>['superadmin','admin'].includes(e.role)).map(e=>e.id);
+    }
+    const parts=[];
+    if(due.length)parts.push('교체·점검 '+due.length+'건 ('+due.slice(0,3).map(x=>x.m.name+' '+x.p.name+(x.d<0?' 지남':x.d===0?' 오늘':' D-'+x.d)).join(', ')+(due.length>3?' 외':'')+')');
+    if(short.length)parts.push('안전재고 미달 '+short.length+'건 ('+short.slice(0,3).map(x=>x.m.name+' '+x.p.name+' '+mcNum(x.p.stock)+'/'+mcNum(x.p.safe)).join(', ')+(short.length>3?' 외':'')+')');
+    await pushNotif(to.map(id=>({to:id,from:'system',fromName:'설비 관리',type:'info',text:'🛠 설비 관리 — '+parts.join(' · '),page:'pm_machine'})));
+  }catch(e){console.warn('[설비 알림]',e);}
+}
+function PageMachine({user}){
+  const[st,setSt]=useState(null);
+  const[emps,setEmps]=useState([]);
+  const[q,setQ]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[mForm,setMForm]=useState(null);   /* 장비 추가·수정 */
+  const[pForm,setPForm]=useState(null);   /* 항목 추가·수정 {mid,...} */
+  const[act,setAct]=useState(null);       /* 교체·점검·입고 기록 {mid,pid,kind,d,qty,note} */
+  const[showSet,setShowSet]=useState(false);
+  const[open,setOpen]=useState({});       /* 접힌 장비 */
+  const[isMob,setIsMob]=useState(()=>window.innerWidth<640);
+  useEffect(()=>{const f=()=>setIsMob(window.innerWidth<640);window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f);},[]);
+  const isAdmin=['superadmin','admin','manager'].includes(user.role);
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->bnf_machine').eq('id',1).maybeSingle();
+      const v=data&&data.v;
+      setSt(v&&Array.isArray(v.list)?v:JSON.parse(JSON.stringify(MACHINE_SEED)));
+    }catch(e){setSt(JSON.parse(JSON.stringify(MACHINE_SEED)));}
+  };
+  useEffect(()=>{load();
+    sbClient.from('emp').select('id,name,position,role').eq('status','active').order('name').then(({data})=>setEmps(data||[])).catch(()=>{});},[]);
+  useBnfSyncReload(()=>{if(!mForm&&!pForm&&!act)load();});
+  /* 서버 최신본을 다시 읽어 바꾼 뒤 그 키만 저장 (다른 사람 입력 덮어쓰기 방지) */
+  const mutate=async(fn)=>{
+    setBusy(true);
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->bnf_machine').eq('id',1).maybeSingle();
+      const cur=data&&data.v&&Array.isArray(data.v.list)?data.v:JSON.parse(JSON.stringify(st||MACHINE_SEED));
+      const next=JSON.parse(JSON.stringify(cur));
+      fn(next);
+      const{error}=await sbClient.rpc('set_state_key',{k:'bnf_machine',v:next});
+      if(error)throw error;
+      setSt(next);
+      setBusy(false);return true;
+    }catch(e){alert('저장 실패: '+(e.message||e));setBusy(false);return false;}
+  };
+  const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const who=user.name||user.email||'';
+  if(!st)return R('div',{className:'pg fa'},R('div',{style:{padding:40,textAlign:'center',color:'var(--tm)'}},'불러오는 중…'));
+  const{due,short}=mcAlerts(st);
+  const over=due.filter(x=>x.d<0).length;
+  const kw=q.trim().toLowerCase();
+  const list=(st.list||[]).filter(m=>!kw||(m.name+' '+(m.place||'')+' '+(m.parts||[]).map(p=>p.name).join(' ')).toLowerCase().includes(kw));
+  const btn=(bg,c,bd)=>({background:bg,color:c,border:'1px solid '+(bd||bg),borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'});
+  const inp={width:'100%',padding:'9px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:14,fontFamily:'inherit',boxSizing:'border-box'};
+  const lab=(t,el,hint)=>R('label',{style:{display:'block',marginBottom:10}},
+    R('div',{style:{fontSize:12,fontWeight:700,color:'#6E645C',marginBottom:4}},t),el,
+    hint&&R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},hint));
+  const modal=(title,body,onSave,onClose,extra)=>R('div',{className:'mo',onClick:e=>{if(e.target===e.currentTarget)onClose();},
+      style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}},
+    R('div',{style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:460,maxHeight:'90vh',overflowY:'auto',padding:20,boxSizing:'border-box'}},
+      R('div',{style:{fontSize:16,fontWeight:800,marginBottom:14}},title),
+      body,
+      R('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14,flexWrap:'wrap'}},
+        extra||null,
+        R('button',{onClick:onClose,style:btn('#fff','#3D3630','var(--bd)')},'취소'),
+        R('button',{onClick:onSave,disabled:busy,style:btn('var(--p)','#fff')},busy?'저장 중…':'저장'))));
+
+  /* ── 저장 동작 ── */
+  const saveMachine=async()=>{
+    const f=mForm;if(!f.name.trim()){alert('장비명을 입력하세요');return;}
+    const ok=await mutate(s=>{
+      if(f.id){const m=s.list.find(x=>x.id===f.id);if(m){m.name=f.name.trim();m.place=f.place;m.note=f.note;}}
+      else s.list.push({id:uid('m'),name:f.name.trim(),place:f.place,note:f.note,parts:[]});
+    });
+    if(ok)setMForm(null);
+  };
+  const delMachine=async(m)=>{
+    if(!confirm('"'+m.name+'" 장비와 등록된 항목 '+(m.parts||[]).length+'개를 삭제할까요?'))return;
+    await mutate(s=>{s.list=s.list.filter(x=>x.id!==m.id);});
+  };
+  const savePart=async()=>{
+    const f=pForm;if(!f.name.trim()){alert('항목명을 입력하세요');return;}
+    const ok=await mutate(s=>{
+      const m=s.list.find(x=>x.id===f.mid);if(!m)return;
+      const o={name:f.name.trim(),mount:mcNum(f.mount),safe:mcNum(f.safe),stock:mcNum(f.stock),unit:f.unit||'개',
+        cycle:f.cycle===''?'':mcNum(f.cycle),cunit:f.cunit||'개월',last:f.last||'',note:f.note||''};
+      if(f.id){const p=(m.parts||[]).find(x=>x.id===f.id);if(p)Object.assign(p,o);}
+      else{m.parts=m.parts||[];m.parts.push(Object.assign({id:uid('p'),history:[]},o));}
+    });
+    if(ok)setPForm(null);
+  };
+  const delPart=async(m,p)=>{
+    if(!confirm('"'+m.name+' · '+p.name+'" 항목을 삭제할까요?'))return;
+    await mutate(s=>{const mm=s.list.find(x=>x.id===m.id);if(mm)mm.parts=(mm.parts||[]).filter(x=>x.id!==p.id);});
+  };
+  const saveAct=async()=>{
+    const a=act;const qty=mcNum(a.qty);
+    if(!a.d){alert('날짜를 입력하세요');return;}
+    const ok=await mutate(s=>{
+      const m=s.list.find(x=>x.id===a.mid);const p=m&&(m.parts||[]).find(x=>x.id===a.pid);if(!p)return;
+      p.history=Array.isArray(p.history)?p.history:[];
+      if(a.kind==='입고'){p.stock=mcNum(p.stock)+qty;}
+      else{
+        if(qty>0)p.stock=Math.max(0,mcNum(p.stock)-qty);
+        if(!p.last||a.d>=p.last)p.last=a.d;
+      }
+      p.history.unshift({d:a.d,act:a.kind,qty,by:who,note:a.note||'',at:new Date().toISOString()});
+      p.history=p.history.slice(0,200);
+    });
+    if(ok)setAct(null);
+  };
+  const saveSet=async(notifyTo,alertDays)=>{
+    const ok=await mutate(s=>{s.notifyTo=notifyTo;s.alertDays=alertDays;});
+    if(ok)setShowSet(false);
+  };
+
+  /* ── 요약 ── */
+  const kpi=(t,v,c,bg)=>R('div',{style:{flex:'1 1 120px',background:bg||'#fff',border:'1px solid var(--bd)',borderRadius:12,padding:'12px 14px'}},
+    R('div',{style:{fontSize:11.5,color:'#6E645C',fontWeight:700}},t),
+    R('div',{style:{fontSize:22,fontWeight:800,color:c||'var(--t)',marginTop:2}},v));
+  const partCnt=(st.list||[]).reduce((a,m)=>a+(m.parts||[]).length,0);
+  const notifyNames=(st.notifyTo||[]).map(id=>{const e=emps.find(x=>x.id===id);return e?e.name:null;}).filter(Boolean);
+
+  const partRow=(m,p)=>{
+    const cs=equipState(mcCyc(p));const nx=equipNext(mcCyc(p));const sh=mcShort(p);
+    const cell={padding:'8px 6px',borderBottom:'1px solid #F4F1EE',fontSize:12.5,verticalAlign:'middle'};
+    const num={...cell,textAlign:'right',whiteSpace:'nowrap'};
+    return R('tr',{key:p.id},
+      R('td',{style:{...cell,fontWeight:700,width:280,minWidth:280}},p.name,p.note?R('div',{style:{fontSize:11,color:'var(--tm)',fontWeight:400}},p.note):null,
+        R('div',{style:{display:'flex',gap:4,marginTop:6,flexWrap:'nowrap'}},
+          R('button',{onClick:()=>setAct({mid:m.id,pid:p.id,kind:'교체',d:today2(),qty:mcNum(p.mount)||'',note:'',mName:m.name,pName:p.name,unit:p.unit}),style:btn('#ECFDF5','#047857','#A7F3D0')},'✔ 교체·점검'),
+          R('button',{onClick:()=>setAct({mid:m.id,pid:p.id,kind:'입고',d:today2(),qty:'',note:'',mName:m.name,pName:p.name,unit:p.unit}),style:btn('#EFF6FF','#1D4ED8','#BFDBFE')},'＋입고'),
+          R('button',{onClick:()=>setPForm(Object.assign({mid:m.id,mName:m.name},p)),style:btn('#fff','#3D3630','var(--bd)')},'수정'),
+          isAdmin&&R('button',{onClick:()=>delPart(m,p),title:'삭제','aria-label':'항목 삭제',style:btn('#fff','#B91C1C','#FECACA')},'🗑'))),
+      R('td',{style:num},mcNum(p.mount)?fN(mcNum(p.mount))+p.unit:'-'),
+      R('td',{style:num},mcNum(p.safe)?fN(mcNum(p.safe))+p.unit:'-'),
+      R('td',{style:{...num,fontWeight:800,color:sh?'#DC2626':'var(--t)',background:sh?'#FEF2F2':undefined}},
+        fN(mcNum(p.stock))+p.unit,sh?R('div',{style:{fontSize:10.5,fontWeight:700}},'⚠ '+fN(mcNum(p.safe)-mcNum(p.stock))+' 부족'):null),
+      R('td',{style:{...cell,whiteSpace:'nowrap'}},p.cycle!==''&&+p.cycle>0?(p.cycle+(p.cunit||'개월')+'마다'):R('span',{style:{color:'#C9C0B8'}},'미설정')),
+      R('td',{style:{...cell,whiteSpace:'nowrap'}},p.last||'-'),
+      R('td',{style:{...cell,whiteSpace:'nowrap'}},nx?R('span',null,nx,' ',R('span',{style:{color:cs.c,background:cs.bg,fontWeight:800,borderRadius:6,padding:'1px 6px',fontSize:11}},cs.t)):'-'));
+  };
+
+  return R('div',{className:'pg fa'},
+    R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,flexWrap:'wrap',marginBottom:12}},
+      R('div',null,
+        R('div',{style:{fontSize:20,fontWeight:800}},'🛠 설비 관리'),
+        R('div',{style:{fontSize:12.5,color:'var(--tm)',marginTop:4}},'장비별 부품의 장착 개수·안전재고와 교체·점검 주기를 관리합니다. 기한이 다가오거나 재고가 안전재고 밑으로 내려가면 하루 한 번 자동 알림을 보냅니다.')),
+      R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+        R('button',{onClick:()=>setShowSet(true),style:btn('#fff','#3D3630','var(--bd)')},'🔔 알림 설정'),
+        R('button',{onClick:()=>setMForm({name:'',place:'',note:''}),style:btn('var(--p)','#fff')},'＋ 장비 추가'))),
+    R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
+      kpi('장비 / 관리 항목',(st.list||[]).length+'대 / '+partCnt+'개'),
+      kpi('교체·점검 '+(st.alertDays||3)+'일 이내',due.length-over+'건',due.length-over?'#B45309':undefined,due.length-over?'#FFFBEB':undefined),
+      kpi('기한 지남',over+'건',over?'#DC2626':undefined,over?'#FEF2F2':undefined),
+      kpi('안전재고 미달',short.length+'건',short.length?'#DC2626':undefined,short.length?'#FEF2F2':undefined)),
+    R('div',{style:{fontSize:12,color:'#6E645C',marginBottom:10}},'🔔 알림 받는 사람: ',
+      notifyNames.length?notifyNames.join(', '):'관리자 전체 (알림 설정에서 지정)',' · 기한 ',st.alertDays||3,'일 전부터'),
+    R('input',{value:q,onChange:e=>setQ(e.target.value),placeholder:'장비·부품 검색',style:{...inp,maxWidth:320,marginBottom:12}}),
+    !list.length&&R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)',background:'#fff',border:'1px dashed var(--bd)',borderRadius:12}},
+      kw?'검색 결과가 없습니다':'등록된 장비가 없습니다. [＋ 장비 추가]로 시작하세요.'),
+    ...list.map(m=>{
+      const parts=m.parts||[];
+      const mDue=parts.filter(p=>{const d=equipDday(mcCyc(p));return d!==null&&d<=(st.alertDays||3);}).length;
+      const mShort=parts.filter(mcShort).length;
+      const closed=!!open[m.id];
+      return R('div',{key:m.id,style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:12,marginBottom:12,overflow:'hidden'}},
+        R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'12px 14px',background:'#FBFAF8',borderBottom:closed?'none':'1px solid var(--bd)',flexWrap:'wrap'}},
+          R('button',{onClick:()=>setOpen(o=>Object.assign({},o,{[m.id]:!closed})),style:{background:'none',border:'none',cursor:'pointer',fontSize:15,fontWeight:800,padding:0,fontFamily:'inherit',color:'var(--t)',textAlign:'left'}},
+            (closed?'▸ ':'▾ ')+m.name),
+          m.place&&R('span',{style:{fontSize:11.5,color:'#6E645C',background:'#F1ECE7',borderRadius:6,padding:'2px 7px'}},m.place),
+          R('span',{style:{fontSize:11.5,color:'var(--tm)'}},parts.length+'개 항목'),
+          mDue>0&&R('span',{style:{fontSize:11.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',borderRadius:6,padding:'2px 7px'}},'교체·점검 '+mDue),
+          mShort>0&&R('span',{style:{fontSize:11.5,fontWeight:800,color:'#DC2626',background:'#FEF2F2',borderRadius:6,padding:'2px 7px'}},'재고 부족 '+mShort),
+          R('div',{style:{marginLeft:'auto',display:'flex',gap:6}},
+            R('button',{onClick:()=>setPForm({mid:m.id,mName:m.name,name:'',mount:'',safe:'',stock:'',unit:'개',cycle:'',cunit:'개월',last:'',note:''}),style:btn('#fff','var(--p)','var(--p)')},'＋ 항목'),
+            R('button',{onClick:()=>setMForm({id:m.id,name:m.name,place:m.place||'',note:m.note||''}),style:btn('#fff','#3D3630','var(--bd)')},'수정'),
+            isAdmin&&R('button',{onClick:()=>delMachine(m),title:'장비 삭제',style:btn('#fff','#B91C1C','#FECACA')},'🗑'))),
+        !closed&&m.note&&R('div',{style:{padding:'8px 14px',fontSize:12,color:'#6E645C',borderBottom:'1px solid #F4F1EE'}},m.note),
+        !closed&&(parts.length&&isMob
+          ?R('div',null,...parts.map(p=>{
+              const cs=equipState(mcCyc(p));const nx=equipNext(mcCyc(p));const sh=mcShort(p);
+              const box=(t,v,c,bg)=>R('div',{style:{background:bg||'#FBFAF8',borderRadius:8,padding:'6px 8px',minWidth:0}},
+                R('div',{style:{fontSize:10.5,color:'#6E645C',fontWeight:700}},t),R('div',{style:{fontSize:13,fontWeight:800,color:c||'var(--t)',whiteSpace:'nowrap'}},v));
+              return R('div',{key:p.id,style:{padding:'12px 14px',borderBottom:'1px solid #F4F1EE'}},
+                R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:8}},
+                  R('span',{style:{fontSize:14,fontWeight:800}},p.name),
+                  nx&&R('span',{style:{color:cs.c,background:cs.bg,fontWeight:800,borderRadius:6,padding:'1px 6px',fontSize:11}},cs.t),
+                  sh&&R('span',{style:{color:'#DC2626',background:'#FEF2F2',fontWeight:800,borderRadius:6,padding:'1px 6px',fontSize:11}},'⚠ 재고 '+fN(mcNum(p.safe)-mcNum(p.stock))+p.unit+' 부족')),
+                p.note&&R('div',{style:{fontSize:11.5,color:'var(--tm)',margin:'-4px 0 8px'}},p.note),
+                R('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6,marginBottom:6}},
+                  box('장착',mcNum(p.mount)?fN(mcNum(p.mount))+p.unit:'-'),
+                  box('안전재고',mcNum(p.safe)?fN(mcNum(p.safe))+p.unit:'-'),
+                  box('보유',fN(mcNum(p.stock))+p.unit,sh?'#DC2626':undefined,sh?'#FEF2F2':undefined)),
+                R('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6,marginBottom:8}},
+                  box('주기',+p.cycle>0?p.cycle+(p.cunit||'개월'):'미설정'),
+                  box('마지막',p.last?p.last.slice(2):'-'),
+                  box('다음 예정',nx?nx.slice(2):'-',nx?cs.c:undefined)),
+                R('div',{style:{display:'flex',gap:6}},
+                  R('button',{onClick:()=>setAct({mid:m.id,pid:p.id,kind:'교체',d:today2(),qty:mcNum(p.mount)||'',note:'',mName:m.name,pName:p.name,unit:p.unit}),style:{...btn('#ECFDF5','#047857','#A7F3D0'),flex:1,padding:'9px 6px'}},'✔ 교체·점검'),
+                  R('button',{onClick:()=>setAct({mid:m.id,pid:p.id,kind:'입고',d:today2(),qty:'',note:'',mName:m.name,pName:p.name,unit:p.unit}),style:{...btn('#EFF6FF','#1D4ED8','#BFDBFE'),flex:1,padding:'9px 6px'}},'＋입고'),
+                  R('button',{onClick:()=>setPForm(Object.assign({mid:m.id,mName:m.name},p)),style:{...btn('#fff','#3D3630','var(--bd)'),padding:'9px 10px'}},'수정'),
+                  isAdmin&&R('button',{onClick:()=>delPart(m,p),title:'삭제','aria-label':'항목 삭제',style:{...btn('#fff','#B91C1C','#FECACA'),padding:'9px 10px'}},'🗑')));
+            }))
+          :parts.length
+          ?R('div',{className:'hscroll'},R('table',{style:{width:'100%',minWidth:760,borderCollapse:'collapse'}},
+              R('thead',null,R('tr',{style:{background:'#fff'}},...['항목','장착 개수','안전재고','보유 재고','교체·점검 주기','마지막','다음 예정'].map((h,i)=>
+                R('th',{key:i,style:{padding:'8px 6px',fontSize:11.5,color:'#6E645C',fontWeight:700,borderBottom:'1px solid var(--bd)',textAlign:(i>=1&&i<=3)?'right':'left',whiteSpace:'nowrap'}},h)))),
+              R('tbody',null,...parts.map(p=>partRow(m,p)))))
+          :R('div',{style:{padding:'16px 14px',fontSize:12.5,color:'var(--tm)'}},'관리 항목이 없습니다. [＋ 항목]으로 히터봉·컵피더 같은 부품이나 점검 항목을 추가하세요.')));
+    }),
+    /* 장비 모달 */
+    mForm&&modal(mForm.id?'장비 수정':'장비 추가',R('div',null,
+      lab('장비명',R('input',{value:mForm.name,onChange:e=>setMForm({...mForm,name:e.target.value}),placeholder:'예) 로타리 포장기',style:inp,autoFocus:true})),
+      lab('위치',R('input',{value:mForm.place,onChange:e=>setMForm({...mForm,place:e.target.value}),placeholder:'예) 포장실',style:inp})),
+      lab('메모',R('textarea',{value:mForm.note,onChange:e=>setMForm({...mForm,note:e.target.value}),rows:2,placeholder:'제조사·모델·연락처 등',style:inp}))),
+      saveMachine,()=>setMForm(null)),
+    /* 항목 모달 */
+    pForm&&(()=>{
+      const f=pForm;const set=(k,v)=>setPForm({...f,[k]:v});
+      const nx=equipNext({last:f.last,cycle:f.cycle,unit:f.cunit});
+      const hist=f.id?(((st.list.find(x=>x.id===f.mid)||{}).parts||[]).find(x=>x.id===f.id)||{}).history||[]:[];
+      return modal((f.id?'항목 수정':'항목 추가')+' — '+f.mName,R('div',null,
+        lab('항목명 (부품·점검 부위)',R('input',{value:f.name,onChange:e=>set('name',e.target.value),placeholder:'예) 히터봉, 컵피더',style:inp,autoFocus:!f.id})),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 70px',gap:8}},
+          lab('장착 개수',R('input',{type:'number',inputMode:'decimal',value:f.mount,onChange:e=>set('mount',e.target.value),style:inp})),
+          lab('안전재고',R('input',{type:'number',inputMode:'decimal',value:f.safe,onChange:e=>set('safe',e.target.value),style:inp})),
+          lab('보유 재고',R('input',{type:'number',inputMode:'decimal',value:f.stock,onChange:e=>set('stock',e.target.value),style:inp})),
+          lab('단위',R('input',{value:f.unit,onChange:e=>set('unit',e.target.value),style:inp}))),
+        R('div',{style:{display:'grid',gridTemplateColumns:'1fr 90px 1fr',gap:8}},
+          lab('교체·점검 주기',R('input',{type:'number',inputMode:'numeric',value:f.cycle,onChange:e=>set('cycle',e.target.value),placeholder:'예) 3',style:inp})),
+          lab('단위',R('select',{value:f.cunit,onChange:e=>set('cunit',e.target.value),style:inp},...['일','주','개월'].map(u=>R('option',{key:u,value:u},u)))),
+          lab('마지막 교체·점검일',R('input',{type:'date',value:f.last,onChange:e=>set('last',e.target.value),style:inp}))),
+        nx&&R('div',{style:{fontSize:12.5,color:'var(--p)',fontWeight:700,margin:'-2px 0 10px'}},'→ 다음 예정일: '+nx),
+        lab('메모',R('input',{value:f.note,onChange:e=>set('note',e.target.value),placeholder:'규격·구매처 등',style:inp})),
+        hist.length>0&&R('div',{style:{marginTop:6}},
+          R('div',{style:{fontSize:12,fontWeight:800,marginBottom:6}},'📜 기록 ('+hist.length+')'),
+          R('div',{style:{maxHeight:180,overflowY:'auto',border:'1px solid #F1ECE7',borderRadius:8}},
+            ...hist.map((h,i)=>R('div',{key:i,style:{display:'flex',gap:8,padding:'6px 8px',fontSize:12,borderBottom:'1px solid #F7F4F1'}},
+              R('span',{style:{color:'#6E645C',whiteSpace:'nowrap'}},h.d),
+              R('span',{style:{fontWeight:700,color:h.act==='입고'?'#1D4ED8':'#047857',whiteSpace:'nowrap'}},h.act+(h.qty?(' '+(h.act==='입고'?'+':'-')+fN(h.qty)):'')),
+              R('span',{style:{flex:1,minWidth:0,color:'#3D3630'}},h.note||''),
+              R('span',{style:{color:'var(--tm)',whiteSpace:'nowrap'}},h.by||'')))))),
+        savePart,()=>setPForm(null));
+    })(),
+    /* 교체·점검·입고 기록 모달 */
+    act&&modal((act.kind==='입고'?'＋ 입고':'✔ 교체·점검 기록')+' — '+act.mName+' · '+act.pName,R('div',null,
+      act.kind!=='입고'&&R('div',{style:{display:'flex',gap:6,marginBottom:10}},
+        ...['교체','점검','수리'].map(k=>R('button',{key:k,onClick:()=>setAct({...act,kind:k,qty:k==='교체'?act.qty:''}),
+          style:act.kind===k?btn('var(--p)','#fff'):btn('#fff','#3D3630','var(--bd)')},k))),
+      lab('날짜',R('input',{type:'date',value:act.d,onChange:e=>setAct({...act,d:e.target.value}),style:inp})),
+      lab(act.kind==='입고'?'입고 수량 ('+act.unit+')':'사용한 부품 수량 ('+act.unit+')',
+        R('input',{type:'number',inputMode:'decimal',value:act.qty,onChange:e=>setAct({...act,qty:e.target.value}),placeholder:'0',style:inp}),
+        act.kind==='입고'?'보유 재고에 더해집니다':'보유 재고에서 빠지고, 마지막 교체·점검일이 이 날짜로 바뀌어 다음 예정일이 다시 계산됩니다'),
+      lab('메모',R('input',{value:act.note,onChange:e=>setAct({...act,note:e.target.value}),placeholder:act.kind==='입고'?'구매처·단가 등':'작업 내용·이상 여부',style:inp}))),
+      saveAct,()=>setAct(null)),
+    showSet&&R(MachineAlertSet,{st,emps,busy,onSave:saveSet,onClose:()=>setShowSet(false)}));
+}
+function MachineAlertSet({st,emps,busy,onSave,onClose}){
+  const[sel,setSel]=useState(()=>new Set(st.notifyTo||[]));
+  const[days,setDays]=useState(st.alertDays||3);
+  const tog=id=>setSel(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}},
+    R('div',{style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:420,maxHeight:'90vh',overflowY:'auto',padding:20,boxSizing:'border-box'}},
+      R('div',{style:{fontSize:16,fontWeight:800,marginBottom:6}},'🔔 자동 알림 설정'),
+      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:12}},'매일 처음 MES가 열릴 때 한 번 확인해서, 기한이 다가온 교체·점검과 안전재고 미달 항목을 아래 사람에게 알림(PC 팝업·휴대폰 푸시)으로 보냅니다. 아무도 고르지 않으면 관리자 전체에게 갑니다.'),
+      R('label',{style:{display:'flex',alignItems:'center',gap:8,fontSize:13,marginBottom:12}},'기한',
+        R('input',{type:'number',min:0,value:days,onChange:e=>setDays(e.target.value),style:{width:64,padding:'6px 8px',border:'1px solid var(--bd)',borderRadius:8,fontSize:14}}),'일 전부터 알림'),
+      R('div',{style:{fontSize:12,fontWeight:700,color:'#6E645C',marginBottom:6}},'알림 받을 사람'),
+      R('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',gap:6}},
+        ...emps.map(e=>R('label',{key:e.id,style:{display:'flex',alignItems:'center',gap:6,fontSize:13,padding:'7px 8px',border:'1px solid '+(sel.has(e.id)?'var(--p)':'var(--bd)'),borderRadius:8,cursor:'pointer',background:sel.has(e.id)?'#FFF7ED':'#fff'}},
+          R('input',{type:'checkbox',checked:sel.has(e.id),onChange:()=>tog(e.id)}),e.name,e.position?R('span',{style:{fontSize:11,color:'var(--tm)'}},e.position):null))),
+      R('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}},
+        R('button',{onClick:onClose,style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:8,padding:'7px 14px',fontSize:13,cursor:'pointer',fontFamily:'inherit'}},'취소'),
+        R('button',{onClick:()=>onSave([...sel],Math.max(0,parseInt(days,10)||0)),disabled:busy,style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'7px 14px',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}},busy?'저장 중…':'저장'))));
+}
+
 function PagePmLoss({user}){
   const tdy=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
   const EMPTY=()=>({date:tdy(),product:'',stage:'생산(조리)',kind:'폐기',qty:'',unit:'ea',prodQty:'',reason:'규격 미달',detail:'',action:''});
@@ -22686,6 +23012,7 @@ const NAV_PAGES_INDEX=[
   {p:'qc_claim',title:'클레임 관리',ic:'⚠',keys:['클레임','불만','컴플레인','품질']},
   {p:'pm_loss',title:'폐기율 관리',ic:'🗑',keys:['폐기','로스','loss','불량','폐기율']},
   {p:'pm_workorder',title:'작업지시서',ic:'📋',keys:['작업','지시서','작업지시','엑셀','workorder']},
+  {p:'pm_machine',title:'설비 관리',ic:'🛠',keys:['설비','장비','부품','히터','히터봉','컵피더','안전재고','교체','포장기','로타리']},
   {p:'pm_equip',title:'설비 점검',ic:'🔧',keys:['설비','점검','수리','기계']},
   {p:'files',title:'파일 공유',ic:'📁',keys:['파일','공유','file']},
   {p:'cost',title:'원가분석',ic:'💰',keys:['원가','분석','cost']},
@@ -26689,6 +27016,13 @@ function App(){
   const[myInfoOpen,setMyInfoOpen]=useState(false);
   const[globalSearch,setGlobalSearch]=useState(false); /* Cmd+K 글로벌 검색 모달 */
   const[notifPanel,setNotifPanel]=useState(false); /* 알림 패널 */
+  /* ── 설비 관리: 교체·점검 기한·안전재고 미달 하루 1번 자동 알림 ── */
+  useEffect(()=>{
+    if(!user)return;
+    const t0=setTimeout(()=>bnfMachineDailyAlert(user),8000);
+    const t1=setInterval(()=>bnfMachineDailyAlert(user),60*60*1000);
+    return()=>{clearTimeout(t0);clearInterval(t1);};
+  },[user&&user.id]);
   /* ── 새 알림이 오면 카톡처럼 윈도우 바탕화면 팝업 알림 ── */
   useEffect(()=>{
     if(!user||!('Notification'in window))return;
@@ -27241,6 +27575,7 @@ function App(){
     if(page==='pm_staffing')return R(PagePMStaffing,{user});
     if(page==='pm_spec')return R(PageEquipSpec,{user});
     if(page==='pm_loss')return R(PagePmLoss,{user});
+    if(page==='pm_machine')return R(PageMachine,{user});
     if(page==='rnd_sched')return R(PageRndSched,{user});
     if(page==='rnd_search')return R(PageRecipeSearch,{user});
     if(page==='rnd_oem')return R(PageRndOem,{user});
