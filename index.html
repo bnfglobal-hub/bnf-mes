@@ -20657,7 +20657,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'pm_staffing',l:'인원배치',ic:'👥'},
     {id:'pm_equip',l:'설비 점검',ic:'🔧'},
     {id:'pm_spec',l:'설비 제원',ic:'📐'},
-    {id:'pm_machine',l:'설비 관리',ic:'🛠'},
+    {id:'pm_machine',l:'설비 매뉴얼',ic:'📖'},
     {id:'pm_loss',l:'폐기율 관리',ic:'🗑'},
   ]},
   {label:'🏢 경영지원부',type:'dept_ga',items:[
@@ -20925,7 +20925,7 @@ function loadNavSections(){
             {id:'pm_workorder',l:'작업지시서',ic:'📋',before:'pm_equip'},
             {id:'pm_staffing',l:'인원배치',ic:'👥',before:'pm_equip'},
             {id:'pm_equip',l:'설비 점검',ic:'🔧'},
-            {id:'pm_machine',l:'설비 관리',ic:'🛠',before:'pm_loss'},
+            {id:'pm_machine',l:'설비 매뉴얼',ic:'📖',before:'pm_loss'},
             {id:'pm_loss',l:'폐기율 관리',ic:'🗑'}]);
           ensure({t:'dept_qc',m:'품질',label:'🧪 품질관리'},[
             {id:'qc_self',l:'자가품질검사',ic:'🧪',before:'qc_process'}]);
@@ -21390,7 +21390,7 @@ async function bnfMachineDailyAlert(user){
     const parts=[];
     if(due.length)parts.push('교체·점검 '+due.length+'건 ('+due.slice(0,3).map(x=>x.m.name+' '+x.p.name+(x.d<0?' 지남':x.d===0?' 오늘':' D-'+x.d)).join(', ')+(due.length>3?' 외':'')+')');
     if(short.length)parts.push('안전재고 미달 '+short.length+'건 ('+short.slice(0,3).map(x=>x.m.name+' '+x.p.name+' '+mcNum(x.p.stock)+'/'+mcNum(x.p.safe)).join(', ')+(short.length>3?' 외':'')+')');
-    await pushNotif(to.map(id=>({to:id,from:'system',fromName:'설비 관리',type:'info',text:'🛠 설비 관리 — '+parts.join(' · '),page:'pm_machine'})));
+    await pushNotif(to.map(id=>({to:id,from:'system',fromName:'설비 매뉴얼',type:'info',text:'🛠 설비 부품 — '+parts.join(' · '),page:'pm_machine'})));
   }catch(e){console.warn('[설비 알림]',e);}
 }
 function PageMachine({user}){
@@ -21403,6 +21403,10 @@ function PageMachine({user}){
   const[act,setAct]=useState(null);       /* 교체·점검·입고 기록 {mid,pid,kind,d,qty,note} */
   const[showSet,setShowSet]=useState(false);
   const[open,setOpen]=useState({});       /* 접힌 장비 */
+  const[tab,setTab]=useState({});         /* 장비별 탭: man(매뉴얼) | parts(부품·주기) */
+  const[manForm,setManForm]=useState(null);/* 매뉴얼 추가·수정 {mid,id?,kind,title,body,links,files,_added,_removed} */
+  const[upBusy,setUpBusy]=useState(false);
+  const[viewer,setViewer]=useState(null); /* 사진 크게 보기 url */
   const[isMob,setIsMob]=useState(()=>window.innerWidth<640);
   useEffect(()=>{const f=()=>setIsMob(window.innerWidth<640);window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f);},[]);
   const isAdmin=['superadmin','admin','manager'].includes(user.role);
@@ -21415,7 +21419,7 @@ function PageMachine({user}){
   };
   useEffect(()=>{load();
     sbClient.from('emp').select('id,name,position,role').eq('status','active').order('name').then(({data})=>setEmps(data||[])).catch(()=>{});},[]);
-  useBnfSyncReload(()=>{if(!mForm&&!pForm&&!act)load();});
+  useBnfSyncReload(()=>{if(!mForm&&!pForm&&!act&&!manForm)load();});
   /* 서버 최신본을 다시 읽어 바꾼 뒤 그 키만 저장 (다른 사람 입력 덮어쓰기 방지) */
   const mutate=async(fn)=>{
     setBusy(true);
@@ -21436,7 +21440,7 @@ function PageMachine({user}){
   const{due,short}=mcAlerts(st);
   const over=due.filter(x=>x.d<0).length;
   const kw=q.trim().toLowerCase();
-  const list=(st.list||[]).filter(m=>!kw||(m.name+' '+(m.place||'')+' '+(m.parts||[]).map(p=>p.name).join(' ')).toLowerCase().includes(kw));
+  const list=(st.list||[]).filter(m=>!kw||(m.name+' '+(m.place||'')+' '+(m.parts||[]).map(p=>p.name).join(' ')+' '+(m.manuals||[]).map(d=>d.title+' '+(d.body||'')).join(' ')).toLowerCase().includes(kw));
   const btn=(bg,c,bd)=>({background:bg,color:c,border:'1px solid '+(bd||bg),borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'});
   const inp={width:'100%',padding:'9px 10px',border:'1px solid var(--bd)',borderRadius:8,fontSize:14,fontFamily:'inherit',boxSizing:'border-box'};
   const lab=(t,el,hint)=>R('label',{style:{display:'block',marginBottom:10}},
@@ -21462,8 +21466,60 @@ function PageMachine({user}){
     if(ok)setMForm(null);
   };
   const delMachine=async(m)=>{
-    if(!confirm('"'+m.name+'" 장비와 등록된 항목 '+(m.parts||[]).length+'개를 삭제할까요?'))return;
-    await mutate(s=>{s.list=s.list.filter(x=>x.id!==m.id);});
+    const mans=m.manuals||[];
+    if(!confirm('"'+m.name+'" 장비와 등록된 항목 '+(m.parts||[]).length+'개, 매뉴얼 '+mans.length+'건(첨부 포함)을 삭제할까요?'))return;
+    const ok=await mutate(s=>{s.list=s.list.filter(x=>x.id!==m.id);});
+    if(ok)rmPaths(mans.flatMap(d=>(d.files||[]).map(f=>f.path)));
+  };
+  /* ── 매뉴얼 첨부 (bnf-files 저장소 machine/ 폴더) ── */
+  const rmPaths=async(paths)=>{paths=(paths||[]).filter(Boolean);if(paths.length){try{await sbClient.storage.from('bnf-files').remove(paths);}catch(e){}}};
+  const upFiles=async(fl)=>{
+    const files=Array.from(fl||[]).filter(Boolean);if(!files.length)return[];
+    setUpBusy(true);const out=[];
+    for(const file of files){
+      try{
+        if(file.size>100*1024*1024){alert('"'+(file.name||'파일')+'" 은(는) 100MB를 넘어 올릴 수 없습니다. 긴 영상은 유튜브 등에 올리고 링크로 넣어 주세요.');continue;}
+        const safe=(file.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path='machine/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+safe;
+        const{error}=await sbClient.storage.from('bnf-files').upload(path,file,{contentType:file.type||undefined});
+        if(error)throw error;
+        const{data:pub}=sbClient.storage.from('bnf-files').getPublicUrl(path);
+        out.push({name:file.name||'파일',path,url:(pub&&pub.publicUrl)||'',size:file.size,mime:file.type||'',by:who,at:new Date().toISOString()});
+      }catch(e){alert('"'+(file.name||'파일')+'" 업로드 실패: '+(e.message||e));}
+    }
+    setUpBusy(false);return out;
+  };
+  const addManFiles=async(fl)=>{
+    const metas=await upFiles(fl);
+    if(metas.length)setManForm(f=>f?Object.assign({},f,{files:[...(f.files||[]),...metas],_added:[...(f._added||[]),...metas.map(x=>x.path)]}):f);
+  };
+  const rmManFile=(i)=>{
+    const f=manForm;const x=(f.files||[])[i];if(!x)return;
+    if(!confirm('"'+x.name+'" 첨부를 뺄까요?'))return;
+    const isNew=(f._added||[]).includes(x.path);
+    if(isNew)rmPaths([x.path]);
+    setManForm(Object.assign({},f,{files:f.files.filter((_,k)=>k!==i),
+      _added:(f._added||[]).filter(p=>p!==x.path),_removed:isNew?(f._removed||[]):[...(f._removed||[]),x.path]}));
+  };
+  const closeMan=()=>{if(manForm)rmPaths(manForm._added);setManForm(null);};
+  const saveMan=async()=>{
+    const f=manForm;
+    if(upBusy){alert('파일을 올리는 중입니다. 잠시 후 저장하세요.');return;}
+    if(!f.title.trim()){alert('제목을 입력하세요');return;}
+    const o={kind:f.kind||'수리 방법',title:f.title.trim(),body:f.body||'',links:String(f.links||'').split(/\s*\n\s*/).map(s=>s.trim()).filter(Boolean),
+      files:(f.files||[]).map(x=>({name:x.name,path:x.path,url:x.url,size:x.size,mime:x.mime,by:x.by,at:x.at}))};
+    const ok=await mutate(s=>{
+      const m=s.list.find(x=>x.id===f.mid);if(!m)return;
+      m.manuals=Array.isArray(m.manuals)?m.manuals:[];
+      if(f.id){const d=m.manuals.find(x=>x.id===f.id);if(d)Object.assign(d,o,{editBy:who,editAt:new Date().toISOString()});}
+      else m.manuals.unshift(Object.assign({id:uid('d'),by:who,at:new Date().toISOString()},o));
+    });
+    if(ok){rmPaths(f._removed);setManForm(null);}
+  };
+  const delMan=async(m,d)=>{
+    if(!confirm('"'+d.title+'" 매뉴얼과 첨부 '+(d.files||[]).length+'개를 삭제할까요?'))return;
+    const ok=await mutate(s=>{const mm=s.list.find(x=>x.id===m.id);if(mm)mm.manuals=(mm.manuals||[]).filter(x=>x.id!==d.id);});
+    if(ok)rmPaths((d.files||[]).map(f=>f.path));
   };
   const savePart=async()=>{
     const f=pForm;if(!f.name.trim()){alert('항목명을 입력하세요');return;}
@@ -21528,22 +21584,66 @@ function PageMachine({user}){
       R('td',{style:{...cell,whiteSpace:'nowrap'}},nx?R('span',null,nx,' ',R('span',{style:{color:cs.c,background:cs.bg,fontWeight:800,borderRadius:6,padding:'1px 6px',fontSize:11}},cs.t)):'-'));
   };
 
+  /* ── 매뉴얼 표시 ── */
+  const MAN_KINDS=[['수리 방법','#B45309','#FFFBEB'],['점검·청소','#047857','#ECFDF5'],['가이드라인','#1D4ED8','#EFF6FF'],['사용법','#7C3AED','#F5F3FF'],['기타','#6E645C','#F1ECE7']];
+  const kindChip=k=>{const c=MAN_KINDS.find(x=>x[0]===k)||MAN_KINDS[4];
+    return R('span',{style:{fontSize:11,fontWeight:800,color:c[1],background:c[2],borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}},k||'기타');};
+  const fKind=f=>{const mm=f.mime||'';const n=String(f.name||'').toLowerCase();
+    if(mm.startsWith('image/')||/\.(jpe?g|png|gif|webp|bmp)$/.test(n))return'img';
+    if(mm.startsWith('video/')||/\.(mp4|mov|webm|m4v)$/.test(n))return'vid';return'doc';};
+  const fSize=b=>{if(!b)return'';const k=b/1024;return k<1024?k.toFixed(0)+'KB':(k/1024).toFixed(1)+'MB';};
+  const docIc=n=>{n=String(n||'').toLowerCase();return /\.pdf$/.test(n)?'📕':/\.(xlsx?|csv)$/.test(n)?'📗':/\.(docx?|hwpx?)$/.test(n)?'📘':/\.(pptx?)$/.test(n)?'📙':'📄';};
+  const mediaBlock=(files,small)=>{
+    files=files||[];if(!files.length)return null;
+    const imgs=files.filter(f=>fKind(f)==='img'),vids=files.filter(f=>fKind(f)==='vid'),docs=files.filter(f=>fKind(f)==='doc');
+    const th=small?64:isMob?96:120;
+    return R('div',{style:{marginTop:8,display:'flex',flexDirection:'column',gap:8}},
+      imgs.length>0&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},...imgs.map((f,i)=>
+        R('button',{key:'i'+i,onClick:()=>setViewer(f.url),title:f.name,'aria-label':'사진 크게 보기: '+f.name,
+          style:{padding:0,border:'1px solid var(--bd)',borderRadius:8,overflow:'hidden',width:th,height:th*0.75,background:'#F7F4F1',cursor:'zoom-in'}},
+          R('img',{src:f.url,alt:f.name,loading:'lazy',style:{width:'100%',height:'100%',objectFit:'cover',display:'block'}})))),
+      !small&&vids.map((f,i)=>R('div',{key:'v'+i,style:{maxWidth:isMob?'100%':480}},
+        R('video',{src:f.url,controls:true,preload:'metadata',playsInline:true,style:{width:'100%',borderRadius:8,background:'#000',display:'block'}}),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:3}},'🎬 ',f.name,' ',fSize(f.size)))),
+      small&&vids.length>0&&R('div',{style:{fontSize:12,color:'#3D3630'}},...vids.map((f,i)=>R('div',{key:'v'+i},'🎬 ',f.name,' ',R('span',{style:{color:'var(--tm)'}},fSize(f.size))))),
+      docs.length>0&&R('div',{style:{display:'flex',flexDirection:'column',gap:4}},...docs.map((f,i)=>
+        R('a',{key:'d'+i,href:f.url,target:'_blank',rel:'noopener noreferrer',
+          style:{display:'flex',alignItems:'center',gap:6,fontSize:12.5,color:'#1D4ED8',textDecoration:'none',background:'#F8FAFF',border:'1px solid #DBEAFE',borderRadius:8,padding:'7px 10px',minWidth:0}},
+          R('span',null,docIc(f.name)),R('span',{style:{flex:1,minWidth:0,overflowWrap:'anywhere'}},f.name),
+          R('span',{style:{color:'var(--tm)',fontSize:11,whiteSpace:'nowrap'}},fSize(f.size)+' · 열기')))));
+  };
+  const manCard=(m,d)=>R('div',{key:d.id,style:{padding:'12px 14px',borderBottom:'1px solid #F4F1EE'}},
+    R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+      kindChip(d.kind),
+      R('span',{style:{fontSize:14,fontWeight:800,overflowWrap:'anywhere'}},d.title),
+      R('span',{style:{fontSize:11,color:'var(--tm)'}},(d.by||'')+' · '+String(d.editAt||d.at||'').slice(0,10)),
+      R('div',{style:{marginLeft:'auto',display:'flex',gap:4}},
+        R('button',{onClick:()=>setManForm({mid:m.id,mName:m.name,id:d.id,kind:d.kind||'수리 방법',title:d.title||'',body:d.body||'',links:(d.links||[]).join('\n'),files:(d.files||[]).slice(),_added:[],_removed:[]}),style:btn('#fff','#3D3630','var(--bd)')},'수정'),
+        isAdmin&&R('button',{onClick:()=>delMan(m,d),title:'매뉴얼 삭제','aria-label':'매뉴얼 삭제',style:btn('#fff','#B91C1C','#FECACA')},'🗑'))),
+    d.body&&R('div',{style:{whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.65,marginTop:8,color:'#3D3630',overflowWrap:'anywhere'}},d.body),
+    (d.links||[]).length>0&&R('div',{style:{marginTop:8,display:'flex',flexDirection:'column',gap:3}},...d.links.map((u,i)=>{
+      const ok=/^https?:\/\//i.test(u);const yt=/youtu\.?be/i.test(u);
+      return ok?R('a',{key:i,href:u,target:'_blank',rel:'noopener noreferrer',style:{fontSize:12.5,color:'#1D4ED8',overflowWrap:'anywhere'}},(yt?'▶ 유튜브 영상: ':'🔗 ')+u)
+        :R('div',{key:i,style:{fontSize:12.5,color:'#3D3630'}},'🔗 '+u);})),
+    mediaBlock(d.files));
+
   return R('div',{className:'pg fa'},
     R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,flexWrap:'wrap',marginBottom:12}},
       R('div',null,
-        R('div',{style:{fontSize:20,fontWeight:800}},'🛠 설비 관리'),
-        R('div',{style:{fontSize:12.5,color:'var(--tm)',marginTop:4}},'장비별 부품의 장착 개수·안전재고와 교체·점검 주기를 관리합니다. 기한이 다가오거나 재고가 안전재고 밑으로 내려가면 하루 한 번 자동 알림을 보냅니다.')),
+        R('div',{style:{fontSize:20,fontWeight:800}},'📖 설비 매뉴얼'),
+        R('div',{style:{fontSize:12.5,color:'var(--tm)',marginTop:4}},'장비별 수리 방법·가이드라인 문서·사진·동영상을 모아 두고, 부품의 장착 개수·안전재고와 교체·점검 주기를 관리합니다. 기한이 다가오거나 재고가 안전재고 밑으로 내려가면 하루 한 번 자동 알림을 보냅니다.')),
       R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
         R('button',{onClick:()=>setShowSet(true),style:btn('#fff','#3D3630','var(--bd)')},'🔔 알림 설정'),
         R('button',{onClick:()=>setMForm({name:'',place:'',note:''}),style:btn('var(--p)','#fff')},'＋ 장비 추가'))),
     R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}},
       kpi('장비 / 관리 항목',(st.list||[]).length+'대 / '+partCnt+'개'),
+      kpi('매뉴얼',(st.list||[]).reduce((a,m)=>a+(m.manuals||[]).length,0)+'건'),
       kpi('교체·점검 '+(st.alertDays||3)+'일 이내',due.length-over+'건',due.length-over?'#B45309':undefined,due.length-over?'#FFFBEB':undefined),
       kpi('기한 지남',over+'건',over?'#DC2626':undefined,over?'#FEF2F2':undefined),
       kpi('안전재고 미달',short.length+'건',short.length?'#DC2626':undefined,short.length?'#FEF2F2':undefined)),
     R('div',{style:{fontSize:12,color:'#6E645C',marginBottom:10}},'🔔 알림 받는 사람: ',
       notifyNames.length?notifyNames.join(', '):'관리자 전체 (알림 설정에서 지정)',' · 기한 ',st.alertDays||3,'일 전부터'),
-    R('input',{value:q,onChange:e=>setQ(e.target.value),placeholder:'장비·부품 검색',style:{...inp,maxWidth:320,marginBottom:12}}),
+    R('input',{value:q,onChange:e=>setQ(e.target.value),placeholder:'장비·부품·매뉴얼 검색',style:{...inp,maxWidth:320,marginBottom:12}}),
     !list.length&&R('div',{style:{padding:30,textAlign:'center',color:'var(--tm)',background:'#fff',border:'1px dashed var(--bd)',borderRadius:12}},
       kw?'검색 결과가 없습니다':'등록된 장비가 없습니다. [＋ 장비 추가]로 시작하세요.'),
     ...list.map(m=>{
@@ -21551,6 +21651,12 @@ function PageMachine({user}){
       const mDue=parts.filter(p=>{const d=equipDday(mcCyc(p));return d!==null&&d<=(st.alertDays||3);}).length;
       const mShort=parts.filter(mcShort).length;
       const closed=!!open[m.id];
+      const mans=m.manuals||[];
+      const tb=tab[m.id]||'man';
+      const newMan=()=>setManForm({mid:m.id,mName:m.name,kind:'수리 방법',title:'',body:'',links:'',files:[],_added:[],_removed:[]});
+      const tabBtn=(k,t)=>R('button',{onClick:()=>setTab(o=>Object.assign({},o,{[m.id]:k})),'aria-pressed':tb===k,
+        style:{background:'none',border:'none',borderBottom:'3px solid '+(tb===k?'var(--p)':'transparent'),color:tb===k?'var(--p)':'#6E645C',
+          fontWeight:800,fontSize:13,padding:'10px 12px',cursor:'pointer',fontFamily:'inherit',minHeight:44}},t);
       return R('div',{key:m.id,style:{background:'#fff',border:'1px solid var(--bd)',borderRadius:12,marginBottom:12,overflow:'hidden'}},
         R('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'12px 14px',background:'#FBFAF8',borderBottom:closed?'none':'1px solid var(--bd)',flexWrap:'wrap'}},
           R('button',{onClick:()=>setOpen(o=>Object.assign({},o,{[m.id]:!closed})),style:{background:'none',border:'none',cursor:'pointer',fontSize:15,fontWeight:800,padding:0,fontFamily:'inherit',color:'var(--t)',textAlign:'left'}},
@@ -21560,11 +21666,21 @@ function PageMachine({user}){
           mDue>0&&R('span',{style:{fontSize:11.5,fontWeight:800,color:'#B45309',background:'#FFFBEB',borderRadius:6,padding:'2px 7px'}},'교체·점검 '+mDue),
           mShort>0&&R('span',{style:{fontSize:11.5,fontWeight:800,color:'#DC2626',background:'#FEF2F2',borderRadius:6,padding:'2px 7px'}},'재고 부족 '+mShort),
           R('div',{style:{marginLeft:'auto',display:'flex',gap:6}},
-            R('button',{onClick:()=>setPForm({mid:m.id,mName:m.name,name:'',mount:'',safe:'',stock:'',unit:'개',cycle:'',cunit:'개월',last:'',note:''}),style:btn('#fff','var(--p)','var(--p)')},'＋ 항목'),
+            tb==='man'
+              ?R('button',{onClick:newMan,style:btn('#fff','var(--p)','var(--p)')},'＋ 매뉴얼')
+              :R('button',{onClick:()=>setPForm({mid:m.id,mName:m.name,name:'',mount:'',safe:'',stock:'',unit:'개',cycle:'',cunit:'개월',last:'',note:''}),style:btn('#fff','var(--p)','var(--p)')},'＋ 항목'),
             R('button',{onClick:()=>setMForm({id:m.id,name:m.name,place:m.place||'',note:m.note||''}),style:btn('#fff','#3D3630','var(--bd)')},'수정'),
             isAdmin&&R('button',{onClick:()=>delMachine(m),title:'장비 삭제',style:btn('#fff','#B91C1C','#FECACA')},'🗑'))),
         !closed&&m.note&&R('div',{style:{padding:'8px 14px',fontSize:12,color:'#6E645C',borderBottom:'1px solid #F4F1EE'}},m.note),
-        !closed&&(parts.length&&isMob
+        !closed&&R('div',{role:'tablist',style:{display:'flex',gap:2,padding:'0 6px',borderBottom:'1px solid var(--bd)'}},
+          tabBtn('man','📖 매뉴얼 '+mans.length),tabBtn('parts','🔧 부품·주기 '+parts.length)),
+        !closed&&tb==='man'&&(mans.length
+          ?R('div',null,...mans.map(d=>manCard(m,d)))
+          :R('div',{style:{padding:'18px 14px',fontSize:12.5,color:'var(--tm)'}},
+            '등록된 매뉴얼이 없습니다. ',
+            R('button',{onClick:newMan,style:{...btn('#fff','var(--p)','var(--p)'),marginLeft:4}},'＋ 매뉴얼 추가'),
+            R('div',{style:{marginTop:6,fontSize:12}},'수리 방법·청소 순서를 글로 적고, 사진·동영상·PDF·한글·엑셀 문서를 함께 올릴 수 있습니다.'))),
+        !closed&&tb==='parts'&&(parts.length&&isMob
           ?R('div',null,...parts.map(p=>{
               const cs=equipState(mcCyc(p));const nx=equipNext(mcCyc(p));const sh=mcShort(p);
               const box=(t,v,c,bg)=>R('div',{style:{background:bg||'#FBFAF8',borderRadius:8,padding:'6px 8px',minWidth:0}},
@@ -21641,6 +21757,42 @@ function PageMachine({user}){
         act.kind==='입고'?'보유 재고에 더해집니다':'보유 재고에서 빠지고, 마지막 교체·점검일이 이 날짜로 바뀌어 다음 예정일이 다시 계산됩니다'),
       lab('메모',R('input',{value:act.note,onChange:e=>setAct({...act,note:e.target.value}),placeholder:act.kind==='입고'?'구매처·단가 등':'작업 내용·이상 여부',style:inp}))),
       saveAct,()=>setAct(null)),
+    /* 매뉴얼 추가·수정 모달 */
+    manForm&&(()=>{
+      const f=manForm;const set=(k,v)=>setManForm({...f,[k]:v});
+      return modal((f.id?'매뉴얼 수정':'매뉴얼 추가')+' — '+f.mName,R('div',null,
+        R('div',{style:{fontSize:12,fontWeight:700,color:'#6E645C',marginBottom:4}},'구분'),
+        R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}},
+          ...MAN_KINDS.map(([k])=>R('button',{key:k,onClick:()=>set('kind',k),'aria-pressed':f.kind===k,
+            style:f.kind===k?btn('var(--p)','#fff'):btn('#fff','#3D3630','var(--bd)')},k))),
+        lab('제목',R('input',{value:f.title,onChange:e=>set('title',e.target.value),placeholder:'예) 히터봉 교체 방법, 컵피더 걸림 해결',style:inp,autoFocus:!f.id})),
+        lab('내용 (순서·주의사항)',R('textarea',{value:f.body,onChange:e=>set('body',e.target.value),rows:8,
+          placeholder:'1. 전원을 끄고 히터가 식을 때까지 기다린다\n2. 커버 나사 4개를 푼다\n3. …\n※ 주의: 반드시 전원 차단 후 작업',style:{...inp,lineHeight:1.6,resize:'vertical'}})),
+        lab('동영상·참고 링크',R('textarea',{value:f.links,onChange:e=>set('links',e.target.value),rows:2,placeholder:'https://youtu.be/…  (한 줄에 하나씩)',style:inp}),
+          '100MB가 넘는 긴 영상은 유튜브(일부 공개) 등에 올리고 링크를 넣어 주세요'),
+        R('div',{style:{fontSize:12,fontWeight:700,color:'#6E645C',marginBottom:4}},'첨부 — 사진·동영상·문서'),
+        R('label',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:6,border:'1.5px dashed #D6CCC2',borderRadius:10,padding:'14px 10px',
+            cursor:upBusy?'wait':'pointer',background:'#FBFAF8',fontSize:13,fontWeight:700,color:'#3D3630',textAlign:'center'},
+            onDragOver:e=>e.preventDefault(),onDrop:e=>{e.preventDefault();if(!upBusy)addManFiles(e.dataTransfer.files);}},
+          upBusy?'⏳ 올리는 중…':(isMob?'📷 사진·동영상 찍기 / 파일 선택':'📎 파일 선택 또는 여기로 끌어다 놓기'),
+          R('input',{type:'file',multiple:true,disabled:upBusy,accept:'image/*,video/*,.pdf,.doc,.docx,.hwp,.hwpx,.xls,.xlsx,.ppt,.pptx,.txt,.zip',
+            onChange:e=>{const fl=e.target.files;addManFiles(fl);e.target.value='';},style:{display:'none'}})),
+        R('div',{style:{fontSize:11,color:'var(--tm)',margin:'4px 0 8px'}},'파일 하나당 100MB까지 · 여러 개 한 번에 선택 가능'),
+        (f.files||[]).length>0&&R('div',{style:{display:'flex',flexDirection:'column',gap:4}},...f.files.map((x,i)=>
+          R('div',{key:x.path||i,style:{display:'flex',alignItems:'center',gap:8,border:'1px solid #F1ECE7',borderRadius:8,padding:'6px 8px',fontSize:12.5}},
+            fKind(x)==='img'
+              ?R('img',{src:x.url,alt:'',style:{width:40,height:30,objectFit:'cover',borderRadius:4,flex:'none'}})
+              :R('span',{style:{width:40,textAlign:'center',flex:'none'}},fKind(x)==='vid'?'🎬':docIc(x.name)),
+            R('span',{style:{flex:1,minWidth:0,overflowWrap:'anywhere'}},x.name),
+            R('span',{style:{color:'var(--tm)',fontSize:11,whiteSpace:'nowrap'}},fSize(x.size)),
+            R('button',{onClick:()=>rmManFile(i),'aria-label':'첨부 빼기: '+x.name,style:{...btn('#fff','#B91C1C','#FECACA'),padding:'4px 8px'}},'✕'))))),
+        saveMan,closeMan);
+    })(),
+    /* 사진 크게 보기 */
+    viewer&&R('div',{onClick:()=>setViewer(null),role:'dialog','aria-label':'사진 보기',
+        style:{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:1100,display:'flex',alignItems:'center',justifyContent:'center',padding:16,cursor:'zoom-out'}},
+      R('img',{src:viewer,alt:'',style:{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:6}}),
+      R('button',{onClick:()=>setViewer(null),'aria-label':'닫기',style:{position:'absolute',top:14,right:14,width:44,height:44,borderRadius:22,border:'none',background:'rgba(255,255,255,.9)',fontSize:18,cursor:'pointer'}},'✕')),
     showSet&&R(MachineAlertSet,{st,emps,busy,onSave:saveSet,onClose:()=>setShowSet(false)}));
 }
 function MachineAlertSet({st,emps,busy,onSave,onClose}){
@@ -23012,7 +23164,7 @@ const NAV_PAGES_INDEX=[
   {p:'qc_claim',title:'클레임 관리',ic:'⚠',keys:['클레임','불만','컴플레인','품질']},
   {p:'pm_loss',title:'폐기율 관리',ic:'🗑',keys:['폐기','로스','loss','불량','폐기율']},
   {p:'pm_workorder',title:'작업지시서',ic:'📋',keys:['작업','지시서','작업지시','엑셀','workorder']},
-  {p:'pm_machine',title:'설비 관리',ic:'🛠',keys:['설비','장비','부품','히터','히터봉','컵피더','안전재고','교체','포장기','로타리']},
+  {p:'pm_machine',title:'설비 매뉴얼',ic:'📖',keys:['설비','장비','매뉴얼','메뉴얼','수리','수리방법','동영상','가이드','부품','히터','히터봉','컵피더','안전재고','교체','포장기','로타리']},
   {p:'pm_equip',title:'설비 점검',ic:'🔧',keys:['설비','점검','수리','기계']},
   {p:'files',title:'파일 공유',ic:'📁',keys:['파일','공유','file']},
   {p:'cost',title:'원가분석',ic:'💰',keys:['원가','분석','cost']},
