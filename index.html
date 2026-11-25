@@ -8608,13 +8608,197 @@ const GQ_CSS=
   '.gq-doc .gq-note textarea{resize:none;height:142px;text-align:left;font-weight:700;line-height:1.5}'+
   '.gq-doc span.gq-print{display:block;white-space:nowrap;overflow:hidden;min-width:0}'+
   '.gq-doc span.gq-print.gq-ta{white-space:pre-wrap;text-align:left}';
+/* 견적서 — 가격 안내 캡처(카톡·견적서·단가표) → AI로 품목 정리 → 매입단가면 마진 % 붙여서 / 매출단가면 그대로 → 품목 표에 입력 */
+const GQ_AI_SYS='너는 식품회사 구매·영업 담당 보조다. 사진이나 글은 거래처가 보낸 가격 안내(카톡 대화·견적서·단가표 캡처)다. 품목별 가격을 JSON으로만 답한다.\n'+
+  '형식: {"supplier":"가격을 보낸 업체명(보이면, 없으면 빈칸)","items":[{"name":"품명","spec":"규격(용량·중량·포장단위)","price":숫자(원 단위 정수, 콤마 없이),"vat":"포함" 또는 "별도" 또는 "","note":"기타 조건"}]}\n'+
+  '규칙:\n- 한 품목에 규격별 가격이 여러 개면(예: 참기름 1.8L 11,500 / 18L 115,000) 규격마다 한 줄씩.\n'+
+  '- "포함"·"VAT포함"은 vat="포함", "별도"·"VAT별도"는 vat="별도", 언급 없으면 "".\n'+
+  '- 규격이 다른 말풍선이나 줄에 따로 적혀 있으면(예: 목록 뒤 "1.8L 입니다") 그 목록 품목들의 spec에 넣는다.\n'+
+  '- 줄바꿈 때문에 잘린 품명은 이어 붙인다(예: 줄 끝 "들깨" + 다음 줄 "기피 6,000" → 품명 "들깨 기피").\n'+
+  '- 인사·질문·시간 같은 다른 문장은 무시. 금액이 없는 품목은 뺀다. 내 쪽(오른쪽 노란 말풍선) 메시지는 가격이 아니면 무시.';
+const gqNum=v=>{const n=+String(v==null?'':v).replace(/[^0-9.\-]/g,'');return isFinite(n)?n:0;};
+function GqImport({onApply,onClose}){
+  const[imgs,setImgs]=useState([]);        /* [{data,mime,url}] */
+  const[txt,setTxt]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState('');
+  const[rows,setRows]=useState(null);      /* [{on,name,spec,price,vat,note,over}] */
+  const[supplier,setSupplier]=useState('');
+  const[mode,setMode]=useState(()=>{try{return localStorage.getItem('gq_imp_mode')||'buy';}catch(e){return'buy';}});
+  const[margin,setMargin]=useState(()=>{try{return localStorage.getItem('gq_margin')||'20';}catch(e){return'20';}});
+  const[rnd,setRnd]=useState(()=>{try{return localStorage.getItem('gq_round')||'10';}catch(e){return'10';}});
+  const fileRef=useRef(null);
+  const addFiles=async(fl)=>{
+    const files=Array.from(fl||[]).filter(f=>f&&/^image\//.test(f.type||''));
+    for(const f of files){
+      if(f.size>15*1024*1024){alert('"'+f.name+'" 은(는) 15MB를 넘습니다.');continue;}
+      const data=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=rej;r.readAsDataURL(f);});
+      setImgs(p=>[...p,{data,mime:f.type||'image/png',url:URL.createObjectURL(f)}]);
+    }
+  };
+  /* 팝업이 떠 있는 동안 Ctrl+V 로 캡처 붙여넣기 */
+  useEffect(()=>{
+    const h=e=>{const it=[...((e.clipboardData&&e.clipboardData.items)||[])].filter(x=>x.kind==='file'&&/^image\//.test(x.type));
+      if(it.length){e.preventDefault();addFiles(it.map(x=>x.getAsFile()));}};
+    window.addEventListener('paste',h);return()=>window.removeEventListener('paste',h);
+  },[]);
+  const run=async()=>{
+    if(!imgs.length&&!txt.trim()){alert('캡처 사진을 붙여넣거나 가격 내용을 적어 주세요.');return;}
+    setBusy(true);setErr('');
+    try{
+      const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),120000);
+      let r;try{r=await fetch(SB_URL+'/functions/v1/ask-gpt',{method:'POST',signal:ctl.signal,
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+SB_KEY,'apikey':SB_KEY},
+        body:JSON.stringify({json:true,maxTokens:6000,messages:[{role:'system',content:GQ_AI_SYS},
+          {role:'user',content:(txt.trim()?'가격 안내 글:\n'+txt.trim()+'\n\n':'')+'이 가격 안내를 정리해줘.',images:imgs.map(x=>({data:x.data,mime:x.mime}))}]})});}
+      finally{clearTimeout(tm);}
+      const j=await r.json();
+      if(j.error)throw new Error(j.msg||j.error);
+      let o;try{o=JSON.parse(String(j.reply||'').replace(/^```(json)?|```$/g,'').trim());}catch(e){throw new Error('AI 답을 읽지 못했습니다. 다시 시도해 주세요.');}
+      const its=(o&&Array.isArray(o.items)?o.items:[]).filter(x=>x&&x.name);
+      if(!its.length)throw new Error('가격 품목을 찾지 못했습니다. 사진이 잘 보이는지 확인해 주세요.');
+      setSupplier(String(o.supplier||''));
+      setRows(its.map(x=>({on:true,name:String(x.name||'').trim(),spec:String(x.spec||'').trim(),price:gqNum(x.price),vat:x.vat==='포함',note:String(x.note||''),over:''})));
+    }catch(e){setErr(e.name==='AbortError'?'시간이 너무 오래 걸려 멈췄습니다. 다시 시도해 주세요.':String(e.message||e));}
+    setBusy(false);
+  };
+  const base=x=>x.vat?x.price/1.1:x.price;                 /* 공급가(부가세 뺀 값) */
+  const roundUp=v=>{const u=+rnd||1;return Math.ceil(Math.round(v*100)/100/u)*u;};
+  const calc=x=>{
+    if(String(x.over).trim()!=='')return gqNum(x.over);
+    const b=base(x);
+    return mode==='buy'?roundUp(b*(1+gqNum(margin)/100)):Math.round(b);
+  };
+  const setRow=(i,k,v)=>setRows(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const fmt=n=>n?Math.round(n).toLocaleString('ko-KR'):'0';
+  const apply=()=>{
+    const pick=(rows||[]).filter(x=>x.on&&x.name);
+    if(!pick.length){alert('넣을 품목을 하나 이상 체크하세요.');return;}
+    try{localStorage.setItem('gq_imp_mode',mode);localStorage.setItem('gq_margin',String(margin));localStorage.setItem('gq_round',String(rnd));}catch(e){}
+    onApply(pick.map(x=>({name:x.name,spec:x.spec,amt:String(calc(x))})));
+  };
+  const seg=(on)=>({flex:1,padding:'10px 8px',borderRadius:9,border:'1.5px solid '+(on?'var(--p)':'var(--bd)'),background:on?'#FFF7F2':'#fff',
+    color:on?'var(--p)':'#3D3630',fontWeight:800,fontSize:13,cursor:'pointer',fontFamily:'inherit',minHeight:44});
+  const cellIn={width:'100%',border:'1px solid #E7E0D9',borderRadius:6,padding:'5px 6px',fontSize:12.5,fontFamily:'inherit',boxSizing:'border-box',background:'#fff'};
+  return R('div',{onClick:e=>{if(e.target===e.currentTarget&&!busy)onClose();},
+      style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:12}},
+    R('div',{role:'dialog','aria-label':'캡처로 품목 넣기',style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:760,maxHeight:'92vh',overflowY:'auto',padding:18,boxSizing:'border-box'}},
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},
+        R('div',{style:{fontSize:16,fontWeight:800}},'📷 캡처로 품목 넣기'),
+        R('button',{onClick:onClose,'aria-label':'닫기',style:{marginLeft:'auto',background:'none',border:'none',fontSize:18,cursor:'pointer',width:40,height:40}},'✕')),
+      R('div',{style:{fontSize:12,color:'var(--tm)',marginBottom:12}},'거래처가 보낸 가격 안내(카톡·견적서·단가표)를 캡처해서 붙여넣으면 AI가 품목·규격·단가를 정리합니다.'),
+      /* 1) 입력 */
+      !rows&&R('div',null,
+        R('div',{onClick:()=>fileRef.current&&fileRef.current.click(),onDragOver:e=>e.preventDefault(),onDrop:e=>{e.preventDefault();addFiles(e.dataTransfer.files);},
+            style:{border:'1.5px dashed #D6CCC2',borderRadius:12,padding:imgs.length?10:'26px 12px',background:'#FBFAF8',cursor:'pointer',textAlign:'center'}},
+          imgs.length
+            ?R('div',{style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}},...imgs.map((x,i)=>R('div',{key:i,style:{position:'relative'}},
+                R('img',{src:x.url,alt:'캡처 '+(i+1),style:{height:150,maxWidth:220,objectFit:'contain',borderRadius:8,border:'1px solid var(--bd)',background:'#fff'}}),
+                R('button',{onClick:e=>{e.stopPropagation();setImgs(p=>p.filter((_,j)=>j!==i));},'aria-label':'사진 빼기',
+                  style:{position:'absolute',top:-8,right:-8,width:28,height:28,borderRadius:14,border:'none',background:'#B91C1C',color:'#fff',cursor:'pointer',fontWeight:800}},'✕'))),
+                R('div',{style:{alignSelf:'center',fontSize:12,color:'#6E645C',fontWeight:700,padding:'0 8px'}},'＋ 더 추가'))
+            :R('div',null,R('div',{style:{fontSize:26}},'📋'),
+                R('div',{style:{fontSize:14,fontWeight:800,marginTop:4}},'Ctrl+V 로 캡처 붙여넣기'),
+                R('div',{style:{fontSize:12,color:'var(--tm)',marginTop:3}},'또는 눌러서 사진 선택 · 끌어다 놓기 (여러 장 가능)'))),
+        R('input',{ref:fileRef,type:'file',accept:'image/*',multiple:true,style:{display:'none'},onChange:e=>{addFiles(e.target.files);e.target.value='';}}),
+        R('textarea',{value:txt,onChange:e=>setTxt(e.target.value),rows:3,placeholder:'(선택) 글로 받은 가격은 여기에 붙여넣기 — 예) 참기름 1.8L 11,500 / 18L 115,000',
+          style:{...cellIn,fontSize:13,padding:'9px 10px',marginTop:10,resize:'vertical'}}),
+        err&&R('div',{style:{marginTop:10,padding:'9px 12px',borderRadius:9,background:'#FEF2F2',color:'#B91C1C',fontSize:12.5,fontWeight:700,whiteSpace:'pre-wrap'}},'⚠ '+err),
+        R('div',{style:{display:'flex',justifyContent:'flex-end',gap:8,marginTop:12}},
+          R('button',{className:'btn bw',onClick:onClose},'취소'),
+          R('button',{className:'btn bp',onClick:run,disabled:busy,style:{minWidth:140}},busy?'⏳ AI가 읽는 중…':'🔍 AI로 정리하기'))),
+      /* 2) 결과 + 단가 종류 선택 */
+      rows&&R('div',null,
+        supplier&&R('div',{style:{fontSize:12.5,color:'#6E645C',marginBottom:8}},'보낸 곳: ',R('b',null,supplier)),
+        R('div',{style:{fontSize:12.5,fontWeight:800,marginBottom:6}},'이 가격은 어떤 단가인가요?'),
+        R('div',{style:{display:'flex',gap:8,marginBottom:10}},
+          R('button',{onClick:()=>setMode('buy'),style:seg(mode==='buy'),'aria-pressed':mode==='buy'},'매입단가',R('div',{style:{fontSize:11,fontWeight:600,marginTop:2}},'마진 % 붙여서 견적가 계산')),
+          R('button',{onClick:()=>setMode('sell'),style:seg(mode==='sell'),'aria-pressed':mode==='sell'},'매출단가',R('div',{style:{fontSize:11,fontWeight:600,marginTop:2}},'받은 단가 그대로 입력'))),
+        mode==='buy'&&R('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'10px 12px',borderRadius:10,background:'#FFF7F2',border:'1px solid #FED7AA',marginBottom:10}},
+          R('label',{style:{fontSize:13,fontWeight:800,display:'flex',alignItems:'center',gap:6}},'마진',
+            R('input',{type:'number',inputMode:'decimal',value:margin,onChange:e=>setMargin(e.target.value),autoFocus:true,
+              style:{width:80,padding:'8px 10px',fontSize:16,fontWeight:800,border:'1.5px solid var(--p)',borderRadius:8,textAlign:'right',fontFamily:'inherit'}}),'%'),
+          R('label',{style:{fontSize:12.5,display:'flex',alignItems:'center',gap:4}},'올림',
+            R('select',{value:rnd,onChange:e=>setRnd(e.target.value),style:{padding:'6px 8px',borderRadius:8,border:'1px solid var(--bd)',fontFamily:'inherit'}},
+              ...[['1','1원'],['10','10원'],['100','100원'],['1000','1,000원']].map(([v,l])=>R('option',{key:v,value:v},l+' 단위')))),
+          R('span',{style:{fontSize:11.5,color:'#6E645C'}},'견적가 = 매입 공급가 × (1 + '+(gqNum(margin)||0)+'%)')),
+        R('div',{style:{fontSize:11.5,color:'var(--tm)',marginBottom:6}},'"부가세 포함"에 체크된 단가는 ÷1.1 해서 공급가로 바꿉니다 (견적서 세액 10%는 따로 자동 계산). 품명·규격·견적가는 고칠 수 있습니다.'),
+        R('div',{className:'hscroll'},R('table',{style:{width:'100%',minWidth:620,borderCollapse:'collapse',fontSize:12.5}},
+          R('thead',null,R('tr',{style:{background:'#FBFAF8'}},...['','품명','규격','받은 단가','부가세 포함',mode==='buy'?'견적가 (공급가)':'입력 단가 (공급가)'].map((h,i)=>
+            R('th',{key:i,style:{padding:'7px 5px',fontSize:11.5,color:'#6E645C',fontWeight:700,borderBottom:'1px solid var(--bd)',textAlign:i>=3?'right':'left',whiteSpace:'nowrap'}},h)))),
+          R('tbody',null,...rows.map((x,i)=>{
+            const v=calc(x);
+            return R('tr',{key:i,style:{opacity:x.on?1:.45,borderBottom:'1px solid #F4F1EE'}},
+              R('td',{style:{padding:'5px',width:30}},R('input',{type:'checkbox',checked:x.on,onChange:e=>setRow(i,'on',e.target.checked),'aria-label':'넣기',style:{width:18,height:18}})),
+              R('td',{style:{padding:'5px'}},R('input',{value:x.name,onChange:e=>setRow(i,'name',e.target.value),style:cellIn})),
+              R('td',{style:{padding:'5px',width:90}},R('input',{value:x.spec,onChange:e=>setRow(i,'spec',e.target.value),style:cellIn})),
+              R('td',{style:{padding:'5px',width:96}},R('input',{value:x.price?fmt(x.price):'',onChange:e=>setRow(i,'price',gqNum(e.target.value)),style:{...cellIn,textAlign:'right'}})),
+              R('td',{style:{padding:'5px',width:70,textAlign:'center'}},R('input',{type:'checkbox',checked:x.vat,onChange:e=>setRow(i,'vat',e.target.checked),'aria-label':'부가세 포함',style:{width:18,height:18}})),
+              R('td',{style:{padding:'5px',width:120}},R('input',{value:String(x.over).trim()!==''?x.over:fmt(v),onChange:e=>setRow(i,'over',e.target.value.replace(/[^0-9]/g,'')),
+                title:'직접 고치면 그 값으로 들어갑니다',style:{...cellIn,textAlign:'right',fontWeight:800,color:String(x.over).trim()!==''?'#1D4ED8':'var(--p)'}})));
+          })))),
+        R('div',{style:{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8,marginTop:12,flexWrap:'wrap'}},
+          R('button',{className:'btn bw',onClick:()=>{setRows(null);setErr('');}},'← 다시 읽기'),
+          R('span',{style:{fontSize:12,color:'#6E645C'}},rows.filter(x=>x.on).length+'개 품목'),
+          R('button',{className:'btn bp',onClick:apply,style:{minWidth:150}},'✅ 견적서에 입력')))));
+}
+/* 견적서 수신처 — 이카운트 거래처(app_state id=4 ecount_customers)에서 찾기 */
+function GqCustPick({onPick,onClose}){
+  const[list,setList]=useState(null);
+  const[kw,setKw]=useState('');
+  const[kind,setKind]=useState('매출처');
+  useEffect(()=>{sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle()
+    .then(({data})=>setList(((data&&data.v&&data.v.list)||[]).filter(c=>c&&c.name))).catch(()=>setList([]));},[]);
+  const k=kw.trim().toLowerCase().replace(/\s/g,'');
+  const shown=(list||[]).filter(c=>(kind==='전체'||c.kind===kind)&&(!k||(c.name+' '+(c.ceo||'')+' '+(c.code||'')+' '+(c.tel||'')).toLowerCase().replace(/\s/g,'').includes(k)))
+    .sort((a,b)=>(b.salesAmt||0)-(a.salesAmt||0)||String(a.name).localeCompare(String(b.name),'ko'));
+  return R('div',{onClick:e=>{if(e.target===e.currentTarget)onClose();},
+      style:{position:'fixed',inset:0,background:'rgba(20,14,10,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:12}},
+    R('div',{role:'dialog','aria-label':'거래처에서 찾기',style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:520,maxHeight:'88vh',display:'flex',flexDirection:'column',padding:16,boxSizing:'border-box'}},
+      R('div',{style:{display:'flex',alignItems:'center',marginBottom:8}},
+        R('div',{style:{fontSize:16,fontWeight:800}},'🏢 거래처에서 찾기'),
+        R('button',{onClick:onClose,'aria-label':'닫기',style:{marginLeft:'auto',background:'none',border:'none',fontSize:18,cursor:'pointer',width:40,height:40}},'✕')),
+      R('input',{value:kw,onChange:e=>setKw(e.target.value),autoFocus:true,placeholder:'상호·대표자·전화번호 검색',
+        style:{padding:'10px 12px',border:'1px solid var(--bd)',borderRadius:9,fontSize:14,fontFamily:'inherit',marginBottom:8}}),
+      R('div',{style:{display:'flex',gap:6,marginBottom:8,flexWrap:'wrap'}},...['매출처','매입처','전체'].map(x=>
+        R('button',{key:x,onClick:()=>setKind(x),className:'btn btn-sm '+(kind===x?'bp':'bw')},x))),
+      R('div',{style:{overflowY:'auto',flex:1,minHeight:120,border:'1px solid #F1ECE7',borderRadius:10}},
+        list===null?R('div',{style:{padding:20,textAlign:'center',color:'var(--tm)',fontSize:12}},'불러오는 중…'):
+        !shown.length?R('div',{style:{padding:20,textAlign:'center',color:'var(--tm)',fontSize:12}},'찾는 거래처가 없습니다. 견적서의 수신처 칸에 직접 입력하세요.'):
+        R('div',null,...shown.slice(0,200).map((c,i)=>R('button',{key:(c.code||'')+i,onClick:()=>onPick(c),
+          style:{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #F7F4F1',background:'#fff',cursor:'pointer',fontFamily:'inherit'}},
+          R('div',{style:{fontSize:13.5,fontWeight:800}},c.name),
+          R('div',{style:{fontSize:11.5,color:'#6E645C',marginTop:2}},[c.kind,c.ceo&&('대표 '+c.ceo),c.tel||c.mobile].filter(Boolean).join(' · ')))))),
+      R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:6}},'이카운트 거래처 목록 기준 · 고르면 수신처와 연락처가 채워집니다')));
+}
 function PageGaQuote({user}){
   const blankItems=()=>Array.from({length:GQ_ROWS},(_,i)=>({d:i===0?today2():'',name:'',spec:'',qty:'',amt:'',tax:'',moq:''}));
   const newQuote=()=>({id:'q'+Date.now().toString(36),date:today2(),to:'',contact:'',fax:'',items:blankItems(),note:GQ_NOTE,sup:{...GQ_SUP}});
   const[q,setQ]=useState(newQuote);
   const[list,setList]=useState(null);
   const[st,setSt]=useState('');
+  const[showImp,setShowImp]=useState(false);
+  const[showCust,setShowCust]=useState(false);
+  const[custNames,setCustNames]=useState([]);   /* 수신처 칸 자동완성 — 이카운트 매출처 */
+  useEffect(()=>{sbClient.from('app_state').select('v:state_data->ecount_customers').eq('id',4).maybeSingle()
+    .then(({data})=>setCustNames(((data&&data.v&&data.v.list)||[]).filter(c=>c&&c.name&&c.kind!=='매입처').map(c=>c.name).slice(0,1500))).catch(()=>{});},[]);
   const docRef=useRef(null);
+  /* 캡처로 정리된 품목을 빈 줄부터 채움 (모자라면 줄 추가) */
+  const applyImport=(its)=>{
+    setQ(p=>{
+      const items=p.items.map(x=>({...x}));
+      let k=0;
+      for(let i=0;i<items.length&&k<its.length;i++){
+        const it=items[i];
+        if(String(it.name||'').trim()||String(it.amt||'').trim())continue;
+        items[i]={...it,name:its[k].name,spec:its[k].spec,amt:its[k].amt,d:it.d||(k===0?today2():'')};k++;
+      }
+      for(;k<its.length;k++)items.push({d:'',name:its[k].name,spec:its[k].spec,qty:'',amt:its[k].amt,tax:'',moq:''});
+      return{...p,items};
+    });
+    setShowImp(false);
+    setSt('📷 '+its.length+'개 품목 입력됨 — 확인 후 저장하세요');
+  };
   const loadList=async()=>{
     try{
       const{data}=await sbClient.storage.from('bnf-files').list('ga-quotes',{limit:500,sortBy:{column:'updated_at',order:'desc'}});
@@ -8746,6 +8930,8 @@ function PageGaQuote({user}){
         st&&R('span',{style:{fontSize:11,fontWeight:700,color:'var(--ok)'}},st),
         R('button',{className:'btn bw',onClick:()=>{if(confirm('새 견적서를 작성할까요? (저장하지 않은 내용은 사라집니다)'))setQ(newQuote());}},'＋ 새 견적서'),
         R('button',{className:'btn bw',onClick:()=>setQ(p=>({...p,id:'q'+Date.now().toString(36),date:today2()}))},'⧉ 복사해서 새로'),
+        R('button',{className:'btn',style:{background:'#1D4ED8',color:'#fff',fontWeight:800},onClick:()=>setShowImp(true)},'📷 캡처로 품목 넣기'),
+        R('button',{className:'btn bw',onClick:()=>setShowCust(true)},'🏢 거래처에서 찾기'),
         R('button',{className:'btn bp',onClick:save},'💾 저장'),
         R('button',{className:'btn',style:{background:'#B91C1C',color:'#fff',fontWeight:800},onClick:savePdf},'📄 PDF 저장'),
         R('button',{className:'btn',style:{background:'#0F766E',color:'#fff',fontWeight:800},onClick:print},'🖨 인쇄'))),
@@ -8786,7 +8972,7 @@ function PageGaQuote({user}){
           R('tr',null,
             R('td',{colSpan:2,style:{border:'none',borderBottom:'1px solid #444',paddingLeft:20}},
               R('div',{style:{display:'flex',alignItems:'center'}},
-                R('input',{value:q.to,onChange:e=>up('to',e.target.value),placeholder:'수신처(업체명)',style:{flex:1,textAlign:'center',fontWeight:700}}),
+                R('input',{value:q.to,onChange:e=>up('to',e.target.value),placeholder:'수신처(업체명)',list:'gq-cust-dl',style:{flex:1,textAlign:'center',fontWeight:700}}),
                 R('span',{style:{width:60}},'귀하'))),
             R('td',{className:'gq-sp'},'사업장주소'),
             R('td',{colSpan:3},inp(S.addr,v=>upSup('addr',v)))),
@@ -8868,7 +9054,11 @@ function PageGaQuote({user}){
           R('span',{style:{fontSize:10.5,color:'var(--tm)',flexShrink:0}},x.by||''),
           R('button',{className:'btn bw btn-sm',onClick:()=>setQ({...newQuote(),...x,items:(x.items&&x.items.length?x.items:blankItems()),sup:{...GQ_SUP,...(x.sup||{})}})},'열기'),
           R('button',{className:'btn bd2 btn-sm',onClick:()=>del(x)},'삭제'));
-      })))
+      }))),
+    R('datalist',{id:'gq-cust-dl'},...custNames.map(n=>R('option',{key:n,value:n}))),
+    showImp&&R(GqImport,{onApply:applyImport,onClose:()=>setShowImp(false)}),
+    showCust&&R(GqCustPick,{onClose:()=>setShowCust(false),onPick:c=>{
+      setQ(p=>({...p,to:c.name,contact:c.tel||c.mobile||p.contact||''}));setShowCust(false);}})
   );
 }
 
