@@ -16932,29 +16932,6 @@ function WorkOrderImgModal({data,onClose}){
 
 /* ────── PAGE: 생산계획 ────── */
 function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg,onOpenBOM,onSetProds,onAddMat,hqItems}){
-  /* ── 생산 후 예상치 (2026-11-24): 생산 수량(배합 회분) → 생산 예정 제품 수량 + 현재 제품 재고(공장+본사) → 생산 후 재고·개월분 ── */
-  const[hqFeed,setHqFeed]=useState(null);
-  useEffect(()=>{let dead=false;
-    sbClient.from('app_state').select('v:state_data->bnf_hq_ec').eq('id',1).maybeSingle()
-      .then(({data})=>{if(!dead)setHqFeed(data&&data.v&&Array.isArray(data.v.rows)?data.v:{rows:[]});})
-      .catch(()=>{if(!dead)setHqFeed({rows:[]});});
-    return()=>{dead=true;};},[]);
-  const prodStockOf=(p)=>{
-    /* 제품 이름에서 'NNkg 배합' 이하를 떼어 재고 품목명과 맞춘다. 본사재고에서 직접 연결(prodId)한 것이 우선 */
-    const base=String(p.name||'').replace(/\s*\d+(?:\.\d+)?\s*kg\s*배합.*$/i,'').trim();
-    const k=bnfPNorm(base);
-    const hq=(hqItems||[]).find(h=>String(h.prodId||'')===String(p.id))
-      ||(hqItems||[]).find(h=>{const m=mats.find(x=>x.c===h.matCode);return m&&bnfPNorm(m.n)===k;});
-    const mat=hq?mats.find(x=>x.c===hq.matCode):mats.find(x=>bnfPNorm(x.n)===k);
-    if(!mat)return null;
-    let hqEff=0;
-    if(hq){
-      const fr=hq.hqCode&&hqFeed&&(hqFeed.rows||[]).find(r=>r&&r.c===hq.hqCode);
-      const raw=fr?(+fr.q||0):(+hq.hqStock||0);
-      hqEff=Math.round(raw*hqConvOf(hq)*100)/100;
-    }
-    return{mat,name:mat.n,unit:mat.u||'ea',factory:+mat.s||0,hq:hqEff,hasHq:!!hq,total:(+mat.s||0)+hqEff,mu:+mat.mu||0,packKg:bnfPackKg(mat.n)};
-  };
   const[confirmData,setConfirmData]=useState(null);
   const[woModal,setWoModal]=useState(null);   /* 작업지시서 이미지 모달 {prod,qty} */
   const[bomEdit,setBomEdit]=useState(null);   /* 원료 발주에서 바로 BOM 수정 {prod} */
@@ -17557,47 +17534,6 @@ function PageProd({mats,prods,cats,pqty,setPqty,isAdmin,onConfirmOrder,onOpenImg
             )
           )
         ),
-        /* 생산 후 예상치 */
-        (()=>{
-          const ps=prodStockOf(p);
-          const bk=bnfBatchKg(p.name)||(bnfBatchEa(p.name)?0:bnfBomKg(p));
-          const f1=n=>(Math.round(n*10)/10).toLocaleString('ko-KR');
-          const box=(lab,val,sub,c,bg)=>R('div',{style:{flex:'1 1 110px',minWidth:0,background:bg||'#fff',border:'1px solid #F0EBE6',borderRadius:8,padding:'6px 10px'}},
-            R('div',{style:{fontSize:10,color:'#9A9088',fontWeight:700}},lab),
-            R('div',{style:{fontSize:14,fontWeight:900,color:c||'#3D3630',marginTop:1}},val),
-            sub&&R('div',{style:{fontSize:10,color:'#9A9088',marginTop:1}},sub));
-          if(!ps&&!(qty>0))return null;
-          if(!ps)return R('div',{style:{marginTop:10,fontSize:11,color:'#9A9088'}},'📦 생산 후 예상치: 재고 품목과 이름이 맞는 항목이 없어 계산하지 못했습니다 (본사재고에서 품목명을 눌러 제품을 연결하면 계산됩니다)');
-          /* 생산 예정 수량: 'NNkg 배합' BOM이고 제품 규격 kg를 알면 박스 수로 환산, 아니면 입력 수량 그대로 */
-          const conv=bk>0&&ps.packKg>0;
-          if(!(qty>0)&&!conv)return null;
-          const be=!conv?bnfBatchEa(p.name):0;
-          const made=conv?qty*bk/ps.packKg:(be?qty*be:qty);
-          /* 품목 수량(박스 등)으로 입력 → 배합 회분으로 바꿔 생산 수량 칸에 넣는다 */
-          const eaInput=conv&&R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:qty>0?6:0}},
-            R('span',{style:{fontSize:11,fontWeight:800,color:'#1D4ED8'}},'품목 수량으로 입력'),
-            R('input',{type:'text',inputMode:'decimal',key:'ea'+p.id+'_'+(pqty[p.id]??''),defaultValue:qty>0?String(Math.round(made*10)/10):'',
-              placeholder:ps.unit,
-              onKeyDown:e=>{if(e.key==='Enter'&&!(e.nativeEvent&&e.nativeEvent.isComposing))e.currentTarget.blur();},
-              onBlur:e=>{const v=parseFloat(String(e.target.value).replace(/[^0-9.]/g,''))||0;
-                const b=v>0?String(Math.ceil(v*ps.packKg/bk*100)/100):'';
-                if(b!==String(pqty[p.id]??''))setPqty(pv=>({...pv,[p.id]:b}));},
-              style:{width:78,padding:'6px 8px',border:'1.5px solid #93C5FD',borderRadius:8,fontSize:13,textAlign:'center'}}),
-            R('span',{style:{fontSize:11,color:'#6E645C'}},ps.unit+' ('+ps.name.replace(/^\[[^\]]*\]/,'')+')'),
-            R('span',{style:{fontSize:10.5,color:'#9A9088'}},'→ '+bk+'kg 배합 회분으로 자동 환산'));
-          if(!(qty>0))return R('div',{style:{marginTop:8,background:'#F8FAFF',border:'1px dashed #BFDBFE',borderRadius:8,padding:'6px 10px'}},eaInput);
-          const after=ps.total+made;
-          const moNow=ps.mu>0?ps.total/ps.mu:null,moAfter=ps.mu>0?after/ps.mu:null;
-          const moC=m=>m==null?'#3D3630':(m<1?'#DC2626':(m<2?'#B45309':'#059669'));
-          return R('div',{style:{marginTop:10,background:'#F8FAFF',border:'1px solid #DBEAFE',borderRadius:8,padding:'8px 10px'}},
-            eaInput,
-            R('div',{style:{fontSize:10.5,fontWeight:800,color:'#1D4ED8',marginBottom:6}},'📦 생산 후 예상치 — '+ps.name),
-            R('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
-              box('생산 예정',f1(made)+ps.unit,conv?(bk+'kg×'+qty+'='+f1(bk*qty)+'kg ÷ '+(Math.round(ps.packKg*100)/100)+'kg'):'입력 수량 기준','#1D4ED8'),
-              box('현재 재고',f1(ps.total)+ps.unit,'공장 '+f1(ps.factory)+(ps.hasHq?' + 본사 '+f1(ps.hq):'')),
-              box('생산 후 재고',f1(after)+ps.unit,ps.mu>0?('월사용량 '+f1(ps.mu)+ps.unit):'월사용량 미입력','#D94F1E','#FFF7F3'),
-              ps.mu>0&&box('개월분',(Math.round(moNow*10)/10)+' → '+(Math.round(moAfter*10)/10)+'개월',moAfter<1?'생산 후에도 1개월 미만':(moAfter<2?'2개월 미만':'여유'),moC(moAfter))));
-        })(),
         /* 원재료 컴팩트 테이블 */
         qty>0&&R('div',{style:{marginTop:10,background:'#FAFAFA',borderRadius:8,border:'1px solid #F4F1EE',overflow:'hidden'}},
           R('div',{style:{padding:'5px 10px',background:'#fff',borderBottom:'1px solid #F4F1EE',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:10,fontWeight:700,color:'#6E645C'}},
