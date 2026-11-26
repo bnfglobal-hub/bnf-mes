@@ -20865,6 +20865,7 @@ const DEFAULT_NAV_SECTIONS=[
     {id:'profit',l:'영업 이익 분석',ic:'📈'},
     {id:'operation',l:'공장 가동률',ic:'📊'},
     {id:'cost',l:'원가분석',ic:'💰'},
+    {id:'fixcost',l:'고정비',ic:'🏭'},
     {id:'bizplan',l:'사업계획',ic:'🎯'},
     {id:'data',l:'데이터관리',ic:'💾'},
     {id:'admin',l:'사용자 관리',ic:'👤'},
@@ -21133,7 +21134,8 @@ function loadNavSections(){
             {id:'ga_ilgye',l:'일계표',ic:'🧾'},
             {id:'ga_ledger',l:'거래처원장',ic:'📒'}]);
           ensure({t:'admin',m:'관리자',label:'⚙️ 관리자'},[
-            {id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}]);
+            {id:'webana',l:'홈페이지 방문 분석',ic:'🌐'},
+            {id:'fixcost',l:'고정비',ic:'🏭'}]);
           ensure({t:'dept_rnd',m:'연구개발',label:'🔬 연구개발부서'},[
             {id:'rnd_oem',l:'신규 OEM 의뢰',ic:'📦'}]);
           /* 기존 사용자의 옛 라벨(휴무 현황) 정리 */
@@ -21153,7 +21155,8 @@ function loadNavSections(){
 const NAV_NEW_ITEMS=[
   {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ilgye',l:'일계표',ic:'🧾'}},
   {sec:{t:'dept_ga',m:'경영지원'},item:{id:'ga_ledger',l:'거래처원장',ic:'📒'}},
-  {sec:{t:'admin',m:'관리자'},item:{id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}}
+  {sec:{t:'admin',m:'관리자'},item:{id:'webana',l:'홈페이지 방문 분석',ic:'🌐'}},
+  {sec:{t:'admin',m:'관리자'},item:{id:'fixcost',l:'고정비',ic:'🏭'}}
 ];
 function ensureNavItems(arr){
   if(!Array.isArray(arr))return arr;
@@ -23050,6 +23053,132 @@ function PageLot({user}){
         ...list.map(d=>R('button',{key:d,className:'btn btn-sm '+(d===prodDate?'bp':'bw'),onClick:()=>setProdDate(d)},d)))));
 }
 
+/* ═══ 관리자: 고정비 — 이천 공장 고정비용 엑셀을 옮김 (2026-11-26) ═══
+   항목별 '금액 ÷ 나눌 개월'(1=매월 금액, 12=연납, 3=분기 등) → 월 평균
+   총 고정비(공장 고정비용 + 기타 고정비) + 간접 인건비를 월 근무일(실근무일÷12, 소수 1자리)로 나눠 1일 발생 비용
+   근무일: 연도 전체일·주말은 자동, 공휴일·유급휴일만 입력
+   저장: app_state id=1 state_data.bnf_fixcost (set_state_key로 키만) — 관리자만 열람, 금액은 코드에 넣지 않음 */
+/* 금액·인건비는 코드(공개 파일)에 두지 않는다 — 서버 bnf_fixcost에만 저장. 비어 있으면 빈 묶음 두 개로 시작 */
+function fixcostSeed(){
+  return {holiday:0,groups:[{id:'g_fac',name:'이천 공장 고정비용',items:[]},{id:'g_etc',name:'기타 고정비',items:[]}],labor:[]};
+}
+/* 숫자 칸: 평소엔 콤마, 누르면 숫자만 (컴포넌트 밖에 둬야 입력 중 포커스가 안 풀림) */
+function FixNumIn({v,on,w,ph}){
+  const[f,setF]=useState(false);
+  return R('input',{inputMode:'numeric',value:f?(v===''||v==null?'':String(v)):(v?Math.round(+v||0).toLocaleString('ko-KR'):''),placeholder:ph||'',
+    onFocus:e=>{setF(true);const el=e.target;setTimeout(()=>{try{el.select();}catch(_){}},0);},onBlur:()=>setF(false),
+    onChange:e=>{const s=e.target.value.replace(/[^0-9.]/g,'');on(s===''?'':+s);},
+    style:{width:w||'100%',textAlign:'right',border:'1px solid var(--bd,#E5E7EB)',borderRadius:6,padding:'5px 7px',font:'inherit',background:'var(--bg2,#fff)'}});
+}
+function PageFixCost({user}){
+  const nf=n=>Math.round(+n||0).toLocaleString('ko-KR');
+  const year=new Date().getFullYear();
+  const[d,setD]=useState(null);
+  const[dirty,setDirty]=useState(false);
+  const[busy,setBusy]=useState(false);
+  const[msg,setMsg]=useState('');
+  const load=async()=>{
+    try{
+      const{data}=await sbClient.from('app_state').select('v:state_data->bnf_fixcost').eq('id',1).maybeSingle();
+      const v=data&&data.v;
+      setD(v&&Array.isArray(v.groups)?v:fixcostSeed());
+    }catch(e){setD(fixcostSeed());}
+    setDirty(false);
+  };
+  useEffect(()=>{load();},[]);
+  if(!d)return R('div',{className:'pg fa'},R('div',{style:{padding:40,textAlign:'center',color:'var(--tm)'}},'불러오는 중…'));
+  const upd=fn=>{setD(p=>{const n=JSON.parse(JSON.stringify(p));fn(n);return n;});setDirty(true);setMsg('');};
+  const save=async()=>{
+    setBusy(true);
+    try{
+      const v={...d,updatedBy:(user&&user.name)||'',updatedAt:now2()};
+      const{error}=await sbClient.rpc('set_state_key',{k:'bnf_fixcost',v});
+      if(error)throw error;
+      setD(v);setDirty(false);setMsg('저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+    }catch(e){alert('저장 실패: '+(e.message||e));}
+    setBusy(false);
+  };
+  /* 근무일 */
+  const totalDays=((year%4===0&&year%100!==0)||year%400===0)?366:365;
+  let weekend=0;for(let t=new Date(year,0,1);t.getFullYear()===year;t.setDate(t.getDate()+1)){const w=t.getDay();if(w===0||w===6)weekend++;}
+  const holiday=+d.holiday||0;
+  const workDays=totalDays-weekend-holiday;
+  const monthDays=Math.round(workDays/12*10)/10;
+  /* 합계 */
+  const mAvg=it=>(+it.amt||0)/Math.max(1,+it.months||1);
+  const gSum=g=>(g.items||[]).reduce((a,it)=>a+mAvg(it),0);
+  const fixTot=(d.groups||[]).reduce((a,g)=>a+gSum(g),0);
+  const laborTot=(d.labor||[]).reduce((a,x)=>a+(+x.amt||0),0);
+  const fixDay=monthDays>0?fixTot/monthDays:0;
+  const laborDay=monthDays>0?laborTot/monthDays:0;
+  const NumIn=FixNumIn;
+  const txtIn=(v,on,ph)=>R('input',{value:v||'',placeholder:ph||'',onChange:e=>on(e.target.value),
+    style:{width:'100%',border:'1px solid var(--bd,#E5E7EB)',borderRadius:6,padding:'5px 7px',font:'inherit',background:'var(--bg2,#fff)'}});
+  const th={padding:'7px 6px',fontSize:12,color:'var(--tm)',fontWeight:600,borderBottom:'1px solid var(--bd,#E5E7EB)',whiteSpace:'nowrap'};
+  const td={padding:'4px 6px',borderBottom:'1px solid var(--bd,#F1F1F1)',fontSize:13,verticalAlign:'middle'};
+  const delB=fn=>R('button',{onClick:fn,title:'줄 삭제',style:{border:'none',background:'none',color:'#D1D5DB',cursor:'pointer',fontSize:13}},'✕');
+  const kpi=(l,v,sub,c)=>R('div',{className:'card',style:{padding:'12px 14px',flex:'1 1 170px',minWidth:150}},
+    R('div',{style:{fontSize:12,color:'var(--tm)'}},l),
+    R('div',{style:{fontSize:21,fontWeight:800,marginTop:4,color:c||'inherit'}},nf(v),R('span',{style:{fontSize:12,fontWeight:500,marginLeft:2}},'원')),
+    sub?R('div',{style:{fontSize:11.5,color:'var(--tm)',marginTop:3}},sub):null);
+  const groupCard=(g,gi)=>R('div',{key:g.id,className:'card',style:{padding:'12px 14px',marginTop:14}},
+    R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6}},
+      R('div',{style:{flex:1,maxWidth:280}},txtIn(g.name,v=>upd(n=>{n.groups[gi].name=v;}),'묶음 이름')),
+      R('div',{style:{marginLeft:'auto',fontWeight:800}},'월 ',nf(gSum(g)),'원')),
+    R('div',{style:{overflowX:'auto'}},
+      R('table',{style:{width:'100%',borderCollapse:'collapse',minWidth:520}},
+        R('thead',null,R('tr',null,R('th',{style:{...th,textAlign:'left'}},'업체명 / 항목'),R('th',{style:{...th,width:130,textAlign:'right'}},'금액'),
+          R('th',{style:{...th,width:96,textAlign:'center'},title:'1 = 매월 나가는 금액, 12 = 1년치 한 번에(연납), 3 = 3개월치'},'나눌 개월'),
+          R('th',{style:{...th,width:120,textAlign:'right'}},'월 평균'),R('th',{style:{...th,width:28}},''))),
+        R('tbody',null,...(g.items||[]).map((it,i)=>R('tr',{key:it.id},
+          R('td',{style:td},txtIn(it.name,v=>upd(n=>{n.groups[gi].items[i].name=v;}),'업체명')),
+          R('td',{style:td},R(NumIn,{v:it.amt,on:v=>upd(n=>{n.groups[gi].items[i].amt=v;})})),
+          R('td',{style:{...td,textAlign:'center'}},R(NumIn,{v:it.months,w:56,on:v=>upd(n=>{n.groups[gi].items[i].months=v||1;})})),
+          R('td',{style:{...td,textAlign:'right',fontWeight:600,color:(+it.months||1)>1?'#B45309':'inherit'}},nf(mAvg(it))),
+          R('td',{style:td},delB(()=>upd(n=>{n.groups[gi].items.splice(i,1);})))))))),
+    R('div',{style:{display:'flex',gap:8,marginTop:8,flexWrap:'wrap'}},
+      R('button',{className:'btn bw btn-sm',onClick:()=>upd(n=>{n.groups[gi].items.push({id:'f'+Date.now().toString(36),name:'',amt:'',months:1});})},'＋ 항목 추가'),
+      (d.groups.length>1&&!(g.items||[]).length)?R('button',{className:'btn bw btn-sm',onClick:()=>upd(n=>{n.groups.splice(gi,1);})},'묶음 삭제'):null));
+  return R('div',{className:'pg fa'},
+    R('div',{className:'pg-hdr',style:{flexWrap:'wrap',gap:8}},
+      R('div',null,
+        R('div',{className:'pg-title'},'🏭 고정비'),
+        R('div',{style:{fontSize:11,color:'var(--tm)',marginTop:2}},'이천 공장 월 고정비 · 간접 인건비 → 하루 근무 기준 발생 비용'+(d.updatedAt?' · 마지막 저장 '+d.updatedAt+(d.updatedBy?' ('+d.updatedBy+')':''):''))),
+      R('div',{style:{display:'flex',gap:8,alignItems:'center',marginLeft:'auto'}},
+        msg?R('span',{style:{fontSize:12,color:'#15803D'}},msg):dirty?R('span',{style:{fontSize:12,color:'#B45309'}},'저장 안 된 변경 있음'):null,
+        dirty?R('button',{className:'btn bw btn-sm',onClick:load,disabled:busy},'되돌리기'):null,
+        R('button',{className:'btn bp btn-sm',onClick:save,disabled:busy||!dirty},busy?'저장 중…':'💾 저장'))),
+    R('div',{style:{display:'flex',gap:10,flexWrap:'wrap'}},
+      kpi('하루 발생 비용',fixDay+laborDay,'고정비 '+nf(fixDay)+' + 간접 인건비 '+nf(laborDay),'#C2410C'),
+      kpi('월 총 고정비',fixTot,(d.groups||[]).map(g=>g.name+' '+nf(gSum(g))).join(' · ')),
+      kpi('월 간접 인건비',laborTot,(d.labor||[]).length+'명'),
+      R('div',{className:'card',style:{padding:'12px 14px',flex:'1 1 220px',minWidth:200}},
+        R('div',{style:{fontSize:12,color:'var(--tm)'}},year+'년 근무일'),
+        R('div',{style:{fontSize:13,marginTop:6,lineHeight:1.8}},
+          '전체 ',R('b',null,totalDays),'일 − 주말 ',R('b',null,weekend),'일 − 공휴·유급휴일 ',
+          R(NumIn,{v:d.holiday,w:48,on:v=>upd(n=>{n.holiday=v;})}),'일',R('br'),
+          '= 실 근무 ',R('b',null,workDays),'일 · 월 ',R('b',{style:{color:'#C2410C'}},monthDays),'일 (÷12)'))),
+    ...(d.groups||[]).map(groupCard),
+    R('button',{className:'btn bw btn-sm',style:{marginTop:10},onClick:()=>upd(n=>{n.groups.push({id:'g'+Date.now().toString(36),name:'새 묶음',items:[]});})},'＋ 묶음 추가'),
+    R('div',{className:'card',style:{padding:'12px 14px',marginTop:14}},
+      R('div',{style:{display:'flex',alignItems:'center',marginBottom:6}},
+        R('div',{style:{fontWeight:800}},'👥 간접 인건비 (월)'),
+        R('div',{style:{marginLeft:'auto',fontWeight:800}},'월 ',nf(laborTot),'원 · 하루 ',nf(laborDay),'원')),
+      R('div',{style:{overflowX:'auto'}},
+        R('table',{style:{width:'100%',borderCollapse:'collapse',minWidth:360}},
+          R('thead',null,R('tr',null,R('th',{style:{...th,textAlign:'left'}},'담당 / 이름'),R('th',{style:{...th,width:140,textAlign:'right'}},'월 금액'),
+            R('th',{style:{...th,width:110,textAlign:'right'}},'하루'),R('th',{style:{...th,width:28}},''))),
+          R('tbody',null,...(d.labor||[]).map((x,i)=>R('tr',{key:x.id},
+            R('td',{style:td},txtIn(x.name,v=>upd(n=>{n.labor[i].name=v;}),'담당·이름')),
+            R('td',{style:td},R(NumIn,{v:x.amt,on:v=>upd(n=>{n.labor[i].amt=v;})})),
+            R('td',{style:{...td,textAlign:'right',color:'var(--tm)'}},monthDays>0?nf((+x.amt||0)/monthDays):'-'),
+            R('td',{style:td},delB(()=>upd(n=>{n.labor.splice(i,1);})))))))),
+      R('button',{className:'btn bw btn-sm',style:{marginTop:8},onClick:()=>upd(n=>{n.labor.push({id:'f'+Date.now().toString(36),name:'',amt:''});})},'＋ 인원 추가')),
+    R('div',{style:{fontSize:11.5,color:'var(--tm)',margin:'12px 2px 30px',lineHeight:1.7}},
+      '· 나눌 개월: 1 = 매월 나가는 금액, 12 = 1년치를 한 번에 내는 금액(보험 선납 등), 3 = 3개월치. 월 평균 = 금액 ÷ 나눌 개월',R('br'),
+      '· 하루 발생 비용 = (월 총 고정비 + 월 간접 인건비) ÷ 월 근무일'));
+}
+
 /* ═══ 관리자: 주간 회의 자료 — 엑셀 회의 양식 그대로 (2026-10-20) ═══
    거래처 진행 상황 · 연구 개발 · 공장 개선 사항은 직접 입력(지난 회의 내용을 이어받아 수정),
    매출액은 본사(171542)/이천공장(600860) 올해 월별 매출을 자동으로 채운다.
@@ -23358,6 +23487,7 @@ const NAV_PAGES_INDEX=[
   {p:'pm_equip',title:'설비 점검',ic:'🔧',keys:['설비','점검','수리','기계']},
   {p:'files',title:'파일 공유',ic:'📁',keys:['파일','공유','file']},
   {p:'cost',title:'원가분석',ic:'💰',keys:['원가','분석','cost']},
+  {p:'fixcost',title:'고정비',ic:'🏭',keys:['고정비','고정비용','간접비','인건비','간접인건비','일발생비용','fixed']},
   {p:'operation',title:'공장 가동률',ic:'📊',keys:['가동률','operation','utilization']},
   {p:'purchase_data',title:'매입 자료',ic:'🛒',keys:['매입','구매','purchase']},
   {p:'pricelookup',title:'매입단가 조회',ic:'🔎',keys:['매입단가','단가','가격','원가','price','매입가']},
@@ -27946,6 +28076,7 @@ function App(){
     if(page==='shipsort')return R(PageShipSort,{mats,hqItems});
     if(page==='dart')return R(PageDartLookup,{});
     if(page==='remote'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageRemote,{});}
+    if(page==='fixcost'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageFixCost,{user});}
     if(page==='meeting'){if(!isAdmin)return R('div',{className:'pg'},R('div',{className:'empty'},R('div',{className:'empty-ic'},'🔒'),'관리자만'));return R(PageMeeting,{user});}
     if(page==='pm_lot')return R(PageLot,{user});
     if(page==='ga_edu')return R(PageEdu,{user});
