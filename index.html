@@ -12680,13 +12680,17 @@ function PageSampleDev({user}){
    추가는 append_sales_log RPC(서버에서 원자적으로 덧붙임 — 동시 작성해도 유실 없음), 기존 글은 수정하지 않음.
    localhost(개발 미리보기)는 bnf_sales_log_demo 키를 써서 운영 데이터와 분리.
    기록 1건 = {id,cust,custCode,item,body,stage,nextDate,nextTodo,by,byId,at} — stage는 작성 당시 단계 그대로 보존 */
-const SALES_STAGES=['초기 상담','샘플 개발','샘플 발송','견적 협의','초도 발주','종료'];
+const SALES_STAGES=['기획','개발','견적','발주 대기'];   /* 2026-11-27 사용자 요청으로 변경 (이전 글의 옛 단계명은 그대로 표시) */
 const SALES_STAGE_COL={'초기 상담':['#F3F4F6','#4B5563'],'샘플 개발':['#EEF2F7','#3F5672'],'샘플 발송':['#EDF3F1','#3D6357'],
   '견적 협의':['#F6F1E7','#7A5F2E'],'초도 발주':['#EEF0F8','#46507A'],'종료':['#F4F4F5','#8A8A90'],
+  '기획':['#F3F4F6','#4B5563'],'개발':['#EEF2F7','#3F5672'],'견적':['#F6F1E7','#7A5F2E'],'발주 대기':['#EDF3F1','#3D6357'],
   /* 이슈 사항 단계 */
   '접수':['#F6EDED','#8A4B4B'],'원인 파악':['#EEF2F7','#3F5672'],'조치 중':['#F6F1E7','#7A5F2E'],'고객 회신':['#EDF3F1','#3D6357'],'해결':['#F4F4F5','#8A8A90']};
 const ISSUE_STAGES=['접수','원인 파악','조치 중','고객 회신','해결'];
 const SALES_DONE=['종료','해결'];
+/* 옛 단계명 → 새 단계 (새 글 작성 시 기본값만, 지난 글은 그대로) */
+const SALES_STAGE_OLD={'초기 상담':'기획','샘플 개발':'개발','샘플 발송':'개발','견적 협의':'견적','초도 발주':'발주 대기'};
+const salesStageDefault=(cfg,st)=>{if(st&&cfg.stages.includes(st))return st;const m=SALES_STAGE_OLD[st];return (m&&cfg.stages.includes(m))?m:cfg.stages[0];};
 /* 같은 구조의 홈 카드 2종: 영업 진행 현황 / 이슈 사항 (2026-11-27). 저장 키만 다르고 RPC·화면은 공용 */
 const BNF_LOG_CFG={
   sales:{title:'영업 진행 현황',base:'bnf_sales_log',ord:'bnf_sales_order',stages:SALES_STAGES,formTitle:'영업 업데이트',
@@ -12753,7 +12757,7 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved,cfg}){
     if(edit)return;   /* 수정할 때는 그 글의 단계를 그대로 둔다 */
     const it=item.trim();
     const e=grp?grp.entries.find(x=>String(x.item||'')===it):null;
-    if(e&&e.stage)setStage(e.stage);else if(!stage)setStage(cfg.stages[0]);
+    if(e&&e.stage)setStage(salesStageDefault(cfg,e.stage));else if(!stage)setStage(cfg.stages[0]);
   },[grp&&grp.key,item]);
   const k=kw.trim().toLowerCase().replace(/\s/g,'');
   const pool=(()=>{
@@ -12868,13 +12872,13 @@ function SalesInlineComposer({cfg,user,grp,itemF,onSaved}){
   const initItem=cfg.titleMode?'':(itemF||(grp.last&&grp.last.item)||'');
   const[item,setItem]=useState(initItem);
   const[body,setBody]=useState('');
-  const[stage,setStage]=useState(()=>{const e=cfg.titleMode?grp.last:latestOf(initItem);return (e&&e.stage)||cfg.stages[0];});
+  const[stage,setStage]=useState(()=>{const e=cfg.titleMode?grp.last:latestOf(initItem);return salesStageDefault(cfg,e&&e.stage);});
   const[nextDate,setNextDate]=useState('');
   const[nextTodo,setNextTodo]=useState('');
   const[open,setOpen]=useState(false);   /* 입력칸을 누르면 단계·일정 줄이 펼쳐짐 */
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState('');
-  useEffect(()=>{if(cfg.titleMode)return;if(itemF){setItem(itemF);const e=latestOf(itemF);if(e&&e.stage)setStage(e.stage);}},[itemF]);
+  useEffect(()=>{if(cfg.titleMode)return;if(itemF){setItem(itemF);const e=latestOf(itemF);if(e&&e.stage)setStage(salesStageDefault(cfg,e.stage));}},[itemF]);
   const save=async()=>{
     if(busy)return;
     if(!body.trim()){setErr('내용을 입력해 주세요.');return;}
@@ -12899,7 +12903,7 @@ function SalesInlineComposer({cfg,user,grp,itemF,onSaved}){
       placeholder:'여기에 바로 진행 내용을 쓰세요 — '+cfg.ph.replace(/^예:\s*/,'예: '),'aria-label':'진행 내용',
       style:{width:'100%',boxSizing:'border-box',border:'none',outline:'none',resize:'vertical',fontSize:13.5,lineHeight:1.55,fontFamily:'inherit',color:'var(--t)',background:'transparent',padding:2}}),
     (open||body)&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:6,paddingTop:8,borderTop:'1px solid #F2EEEA'}},
-      !cfg.titleMode&&R('input',{value:item,onChange:e=>{setItem(e.target.value);const x=latestOf(e.target.value.trim());if(x&&x.stage)setStage(x.stage);},
+      !cfg.titleMode&&R('input',{value:item,onChange:e=>{setItem(e.target.value);const x=latestOf(e.target.value.trim());if(x&&x.stage)setStage(salesStageDefault(cfg,x.stage));},
         list:'sl-inline-items-'+grp.key,placeholder:'품목','aria-label':'품목',style:{...inp,width:130}}),
       !cfg.titleMode&&R('datalist',{id:'sl-inline-items-'+grp.key},...grp.items.map(x=>R('option',{key:x,value:x}))),
       R('select',{value:stage,onChange:e=>setStage(e.target.value),'aria-label':'현재 단계',style:{...inp,width:'auto'}},...cfg.stages.map(x=>R('option',{key:x,value:x},x))),
