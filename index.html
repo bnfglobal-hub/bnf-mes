@@ -9376,6 +9376,43 @@ function PageGaIlgye({user}){
    ── 월말 팝업 ── 말일 16시부터 다음 달 10일까지 관리자에게 미발송 거래처를 묻는다(LedgerMonthEndPopup). 누르기 전엔 아무것도 나가지 않는다.
    ※ 세금계산서 발행(인증서 첨부·즉시전송)은 법적 효력이 있어 자동 실행하지 않고 체크리스트로만 안내한다. */
 const LEDGER_SETTINGS='ga-ledger/settings.json';
+/* 원장 발송 기록: cust[key].log(처리기가 쌓음, 2026-11-27~). 그 전 기록은 sent/sendErr 로 한 줄 만들어 보여 준다 */
+function ledgerSendLogOf(row){
+  row=row||{};
+  if(Array.isArray(row.log)&&row.log.length)return row.log.slice();
+  const out=[];
+  if(row.sent)out.push({at:row.sent.at,by:row.sent.by,ok:true,email:row.sent.email||'',manual:!row.sent.auto});
+  if(row.sendErr)out.push({at:row.sendErr.at,ok:false,error:row.sendErr.error});
+  return out;
+}
+function LedgerSendLogPop({title,items,onClose,onUnmark}){
+  const fT=iso=>{try{const d=new Date(iso);return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return '';}};
+  const list=items.slice().sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')));
+  return R('div',{className:'mbg',style:{alignItems:'center',justifyContent:'center',padding:12},onClick:e=>{if(e.target===e.currentTarget)onClose();}},
+    R('div',{role:'dialog','aria-label':title,style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:720,maxHeight:'86vh',display:'flex',flexDirection:'column',padding:'16px 18px',boxSizing:'border-box'}},
+      R('div',{style:{display:'flex',alignItems:'center',marginBottom:10}},
+        R('div',{style:{fontSize:16,fontWeight:800,flex:1}},title),
+        R('button',{onClick:onClose,'aria-label':'닫기',style:{border:'none',background:'none',fontSize:20,cursor:'pointer',color:'#9A9088',padding:4,lineHeight:1}},'×')),
+      R('div',{style:{overflowY:'auto',flex:1}},
+        list.length===0?R('div',{style:{padding:'18px 0',textAlign:'center',color:'var(--tm)',fontSize:13}},'보낸 기록이 없습니다.'):
+        R('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:12.5}},
+          R('thead',null,R('tr',null,...['보낸 시각'].concat(list.some(x=>x.name)?['거래처']:[]).concat(['결과','받는 사람','요청']).map((h,i)=>
+            R('th',{key:i,style:{textAlign:'left',padding:'6px 6px',fontSize:11.5,color:'#857A70',fontWeight:600,borderBottom:'1px solid #EEE9E4',whiteSpace:'nowrap',position:'sticky',top:0,background:'#fff'}},h)))),
+          R('tbody',null,...list.map((x,i)=>R('tr',{key:i,style:{borderBottom:'1px solid #F2EEEA',verticalAlign:'top'}},
+            R('td',{style:{padding:'7px 6px',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}},fT(x.at)),
+            list.some(y=>y.name)&&R('td',{style:{padding:'7px 6px',fontWeight:700}},x.name||''),
+            R('td',{style:{padding:'7px 6px',whiteSpace:'nowrap'}},x.ok
+              ?R('span',{style:{color:'#15803D',fontWeight:700}},x.manual?'✓ 완료 표시':'✓ 발송')
+              :R('span',{style:{color:'#B91C1C',fontWeight:700},title:x.error||''},'⚠ 실패')),
+            R('td',{style:{padding:'7px 6px',overflowWrap:'anywhere'}},
+              x.ok?[x.email?R('div',{key:'e'},x.email):(x.manual?R('div',{key:'e',style:{color:'var(--tm)'}},'직접 완료 표시'):null),
+                (x.cc&&x.cc.length)?R('div',{key:'c',style:{fontSize:11.5,color:'#857A70'}},'참조 '+x.cc.join(', ')):null]
+                :R('div',{style:{fontSize:11.5,color:'#B91C1C'}},x.error||'')),
+            R('td',{style:{padding:'7px 6px',whiteSpace:'nowrap',color:'#6E645C'}},x.by||'')))))),
+      onUnmark&&R('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,gap:8}},
+        R('span',{style:{fontSize:11.5,color:'var(--tm)'}},'메일은 이카운트에서 보냈고, 기록은 지워지지 않습니다.'),
+        R('button',{className:'btn bw btn-sm',onClick:onUnmark,style:{color:'#B91C1C'}},'완료 표시 해제'))));
+}
 const ledgerRecPath=m=>'ga-ledger/'+m+'.json';
 /* 스토리지 JSON 읽기: 파일이 '정말 없을' 때만 기본값 — 일시 오류면 throw 해서 저장을 막는다 */
 const ledgerReadJson=async(path,empty)=>{
@@ -9948,6 +9985,7 @@ function GaLedgerSales({user,top}){
   const[sel,setSel]=useState({});
   const[guide,setGuide]=useState('');
   const[msg,setMsg]=useState('');
+  const[logPop,setLogPop]=useState(null);   /* 보낸 기록 창 {title,items,key?} */
   const flash=t=>{setMsg(t);setTimeout(()=>setMsg(''),2000);};
   const SETTINGS=LEDGER_SETTINGS;
   const recPath=ledgerRecPath;
@@ -10066,6 +10104,9 @@ function GaLedgerSales({user,top}){
         R('input',{className:'inp',value:q,onChange:e=>setQ(e.target.value),placeholder:'거래처 검색',style:{maxWidth:220}}),
         R(LedgerSortBtns,{value:sortBy,onChange:setSortBy,amtLabel:'매출액 순'}),
         R('div',{style:{flex:1}}),
+        R('button',{className:'btn bw btn-sm',title:'이 달 원장 메일을 보낸 기록 (시각·받는 사람·참조·결과)',onClick:()=>{
+          const items=[];rows.forEach(x=>ledgerSendLogOf(recC[x.key]).forEach(e=>items.push(Object.assign({name:x.name},e))));
+          setLogPop({title:(+month.slice(5))+'월 원장 보낸 기록 · '+coLbl[co].slice(3),items});}},'📜 보낸 기록'),
         R('button',{className:'btn bw btn-sm',onClick:()=>{const all={};rows.filter(x=>!(recC[x.key]&&recC[x.key].sent)&&!ledgerPending(recC[x.key])&&x.email&&invOf(x.key)!=='none').forEach(x=>all[x.key]=true);setSel(all);}},'미발송 전체 선택'),
         R('button',{className:'btn bp btn-sm',disabled:!selItems.length||!!busy,onClick:()=>sendLedger(selItems),style:{opacity:!selItems.length||busy?.5:1}},busy||('✉ 선택 '+selItems.length+'곳 원장 발송'))),
       rows.length===0?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'16px 0',textAlign:'center'}},coN[co]?'조건에 맞는 거래처가 없습니다':(+month.slice(5)+'월 '+coLbl[co].slice(3)+' 매출 거래처가 없습니다')):
@@ -10088,6 +10129,12 @@ function GaLedgerSales({user,top}){
               if(s.k==='sent'&&!v&&ledgerPending(r))return R('td',{key:s.k,style:{fontSize:11.5,fontWeight:700,color:'#B45309',textAlign:'center'}},'발송 중...');
               if(s.k==='sent'&&!v&&(r.sendErr||r.sendReq)){const why=r.sendErr?r.sendErr.error:'처리기가 응답하지 않습니다 (사무실 PC 확인)';return R('td',{key:s.k},R('button',{onClick:()=>sendLedger([x]),title:why+' — 눌러서 다시 보내기',style:{width:'100%',border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},'⚠ 실패 · 재발송'));}
               if(s.k==='issued'&&inv==='none')return R('td',{key:s.k,style:{fontSize:11,color:'var(--tm)'}},'—');
+              /* 원장 메일 완료 칸: 누르면 보낸 기록 창 (실수로 눌러 완료가 풀리지 않게 — 해제는 창 안에서) */
+              if(s.k==='sent'&&v)return R('td',{key:s.k},
+                R('button',{onClick:()=>setLogPop({title:x.name+' · 원장 보낸 기록',items:ledgerSendLogOf(r),key:x.key}),
+                  title:'눌러서 보낸 기록 보기 — '+(v.by||'')+' · '+fT(v.at)+(v.email?' · '+v.email:''),
+                  style:{width:'100%',border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},
+                  '✓ '+fT(v.at)+((r.log&&r.log.length>1)?' · '+r.log.filter(e=>e.ok).length+'회':'')));
               return R('td',{key:s.k},
                 R('button',{onClick:()=>blocked?alert('앞 단계를 먼저 완료해주세요.'):toggleStage(x.key,s.k),
                   title:v?(v.by+' · '+fT(v.at)+(v.email?' · '+v.email:'')):(blocked?'앞 단계 먼저':'눌러서 완료 표시'),
@@ -10096,7 +10143,9 @@ function GaLedgerSales({user,top}){
                   v?('✓ '+fT(v.at)):(blocked?'대기':'미완료')));
             }));
         }))))
-    )
+    ),
+    logPop&&R(LedgerSendLogPop,{title:logPop.title,items:logPop.items,onClose:()=>setLogPop(null),
+      onUnmark:logPop.key?(()=>{if(!confirm('원장 메일 완료 표시를 해제할까요?\n(보낸 기록은 남습니다)'))return;toggleStage(logPop.key,'sent');setLogPop(null);}):null})
   );
 }
 
