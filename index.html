@@ -9467,6 +9467,25 @@ const ledgerQueueSend=async(month,items,user)=>{
   rec.cust=c;await ledgerWriteJson(ledgerRecPath(month),rec);
   return rec;
 };
+/* ③ 계산서 자동 발행 (2026-11-27): 처리기 문서\bnf-ecount-web\ec_invoice_issue.py 가 ga-ledger/inv-queue/ 를 1분마다 처리
+   — 판매일괄회계반영 → 매출전표 저장 → (세금)계산서진행단계 발행(인증서) → 즉시전송. 결과는 cust[key].issued / issueErr, 기록 invLog */
+const ledgerIssuePending=r=>!!(r&&r.issueReq&&Date.now()-new Date(r.issueReq.at).getTime()<1500000);
+const ledgerMonthClosed=m=>{const d=new Date();return m<d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');};
+const ledgerQueueIssue=async(month,items,user)=>{
+  const at=new Date().toISOString();
+  await ledgerWriteJson('ga-ledger/inv-queue/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.json',
+    {month,by:user.name,at,items:items.map(x=>({key:x.key,co:x.co,code:x.code,name:x.name,amt:x.amt,inv:x.inv}))});
+  const rec=await ledgerReadJson(ledgerRecPath(month),{cust:{}});
+  const c=Object.assign({},rec.cust||{});
+  items.forEach(x=>{const row=Object.assign({},c[x.key]||{},{issueReq:{by:user.name,at}});delete row.issueErr;c[x.key]=row;});
+  rec.cust=c;await ledgerWriteJson(ledgerRecPath(month),rec);
+  return rec;
+};
+const ledgerIssueLogOf=row=>{
+  row=row||{};
+  if(Array.isArray(row.invLog)&&row.invLog.length)return row.invLog.map(e=>({at:e.at,by:e.by,ok:!!e.ok,email:e.ok?(e.state||'발행·전송'):'',error:e.error?((e.step?'['+({check:'확인',reflect:'회계반영',issue:'발행·전송'}[e.step]||e.step)+'] ':'')+e.error):''}));
+  return row.issued?[{at:row.issued.at,by:row.issued.by,ok:true,manual:!row.issued.auto}]:[];
+};
 /* 월말 발송 확인 팝업 — 말일 16시~다음 달 10일, 미발송 매출 거래처가 있으면 관리자에게 묻는다 (2026-11 마감분부터) */
 const LEDGER_POPUP_FROM='2026-11';
 const ledgerDueMonth=d=>{
@@ -10034,7 +10053,22 @@ function GaLedgerSales({user,top}){
     catch(e){alert('발송 요청 실패: '+(e.message||e));}
     setBusy('');
   };
-  const anyPending=!!rec&&Object.keys(rec.cust||{}).some(k=>ledgerPending(rec.cust[k]));
+  /* ③ 계산서 자동 발행 요청 — ② 거래처 확인 완료 + 지난달 이전 분 + 세금계산서/계산서 유형만 */
+  const issueInvoice=async(items)=>{
+    if(!ledgerMonthClosed(month))return alert(month+' 매출이 아직 끝나지 않았습니다. 다음 달 1일부터 발행할 수 있습니다.');
+    const c=rec.cust||{};
+    const go=items.filter(x=>(c[x.key]||{}).ok&&!(c[x.key]||{}).issued&&!ledgerIssuePending(c[x.key])&&['tax','free'].includes(invOf(x.key)));
+    const skip=items.filter(x=>go.indexOf(x)<0);
+    if(!go.length)return alert('발행할 수 있는 거래처가 없습니다.\n(② 거래처 확인 완료 · 아직 발행 안 됨 · 발행 유형 세금계산서/계산서만 자동 발행)');
+    const won=n=>Number(n||0).toLocaleString();
+    if(!confirm('['+month+'] 전자(세금)계산서를 '+go.length+'곳 자동 발행합니다.\n\n'+go.slice(0,10).map(x=>'· '+x.name+' — 공급가액 '+won(x.amt)+'원 ('+LEDGER_INV[invOf(x.key)]+')').join('\n')+(go.length>10?'\n외 '+(go.length-10)+'곳':'')+
+      '\n\n이카운트에서 매출전표 저장 → 발행 → 국세청 즉시전송까지 진행되며, 전송 후에는 되돌릴 수 없습니다(수정세금계산서 필요).\n이카운트 공급가액이 위 금액과 다르면 발행하지 않고 멈춥니다.'+(skip.length?'\n\n제외 '+skip.length+'곳: 거래처 확인 전·이미 발행·동시발행/발행 안 함':'')))return;
+    setBusy('발행 요청 중...');
+    try{setRec(await ledgerQueueIssue(month,go.map(x=>Object.assign({},x,{inv:invOf(x.key)})),user));setSel({});flash(go.length+'곳 발행 요청');}
+    catch(e){alert('발행 요청 실패: '+(e.message||e));}
+    setBusy('');
+  };
+  const anyPending=!!rec&&Object.keys(rec.cust||{}).some(k=>ledgerPending(rec.cust[k])||ledgerIssuePending(rec.cust[k]));
   useEffect(()=>{
     if(!anyPending)return;
     const t=setInterval(()=>{readJson(recPath(month),{cust:{}}).then(setRec).catch(()=>{});},20000);
@@ -10108,7 +10142,10 @@ function GaLedgerSales({user,top}){
           const items=[];rows.forEach(x=>ledgerSendLogOf(recC[x.key]).forEach(e=>items.push(Object.assign({name:x.name},e))));
           setLogPop({title:(+month.slice(5))+'월 원장 보낸 기록 · '+coLbl[co].slice(3),items});}},'📜 보낸 기록'),
         R('button',{className:'btn bw btn-sm',onClick:()=>{const all={};rows.filter(x=>!(recC[x.key]&&recC[x.key].sent)&&!ledgerPending(recC[x.key])&&x.email&&invOf(x.key)!=='none').forEach(x=>all[x.key]=true);setSel(all);}},'미발송 전체 선택'),
-        R('button',{className:'btn bp btn-sm',disabled:!selItems.length||!!busy,onClick:()=>sendLedger(selItems),style:{opacity:!selItems.length||busy?.5:1}},busy||('✉ 선택 '+selItems.length+'곳 원장 발송'))),
+        R('button',{className:'btn bp btn-sm',disabled:!selItems.length||!!busy,onClick:()=>sendLedger(selItems),style:{opacity:!selItems.length||busy?.5:1}},busy||('✉ 선택 '+selItems.length+'곳 원장 발송')),
+        R('button',{className:'btn bw btn-sm',disabled:!selItems.length||!!busy,onClick:()=>issueInvoice(selItems),
+          title:ledgerMonthClosed(month)?'② 거래처 확인이 끝난 거래처의 전자(세금)계산서를 이카운트에서 자동 발행·전송':'월말 이후(다음 달 1일부터) 발행할 수 있습니다',
+          style:{opacity:!selItems.length||busy?.5:1,borderColor:'#D94F1E',color:'#B8400F'}},'🧾 선택 계산서 발행')),
       rows.length===0?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'16px 0',textAlign:'center'}},coN[co]?'조건에 맞는 거래처가 없습니다':(+month.slice(5)+'월 '+coLbl[co].slice(3)+' 매출 거래처가 없습니다')):
       R('div',{className:'tw'},R('table',{style:{minWidth:1040}},
         R('thead',null,R('tr',null,R('th',{style:{width:34}},''),R('th',{style:{width:180}},'거래처'),R('th',{style:{width:104,textAlign:'right'}},month.slice(5)+'월 매출'),R('th',{style:{width:76}},'최근 거래'),R('th',{style:{width:190}},'이메일'),R('th',{style:{width:110}},'발행 유형'),...STAGES.map(s=>R('th',{key:s.k,style:{width:118}},s.l)))),
@@ -10129,6 +10166,15 @@ function GaLedgerSales({user,top}){
               if(s.k==='sent'&&!v&&ledgerPending(r))return R('td',{key:s.k,style:{fontSize:11.5,fontWeight:700,color:'#B45309',textAlign:'center'}},'발송 중...');
               if(s.k==='sent'&&!v&&(r.sendErr||r.sendReq)){const why=r.sendErr?r.sendErr.error:'처리기가 응답하지 않습니다 (사무실 PC 확인)';return R('td',{key:s.k},R('button',{onClick:()=>sendLedger([x]),title:why+' — 눌러서 다시 보내기',style:{width:'100%',border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},'⚠ 실패 · 재발송'));}
               if(s.k==='issued'&&inv==='none')return R('td',{key:s.k,style:{fontSize:11,color:'var(--tm)'}},'—');
+              if(s.k==='issued'&&!v&&ledgerIssuePending(r))return R('td',{key:s.k,style:{fontSize:11.5,fontWeight:700,color:'#B45309',textAlign:'center'}},'발행 중...');
+              if(s.k==='issued'&&!v&&r.issueErr)return R('td',{key:s.k},R('button',{onClick:()=>setLogPop({title:x.name+' · 계산서 발행 기록',items:ledgerIssueLogOf(r)}),
+                title:(r.issueErr.error||'')+' — 눌러서 기록 보기',style:{width:'100%',border:'1px solid #FECACA',background:'#FEF2F2',color:'#B91C1C',borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},'⚠ 발행 실패'));
+              if(s.k==='issued'&&v)return R('td',{key:s.k},R('button',{onClick:()=>setLogPop({title:x.name+' · 계산서 발행 기록',items:ledgerIssueLogOf(r),key:x.key,stage:'issued'}),
+                title:'눌러서 발행 기록 보기 — '+(v.by||'')+' · '+fT(v.at)+(v.state?' · '+v.state:''),
+                style:{width:'100%',border:'1px solid #BBF7D0',background:'#F0FDF4',color:'#15803D',borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},'✓ '+fT(v.at)+(v.auto?' 자동':'')));
+              if(s.k==='issued'&&!v&&r.ok&&ledgerMonthClosed(month)&&['tax','free'].includes(inv))return R('td',{key:s.k},
+                R('button',{onClick:()=>issueInvoice([x]),title:'이카운트에서 자동 발행·국세청 전송 (확인 창이 먼저 뜹니다)',
+                  style:{width:'100%',border:'1px solid #D94F1E',background:'#FFF4EE',color:'#B8400F',borderRadius:7,padding:'4px 6px',fontSize:11.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}},'🧾 자동 발행'));
               /* 원장 메일 완료 칸: 누르면 보낸 기록 창 (실수로 눌러 완료가 풀리지 않게 — 해제는 창 안에서) */
               if(s.k==='sent'&&v)return R('td',{key:s.k},
                 R('button',{onClick:()=>setLogPop({title:x.name+' · 원장 보낸 기록',items:ledgerSendLogOf(r),key:x.key}),
@@ -10145,7 +10191,7 @@ function GaLedgerSales({user,top}){
         }))))
     ),
     logPop&&R(LedgerSendLogPop,{title:logPop.title,items:logPop.items,onClose:()=>setLogPop(null),
-      onUnmark:logPop.key?(()=>{if(!confirm('원장 메일 완료 표시를 해제할까요?\n(보낸 기록은 남습니다)'))return;toggleStage(logPop.key,'sent');setLogPop(null);}):null})
+      onUnmark:logPop.key?(()=>{const st=logPop.stage||'sent';if(!confirm((st==='issued'?'계산서 발행':'원장 메일')+' 완료 표시를 해제할까요?\n(기록은 남고, 이카운트의 전표·계산서는 그대로입니다)'))return;toggleStage(logPop.key,st);setLogPop(null);}):null})
   );
 }
 
