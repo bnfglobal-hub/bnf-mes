@@ -12862,6 +12862,53 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved,cfg}){
         R('button',{className:'btn bp',onClick:save,disabled:busy,style:{minWidth:96}},busy?'저장 중…':'저장'))));
 }
 
+/* 상세 패널 바로 입력칸 (monday Updates 방식) — 버튼 없이 패널 위에서 바로 타이핑해 저장. Ctrl+Enter 저장 */
+function SalesInlineComposer({cfg,user,grp,itemF,onSaved}){
+  const latestOf=it=>grp.entries.find(x=>String(x.item||'')===String(it||''));
+  const initItem=cfg.titleMode?'':(itemF||(grp.last&&grp.last.item)||'');
+  const[item,setItem]=useState(initItem);
+  const[body,setBody]=useState('');
+  const[stage,setStage]=useState(()=>{const e=cfg.titleMode?grp.last:latestOf(initItem);return (e&&e.stage)||cfg.stages[0];});
+  const[nextDate,setNextDate]=useState('');
+  const[nextTodo,setNextTodo]=useState('');
+  const[open,setOpen]=useState(false);   /* 입력칸을 누르면 단계·일정 줄이 펼쳐짐 */
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState('');
+  useEffect(()=>{if(cfg.titleMode)return;if(itemF){setItem(itemF);const e=latestOf(itemF);if(e&&e.stage)setStage(e.stage);}},[itemF]);
+  const save=async()=>{
+    if(busy)return;
+    if(!body.trim()){setErr('내용을 입력해 주세요.');return;}
+    if(nextTodo.trim()&&!nextDate){setErr('다음 일정 날짜를 넣어 주세요.');return;}
+    setBusy(true);setErr('');
+    const nm=String((user&&user.name)||'').trim(),pos=String((user&&user.position)||'').trim();
+    const entry={id:'sl'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      cust:grp.cust,custCode:grp.custCode||'',item:cfg.titleMode?((grp.last&&grp.last.item)||''):item.trim(),body:body.trim(),stage,
+      nextDate:nextDate||'',nextTodo:nextDate?nextTodo.trim():'',
+      by:(pos&&!nm.endsWith(pos))?nm+' '+pos:nm,byId:(user&&user.id)||'',at:new Date().toISOString()};
+    try{
+      const{error}=await sbClient.rpc('append_sales_log',{k:cfg.key,entry});
+      if(error)throw error;
+      setBody('');setNextDate('');setNextTodo('');setOpen(false);setBusy(false);
+      onSaved(entry,'inline');
+    }catch(e){setErr('저장하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
+  };
+  const inp={boxSizing:'border-box',padding:'7px 9px',fontSize:13,border:'1px solid var(--bd)',borderRadius:7,fontFamily:'inherit',background:'#fff',color:'var(--t)',minWidth:0};
+  return R('div',{style:{border:'1px solid '+(open?'#F2C3AC':'#E9E2DC'),borderRadius:10,padding:10,margin:'10px 0 4px',background:'#fff',transition:'border-color .15s'}},
+    R('textarea',{value:body,rows:open?3:2,onFocus:()=>setOpen(true),onChange:e=>{setBody(e.target.value);if(err)setErr('');},
+      onKeyDown:e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();save();}},
+      placeholder:'여기에 바로 진행 내용을 쓰세요 — '+cfg.ph.replace(/^예:\s*/,'예: '),'aria-label':'진행 내용',
+      style:{width:'100%',boxSizing:'border-box',border:'none',outline:'none',resize:'vertical',fontSize:13.5,lineHeight:1.55,fontFamily:'inherit',color:'var(--t)',background:'transparent',padding:2}}),
+    (open||body)&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:6,paddingTop:8,borderTop:'1px solid #F2EEEA'}},
+      !cfg.titleMode&&R('input',{value:item,onChange:e=>{setItem(e.target.value);const x=latestOf(e.target.value.trim());if(x&&x.stage)setStage(x.stage);},
+        list:'sl-inline-items-'+grp.key,placeholder:'품목','aria-label':'품목',style:{...inp,width:130}}),
+      !cfg.titleMode&&R('datalist',{id:'sl-inline-items-'+grp.key},...grp.items.map(x=>R('option',{key:x,value:x}))),
+      R('select',{value:stage,onChange:e=>setStage(e.target.value),'aria-label':'현재 단계',style:{...inp,width:'auto'}},...cfg.stages.map(x=>R('option',{key:x,value:x},x))),
+      R('input',{type:'date',value:nextDate,onChange:e=>setNextDate(e.target.value),'aria-label':'다음 일정 날짜',title:'다음 일정 (선택)',style:{...inp,width:138}}),
+      R('input',{value:nextTodo,onChange:e=>setNextTodo(e.target.value),placeholder:'다음 할 일 (선택)','aria-label':'다음 할 일',style:{...inp,flex:'1 1 120px'}}),
+      R('button',{onClick:save,disabled:busy,title:'Ctrl+Enter로도 저장',
+        style:{background:'var(--p)',color:'#fff',border:'none',borderRadius:7,padding:'7px 14px',fontSize:12.5,fontWeight:700,cursor:busy?'default':'pointer',fontFamily:'inherit',whiteSpace:'nowrap',opacity:busy?.6:1}},busy?'저장 중…':'저장')),
+    err&&R('div',{role:'alert',style:{marginTop:6,fontSize:12,color:'#B91C1C',fontWeight:600}},err));
+}
 function HomeSalesProgress({user,type}){
   const cfg=useMemo(()=>bnfLogCfg(type),[type]);
   const KEY=cfg.key;
@@ -12983,10 +13030,10 @@ function HomeSalesProgress({user,type}){
         R('button',{onClick:()=>setSel(null),'aria-label':'이력 닫기',style:{border:'none',background:'none',fontSize:narrow?22:18,cursor:'pointer',color:'#9A9088',padding:'0 4px',lineHeight:1}},narrow?'‹':'×'),
         R('div',{style:{flex:1,minWidth:0}},
           R('div',{style:{fontSize:15.5,fontWeight:800,color:'#221A14',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},cur.cust),
-          R('div',{style:{fontSize:11.5,color:'#9A9088',marginTop:1}},'기록 '+cur.entries.length+'건')),
-        R('button',{onClick:()=>setForm({preset:{cust:cur.cust,custCode:cur.custCode}}),style:orangeBtn},'＋ 업데이트 작성')),
+          R('div',{style:{fontSize:11.5,color:'#9A9088',marginTop:1}},'기록 '+cur.entries.length+'건'))),
       cur.items.length>1&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',padding:narrow?'10px 16px 0':'10px 0 0'}},
         chip('','전체 '+cur.entries.length),...cur.items.map(x=>chip(x,x+' '+cur.entries.filter(e=>e.item===x).length))),
+      R('div',{style:{padding:narrow?'0 16px':0}},R(SalesInlineComposer,{key:cur.key,cfg,user,grp:cur,itemF,onSaved})),
       R('div',{style:{flex:1,minHeight:0,overflowY:'auto',padding:narrow?'4px 16px 24px':'0'}},
         ...ents.map((e,i)=>R('div',{key:e.id||i,onDoubleClick:()=>editEntry(e),title:'더블클릭하면 수정합니다',style:{padding:'12px 0',borderBottom:i<ents.length-1?'1px solid #F2EEEA':'none',cursor:'default'}},
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',fontSize:11.5,color:'#8C8279'}},
