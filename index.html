@@ -12622,15 +12622,16 @@ function SalesNext({date,todo,stage,small}){
 }
 
 /* 작성 폼: 거래처(이카운트 거래처 + 기존 기록 거래처 검색, 새 이름도 가능)·품목·진행 내용·현재 단계·다음 일정 */
-function SalesLogForm({user,groups,preset,onClose,onSaved}){
+function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
+  if(edit)preset={cust:edit.cust,custCode:edit.custCode||''};
   const[custs,setCusts]=useState([]);
   const[cust,setCust]=useState(preset?{name:preset.cust,code:preset.custCode||''}:null);
   const[kw,setKw]=useState('');
-  const[item,setItem]=useState('');
-  const[body,setBody]=useState('');
-  const[stage,setStage]=useState('');
-  const[nextDate,setNextDate]=useState('');
-  const[nextTodo,setNextTodo]=useState('');
+  const[item,setItem]=useState(edit?(edit.item||''):'');
+  const[body,setBody]=useState(edit?(edit.body||''):'');
+  const[stage,setStage]=useState(edit?(edit.stage||''):'');
+  const[nextDate,setNextDate]=useState(edit?(edit.nextDate||''):'');
+  const[nextTodo,setNextTodo]=useState(edit?(edit.nextTodo||''):'');
   const[busy,setBusy]=useState(false);
   const[err,setErr]=useState('');
   useEffect(()=>{if(preset)return;
@@ -12638,8 +12639,9 @@ function SalesLogForm({user,groups,preset,onClose,onSaved}){
       .then(({data})=>setCusts(((data&&data.v&&data.v.list)||[]).filter(c=>c&&c.name))).catch(()=>{});},[]);
   const grp=cust?(groups||[]).find(g=>g.key===salesCustKey({cust:cust.name,custCode:cust.code})):null;
   /* 거래처·품목을 고르면 그 영업 건의 현재 단계로 시작 */
-  useEffect(()=>{if(grp&&!item.trim()&&grp.last&&grp.last.item)setItem(grp.last.item);},[grp&&grp.key]);
+  useEffect(()=>{if(edit)return;if(grp&&!item.trim()&&grp.last&&grp.last.item)setItem(grp.last.item);},[grp&&grp.key]);
   useEffect(()=>{
+    if(edit)return;   /* 수정할 때는 그 글의 단계를 그대로 둔다 */
     const it=item.trim();
     const e=grp?grp.entries.find(x=>String(x.item||'')===it):null;
     if(e&&e.stage)setStage(e.stage);else if(!stage)setStage('초기 상담');
@@ -12659,6 +12661,17 @@ function SalesLogForm({user,groups,preset,onClose,onSaved}){
     if(nextTodo.trim()&&!nextDate){setErr('다음 일정 날짜를 넣어 주세요. (일정 없이 메모만 남기려면 할 일도 비워 두세요)');return;}
     setBusy(true);setErr('');
     const nm=String((user&&user.name)||'').trim(),pos=String((user&&user.position)||'').trim();
+    if(edit){
+      /* 수정: 작성자·작성 시각은 원래대로, 고친 사람·시각만 따로 남김 */
+      const entry=Object.assign({},edit,{item:item.trim(),body:body.trim(),stage,nextDate:nextDate||'',nextTodo:nextDate?nextTodo.trim():'',
+        editedBy:(pos&&!nm.endsWith(pos))?nm+' '+pos:nm,editedAt:new Date().toISOString()});
+      try{
+        const{error}=await sbClient.rpc('update_sales_log',{k:salesLogKey(),eid:edit.id,entry});
+        if(error)throw error;
+        onSaved(entry,'edit');
+      }catch(e){setErr('저장하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
+      return;
+    }
     const entry={id:'sl'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
       cust:cust.name.trim(),custCode:cust.code||'',item:item.trim(),body:body.trim(),stage,
       nextDate:nextDate||'',nextTodo:nextDate?nextTodo.trim():'',
@@ -12669,12 +12682,22 @@ function SalesLogForm({user,groups,preset,onClose,onSaved}){
       onSaved(entry);
     }catch(e){setErr('저장하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
   };
+  const del=async()=>{
+    if(!edit||busy)return;
+    if(!confirm('이 기록을 삭제할까요?\n'+edit.cust+' · '+salesFmtAtFull(edit.at)+'\n삭제하면 되돌릴 수 없습니다.'))return;
+    setBusy(true);setErr('');
+    try{
+      const{error}=await sbClient.rpc('update_sales_log',{k:salesLogKey(),eid:edit.id,entry:null});
+      if(error)throw error;
+      onSaved(edit,'delete');
+    }catch(e){setErr('삭제하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
+  };
   const lab={display:'block',fontSize:12,fontWeight:700,color:'#4A423C',marginBottom:5};
   const inp={width:'100%',boxSizing:'border-box',padding:'9px 11px',fontSize:14,border:'1px solid var(--bd)',borderRadius:8,fontFamily:'inherit',background:'#fff',color:'var(--t)'};
   return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget&&!busy)onClose();},style:{alignItems:'center',justifyContent:'center',padding:12}},
     R('div',{role:'dialog','aria-label':'영업 업데이트 작성',style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',padding:'18px 20px',boxSizing:'border-box'}},
       R('div',{style:{display:'flex',alignItems:'center',marginBottom:14}},
-        R('div',{style:{fontSize:16,fontWeight:800,flex:1}},'영업 업데이트 작성'),
+        R('div',{style:{fontSize:16,fontWeight:800,flex:1}},edit?'영업 업데이트 수정':'영업 업데이트 작성'),
         R('button',{onClick:onClose,'aria-label':'닫기',style:{border:'none',background:'none',fontSize:20,cursor:'pointer',color:'#9A9088',padding:4,lineHeight:1}},'×')),
       /* 거래처 */
       R('div',{style:{marginBottom:12,position:'relative'}},
@@ -12717,9 +12740,10 @@ function SalesLogForm({user,groups,preset,onClose,onSaved}){
         R('div',{style:{display:'flex',gap:8}},
           R('input',{type:'date',value:nextDate,onChange:e=>setNextDate(e.target.value),style:{...inp,width:160,flexShrink:0}}),
           R('input',{value:nextTodo,onChange:e=>setNextTodo(e.target.value),placeholder:'할 일 (예: 피드백 확인)',style:inp}))),
-      R('div',{style:{fontSize:11.5,color:'var(--tm)',margin:'10px 0 0'}},'작성자 '+(((user&&user.name)||'').trim()||'-')+' · 작성 시각은 저장할 때 자동 기록됩니다'),
+      R('div',{style:{fontSize:11.5,color:'var(--tm)',margin:'10px 0 0'}},edit?('작성 '+(edit.by||'-')+' · '+salesFmtAtFull(edit.at)+' — 작성자·작성 시각은 바뀌지 않고, 고친 사람·시각이 함께 남습니다'):('작성자 '+(((user&&user.name)||'').trim()||'-')+' · 작성 시각은 저장할 때 자동 기록됩니다')),
       err&&R('div',{role:'alert',style:{marginTop:10,fontSize:12.5,color:'#B91C1C',fontWeight:600}},err),
       R('div',{style:{display:'flex',justifyContent:'flex-end',gap:8,marginTop:14}},
+        edit&&R('button',{onClick:del,disabled:busy,style:{marginRight:'auto',border:'none',background:'none',color:'#B91C1C',fontWeight:700,fontSize:13,cursor:'pointer',fontFamily:'inherit',padding:'6px 4px'}},'삭제'),
         R('button',{className:'btn bw',onClick:onClose,disabled:busy},'취소'),
         R('button',{className:'btn bp',onClick:save,disabled:busy,style:{minWidth:96}},busy?'저장 중…':'저장'))));
 }
@@ -12748,12 +12772,23 @@ function HomeSalesProgress({user}){
   useEffect(()=>{if(narrow&&cur){const o=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=o;};}},[narrow,!!cur]);
   const filtered=stageF?groups.filter(g=>g.stage===stageF):groups;
   const rows=showAll?filtered:groups.slice(0,5);
-  const open=g=>{setSel(sel===g.key?null:g.key);setItemF('');};
-  const onSaved=e=>{
-    setList(l=>(l||[]).concat([e]));
+  const open=g=>{if(sel!==g.key){setSel(g.key);setItemF('');}};
+  /* 더블클릭 수정: 작성자 본인 또는 관리자만 */
+  const canEdit=e=>{const r=(user&&user.role)||'';if(['superadmin','admin'].includes(r))return true;
+    if(e.byId&&user&&e.byId===user.id)return true;const nm=String((user&&user.name)||'').trim();return !!nm&&String(e.by||'').trim().indexOf(nm)===0;};
+  const editEntry=e=>{
+    try{const sl=window.getSelection&&window.getSelection();if(sl&&sl.removeAllRanges)sl.removeAllRanges();}catch(x){}
+    if(!canEdit(e)){try{bnfToast('작성자 본인이나 관리자만 수정할 수 있습니다');}catch(x){}return;}
+    setForm({edit:e});};
+  const onSaved=(e,mode)=>{
+    if(mode==='edit')setList(l=>(l||[]).map(x=>x.id===e.id?e:x));
+    else if(mode==='delete')setList(l=>(l||[]).filter(x=>x.id!==e.id));
+    else setList(l=>(l||[]).concat([e]));
     setForm(null);
-    setSel(salesCustKey(e));setItemF('');
-    try{bnfToast('영업 업데이트를 저장했습니다');}catch(x){}
+    if(mode==='delete'){const rest=(list||[]).filter(x=>x.id!==e.id&&salesCustKey(x)===salesCustKey(e));if(!rest.length)setSel(null);}
+    else setSel(salesCustKey(e));
+    if(!mode)setItemF('');
+    try{bnfToast(mode==='edit'?'수정했습니다':mode==='delete'?'삭제했습니다':'영업 업데이트를 저장했습니다');}catch(x){}
     setTimeout(load,400);
   };
   const panelOpen=!!cur;
@@ -12763,7 +12798,7 @@ function HomeSalesProgress({user}){
   const orangeBtn={background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'7px 13px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'};
   const rowEl=g=>{
     const on=sel===g.key,l=g.last;
-    return R('tr',{key:g.key,onClick:()=>open(g),'aria-selected':on,
+    return R('tr',{key:g.key,onClick:()=>open(g),onDoubleClick:()=>{open(g);editEntry(l);},title:'더블클릭하면 최근 업데이트를 수정합니다','aria-selected':on,
       style:{cursor:'pointer',background:on?'#FFF4EC':'#fff',transition:'background .12s'},
       onMouseEnter:e=>{if(!on)e.currentTarget.style.background='#FCFAF8';},
       onMouseLeave:e=>{e.currentTarget.style.background=on?'#FFF4EC':'#fff';}},
@@ -12804,10 +12839,11 @@ function HomeSalesProgress({user}){
       cur.items.length>1&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',padding:narrow?'10px 16px 0':'10px 0 0'}},
         chip('','전체 '+cur.entries.length),...cur.items.map(x=>chip(x,x+' '+cur.entries.filter(e=>e.item===x).length))),
       R('div',{style:{flex:1,minHeight:0,overflowY:'auto',padding:narrow?'4px 16px 24px':'0'}},
-        ...ents.map((e,i)=>R('div',{key:e.id||i,style:{padding:'12px 0',borderBottom:i<ents.length-1?'1px solid #F2EEEA':'none'}},
+        ...ents.map((e,i)=>R('div',{key:e.id||i,onDoubleClick:()=>editEntry(e),title:'더블클릭하면 수정합니다',style:{padding:'12px 0',borderBottom:i<ents.length-1?'1px solid #F2EEEA':'none',cursor:'default'}},
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',fontSize:11.5,color:'#8C8279'}},
             R('span',{style:{fontVariantNumeric:'tabular-nums'}},salesFmtAtFull(e.at)),
-            R('span',null,'·'),R('span',{style:{fontWeight:700,color:'#4A423C'}},e.by||'-')),
+            R('span',null,'·'),R('span',{style:{fontWeight:700,color:'#4A423C'}},e.by||'-'),
+            e.editedAt&&R('span',{title:'수정 '+(e.editedBy||'')+' · '+salesFmtAtFull(e.editedAt),style:{color:'#A39A92'}},'· 수정됨')),
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginTop:5}},
             e.item&&R('span',{style:{fontSize:12,fontWeight:700,color:'#3F3833'}},e.item),
             R(SalesStageBadge,{stage:e.stage})),
@@ -12833,7 +12869,7 @@ function HomeSalesProgress({user}){
     (panelOpen&&!narrow
       ?R('div',{style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.05fr)',gap:16,alignItems:'start'}},table,panel)
       :R(React.Fragment,null,table,panel)),
-    form&&R(SalesLogForm,{user,groups,preset:form.preset,onClose:()=>setForm(null),onSaved}));
+    form&&R(SalesLogForm,{key:form.edit?'e'+form.edit.id:'new',user,groups,preset:form.preset,edit:form.edit||null,onClose:()=>setForm(null),onSaved}));
 }
 
 function HomeOemInquiries({onGoPage}){
