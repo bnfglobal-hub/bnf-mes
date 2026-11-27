@@ -12753,16 +12753,20 @@ function HomeSalesProgress({user}){
   const[list,setList]=useState(null);
   const[sel,setSel]=useState(null);          /* 선택된 거래처 key */
   const[itemF,setItemF]=useState('');        /* 상세 패널 품목 필터 */
-  const[showAll,setShowAll]=useState(false);
-  const[stageF,setStageF]=useState('');      /* 전체 보기 단계 필터 */
+  /* 거래처 순서: 드래그로 직접 정한 순서(서버 bnf_sales_order, 모두 공유). 순서에 없는 거래처(새로 생긴 곳)는 맨 위에 최신순 */
+  const ORDKEY=KEY==='bnf_sales_log_demo'?'bnf_sales_order_demo':'bnf_sales_order';
+  const[order,setOrder]=useState([]);
+  const[dragK,setDragK]=useState(null);
+  const[overK,setOverK]=useState(null);
   const[form,setForm]=useState(null);        /* null | {preset} */
   const[narrow,setNarrow]=useState(()=>{try{return window.innerWidth<860;}catch(e){return false;}});
   useEffect(()=>{const h=()=>setNarrow(window.innerWidth<860);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   const load=async()=>{
     try{
-      const{data,error}=await sbClient.from('app_state').select('v:state_data->'+KEY).eq('id',1).maybeSingle();
+      const{data,error}=await sbClient.from('app_state').select('v:state_data->'+KEY+',o:state_data->'+ORDKEY).eq('id',1).maybeSingle();
       if(error)throw error;
       setList(Array.isArray(data&&data.v)?data.v:[]);
+      if(!dragK)setOrder(Array.isArray(data&&data.o)?data.o.map(String):[]);
     }catch(e){setList(l=>l||[]);}
   };
   useEffect(()=>{load();},[]);
@@ -12770,8 +12774,21 @@ function HomeSalesProgress({user}){
   const groups=useMemo(()=>salesGroup(list||[]),[list]);
   const cur=sel?groups.find(g=>g.key===sel):null;
   useEffect(()=>{if(narrow&&cur){const o=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=o;};}},[narrow,!!cur]);
-  const filtered=stageF?groups.filter(g=>g.stage===stageF):groups;
-  const rows=showAll?filtered:groups.slice(0,5);
+  const rows=useMemo(()=>{
+    const idx=new Map(order.map((k,i)=>[k,i]));
+    return groups.filter(g=>!idx.has(g.key)).concat(groups.filter(g=>idx.has(g.key)).sort((a,b)=>idx.get(a.key)-idx.get(b.key)));
+  },[groups,order]);
+  const dropOn=async target=>{
+    const from=dragK;setDragK(null);setOverK(null);
+    if(!from||from===target)return;
+    const keys=rows.map(g=>g.key).filter(k=>k!==from);
+    const at=target==='__end'?keys.length:keys.indexOf(target);
+    if(at<0)return;
+    keys.splice(at,0,from);
+    setOrder(keys);
+    try{const{error}=await sbClient.rpc('set_state_key',{k:ORDKEY,v:keys});if(error)throw error;}
+    catch(e){try{bnfToast('순서를 저장하지 못했습니다: '+((e&&e.message)||e));}catch(x){}}
+  };
   const open=g=>{if(sel!==g.key){setSel(g.key);setItemF('');}};
   /* 더블클릭 수정: 작성자 본인 또는 관리자만 */
   const canEdit=e=>{const r=(user&&user.role)||'';if(['superadmin','admin'].includes(r))return true;
@@ -12793,13 +12810,19 @@ function HomeSalesProgress({user}){
   };
   const panelOpen=!!cur;
   const compact=panelOpen&&!narrow;   /* 패널이 옆에 열리면 목록은 거래처·최근 업데이트·이력만 */
-  const th={textAlign:'left',fontSize:11.5,fontWeight:600,color:'#857A70',padding:'8px 10px',borderBottom:'1px solid #EEE9E4',whiteSpace:'nowrap',background:'#fff'};
+  const th={textAlign:'left',fontSize:11.5,fontWeight:600,color:'#857A70',padding:'8px 10px',borderBottom:'1px solid #EEE9E4',whiteSpace:'nowrap',background:'#fff',position:'sticky',top:0,zIndex:1};
   const td={padding:'11px 10px',borderBottom:'1px solid #F2EEEA',verticalAlign:'top'};
   const orangeBtn={background:'var(--p)',color:'#fff',border:'none',borderRadius:8,padding:'7px 13px',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'};
   const rowEl=g=>{
     const on=sel===g.key,l=g.last;
-    return R('tr',{key:g.key,onClick:()=>open(g),onDoubleClick:()=>{open(g);editEntry(l);},title:'더블클릭하면 최근 업데이트를 수정합니다','aria-selected':on,
-      style:{cursor:'pointer',background:on?'#FFF4EC':'#fff',transition:'background .12s'},
+    return R('tr',{key:g.key,onClick:()=>open(g),onDoubleClick:()=>{open(g);editEntry(l);},title:'더블클릭하면 최근 업데이트를 수정합니다 · 끌어서 순서 변경','aria-selected':on,
+      draggable:!narrow,
+      onDragStart:e=>{setDragK(g.key);try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',g.key);}catch(x){}},
+      onDragOver:e=>{if(!dragK)return;e.preventDefault();if(overK!==g.key)setOverK(g.key);},
+      onDrop:e=>{e.preventDefault();dropOn(g.key);},
+      onDragEnd:()=>{setDragK(null);setOverK(null);},
+      style:{cursor:narrow?'pointer':'grab',background:on?'#FFF4EC':'#fff',transition:'background .12s',opacity:dragK===g.key?.4:1,
+        boxShadow:overK===g.key&&dragK&&dragK!==g.key?'inset 0 2px 0 var(--p)':'none'},
       onMouseEnter:e=>{if(!on)e.currentTarget.style.background='#FCFAF8';},
       onMouseLeave:e=>{e.currentTarget.style.background=on?'#FFF4EC':'#fff';}},
       R('td',{style:{...td,width:narrow?'auto':(compact?150:190),boxShadow:on?'inset 3px 0 0 var(--p)':'none'}},
@@ -12816,8 +12839,10 @@ function HomeSalesProgress({user}){
         R('button',{onClick:e=>{e.stopPropagation();setSel(g.key);setItemF('');},'aria-label':g.cust+' 이력 '+g.entries.length+'건 보기',
           style:{border:'none',background:'none',padding:0,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontWeight:700,color:on?'var(--p)':'#5E554D'}},g.entries.length+'건 ›')));
   };
-  const table=R('div',{style:{overflowX:'auto'}},
-    R('table',{style:{width:'100%',borderCollapse:'collapse',tableLayout:'auto'}},
+  /* 목록은 카드 안에서 마우스 휠로 위아래 스크롤 (제목 줄 고정) */
+  const table=R('div',{onDragOver:e=>{if(dragK)e.preventDefault();},onDrop:e=>{if(dragK&&e.target===e.currentTarget){e.preventDefault();dropOn('__end');}},
+      style:{overflow:'auto',maxHeight:narrow?'62vh':'min(430px,62vh)',overscrollBehavior:'contain'}},
+    R('table',{style:{width:'100%',borderCollapse:'separate',borderSpacing:0,tableLayout:'auto'}},
       R('thead',null,R('tr',null,
         R('th',{style:th},'거래처'),R('th',{style:th},'최근 업데이트'),
         !compact&&!narrow&&R('th',{style:th},'현재 단계'),!compact&&!narrow&&R('th',{style:th},'다음 일정'),
@@ -12853,17 +12878,11 @@ function HomeSalesProgress({user}){
     return R('div',{style:{borderLeft:'1px solid #EEE9E4',paddingLeft:16,maxHeight:560,display:'flex',flexDirection:'column',minWidth:0}},inner);
   })();
   return R('div',{className:'card home-sec',style:{marginBottom:16,padding:'14px 18px'}},
-    R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:showAll?8:6,flexWrap:'wrap'}},
+    R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}},
       R('div',{style:{fontSize:14,fontWeight:800,color:'#221A14',flex:1,display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap',minWidth:narrow?'100%':0}},'영업 진행 현황',
         KEY==='bnf_sales_log_demo'&&R('span',{title:'개발 미리보기(localhost)는 시험용 데이터만 사용합니다',style:{fontSize:10.5,fontWeight:700,color:'#7A5F2E',background:'#F6F1E7',borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}},'시험 데이터')),
-      groups.length>5&&R('button',{onClick:()=>{setShowAll(!showAll);setStageF('');},
-        style:{border:'none',background:'none',color:'#5E554D',fontSize:12.5,fontWeight:700,cursor:'pointer',fontFamily:'inherit',padding:'4px 6px'}},showAll?'접기':'전체 보기 '+groups.length+' ›'),
+      groups.length>0&&R('span',{style:{fontSize:12,color:'#857A70',whiteSpace:'nowrap'}},'거래처 '+groups.length+'곳'+(narrow?'':' · 끌어서 순서 변경')),
       R('button',{onClick:()=>setForm({preset:null}),style:orangeBtn},'＋ 업데이트 작성')),
-    showAll&&R('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:6}},
-      ...[''].concat(SALES_STAGES).map(s=>{const n=s?groups.filter(g=>g.stage===s).length:groups.length;if(s&&!n)return null;
-        return R('button',{key:'s'+s,onClick:()=>setStageF(s),'aria-pressed':stageF===s,
-          style:{fontSize:12,padding:'4px 11px',borderRadius:999,cursor:'pointer',fontFamily:'inherit',border:'1px solid '+(stageF===s?'var(--p)':'#E4DED8'),
-            background:stageF===s?'#FFF3ED':'#fff',color:stageF===s?'var(--p)':'#5E554D',fontWeight:stageF===s?700:500}},(s||'전체')+' '+n);})),
     list===null?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'10px 0'}},'불러오는 중…'):
     groups.length===0?R('div',{style:{fontSize:13,color:'var(--tm)',padding:'14px 0'}},'아직 영업 기록이 없습니다. ‘＋ 업데이트 작성’으로 거래처별 진행 상황을 남겨 주세요.'):
     (panelOpen&&!narrow
