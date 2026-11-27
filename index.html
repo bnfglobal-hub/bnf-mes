@@ -12708,7 +12708,8 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved,cfg}){
   };
   const lab={display:'block',fontSize:12,fontWeight:700,color:'#4A423C',marginBottom:5};
   const inp={width:'100%',boxSizing:'border-box',padding:'9px 11px',fontSize:14,border:'1px solid var(--bd)',borderRadius:8,fontFamily:'inherit',background:'#fff',color:'var(--t)'};
-  return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget&&!busy)onClose();},style:{alignItems:'center',justifyContent:'center',padding:12}},
+  /* 바깥 빈 곳을 눌러도 닫히지 않음 — 취소·× 버튼으로만 닫기 (작성 중 내용 보호) */
+  return R('div',{className:'mbg',style:{alignItems:'center',justifyContent:'center',padding:12}},
     R('div',{role:'dialog','aria-label':cfg.formTitle+(edit?' 수정':' 작성'),style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',padding:'18px 20px',boxSizing:'border-box'}},
       R('div',{style:{display:'flex',alignItems:'center',marginBottom:14}},
         R('div',{style:{fontSize:16,fontWeight:800,flex:1}},cfg.formTitle+(edit?' 수정':' 작성')),
