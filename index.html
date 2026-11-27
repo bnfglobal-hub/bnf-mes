@@ -12587,7 +12587,19 @@ function PageSampleDev({user}){
    기록 1건 = {id,cust,custCode,item,body,stage,nextDate,nextTodo,by,byId,at} — stage는 작성 당시 단계 그대로 보존 */
 const SALES_STAGES=['초기 상담','샘플 개발','샘플 발송','견적 협의','초도 발주','종료'];
 const SALES_STAGE_COL={'초기 상담':['#F3F4F6','#4B5563'],'샘플 개발':['#EEF2F7','#3F5672'],'샘플 발송':['#EDF3F1','#3D6357'],
-  '견적 협의':['#F6F1E7','#7A5F2E'],'초도 발주':['#EEF0F8','#46507A'],'종료':['#F4F4F5','#8A8A90']};
+  '견적 협의':['#F6F1E7','#7A5F2E'],'초도 발주':['#EEF0F8','#46507A'],'종료':['#F4F4F5','#8A8A90'],
+  /* 이슈 사항 단계 */
+  '접수':['#F6EDED','#8A4B4B'],'원인 파악':['#EEF2F7','#3F5672'],'조치 중':['#F6F1E7','#7A5F2E'],'고객 회신':['#EDF3F1','#3D6357'],'해결':['#F4F4F5','#8A8A90']};
+const ISSUE_STAGES=['접수','원인 파악','조치 중','고객 회신','해결'];
+const SALES_DONE=['종료','해결'];
+/* 같은 구조의 홈 카드 2종: 영업 진행 현황 / 이슈 사항 (2026-11-27). 저장 키만 다르고 RPC·화면은 공용 */
+const BNF_LOG_CFG={
+  sales:{title:'영업 진행 현황',base:'bnf_sales_log',ord:'bnf_sales_order',stages:SALES_STAGES,formTitle:'영업 업데이트',
+    ph:'예: 2차 샘플 발송 완료, 12월 2일 피드백 예정',empty:'아직 영업 기록이 없습니다. ‘＋ 업데이트 작성’으로 거래처별 진행 상황을 남겨 주세요.'},
+  issue:{title:'이슈 사항',base:'bnf_issue_log',ord:'bnf_issue_order',stages:ISSUE_STAGES,formTitle:'이슈 업데이트',
+    ph:'예: 11/25 납품분 포장 파손 클레임 접수, 사진 받음 — 원인 확인 중',empty:'등록된 이슈가 없습니다. ‘＋ 업데이트 작성’으로 거래처별 이슈(클레임·품질·납기 등)와 조치 경과를 남겨 주세요.'}};
+const bnfLogCfg=t=>{const c=BNF_LOG_CFG[t]||BNF_LOG_CFG.sales;const demo=salesLogKey()==='bnf_sales_log_demo';
+  return Object.assign({type:BNF_LOG_CFG[t]?t:'sales'},c,{key:c.base+(demo?'_demo':''),ordKey:c.ord+(demo?'_demo':''),demo});};
 const salesLogKey=()=>{try{return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)?'bnf_sales_log_demo':'bnf_sales_log';}catch(e){return 'bnf_sales_log';}};
 const salesToday=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 const salesFmtAt=at=>{try{const d=new Date(at);return String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return '';}};
@@ -12615,14 +12627,15 @@ function SalesStageBadge({stage}){
 }
 function SalesNext({date,todo,stage,small}){
   if(!date&&!todo)return R('span',{style:{color:'#B8B0A8',fontSize:12}},'-');
-  const over=date&&stage!=='종료'&&date<salesToday();
+  const over=date&&!SALES_DONE.includes(stage)&&date<salesToday();
   return R('span',{title:over?'기한이 지났습니다':'',style:{fontSize:small?12:12.5,color:over?'#C2410C':'#3F3833',fontWeight:over?700:500,lineHeight:1.4}},
     date&&R('span',{style:{fontVariantNumeric:'tabular-nums',fontWeight:700,marginRight:5,color:over?'#B91C1C':'#2A211B'}},salesFmtDay(date)),
     todo||'',over?R('span',{style:{fontSize:10.5,marginLeft:4,color:'#B91C1C'}},'지남'):null);
 }
 
 /* 작성 폼: 거래처(이카운트 거래처 + 기존 기록 거래처 검색, 새 이름도 가능)·품목·진행 내용·현재 단계·다음 일정 */
-function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
+function SalesLogForm({user,groups,preset,edit,onClose,onSaved,cfg}){
+  cfg=cfg||bnfLogCfg('sales');
   if(edit)preset={cust:edit.cust,custCode:edit.custCode||''};
   const[custs,setCusts]=useState([]);
   const[cust,setCust]=useState(preset?{name:preset.cust,code:preset.custCode||''}:null);
@@ -12644,12 +12657,12 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
     if(edit)return;   /* 수정할 때는 그 글의 단계를 그대로 둔다 */
     const it=item.trim();
     const e=grp?grp.entries.find(x=>String(x.item||'')===it):null;
-    if(e&&e.stage)setStage(e.stage);else if(!stage)setStage('초기 상담');
+    if(e&&e.stage)setStage(e.stage);else if(!stage)setStage(cfg.stages[0]);
   },[grp&&grp.key,item]);
   const k=kw.trim().toLowerCase().replace(/\s/g,'');
   const pool=(()=>{
     const m=new Map();
-    (groups||[]).forEach(g=>m.set(g.key,{name:g.cust,code:g.custCode,sub:'영업 기록 '+g.entries.length+'건',rank:1e15}));
+    (groups||[]).forEach(g=>m.set(g.key,{name:g.cust,code:g.custCode,sub:'기록 '+g.entries.length+'건',rank:1e15}));
     custs.forEach(c=>{const kk=salesCustKey({cust:c.name,custCode:c.code});if(!m.has(kk))m.set(kk,{name:c.name,code:c.code||'',sub:[c.kind,c.ceo].filter(Boolean).join(' · '),rank:+c.salesAmt||0});});
     return [...m.values()];
   })();
@@ -12666,7 +12679,7 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
       const entry=Object.assign({},edit,{item:item.trim(),body:body.trim(),stage,nextDate:nextDate||'',nextTodo:nextDate?nextTodo.trim():'',
         editedBy:(pos&&!nm.endsWith(pos))?nm+' '+pos:nm,editedAt:new Date().toISOString()});
       try{
-        const{error}=await sbClient.rpc('update_sales_log',{k:salesLogKey(),eid:edit.id,entry});
+        const{error}=await sbClient.rpc('update_sales_log',{k:cfg.key,eid:edit.id,entry});
         if(error)throw error;
         onSaved(entry,'edit');
       }catch(e){setErr('저장하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
@@ -12677,7 +12690,7 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
       nextDate:nextDate||'',nextTodo:nextDate?nextTodo.trim():'',
       by:(pos&&!nm.endsWith(pos))?nm+' '+pos:nm,byId:(user&&user.id)||'',at:new Date().toISOString()};
     try{
-      const{error}=await sbClient.rpc('append_sales_log',{k:salesLogKey(),entry});
+      const{error}=await sbClient.rpc('append_sales_log',{k:cfg.key,entry});
       if(error)throw error;
       onSaved(entry);
     }catch(e){setErr('저장하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
@@ -12687,7 +12700,7 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
     if(!confirm('이 기록을 삭제할까요?\n'+edit.cust+' · '+salesFmtAtFull(edit.at)+'\n삭제하면 되돌릴 수 없습니다.'))return;
     setBusy(true);setErr('');
     try{
-      const{error}=await sbClient.rpc('update_sales_log',{k:salesLogKey(),eid:edit.id,entry:null});
+      const{error}=await sbClient.rpc('update_sales_log',{k:cfg.key,eid:edit.id,entry:null});
       if(error)throw error;
       onSaved(edit,'delete');
     }catch(e){setErr('삭제하지 못했습니다: '+((e&&e.message)||e));setBusy(false);}
@@ -12695,9 +12708,9 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
   const lab={display:'block',fontSize:12,fontWeight:700,color:'#4A423C',marginBottom:5};
   const inp={width:'100%',boxSizing:'border-box',padding:'9px 11px',fontSize:14,border:'1px solid var(--bd)',borderRadius:8,fontFamily:'inherit',background:'#fff',color:'var(--t)'};
   return R('div',{className:'mbg',onClick:e=>{if(e.target===e.currentTarget&&!busy)onClose();},style:{alignItems:'center',justifyContent:'center',padding:12}},
-    R('div',{role:'dialog','aria-label':'영업 업데이트 작성',style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',padding:'18px 20px',boxSizing:'border-box'}},
+    R('div',{role:'dialog','aria-label':cfg.formTitle+(edit?' 수정':' 작성'),style:{background:'#fff',borderRadius:14,width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',padding:'18px 20px',boxSizing:'border-box'}},
       R('div',{style:{display:'flex',alignItems:'center',marginBottom:14}},
-        R('div',{style:{fontSize:16,fontWeight:800,flex:1}},edit?'영업 업데이트 수정':'영업 업데이트 작성'),
+        R('div',{style:{fontSize:16,fontWeight:800,flex:1}},cfg.formTitle+(edit?' 수정':' 작성')),
         R('button',{onClick:onClose,'aria-label':'닫기',style:{border:'none',background:'none',fontSize:20,cursor:'pointer',color:'#9A9088',padding:4,lineHeight:1}},'×')),
       /* 거래처 */
       R('div',{style:{marginBottom:12,position:'relative'}},
@@ -12726,12 +12739,12 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
       /* 진행 내용 */
       R('div',{style:{marginBottom:12}},
         R('label',{style:lab},'진행 내용'),
-        R('textarea',{value:body,onChange:e=>setBody(e.target.value),rows:4,placeholder:'예: 2차 샘플 발송 완료, 12월 2일 피드백 예정',style:{...inp,resize:'vertical',lineHeight:1.5}})),
+        R('textarea',{value:body,onChange:e=>setBody(e.target.value),rows:4,placeholder:cfg.ph,style:{...inp,resize:'vertical',lineHeight:1.5}})),
       /* 현재 단계 */
       R('div',{style:{marginBottom:12}},
         R('label',{style:lab},'현재 단계'),
         R('div',{role:'radiogroup',style:{display:'flex',gap:6,flexWrap:'wrap'}},
-          ...SALES_STAGES.map(s=>R('button',{key:s,role:'radio','aria-checked':stage===s,onClick:()=>setStage(s),
+          ...cfg.stages.map(s=>R('button',{key:s,role:'radio','aria-checked':stage===s,onClick:()=>setStage(s),
             style:{fontSize:12.5,padding:'6px 11px',borderRadius:8,cursor:'pointer',fontFamily:'inherit',
               border:'1px solid '+(stage===s?'var(--p)':'var(--bd)'),background:stage===s?'#FFF3ED':'#fff',color:stage===s?'var(--p)':'#4A423C',fontWeight:stage===s?800:500}},s)))),
       /* 다음 일정 (선택) */
@@ -12748,13 +12761,14 @@ function SalesLogForm({user,groups,preset,edit,onClose,onSaved}){
         R('button',{className:'btn bp',onClick:save,disabled:busy,style:{minWidth:96}},busy?'저장 중…':'저장'))));
 }
 
-function HomeSalesProgress({user}){
-  const KEY=salesLogKey();
+function HomeSalesProgress({user,type}){
+  const cfg=useMemo(()=>bnfLogCfg(type),[type]);
+  const KEY=cfg.key;
   const[list,setList]=useState(null);
   const[sel,setSel]=useState(null);          /* 선택된 거래처 key */
   const[itemF,setItemF]=useState('');        /* 상세 패널 품목 필터 */
   /* 거래처 순서: 드래그로 직접 정한 순서(서버 bnf_sales_order, 모두 공유). 순서에 없는 거래처(새로 생긴 곳)는 맨 위에 최신순 */
-  const ORDKEY=KEY==='bnf_sales_log_demo'?'bnf_sales_order_demo':'bnf_sales_order';
+  const ORDKEY=cfg.ordKey;
   const[order,setOrder]=useState([]);
   const[dragK,setDragK]=useState(null);
   const[overK,setOverK]=useState(null);
@@ -12805,7 +12819,7 @@ function HomeSalesProgress({user}){
     if(mode==='delete'){const rest=(list||[]).filter(x=>x.id!==e.id&&salesCustKey(x)===salesCustKey(e));if(!rest.length)setSel(null);}
     else setSel(salesCustKey(e));
     if(!mode)setItemF('');
-    try{bnfToast(mode==='edit'?'수정했습니다':mode==='delete'?'삭제했습니다':'영업 업데이트를 저장했습니다');}catch(x){}
+    try{bnfToast(mode==='edit'?'수정했습니다':mode==='delete'?'삭제했습니다':'저장했습니다');}catch(x){}
     setTimeout(load,400);
   };
   const panelOpen=!!cur;
@@ -12873,22 +12887,22 @@ function HomeSalesProgress({user}){
             e.item&&R('span',{style:{fontSize:12,fontWeight:700,color:'#3F3833'}},e.item),
             R(SalesStageBadge,{stage:e.stage})),
           R('div',{style:{fontSize:13.5,color:'#2E2620',lineHeight:1.6,marginTop:6,whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},e.body),
-          (e.nextDate||e.nextTodo)&&R('div',{style:{marginTop:6,fontSize:12,color:'#6E645C'}},'다음 일정 ',R(SalesNext,{date:e.nextDate,todo:e.nextTodo,stage:e.id===cur.nxId?cur.stage:'종료',small:true}))))));
-    if(narrow)return R('div',{role:'dialog','aria-label':cur.cust+' 영업 이력',style:{position:'fixed',inset:0,background:'#fff',zIndex:10004,display:'flex',flexDirection:'column'}},inner);
+          (e.nextDate||e.nextTodo)&&R('div',{style:{marginTop:6,fontSize:12,color:'#6E645C'}},'다음 일정 ',R(SalesNext,{date:e.nextDate,todo:e.nextTodo,stage:e.id===cur.nxId?cur.stage:SALES_DONE[0],small:true}))))));
+    if(narrow)return R('div',{role:'dialog','aria-label':cur.cust+' '+cfg.title+' 이력',style:{position:'fixed',inset:0,background:'#fff',zIndex:10004,display:'flex',flexDirection:'column'}},inner);
     return R('div',{style:{borderLeft:'1px solid #EEE9E4',paddingLeft:16,maxHeight:560,display:'flex',flexDirection:'column',minWidth:0}},inner);
   })();
   return R('div',{className:'card home-sec',style:{marginBottom:16,padding:'14px 18px'}},
     R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}},
-      R('div',{style:{fontSize:14,fontWeight:800,color:'#221A14',flex:1,display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap',minWidth:narrow?'100%':0}},'영업 진행 현황',
-        KEY==='bnf_sales_log_demo'&&R('span',{title:'개발 미리보기(localhost)는 시험용 데이터만 사용합니다',style:{fontSize:10.5,fontWeight:700,color:'#7A5F2E',background:'#F6F1E7',borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}},'시험 데이터')),
+      R('div',{style:{fontSize:14,fontWeight:800,color:'#221A14',flex:1,display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap',minWidth:narrow?'100%':0}},cfg.title,
+        cfg.demo&&R('span',{title:'개발 미리보기(localhost)는 시험용 데이터만 사용합니다',style:{fontSize:10.5,fontWeight:700,color:'#7A5F2E',background:'#F6F1E7',borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}},'시험 데이터')),
       groups.length>0&&R('span',{style:{fontSize:12,color:'#857A70',whiteSpace:'nowrap'}},'거래처 '+groups.length+'곳'+(narrow?'':' · 끌어서 순서 변경')),
       R('button',{onClick:()=>setForm({preset:null}),style:orangeBtn},'＋ 업데이트 작성')),
     list===null?R('div',{style:{fontSize:12.5,color:'var(--tm)',padding:'10px 0'}},'불러오는 중…'):
-    groups.length===0?R('div',{style:{fontSize:13,color:'var(--tm)',padding:'14px 0'}},'아직 영업 기록이 없습니다. ‘＋ 업데이트 작성’으로 거래처별 진행 상황을 남겨 주세요.'):
+    groups.length===0?R('div',{style:{fontSize:13,color:'var(--tm)',padding:'14px 0'}},cfg.empty):
     (panelOpen&&!narrow
       ?R('div',{style:{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.05fr)',gap:16,alignItems:'start'}},table,panel)
       :R(React.Fragment,null,table,panel)),
-    form&&R(SalesLogForm,{key:form.edit?'e'+form.edit.id:'new',user,groups,preset:form.preset,edit:form.edit||null,onClose:()=>setForm(null),onSaved}));
+    form&&R(SalesLogForm,{cfg,key:form.edit?'e'+form.edit.id:'new',user,groups,preset:form.preset,edit:form.edit||null,onClose:()=>setForm(null),onSaved}));
 }
 
 function HomeOemInquiries({onGoPage}){
@@ -15035,7 +15049,9 @@ function PageHome({mats,prods,orders,pqty,shortCnt,onGoPage,user}){
           ...chips));
     })(),
     /* 영업 진행 현황 — 오늘 할 일과 매출 현황 사이 (2026-11-27) */
-    !editMode&&R(HomeSalesProgress,{user}),
+    !editMode&&R(HomeSalesProgress,{user,type:'sales'}),
+    /* 이슈 사항 — 영업 진행 현황 바로 밑, 같은 구조 */
+    !editMode&&R(HomeSalesProgress,{user,type:'issue'}),
     editMode&&R('div',{style:{padding:'10px 14px',background:'#FFF8F4',borderRadius:10,marginBottom:18,fontSize:11,color:'#92400E',fontWeight:600}},'💡 ↑↓ 버튼(또는 드래그)으로 순서 변경, [숨김]으로 안 보이게 설정. 완료를 누르면 저장됩니다.'),
     /* ── 연동 이상 경고 배너 (관리자) — bnf-health 헬스체크가 하루 2회 기록 ── */
     (()=>{
