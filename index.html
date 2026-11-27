@@ -12816,6 +12816,15 @@ function HomeSalesProgress({user,type}){
     try{const sl=window.getSelection&&window.getSelection();if(sl&&sl.removeAllRanges)sl.removeAllRanges();}catch(x){}
     if(!canEdit(e)){try{bnfToast('작성자 본인이나 관리자만 수정할 수 있습니다');}catch(x){}return;}
     setForm({edit:e});};
+  const delEntry=async e=>{
+    if(!canEdit(e)){try{bnfToast('작성자 본인이나 관리자만 삭제할 수 있습니다');}catch(x){}return;}
+    if(!confirm('이 기록을 삭제할까요?\n'+e.cust+' · '+salesFmtAtFull(e.at)+'\n\n'+String(e.body||'').slice(0,60)+'\n\n삭제하면 되돌릴 수 없습니다.'))return;
+    try{
+      const{error}=await sbClient.rpc('update_sales_log',{k:KEY,eid:e.id,entry:null});
+      if(error)throw error;
+      onSaved(e,'delete');
+    }catch(x){try{bnfToast('삭제하지 못했습니다: '+((x&&x.message)||x));}catch(y){}}
+  };
   const onSaved=(e,mode)=>{
     if(mode==='edit')setList(l=>(l||[]).map(x=>x.id===e.id?e:x));
     else if(mode==='delete')setList(l=>(l||[]).filter(x=>x.id!==e.id));
@@ -12887,7 +12896,12 @@ function HomeSalesProgress({user,type}){
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',fontSize:11.5,color:'#8C8279'}},
             R('span',{style:{fontVariantNumeric:'tabular-nums'}},salesFmtAtFull(e.at)),
             R('span',null,'·'),R('span',{style:{fontWeight:700,color:'#4A423C'}},e.by||'-'),
-            e.editedAt&&R('span',{title:'수정 '+(e.editedBy||'')+' · '+salesFmtAtFull(e.editedAt),style:{color:'#A39A92'}},'· 수정됨')),
+            e.editedAt&&R('span',{title:'수정 '+(e.editedBy||'')+' · '+salesFmtAtFull(e.editedAt),style:{color:'#A39A92'}},'· 수정됨'),
+            canEdit(e)&&R('span',{style:{marginLeft:'auto',display:'inline-flex',gap:2}},
+              R('button',{onClick:ev=>{ev.stopPropagation();editEntry(e);},'aria-label':'이 기록 수정',
+                style:{border:'1px solid #E4DED8',background:'#fff',color:'#4A423C',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}},'수정'),
+              R('button',{onClick:ev=>{ev.stopPropagation();delEntry(e);},'aria-label':'이 기록 삭제',
+                style:{border:'1px solid #F3D4D4',background:'#fff',color:'#B91C1C',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}},'삭제'))),
           R('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginTop:5}},
             e.item&&R('span',{style:{fontSize:12,fontWeight:700,color:'#3F3833'}},e.item),
             R(SalesStageBadge,{stage:e.stage})),
